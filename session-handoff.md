@@ -10,9 +10,9 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 Phase 0 has started. The package and toolchain exist and the full verification suite runs green.
 
-Issues #1 (`scaffold`), #2 (`ci`) and #3 (`spec-pca`) are complete and merged into `dev`. The schema lives at `src/chemometrics_workbench/models.py`, its old self-check is `tests/test_models.py` (20 tests), `CONTRIBUTING.md` holds the canonical commands, CI gates every pull request on Python 3.12 and 3.13, and `docs/algorithms/pca.md` fixes the PCA conventions.
+Issues #1 (`scaffold`), #2 (`ci`), #3 (`spec-pca`) and #4 (`spec-pls`) are complete and merged into `dev`. The schema lives at `src/chemometrics_workbench/models.py`, its old self-check is `tests/test_models.py` (20 tests), `CONTRIBUTING.md` holds the canonical commands, CI gates every pull request on Python 3.12 and 3.13, and `docs/algorithms/` holds the PCA and PLS specifications.
 
-Two of the three specification tasks remain. Until #4 and #5 land, #7 is blocked and therefore so is every kernel.
+One specification task remains. Until #5 lands, #7 is blocked and therefore so is every kernel.
 
 ## Repository
 
@@ -20,8 +20,8 @@ Two of the three specification tasks remain. Until #4 and #5 land, #7 is blocked
 | --- | --- |
 | Current branch | `dev` |
 | `main` | behind `dev`; receives a merge only at the end of Phase 0 |
-| Open issues | 11 of 14 remaining |
-| Feature statuses | 3 × `passing`, 11 × `not_started` |
+| Open issues | 10 of 14 remaining |
+| Feature statuses | 4 × `passing`, 10 × `not_started` |
 | Verification | `uv run ruff check`, `ruff format --check`, `mypy`, `pytest` — all green on `dev`, and enforced by CI |
 
 ## Active feature
@@ -39,9 +39,9 @@ git checkout -b feature/5_metrics-cv-spec origin/dev
 
 Deliverable is `docs/algorithms/metrics-and-validation.md`. Documentation only, no code. It blocks #7, which blocks the entire parity chain, and it fixes the definitions that will explain most future "why does this not match Unscrambler" reports.
 
-After it: #4 (`spec-pls`). Those two are all that stand between here and #7, which gates every kernel. #6 (`reference-datasets`) also has no dependencies and can run alongside.
+It is the last specification, and the only thing between here and #7, which gates every kernel. #6 (`reference-datasets`) also has no dependencies and can run alongside.
 
-`docs/algorithms/pca.md` is the template to follow — formulas rather than names, a table of every reported quantity against its defining section, and a list of known divergences from other packages.
+`docs/algorithms/pca.md` and `pls-regression.md` are the template — formulas rather than names, a table of every reported quantity against its defining section, and a list of known divergences from other packages. `pls-regression.md` §13 explicitly defers RMSECV and the fold protocol to #5, so that document names what #5 owes it.
 
 ## Waiting on the user
 
@@ -49,6 +49,13 @@ After it: #4 (`spec-pls`). Those two are all that stand between here and #7, whi
 - **Dataset redistribution terms** (#6) need checking per dataset before raw files are committed.
 - **Parity against a commercial package** — `PROPOSAL.md` §19 Q4 is unresolved. The EULA is not public; a licence would have to be confirmed and written permission sought before publishing a comparison. Tier 1 parity (R `mdatools`, `pls`, scikit-learn, published literature) is unaffected and is what Phase 0 builds.
 - Remaining open questions are in `PROPOSAL.md` §19 — team and pace, funding intent, project name.
+
+## Carried forward from the specifications
+
+Two findings from #4 that change downstream work, recorded here because they are easy to miss inside a long document:
+
+- **The Jackson–Mudholkar SPE limit does not transfer from PCA to PLS.** PLS components are not eigenvectors of the covariance of X, so there is no residual eigenvalue sequence to sum. PLS uses a χ² moment match on the calibration residuals instead. See `pls-regression.md` §9.
+- **SNV and MSC cannot be folded into exported coefficients**, because both depend on the sample being predicted. An exported model carries a residual preprocessing chain plus coefficients, not always a bare coefficient vector. This shapes the export format in #14 and `PROPOSAL.md` §9. See `pls-regression.md` §7.
 
 ## Gotchas that would otherwise waste time
 
