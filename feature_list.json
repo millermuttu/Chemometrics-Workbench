@@ -96,15 +96,15 @@
         "scaffold"
       ],
       "user_visible_behavior": "Every pull request shows a green check, and a broken lint, type or test turns it red before merge.",
-      "status": "in_progress",
+      "status": "passing",
       "verification": [
         "Open a pull request into dev and confirm the workflow runs on Python 3.12 and 3.13.",
         "Confirm the run includes ruff check, ruff format --check, mypy and pytest.",
         "Push a commit with a deliberate lint error and confirm the check goes red.",
         "Revert it and confirm the check returns green."
       ],
-      "evidence": "",
-      "notes": "Must exist before the parity tests, since their whole value is running on every commit. Started 2026-08-22 on feature/2_ci-pipeline."
+      "evidence": "2026-08-22, PR #15 into dev, commit 1ff265a. Observed the full gate cycle on the PR, not locally: (1) green - runs/32518425893, check (py3.12) and check (py3.13) both conclusion=success; (2) red - pushed a deliberate unused-import error, runs/32518478528, both jobs conclusion=failure, confirming the gate actually blocks; (3) green again after dropping that commit - runs/32518536838, both conclusion=success. Matrix confirmed running 3.12 and 3.13 as separate jobs.",
+      "notes": "Workflow at .github/workflows/ci.yml. Triggers on push and pull_request for main and dev - the issue said main only, but dev is the integration branch, so that is where checks need to run. uv sync --locked blocks a dependency change landing without its lockfile. fail-fast: false reports every failing version. Concurrency grouped by ref. permissions: contents: read."
     },
     {
       "id": "reference-datasets",
