@@ -75,7 +75,7 @@
       "issue": 1,
       "depends_on": [],
       "user_visible_behavior": "A clean checkout runs lint, type-check and tests with three commands and no manual setup beyond uv sync.",
-      "status": "in_progress",
+      "status": "passing",
       "verification": [
         "Clone into an empty directory.",
         "Run: uv run ruff check  -> exits 0.",
@@ -83,8 +83,8 @@
         "Run: uv run pytest  -> exits 0 and includes the data-model invariant test.",
         "Confirm src/chemometrics_workbench/ exists and the schema module was moved out of design/."
       ],
-      "evidence": "",
-      "notes": "Independent of the spec work, so it can run in parallel. Quick. Started 2026-08-22 on feature/1_scaffold-toolchain."
+      "evidence": "2026-08-22, branch feature/1_scaffold-toolchain, commit f2cf938. Verified from a fresh `git clone` into a temp dir, not the working tree: `uv sync` succeeded; `uv run pytest` -> 20 passed in 0.23s; `uv run ruff check` -> All checks passed!; `uv run ruff format --check` -> 11 files already formatted; `uv run mypy` -> Success: no issues found in 4 source files. src/chemometrics_workbench/models.py exists and design/data_models.py is gone.",
+      "notes": "Schema moved to src/chemometrics_workbench/models.py; its self-check became tests/test_models.py (20 tests). Splitting it surfaced a missing type narrowing on a PipelineNode union, now fixed. CONTRIBUTING.md holds the canonical setup and verification commands that clean-state-checklist.md refers to by role. design/canvas is excluded from ruff: it generates design artboards, not shipped code."
     },
     {
       "id": "ci",
