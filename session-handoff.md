@@ -10,7 +10,7 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 Phase 0 has started. The package and toolchain exist and the full verification suite runs green.
 
-Issue #1 (`scaffold`) is complete and merged into `dev`. The schema now lives at `src/chemometrics_workbench/models.py`, its old self-check is `tests/test_models.py` (20 tests), and `CONTRIBUTING.md` holds the canonical setup and verification commands.
+Issues #1 (`scaffold`) and #2 (`ci`) are complete and merged into `dev`. The schema lives at `src/chemometrics_workbench/models.py`, its old self-check is `tests/test_models.py` (20 tests), `CONTRIBUTING.md` holds the canonical commands, and CI gates every pull request on Python 3.12 and 3.13.
 
 Nothing else has been started. No algorithm specifications exist yet, so no kernel work can begin.
 
@@ -20,9 +20,9 @@ Nothing else has been started. No algorithm specifications exist yet, so no kern
 | --- | --- |
 | Current branch | `dev` |
 | `main` | behind `dev`; receives a merge only at the end of Phase 0 |
-| Open issues | 13 of 14 remaining |
-| Feature statuses | 1 × `passing`, 13 × `not_started` |
-| Verification | `uv run ruff check`, `ruff format --check`, `mypy`, `pytest` — all green on `dev` |
+| Open issues | 12 of 14 remaining |
+| Feature statuses | 2 × `passing`, 12 × `not_started` |
+| Verification | `uv run ruff check`, `ruff format --check`, `mypy`, `pytest` — all green on `dev`, and enforced by CI |
 
 ## Active feature
 
@@ -39,7 +39,7 @@ git checkout -b feature/5_metrics-cv-spec origin/dev
 
 Deliverable is `docs/algorithms/metrics-and-validation.md`. Documentation only, no code. It blocks #7, which blocks the entire parity chain, and it fixes the definitions that will explain most future "why does this not match Unscrambler" reports.
 
-After it: #4 (`spec-pls`), then #3 (`spec-pca`). Those three unblock #7 and everything downstream. #2 (`ci`) is also ready now that #1 has landed, and is short.
+After it: #4 (`spec-pls`), then #3 (`spec-pca`). Those three unblock #7 and everything downstream. #6 (`reference-datasets`) also has no dependencies and can run alongside them.
 
 ## Waiting on the user
 
@@ -55,7 +55,9 @@ After it: #4 (`spec-pls`), then #3 (`spec-pca`). Those three unblock #7 and ever
 - **`RUF001`–`RUF003` are ignored** because prose in docstrings uses real typography (en dashes, ×) that those rules flag as homoglyphs.
 - **`.claude/` and `openspec/` are gitignored** by decision. The `new-branch` and `commit` skills are local-only and will not appear on a fresh clone.
 - **`design/canvas/chemometrics-workbench-screens.html` is gitignored** — a 2.4 MB generated file. Regenerate with `design/canvas/build.py` plus the seeding step; never hand-edit it.
-- **`gh` CLI is not installed.** Use the GitHub MCP tools for issues; `/new-branch` will ask for the issue number rather than looking up its title.
+- **`gh` CLI is not installed.** Use the GitHub MCP tools for issues and pull requests; `/new-branch` will ask for the issue number rather than looking up its title.
+- **The GitHub token cannot merge pull requests** — `403 Resource not accessible by personal access token`. Opening a pull request and reading its checks works; merging has to be done by the user in the browser. Do not retry the merge call.
+- **CI takes about 20 seconds** per matrix job. Check runs appear a few seconds after a push, so a status read immediately after pushing will show `queued`.
 - **`uv.lock` is a universal lockfile.** Compiled packages list many wheels because it resolves for every supported platform. That is deliberate — the Phase 4 three-platform build matrix depends on it. Do not restrict `[tool.uv] environments`.
 - `main` is the release line. There is no `master`, despite it being mentioned in conversation.
 
