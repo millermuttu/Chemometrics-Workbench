@@ -220,3 +220,6 @@ __marimo__/
 # Agent tooling
 .claude/
 openspec/
+
+# Generated design canvas (re-seed from design/canvas/build.py)
+design/canvas/chemometrics-workbench-screens.html

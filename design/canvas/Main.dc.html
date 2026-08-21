@@ -1,0 +1,147 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Workbench shell</title>
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+*{box-sizing:border-box}
+body{margin:0;font-family:'IBM Plex Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#0B6B62}a:hover{color:#075049}
+.t-light{--ground:#E7EBEA;--panel:#F3F6F5;--surface:#FFFFFF;--sunken:#EDF1F0;--ink:#0F1A18;--ink2:#44524E;--ink3:#6E7D79;--rule:#D2DAD8;--rule2:#E5EAE8;--accent:#0B6B62;--accentSoft:#DCEDE9;--accentInk:#075049;--stale:#9A6206;--staleSoft:#F7EEDD;--fail:#A93226;--failSoft:#F9E8E5;--d1:#0072B2;--d2:#E69F00;--d3:#009E73;--d4:#CC79A7;--d5:#56B4E9;--d6:#D55E00;--grid:#EDF1F0;--band:#CBD7D4}
+.t-dark{--ground:#080D0C;--panel:#101816;--surface:#0C1413;--sunken:#141E1C;--ink:#E3EAE8;--ink2:#A6B5B1;--ink3:#788985;--rule:#22302D;--rule2:#192523;--accent:#54BFAB;--accentSoft:#122A26;--accentInk:#7FD3C2;--stale:#DFA85A;--staleSoft:#2A2216;--fail:#E8887C;--failSoft:#2C1A17;--d1:#5AA9DE;--d2:#F0B33C;--d3:#3FC79E;--d4:#DE9DC4;--d5:#8FCCF0;--d6:#F0855A;--grid:#16211F;--band:#263532}
+.app{width:1440px;height:900px;display:flex;flex-direction:column;background:var(--ground);color:var(--ink);font-size:12.5px;line-height:1.45}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.tbar{height:40px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 12px;gap:12px;background:var(--panel);border-bottom:1px solid var(--rule)}
+.tb-l,.tb-r{display:flex;align-items:center;gap:10px}
+.proj{font-weight:600;font-size:13px;letter-spacing:-.01em}
+.crumb{font-size:11px;color:var(--ink3)}
+.pill{display:flex;align-items:center;gap:6px;height:22px;padding:0 8px;border:1px solid var(--rule);border-radius:3px;font-size:11px;color:var(--ink2);background:var(--surface)}
+.btn{display:flex;align-items:center;gap:6px;height:26px;padding:0 10px;border:1px solid var(--rule);border-radius:3px;background:var(--surface);color:var(--ink);font-size:12px;font-weight:500}
+.btn-p{background:var(--accent);border-color:var(--accent);color:#fff}
+.body{flex:1;display:flex;min-height:0}
+.side{width:248px;flex:none;background:var(--panel);border-right:1px solid var(--rule);display:flex;flex-direction:column;overflow:hidden}
+.doc{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--surface)}
+.insp{width:292px;flex:none;background:var(--panel);border-left:1px solid var(--rule);display:flex;flex-direction:column;overflow:hidden}
+.shead{display:flex;align-items:center;justify-content:space-between;height:26px;padding:0 10px;font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink3);margin-top:6px}
+.srow{display:flex;align-items:center;gap:7px;height:24px;padding:0 10px 0 16px;font-size:12px;color:var(--ink2)}
+.srow.sel{background:var(--accentSoft);color:var(--accentInk);font-weight:500}
+.sdim{color:var(--ink3);font-size:11px;margin-left:auto}
+.tabs{height:34px;flex:none;display:flex;align-items:stretch;background:var(--panel);border-bottom:1px solid var(--rule)}
+.tab{display:flex;align-items:center;gap:7px;padding:0 11px;border-right:1px solid var(--rule);font-size:12px;color:var(--ink2);white-space:nowrap}
+.tab.act{background:var(--surface);color:var(--ink);font-weight:500}
+.tab.tr{font-style:italic;color:var(--ink3)}
+.tabx{color:var(--ink3);font-size:14px;line-height:1}
+.pane{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column}
+.status{height:28px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 12px;gap:12px;background:var(--panel);border-top:1px solid var(--rule);font-size:11px;color:var(--ink2)}
+.prog{width:118px;height:4px;border-radius:2px;background:var(--sunken);overflow:hidden}
+.prog i{display:block;height:100%;background:var(--accent)}
+.ihead{padding:9px 12px;border-bottom:1px solid var(--rule);display:flex;flex-direction:column;gap:2px}
+.ilabel{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink3)}
+.kv{display:flex;justify-content:space-between;gap:10px;padding:3px 12px;font-size:11.5px}
+.kv b{font-weight:400;color:var(--ink3)}
+.kv span{color:var(--ink);font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums}
+table{border-collapse:collapse;width:100%;font-size:12px}
+th{background:var(--panel);text-align:left;font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink3);font-weight:500;padding:7px 10px;border-bottom:1px solid var(--rule)}
+td{padding:5px 10px;border-bottom:1px solid var(--rule2);color:var(--ink2)}
+td.n,th.n{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;text-align:right}
+td.n{color:var(--ink)}
+
+  </style>
+</helmet>
+<div class="app {{t}}">
+<div class="tbar">
+<div class="tb-l"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 3v6L4 19a1.6 1.6 0 0 0 1.4 2h13.2A1.6 1.6 0 0 0 20 19l-5-10V3"></path><path d="M8 3h8"></path><path d="M7 14h10"></path></svg><span class="proj">Corn NIR study</span>
+<span class="crumb mono">~/lab/corn-nir</span></div>
+<div class="tb-r"><span class="pill mono">80 × 700</span><span class="btn">Import…</span><span class="btn btn-p">Run pipeline</span></div></div>
+<div class="body">
+<aside class="side">
+<div class="shead"><span>Datasets</span><span style="color:var(--ink3)">+</span></div>
+<div class="srow sel" style="padding-left:16px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="6" rx="8" ry="3"></ellipse><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"></path><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"></path></svg><span>corn_raw</span><span class="sdim mono">v2 · 80×700</span></div>
+<div class="srow" style="padding-left:16px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="6" rx="8" ry="3"></ellipse><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"></path><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"></path></svg><span>corn_v1</span><span class="sdim mono">v1 · 80×700</span></div>
+<div class="srow" style="padding-left:16px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="6" rx="8" ry="3"></ellipse><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"></path><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"></path></svg><span>validation_set</span><span class="sdim mono">24×700</span></div>
+<div class="shead"><span>Pipeline</span><span class="mono" style="font-size:10px">11 nodes</span></div>
+<div class="srow" style="padding-left:26px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="9" width="7" height="6" rx="1"></rect><rect x="14" y="9" width="7" height="6" rx="1"></rect><path d="M10 12h4"></path></svg><span>corn_raw v2</span></div>
+<div class="srow" style="padding-left:34px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="9" width="7" height="6" rx="1"></rect><rect x="14" y="9" width="7" height="6" rx="1"></rect><path d="M10 12h4"></path></svg><span>SNV</span></div>
+<div class="srow" style="padding-left:34px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="9" width="7" height="6" rx="1"></rect><rect x="14" y="9" width="7" height="6" rx="1"></rect><path d="M10 12h4"></path></svg><span>MSC</span></div>
+<div class="srow" style="padding-left:34px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="9" width="7" height="6" rx="1"></rect><rect x="14" y="9" width="7" height="6" rx="1"></rect><path d="M10 12h4"></path></svg><span>SG d1 w11</span></div>
+<div class="srow" style="padding-left:34px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="9" width="7" height="6" rx="1"></rect><rect x="14" y="9" width="7" height="6" rx="1"></rect><path d="M10 12h4"></path></svg><span>SNV + SG d1</span></div>
+<div class="srow" style="padding-left:34px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="9" width="7" height="6" rx="1"></rect><rect x="14" y="9" width="7" height="6" rx="1"></rect><path d="M10 12h4"></path></svg><span>Baseline ALS</span></div>
+<div class="srow" style="padding-left:34px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="9" width="7" height="6" rx="1"></rect><rect x="14" y="9" width="7" height="6" rx="1"></rect><path d="M10 12h4"></path></svg><span>K-fold 10 · seed 42</span></div>
+<div class="srow" style="padding-left:34px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="9" width="7" height="6" rx="1"></rect><rect x="14" y="9" width="7" height="6" rx="1"></rect><path d="M10 12h4"></path></svg><span>PLS 6 LV</span></div>
+<div class="shead"><span>Experiments</span><span class="mono" style="font-size:10px">12</span></div>
+<div class="srow" style="padding-left:26px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 3v6L4 19a1.6 1.6 0 0 0 1.4 2h13.2A1.6 1.6 0 0 0 20 19l-5-10V3"></path><path d="M8 3h8"></path><path d="M7 14h10"></path></svg><span>Runs</span></div>
+<div class="shead"><span>Models</span><span class="mono" style="font-size:10px">4</span></div>
+<div class="srow" style="padding-left:26px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"></path><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"></path></svg><span>Model A</span><span class="sdim mono">0.412</span></div>
+<div class="srow" style="padding-left:26px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"></path><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"></path></svg><span>Model B</span><span class="sdim mono">0.418</span></div>
+<div class="srow" style="padding-left:26px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"></path><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"></path></svg><span>Model C</span><span class="sdim mono">0.389</span></div>
+<div class="srow" style="padding-left:26px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"></path><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"></path></svg><span>Model D</span><span class="sdim mono">0.381</span></div>
+</aside>
+<main class="doc">
+<div class="tabs"><div class="tab act"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="6" rx="8" ry="3"></ellipse><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"></path><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"></path></svg><span>corn_raw v2</span><span class="tabx">×</span></div><div class="tab"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="9" width="7" height="6" rx="1"></rect><rect x="14" y="9" width="7" height="6" rx="1"></rect><path d="M10 12h4"></path></svg><span>Pipeline</span></div><div class="tab"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 20h18"></path><path d="M4 16l5-6 4 3 6-8"></path></svg><span>SG d1 w11</span></div><div class="tab tr"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 20h18"></path><path d="M4 16l5-6 4 3 6-8"></path></svg><span>PCA scores</span></div><div class="tab"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"></path><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"></path></svg><span>Model C</span></div><div class="tab"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 3v6L4 19a1.6 1.6 0 0 0 1.4 2h13.2A1.6 1.6 0 0 0 20 19l-5-10V3"></path><path d="M8 3h8"></path><path d="M7 14h10"></path></svg><span>Runs</span></div><div class="tab mono" style="color:var(--ink3);border-right:none">+3</div></div>
+<div class="pane">
+  <div style="height:40px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 14px;gap:12px;border-bottom:1px solid var(--rule2)">
+    <div style="display:flex;align-items:center;gap:9px">
+      <span style="font-weight:600;font-size:13.5px">corn_raw</span>
+      <span class="pill mono">v2 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 9l6 6 6-6"></path></svg></span>
+      <span class="mono" style="font-size:10.5px;color:var(--ink3)">sha256:9f3c…a71b</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:7px">
+      <span class="pill mono">3 targets</span>
+      <span class="pill mono">1100–2498 nm</span>
+      <span class="pill mono" style="color:var(--stale);border-color:var(--stale)">2 excluded</span>
+    </div>
+  </div>
+  <div style="flex:1;min-height:0;overflow:hidden">
+    <table>
+      <thead><tr><th class="n" style="width:38px">#</th><th style="width:74px">Sample</th>
+      <th style="width:60px">Set</th><th class="n">Moisture %</th><th class="n">Protein %</th>
+      <th class="n">Oil %</th><th class="n">Starch %</th><th style="text-align:right">Status</th></tr></thead>
+      <tbody><tr><td class="n" style="color:var(--ink3)">1</td><td class="mono" style="color:var(--ink)">C001</td><td><span class="mono" style="font-size:10px;padding:1px 5px;border-radius:2px;background:var(--accentSoft);color:var(--accentInk)">cal</span></td><td class="n">9.91</td><td class="n">7.48</td><td class="n">3.62</td><td class="n">62.23</td><td style="text-align:right"></td></tr><tr><td class="n" style="color:var(--ink3)">2</td><td class="mono" style="color:var(--ink)">C002</td><td><span class="mono" style="font-size:10px;padding:1px 5px;border-radius:2px;background:var(--accentSoft);color:var(--accentInk)">cal</span></td><td class="n">10.38</td><td class="n">8.01</td><td class="n">3.15</td><td class="n">63.62</td><td style="text-align:right"></td></tr><tr><td class="n" style="color:var(--ink3)">3</td><td class="mono" style="color:var(--ink)">C003</td><td><span class="mono" style="font-size:10px;padding:1px 5px;border-radius:2px;background:var(--accentSoft);color:var(--accentInk)">cal</span></td><td class="n">9.28</td><td class="n">8.18</td><td class="n">3.16</td><td class="n">62.29</td><td style="text-align:right"></td></tr><tr><td class="n" style="color:var(--ink3)">4</td><td class="mono" style="color:var(--ink)">C004</td><td><span class="mono" style="font-size:10px;padding:1px 5px;border-radius:2px;background:var(--accentSoft);color:var(--accentInk)">cal</span></td><td class="n">10.13</td><td class="n">9.17</td><td class="n">3.20</td><td class="n">62.71</td><td style="text-align:right"></td></tr><tr><td class="n" style="color:var(--ink3)">5</td><td class="mono" style="color:var(--ink)">C005</td><td><span class="mono" style="font-size:10px;padding:1px 5px;border-radius:2px;background:var(--sunken);color:var(--ink3)">val</span></td><td class="n">10.58</td><td class="n">9.47</td><td class="n">3.56</td><td class="n">63.27</td><td style="text-align:right"></td></tr><tr style="opacity:.45"><td class="n" style="color:var(--ink3)">6</td><td class="mono" style="color:var(--ink)">C006</td><td><span class="mono" style="font-size:10px;padding:1px 5px;border-radius:2px;background:var(--accentSoft);color:var(--accentInk)">cal</span></td><td class="n">11.35</td><td class="n">7.22</td><td class="n">3.79</td><td class="n">62.93</td><td style="text-align:right"><span class="mono" style="color:var(--stale);font-size:10px">excluded</span></td></tr><tr><td class="n" style="color:var(--ink3)">7</td><td class="mono" style="color:var(--ink)">C007</td><td><span class="mono" style="font-size:10px;padding:1px 5px;border-radius:2px;background:var(--accentSoft);color:var(--accentInk)">cal</span></td><td class="n">9.52</td><td class="n">7.39</td><td class="n">3.35</td><td class="n">64.61</td><td style="text-align:right"></td></tr><tr><td class="n" style="color:var(--ink3)">8</td><td class="mono" style="color:var(--ink)">C008</td><td><span class="mono" style="font-size:10px;padding:1px 5px;border-radius:2px;background:var(--accentSoft);color:var(--accentInk)">cal</span></td><td class="n">9.60</td><td class="n">8.55</td><td class="n">3.61</td><td class="n">63.19</td><td style="text-align:right"></td></tr><tr><td class="n" style="color:var(--ink3)">9</td><td class="mono" style="color:var(--ink)">C009</td><td><span class="mono" style="font-size:10px;padding:1px 5px;border-radius:2px;background:var(--accentSoft);color:var(--accentInk)">cal</span></td><td class="n">10.41</td><td class="n">7.26</td><td class="n">3.15</td><td class="n">62.66</td><td style="text-align:right"></td></tr><tr><td class="n" style="color:var(--ink3)">10</td><td class="mono" style="color:var(--ink)">C010</td><td><span class="mono" style="font-size:10px;padding:1px 5px;border-radius:2px;background:var(--sunken);color:var(--ink3)">val</span></td><td class="n">10.70</td><td class="n">8.17</td><td class="n">3.35</td><td class="n">63.87</td><td style="text-align:right"></td></tr><tr><td class="n" style="color:var(--ink3)">11</td><td class="mono" style="color:var(--ink)">C011</td><td><span class="mono" style="font-size:10px;padding:1px 5px;border-radius:2px;background:var(--accentSoft);color:var(--accentInk)">cal</span></td><td class="n">10.20</td><td class="n">7.85</td><td class="n">3.74</td><td class="n">64.24</td><td style="text-align:right"></td></tr><tr><td class="n" style="color:var(--ink3)">12</td><td class="mono" style="color:var(--ink)">C012</td><td><span class="mono" style="font-size:10px;padding:1px 5px;border-radius:2px;background:var(--accentSoft);color:var(--accentInk)">cal</span></td><td class="n">9.74</td><td class="n">8.54</td><td class="n">3.52</td><td class="n">64.80</td><td style="text-align:right"></td></tr><tr style="opacity:.45"><td class="n" style="color:var(--ink3)">13</td><td class="mono" style="color:var(--ink)">C013</td><td><span class="mono" style="font-size:10px;padding:1px 5px;border-radius:2px;background:var(--accentSoft);color:var(--accentInk)">cal</span></td><td class="n">10.80</td><td class="n">7.82</td><td class="n">3.88</td><td class="n">62.38</td><td style="text-align:right"><span class="mono" style="color:var(--stale);font-size:10px">excluded</span></td></tr><tr><td class="n" style="color:var(--ink3)">14</td><td class="mono" style="color:var(--ink)">C014</td><td><span class="mono" style="font-size:10px;padding:1px 5px;border-radius:2px;background:var(--accentSoft);color:var(--accentInk)">cal</span></td><td class="n">10.12</td><td class="n">8.99</td><td class="n">3.22</td><td class="n">63.56</td><td style="text-align:right"></td></tr><tr><td class="n" style="color:var(--ink3)">15</td><td class="mono" style="color:var(--ink)">C015</td><td><span class="mono" style="font-size:10px;padding:1px 5px;border-radius:2px;background:var(--sunken);color:var(--ink3)">val</span></td><td class="n">9.29</td><td class="n">8.77</td><td class="n">3.71</td><td class="n">63.83</td><td style="text-align:right"></td></tr><tr><td class="n" style="color:var(--ink3)">16</td><td class="mono" style="color:var(--ink)">C016</td><td><span class="mono" style="font-size:10px;padding:1px 5px;border-radius:2px;background:var(--accentSoft);color:var(--accentInk)">cal</span></td><td class="n">11.13</td><td class="n">7.88</td><td class="n">3.66</td><td class="n">63.90</td><td style="text-align:right"></td></tr><tr><td class="n" style="color:var(--ink3)">17</td><td class="mono" style="color:var(--ink)">C017</td><td><span class="mono" style="font-size:10px;padding:1px 5px;border-radius:2px;background:var(--accentSoft);color:var(--accentInk)">cal</span></td><td class="n">10.48</td><td class="n">8.24</td><td class="n">3.77</td><td class="n">65.02</td><td style="text-align:right"></td></tr><tr><td class="n" style="color:var(--ink3)">18</td><td class="mono" style="color:var(--ink)">C018</td><td><span class="mono" style="font-size:10px;padding:1px 5px;border-radius:2px;background:var(--accentSoft);color:var(--accentInk)">cal</span></td><td class="n">10.24</td><td class="n">8.76</td><td class="n">3.15</td><td class="n">64.24</td><td style="text-align:right"></td></tr></tbody>
+    </table>
+  </div>
+</div>
+</main>
+<aside class="insp">
+  <div class="ihead"><span class="ilabel">Dataset version</span>
+    <span style="font-weight:600;font-size:13px">corn_raw · v2</span></div>
+  <div style="padding:8px 0;border-bottom:1px solid var(--rule)">
+    <div class="kv"><b>Samples</b><span>80</span></div>
+    <div class="kv"><b>Variables</b><span>700</span></div>
+    <div class="kv"><b>Content hash</b><span>9f3c…a71b</span></div>
+    <div class="kv"><b>Derived from</b><span>v1</span></div>
+    <div class="kv"><b>Created</b><span>2026-08-19</span></div>
+  </div>
+  <div style="padding:8px 0;border-bottom:1px solid var(--rule)">
+    <div class="ilabel" style="padding:2px 12px 4px">Variable axis</div>
+    <div class="kv"><b>Kind</b><span>wavelength</span></div>
+    <div class="kv"><b>Range</b><span>1100–2498 nm</span></div>
+    <div class="kv"><b>Step</b><span>2 nm</span></div>
+  </div>
+  <div style="padding:8px 0;border-bottom:1px solid var(--rule)">
+    <div class="ilabel" style="padding:2px 12px 4px">Source</div>
+    <div class="kv"><b>File</b><span>corn_raw.jdx</span></div>
+    <div class="kv"><b>Reader</b><span>jcamp_dx 0.3.1</span></div>
+    <div class="kv"><b>File hash</b><span>4b81…02de</span></div>
+    <div class="kv"><b>Imported</b><span>14:22</span></div>
+  </div>
+  <div style="padding:9px 12px;display:flex;align-items:center;justify-content:space-between;color:var(--ink2)">
+    <span>Provenance record</span><span style="transform:rotate(-90deg);display:inline-flex"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 9l6 6 6-6"></path></svg></span>
+  </div>
+</aside>
+</div>
+<div class="status"><div style="display:flex;align-items:center;gap:9px"><span style="color:var(--accent);font-weight:500">PLS 5 LV · fold 7 of 10</span><div class="prog"><i style="width:70%"></i></div><span class="mono">0:42</span><span style="display:flex;align-items:center;gap:4px;color:var(--ink3)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="1.5"></rect></svg>Cancel</span></div><div style="display:flex;align-items:center;gap:6px;color:var(--ink3)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="10" width="16" height="10" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></svg><span>Local · nothing leaves this machine</span></div></div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light","section":"Theme"},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return { t: this.props.theme === 'dark' ? 't-dark' : 't-light' }; }
+}
+</script>
+</body>
+</html>
