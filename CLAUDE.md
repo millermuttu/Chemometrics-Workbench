@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `PROPOSAL.md` — the specification. Read it before proposing or writing anything.
 - `feature_list.json` — the Phase 0 task list, mirroring GitHub issues 1–14.
 - `design/DESIGN_BRIEF.md` — screens, states and plot rules for the UI.
-- `design/data_models.py` — the Pydantic schema for the reproducibility model; run it directly for its self-check.
+- `src/chemometrics_workbench/models.py` — the Pydantic schema for the reproducibility model; its invariants are exercised by `tests/test_models.py`.
 - `design/data-model.md` — the same schema as mermaid diagrams.
 - `design/canvas/` — artboard sources for the five core screens.
 

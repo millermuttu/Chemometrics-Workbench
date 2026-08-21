@@ -75,7 +75,7 @@
       "issue": 1,
       "depends_on": [],
       "user_visible_behavior": "A clean checkout runs lint, type-check and tests with three commands and no manual setup beyond uv sync.",
-      "status": "not_started",
+      "status": "in_progress",
       "verification": [
         "Clone into an empty directory.",
         "Run: uv run ruff check  -> exits 0.",
@@ -84,7 +84,7 @@
         "Confirm src/chemometrics_workbench/ exists and the schema module was moved out of design/."
       ],
       "evidence": "",
-      "notes": "Independent of the spec work, so it can run in parallel. Quick."
+      "notes": "Independent of the spec work, so it can run in parallel. Quick. Started 2026-08-22 on feature/1_scaffold-toolchain."
     },
     {
       "id": "ci",

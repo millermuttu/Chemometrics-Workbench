@@ -10,7 +10,7 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 Setup is complete. Phase 0 has not started — no source code exists yet.
 
-The specification (`PROPOSAL.md`), the UI design (`design/`), the data model (`design/data_models.py`), the task list (`feature_list.json`) and the working protocol (`CLAUDE.md`) are all written, committed and pushed. The next session writes the first Phase 0 deliverable.
+The specification (`PROPOSAL.md`), the UI design (`design/`), the data model (`src/chemometrics_workbench/models.py`), the task list (`feature_list.json`) and the working protocol (`CLAUDE.md`) are all written, committed and pushed. The next session writes the first Phase 0 deliverable.
 
 ## Repository
 
@@ -50,7 +50,7 @@ After it: #4 (`spec-pls`), #3 (`spec-pca`), then #1 (`scaffold`) — which is in
 - **`.claude/` and `openspec/` are gitignored** by decision. The `new-branch` and `commit` skills are local-only and will not appear on a fresh clone.
 - **`design/canvas/chemometrics-workbench-screens.html` is gitignored** — it is a 2.4 MB generated file. Regenerate it with `design/canvas/build.py` plus the seeding step, never hand-edit it.
 - **`gh` CLI is not installed.** Use the GitHub MCP tools for issues; `/new-branch` will ask for the issue number rather than looking up its title.
-- **No virtualenv yet.** System Python is 3.13.9 with pydantic 2.12.4, which is enough to run `python3 design/data_models.py`. Issue #1 replaces this with `uv`.
+- **Setup is `uv sync`;** verification is `uv run ruff check`, `uv run ruff format --check`, `uv run mypy`, `uv run pytest`. See `CONTRIBUTING.md`.
 - `main` is the release line. There is no `master`, despite it being mentioned in conversation.
 
 ## Published artifacts
