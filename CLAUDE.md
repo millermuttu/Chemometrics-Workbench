@@ -21,7 +21,7 @@ The project is an open-source, local-first chemometrics workbench: a Python/Fast
 
 Follow this on every session. It exists because the failure mode in a long solo project is not bad code — it is half-finished work with no record of what was actually verified.
 
-**Read the state before starting.** Never begin from this file's summary alone. Read, in order: `feature_list.json` (what is done, in progress and blocked), `git log` on `dev` (what actually landed), and the open GitHub issues (what the task really asks for). If those three disagree, the repository is the truth and the disagreement is itself worth fixing first.
+**Read the state before starting.** Never begin from this file's summary alone. Read, in order: `session-handoff.md` (where the last session stopped and what to pick up), `feature_list.json` (what is done, in progress and blocked), `git log` on `dev` (what actually landed), and the open GitHub issues (what the task really asks for). If those three disagree, the repository is the truth and the disagreement is itself worth fixing first.
 
 **One feature at a time.** Pick the highest-priority feature whose `status` is `not_started` and whose every `depends_on` entry is `passing`. Set it to `in_progress`. **At most one feature may be `in_progress` at any moment.** Anything discovered mid-feature that falls outside its scope becomes a new GitHub issue and a new `feature_list.json` entry — never a quietly widened branch.
 
@@ -35,6 +35,7 @@ Follow this on every session. It exists because the failure mode in a long solo 
 - The working tree is clean, or every remaining change is explained in the handover.
 - The branch is pushed.
 - The next feature to pick up is named.
+- `session-handoff.md` is rewritten to match the state just described, and committed.
 
 ## Intended toolchain (not yet scaffolded)
 
