@@ -36,7 +36,7 @@
       "issue": 4,
       "depends_on": [],
       "user_visible_behavior": "docs/algorithms/pls-regression.md names the implemented variant and every convention around it, so a second implementer could reproduce our numbers from the document alone.",
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "Open docs/algorithms/pls-regression.md.",
         "Confirm NIPALS or SIMPLS is chosen, with a stated reason and a note on what the other would change.",
@@ -45,8 +45,8 @@
         "Confirm the VIP formula is written out and its normalisation stated.",
         "Confirm PLS1 versus PLS2 behaviour is described."
       ],
-      "evidence": "",
-      "notes": "Documentation only. Blocks #7 and #12."
+      "evidence": "2026-08-22, branch feature/4_pls-spec. docs/algorithms/pls-regression.md reviewed against the issue #4 checklist, each item mapped to a section: variant chosen with reason and what SIMPLS would change -> section 2; deflation of both X and y -> section 4; centring and scaling of X and y with default -> section 3; sign convention -> section 6; coefficient computation and back-transform to original units -> sections 5 and 7; prediction with preprocessing reapplied from calibration parameters -> section 7; VIP formula and its sum-of-squares normalisation -> section 8; how A is chosen and reported -> section 11; PLS1 versus PLS2 -> section 10. Section 13 lists every reported quantity against its defining section.",
+      "notes": "NIPALS chosen by the maintainer. For a single response NIPALS and SIMPLS coincide, so a SIMPLS reference such as R mdatools is valid for coefficients and predictions but not for weights and loadings. Both X and y are deflated, the classical form; skipping y-deflation changes the weights from component 2 onward. The regression coefficients are sign-invariant, so only scores, loadings and weights need sign alignment in parity tests. Two findings worth carrying forward: the Jackson-Mudholkar SPE limit does not transfer from PCA because PLS components are not covariance eigenvectors, so PLS uses a chi-squared moment match; and SNV and MSC cannot be folded into exported coefficients because they depend on the sample being predicted, so an exported model carries a residual preprocessing chain rather than a bare coefficient vector. That shapes the export format in issue #14 and PROPOSAL.md section 9. PLS2 deferred post-1.0; v1 models one response at a time."
     },
     {
       "id": "spec-pca",
