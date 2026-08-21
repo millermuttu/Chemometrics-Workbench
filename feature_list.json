@@ -16,7 +16,7 @@
       "issue": 5,
       "depends_on": [],
       "user_visible_behavior": "docs/algorithms/metrics-and-validation.md exists and gives a formula for every metric the UI can display, plus the exact fold-assignment and aggregation rules. A reader can compute RMSECV by hand from it and get our number.",
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "Open docs/algorithms/metrics-and-validation.md.",
         "Confirm RMSEC, RMSECV and RMSEP each state their denominator (n, n-1 or n-a-1) and whether the metric is on the original or scaled units.",
@@ -25,7 +25,7 @@
         "Confirm fold assignment, shuffling, seeding and stratification are described well enough to reproduce a split from the document alone.",
         "Confirm the section listing known divergences from commercial packages names at least leverage-corrected RMSE."
       ],
-      "evidence": "",
+      "evidence": "2026-08-22. docs/algorithms/metrics-and-validation.md written (278 lines) on feature/5_metrics-cv-spec. Verification steps walked against the document: \u00a74 gives RMSEC, RMSECV and RMSEP a denominator of n in every case and defers degrees-of-freedom corrections to SEC (n_c-A-1) and SEP (n_p-1) in \u00a75; \u00a72 fixes every metric to the original units of the response. \u00a77 states fold aggregation as pooled residuals, not the mean of per-fold RMSEs, and gives both forms side by side. \u00a75 and \u00a76 give formulas for bias, SEC, SEP, R2 and Q2. \u00a78 specifies indices, numpy.random.default_rng seeding, the K-fold size rule, LOO, repeated K-fold (seed+r, mean of per-repeat RMSECVs), train/test, external sets and stratification, with a worked n=10 K=3 seed=42 table reproduced from a live numpy run. \u00a712 lists known divergences and names leverage-corrected RMSE with a paragraph on why it is not reported. Toolchain suite green: `uv run ruff check` -> 'All checks passed!', `uv run ruff format --check` -> '14 files already formatted', `uv run mypy` -> 'Success: no issues found in 4 source files', `uv run pytest -q` -> 20 passed.",
       "notes": "Highest priority: explains more future 'why does this not match Unscrambler' reports than the algorithms do. Blocks #7, and therefore the whole parity chain. Documentation only."
     },
     {
