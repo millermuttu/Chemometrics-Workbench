@@ -96,7 +96,7 @@
         "scaffold"
       ],
       "user_visible_behavior": "Every pull request shows a green check, and a broken lint, type or test turns it red before merge.",
-      "status": "not_started",
+      "status": "in_progress",
       "verification": [
         "Open a pull request into dev and confirm the workflow runs on Python 3.12 and 3.13.",
         "Confirm the run includes ruff check, ruff format --check, mypy and pytest.",
@@ -104,7 +104,7 @@
         "Revert it and confirm the check returns green."
       ],
       "evidence": "",
-      "notes": "Must exist before the parity tests, since their whole value is running on every commit."
+      "notes": "Must exist before the parity tests, since their whole value is running on every commit. Started 2026-08-22 on feature/2_ci-pipeline."
     },
     {
       "id": "reference-datasets",
