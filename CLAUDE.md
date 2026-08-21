@@ -4,34 +4,37 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-**Pre-implementation.** There is no source code, no commits, and no build tooling yet. `PROPOSAL.md` is the entire repository and is the specification — read it before proposing or writing anything. Everything below is a summary of decisions recorded there that are easy to violate accidentally.
+**Pre-implementation.** There is no source code and no build tooling yet — Phase 0 creates both. What exists is specification and design:
+
+- `PROPOSAL.md` — the specification. Read it before proposing or writing anything.
+- `feature_list.json` — the Phase 0 task list, mirroring GitHub issues 1–14.
+- `design/DESIGN_BRIEF.md` — screens, states and plot rules for the UI.
+- `design/data_models.py` — the Pydantic schema for the reproducibility model; run it directly for its self-check.
+- `design/data-model.md` — the same schema as mermaid diagrams.
+- `design/canvas/` — artboard sources for the five core screens.
+
+Everything below summarises decisions recorded in those documents that are easy to violate accidentally.
 
 The project is an open-source, local-first chemometrics workbench: a Python/FastAPI backend and React UI shipped as one double-clickable desktop application, aimed at replacing closed tools such as Unscrambler, SIMCA and OPUS for research and academic users.
 
-## Locked decisions — do not re-litigate without being asked
+## Working protocol
 
-| Decision | Value |
-| --- | --- |
-| Distribution | Single downloadable application (PyInstaller onedir + system default browser). Not Docker, not pip, not WASM/Pyodide |
-| Licence | MIT |
-| Data scope | 2-D spectra only (samples × variables). Hyperspectral cubes and 3-way data are out |
-| Audience | Research and academia. GxP / 21 CFR Part 11 is out of scope |
+Follow this on every session. It exists because the failure mode in a long solo project is not bad code — it is half-finished work with no record of what was actually verified.
 
-A native window shell (Tauri, pywebview) is deliberately deferred; the default browser is the shipped UX until browser-tab UX proves to be a real complaint.
+**Read the state before starting.** Never begin from this file's summary alone. Read, in order: `feature_list.json` (what is done, in progress and blocked), `git log` on `dev` (what actually landed), and the open GitHub issues (what the task really asks for). If those three disagree, the repository is the truth and the disagreement is itself worth fixing first.
 
-## Constraints that are expensive to retrofit
+**One feature at a time.** Pick the highest-priority feature whose `status` is `not_started` and whose every `depends_on` entry is `passing`. Set it to `in_progress`. **At most one feature may be `in_progress` at any moment.** Anything discovered mid-feature that falls outside its scope becomes a new GitHub issue and a new `feature_list.json` entry — never a quietly widened branch.
 
-**Localhost is a trust boundary.** Any backend work must preserve: bind `127.0.0.1` only (never `0.0.0.0`), ephemeral port, per-session bearer token required on every request (header, never a cookie), strict `Origin` and `Host` validation against DNS rebinding, and filesystem access confined to the user-chosen project directory — the API must never accept an arbitrary server-side path from the client.
+**Evidence before done.** A feature becomes `passing` only after its `verification` steps have actually been run, with the result recorded in `evidence`: the command, its real output or the path to the artifact, and the date. Never mark `passing` from reasoning, from a code review, or because the implementation looks correct. If a verification step cannot be run, the status is `blocked` with the reason in `notes` — not `passing` with a caveat.
 
-**Parity before UI.** Phase 0 is numerical correctness with no user interface. Algorithm kernels are pure functions over arrays with no knowledge of the application, so they stay testable in isolation and reusable as a library. Any change that moves a scientific number must fail CI unless the parity fixtures are updated deliberately. Algorithm variants (NIPALS vs SIMPLS), centring/scaling conventions, sign conventions and metric definitions are documented per algorithm — "PLS" alone is never a sufficient specification.
+**Blocked is a real status.** Use it. Record in `notes` what is blocking and what would unblock it. A blocked feature that is honestly labelled is worth more than an optimistic `in_progress` that hides a dead end.
 
-**The pipeline is data.** An analysis is a serialisable JSON DAG of typed steps, and executing one is the *only* path from a dataset to a result. Do not add a second, direct path — lineage, reproducibility and model export all depend on this being the single route. Datasets are identified by content hash, not filename. Splits store strategy, seed *and* the resulting index sets.
-
-**Dependency rule.** Take a dependency for the tedious and well-solved (instrument file formats, numerics primitives); own the scientifically load-bearing and small (SNV, MSC, baseline correction, Hotelling T², SPE/Q, VIP). SpectroChemPy and process-improve were evaluated and deliberately rejected — do not reintroduce them. `chemotools` is provisional, pending Phase 0 parity evaluation.
-
-**Deferral is deliberate.** PCR, SIMCA, permutation testing, bootstrap, variable selection, additional classifiers, PostgreSQL, object storage, multi-user/auth and self-hosted mode are all post-1.0 by decision, not by oversight. The test each must pass: it stays *additive* against the 1.0 data model. Do not build for them in advance.
-
-**Plot performance is a design constraint, not an optimisation.** Server-side decimation, a cap on individually drawn traces with the remainder as a density band, and WebGL (`scattergl`) are required from the first plot. Target envelope: ~20,000 spectra × ~4,000 variables as float32.
+**A session ends clean when all of these hold:**
+- No feature is left `in_progress` without a note recording exactly where it stands and what the next step is.
+- `feature_list.json` is committed if any status, evidence or note changed.
+- The working tree is clean, or every remaining change is explained in the handover.
+- The branch is pushed.
+- The next feature to pick up is named.
 
 ## Intended toolchain (not yet scaffolded)
 
