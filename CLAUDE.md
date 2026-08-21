@@ -29,7 +29,7 @@ Follow this on every session. It exists because the failure mode in a long solo 
 
 **Blocked is a real status.** Use it. Record in `notes` what is blocking and what would unblock it. A blocked feature that is honestly labelled is worth more than an optimistic `in_progress` that hides a dead end.
 
-**A session ends clean when all of these hold:**
+**A session ends clean when all of these hold** — `clean-state-checklist.md` is the runnable version of this list, and takes precedence when the two differ:
 - No feature is left `in_progress` without a note recording exactly where it stands and what the next step is.
 - `feature_list.json` is committed if any status, evidence or note changed.
 - The working tree is clean, or every remaining change is explained in the handover.
