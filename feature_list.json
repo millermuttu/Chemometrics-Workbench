@@ -56,7 +56,7 @@
       "issue": 3,
       "depends_on": [],
       "user_visible_behavior": "docs/algorithms/pca.md defines every quantity a PCA model will ever display, including the Hotelling T-squared and SPE limits.",
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "Open docs/algorithms/pca.md.",
         "Confirm the algorithm (SVD or NIPALS) is chosen with a reason.",
@@ -64,8 +64,8 @@
         "Confirm explained variance, Hotelling T-squared and SPE/Q each have a formula and a stated confidence limit with its distribution and degrees of freedom.",
         "Confirm missing-value policy and behaviour when n_components exceeds rank are covered."
       ],
-      "evidence": "",
-      "notes": "Documentation only. Blocks #7 and #11."
+      "evidence": "2026-08-22, branch feature/3_pca-spec. docs/algorithms/pca.md reviewed against the issue #3 checklist, each item mapped to a section: algorithm choice with reason -> section 3; centring/scaling convention and default -> section 2; sign convention and sign-invariant comparison -> section 5; explained variance and cumulative form -> section 6; Hotelling T2 with beta and F limits, distributions and degrees of freedom -> section 7; SPE with the Jackson-Mudholkar limit -> section 8; missing-value policy -> section 10; n_components beyond rank -> section 9. Section 12 lists every reported quantity with its defining section, so the 'one written definition per displayed quantity' exit condition is checkable.",
+      "notes": "Decisions worth knowing: SVD not NIPALS, and not randomised SVD, because a decomposition that depends on a random draw cannot back a parity report. PCA performs no centring of its own - centring is a pipeline node, so it appears in the lineage; this diverges from scikit-learn and means parity tests must feed sklearn pre-centred data. Sign rule keys on the largest-magnitude loading, not on U as sklearn does. All r eigenvalues are retained because the SPE limit sums over the discarded ones. Two T2 limits (beta for calibration samples, F for new) rather than approximating one with the other, since n is typically small in chemometrics. Section 13 lists six known divergences from other packages for the parity report to classify."
     },
     {
       "id": "scaffold",
