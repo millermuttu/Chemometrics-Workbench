@@ -17,14 +17,15 @@ Design notes worth knowing before changing anything here:
   invalid pipeline fails at parse time instead of halfway through a ten-minute
   cross-validation.
 
-Run this file directly to execute its self-check.
+The invariants these models enforce are exercised in tests/test_models.py.
 """
 
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
+from itertools import pairwise
 from typing import Annotated, Literal, Self
 from uuid import UUID, uuid4
 
@@ -36,7 +37,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class Base(BaseModel):
@@ -119,8 +120,8 @@ class VariableAxis(Frozen):
 
     @model_validator(mode="after")
     def _monotonic(self) -> Self:
-        v = self.values
-        if not (all(a < b for a, b in zip(v, v[1:])) or all(a > b for a, b in zip(v, v[1:]))):
+        pairs = list(pairwise(self.values))
+        if not (all(a < b for a, b in pairs) or all(a > b for a, b in pairs)):
             raise ValueError("variable axis must be strictly monotonic")
         return self
 
@@ -141,27 +142,35 @@ class DatasetVersion(Frozen):
     axis: VariableAxis
     sample_ids: list[str] = Field(default_factory=list)
     targets: dict[str, list[float]] = Field(
-        default_factory=dict, description="Reference values by property name, e.g. {'moisture': [...]}."
+        default_factory=dict,
+        description="Reference values by property name, e.g. {'moisture': [...]}.",
     )
     metadata_columns: dict[str, list[str]] = Field(default_factory=dict)
     excluded_samples: list[int] = Field(default_factory=list)
     excluded_variables: list[int] = Field(default_factory=list)
     source: SourceFile | None = None
     derived_from: UUID | None = Field(
-        default=None, description="Parent version, when this one came from an edit rather than an import."
+        default=None,
+        description="Parent version, when this one came from an edit rather than an import.",
     )
-    array_path: str = Field(description="Path within the project directory. The database never stores contents.")
+    array_path: str = Field(
+        description="Path within the project directory. The database never stores contents."
+    )
     created_at: datetime = Field(default_factory=_now)
 
     @model_validator(mode="after")
     def _shapes_agree(self) -> Self:
         if len(self.axis.values) != self.n_variables:
-            raise ValueError(f"axis has {len(self.axis.values)} values but n_variables is {self.n_variables}")
+            raise ValueError(
+                f"axis has {len(self.axis.values)} values but n_variables is {self.n_variables}"
+            )
         if self.sample_ids and len(self.sample_ids) != self.n_samples:
             raise ValueError(f"{len(self.sample_ids)} sample ids for {self.n_samples} samples")
         for name, values in self.targets.items():
             if len(values) != self.n_samples:
-                raise ValueError(f"target {name!r} has {len(values)} values for {self.n_samples} samples")
+                raise ValueError(
+                    f"target {name!r} has {len(values)} values for {self.n_samples} samples"
+                )
         return self
 
 
@@ -212,7 +221,9 @@ class MeanCentre(Frozen):
 
 class Autoscale(Frozen):
     kind: Literal["autoscale"] = "autoscale"
-    ddof: int = Field(default=1, ge=0, le=1, description="Denominator convention for the standard deviation.")
+    ddof: int = Field(
+        default=1, ge=0, le=1, description="Denominator convention for the standard deviation."
+    )
 
 
 class Normalise(Frozen):
@@ -223,7 +234,9 @@ class Normalise(Frozen):
 class BaselineCorrect(Frozen):
     kind: Literal["baseline"] = "baseline"
     method: Literal["asls", "rubberband", "polynomial"] = "asls"
-    order: int | None = Field(default=None, ge=0, description="Polynomial order, when method is polynomial.")
+    order: int | None = Field(
+        default=None, ge=0, description="Polynomial order, when method is polynomial."
+    )
     lam: float | None = Field(default=None, gt=0, description="Smoothness, when method is asls.")
     p: float | None = Field(default=None, gt=0, lt=1, description="Asymmetry, when method is asls.")
 
@@ -419,7 +432,9 @@ class ResolvedSplit(Frozen):
     """The index sets a split actually produced, stored so the run can be repeated."""
 
     node_id: NodeId
-    train_indices: list[list[int]] = Field(description="One list per fold; a single entry for a plain split.")
+    train_indices: list[list[int]] = Field(
+        description="One list per fold; a single entry for a plain split."
+    )
     test_indices: list[list[int]]
 
     @model_validator(mode="after")
@@ -453,7 +468,9 @@ class Experiment(Base):
     experiment_id: UUID = Field(default_factory=uuid4)
     project_id: UUID
     pipeline_snapshot: Pipeline = Field(
-        description="Frozen copy of the pipeline as it was when run. Not a reference: pipelines get edited."
+        description=(
+            "Frozen copy of the pipeline as it was when run. Not a reference: pipelines get edited."
+        )
     )
     dataset_version_id: UUID
     dataset_content_hash: ContentHash
@@ -494,7 +511,9 @@ class Model(Base):
     name: str = Field(min_length=1)
     task: TaskKind
     node_id: NodeId = Field(description="Which estimator node in the pipeline produced this.")
-    artifact_path: str = Field(description="Fitted parameters on disk; the database stores the reference only.")
+    artifact_path: str = Field(
+        description="Fitted parameters on disk; the database stores the reference only."
+    )
     artifact_hash: ContentHash
     metrics: Metrics
     created_at: datetime = Field(default_factory=_now)
@@ -504,162 +523,7 @@ class Project(Base):
     project_id: UUID = Field(default_factory=uuid4)
     name: str = Field(min_length=1)
     description: str = ""
-    directory: str = Field(description="Project directory on the user's disk. Datasets and artifacts live here.")
+    directory: str = Field(
+        description="Project directory on the user's disk. Datasets and artifacts live here."
+    )
     created_at: datetime = Field(default_factory=_now)
-
-
-# --------------------------------------------------------------------------
-# self-check
-# --------------------------------------------------------------------------
-
-
-def _demo() -> None:
-    import json
-
-    from pydantic import ValidationError
-
-    h = "sha256:" + "a" * 64
-    project = Project(name="Corn NIR study", directory="/home/lab/corn")
-
-    dataset = Dataset(project_id=project.project_id, name="corn_raw")
-    version = DatasetVersion(
-        dataset_id=dataset.dataset_id,
-        version=1,
-        content_hash=h,
-        n_samples=3,
-        n_variables=4,
-        axis=VariableAxis(kind=AxisKind.WAVELENGTH_NM, values=[1100.0, 1102.0, 1104.0, 1106.0], unit="nm"),
-        sample_ids=["c1", "c2", "c3"],
-        targets={"moisture": [10.1, 9.4, 11.2]},
-        array_path="datasets/corn_raw/v1.npy",
-    )
-
-    pipeline = Pipeline(
-        project_id=project.project_id,
-        name="SNV + SG + PLS",
-        nodes=[
-            SourceNode(id="src", version_id=version.version_id),
-            PreprocessNode(id="snv", inputs=("src",), step=SNV()),
-            PreprocessNode(id="sg", inputs=("snv",), step=SavitzkyGolay(window_length=11, polyorder=2, deriv=1)),
-            SplitNode(id="cv", inputs=("sg",), spec=KFoldSplit(n_splits=10, seed=42)),
-            EstimatorNode(id="pls", inputs=("cv",), spec=PLSRegressionSpec(n_components=6, target="moisture")),
-        ],
-    )
-    assert [n.id for n in pipeline.terminal_nodes()] == ["pls"]
-
-    # The recipe hashes independently of identity, so a re-created pipeline matches.
-    twin = pipeline.model_copy(update={"pipeline_id": uuid4(), "created_at": _now()})
-    assert twin.content_hash() == pipeline.content_hash()
-
-    # Changing one parameter changes the hash: this is what powers model comparison.
-    swapped = pipeline.model_copy(
-        update={"nodes": [n if n.id != "snv" else PreprocessNode(id="snv", inputs=("src",), step=MSC()) for n in pipeline.nodes]}
-    )
-    assert swapped.content_hash() != pipeline.content_hash()
-
-    # A pipeline round-trips through JSON with its typed parameters intact.
-    restored = Pipeline.model_validate_json(pipeline.model_dump_json())
-    assert restored.content_hash() == pipeline.content_hash()
-    assert isinstance(restored.nodes[2].step, SavitzkyGolay)
-    assert restored.nodes[2].step.window_length == 11
-
-    experiment = Experiment(
-        project_id=project.project_id,
-        pipeline_snapshot=pipeline,
-        dataset_version_id=version.version_id,
-        dataset_content_hash=h,
-        status=ExperimentStatus.SUCCEEDED,
-        resolved_splits=[ResolvedSplit(node_id="cv", train_indices=[[0, 1]], test_indices=[[2]])],
-        metrics=Metrics(rmsecv=0.389, r2=0.981, bias=-0.004),
-        environment=Environment(
-            app_version="0.1.0", python_version="3.13.9", platform="linux", packages={"numpy": "2.1.0"}
-        ),
-    )
-    assert experiment.pipeline_hash == pipeline.content_hash()
-
-    model = Model(
-        project_id=project.project_id,
-        experiment_id=experiment.experiment_id,
-        name="Model C",
-        task=TaskKind.REGRESSION,
-        node_id="pls",
-        artifact_path="models/model_c.json",
-        artifact_hash=h,
-        metrics=experiment.metrics,
-    )
-    assert model.metrics.rmsecv == 0.389
-
-    # Editing the pipeline afterwards must not touch the experiment's snapshot.
-    assert experiment.pipeline_snapshot.content_hash() != swapped.content_hash()
-
-    def rejects(fn) -> None:
-        try:
-            fn()
-        except ValidationError:
-            return
-        raise AssertionError("expected ValidationError")
-
-    rejects(lambda: SavitzkyGolay(window_length=10, polyorder=2))  # even window
-    rejects(lambda: SavitzkyGolay(window_length=5, polyorder=5))  # polyorder >= window
-    rejects(lambda: SavitzkyGolay(window_length=11, polyorder=1, deriv=2))  # deriv > polyorder
-    rejects(lambda: RangeSelect(start=2500, end=1100))  # reversed
-    rejects(lambda: TrainTestSplit(test_size=1.5))  # out of range
-    rejects(lambda: KFoldSplit(n_splits=1))  # too few folds
-    rejects(
-        lambda: VariableAxis(kind=AxisKind.WAVELENGTH_NM, values=[1100.0, 1104.0, 1102.0])
-    )  # non-monotonic axis
-    rejects(
-        lambda: DatasetVersion(
-            dataset_id=dataset.dataset_id,
-            version=1,
-            content_hash=h,
-            n_samples=3,
-            n_variables=9,  # disagrees with the axis
-            axis=version.axis,
-            array_path="x.npy",
-        )
-    )
-    rejects(
-        lambda: Experiment(
-            project_id=project.project_id,
-            pipeline_snapshot=pipeline,
-            dataset_version_id=version.version_id,
-            dataset_content_hash=h,
-            status=ExperimentStatus.FAILED,  # no error recorded
-        )
-    )
-    rejects(
-        lambda: Pipeline(
-            project_id=project.project_id,
-            name="cycle",
-            nodes=[
-                SourceNode(id="src", version_id=version.version_id),
-                PreprocessNode(id="a", inputs=("b",), step=SNV()),
-                PreprocessNode(id="b", inputs=("a",), step=SNV()),
-            ],
-        )
-    )
-    rejects(
-        lambda: Pipeline(
-            project_id=project.project_id,
-            name="dangling",
-            nodes=[PreprocessNode(id="a", inputs=("nope",), step=SNV())],
-        )
-    )
-    rejects(
-        lambda: Pipeline(
-            project_id=project.project_id,
-            name="duplicate ids",
-            nodes=[
-                SourceNode(id="src", version_id=version.version_id),
-                PreprocessNode(id="src", inputs=("src",), step=SNV()),
-            ],
-        )
-    )
-
-    json.loads(pipeline.model_dump_json())  # serialisable end to end
-    print("all checks passed")
-
-
-if __name__ == "__main__":
-    _demo()

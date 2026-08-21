@@ -1,6 +1,6 @@
 # Data model
 
-Pydantic models live in [`data_models.py`](data_models.py). Run it directly (`python3 design/data_models.py`) to execute its self-check.
+Pydantic models live in [`../src/chemometrics_workbench/models.py`](../src/chemometrics_workbench/models.py). Their invariants are exercised by `tests/test_models.py` — run `uv run pytest`.
 
 These models are the schema for the reproducibility guarantee in `PROPOSAL.md` §8. Three decisions carry most of the weight:
 
