@@ -1,0 +1,303 @@
+{
+  "phase": "Phase 0 - Numerical foundation",
+  "exit_criterion": "Parity report green in CI against published reference values (PROPOSAL.md section 16).",
+  "status_values": [
+    "not_started",
+    "in_progress",
+    "blocked",
+    "passing"
+  ],
+  "features": [
+    {
+      "id": "spec-metrics-cv",
+      "priority": 1,
+      "area": "spec",
+      "title": "Specify metric definitions and the cross-validation protocol",
+      "issue": 5,
+      "depends_on": [],
+      "user_visible_behavior": "docs/algorithms/metrics-and-validation.md exists and gives a formula for every metric the UI can display, plus the exact fold-assignment and aggregation rules. A reader can compute RMSECV by hand from it and get our number.",
+      "status": "not_started",
+      "verification": [
+        "Open docs/algorithms/metrics-and-validation.md.",
+        "Confirm RMSEC, RMSECV and RMSEP each state their denominator (n, n-1 or n-a-1) and whether the metric is on the original or scaled units.",
+        "Confirm the fold-aggregation rule is stated explicitly as either pooled residuals or mean of per-fold RMSEs.",
+        "Confirm R2, Q2, bias, SEC and SEP each have a formula, not just a name.",
+        "Confirm fold assignment, shuffling, seeding and stratification are described well enough to reproduce a split from the document alone.",
+        "Confirm the section listing known divergences from commercial packages names at least leverage-corrected RMSE."
+      ],
+      "evidence": "",
+      "notes": "Highest priority: explains more future 'why does this not match Unscrambler' reports than the algorithms do. Blocks #7, and therefore the whole parity chain. Documentation only."
+    },
+    {
+      "id": "spec-pls",
+      "priority": 2,
+      "area": "spec",
+      "title": "Specify the PLS regression algorithm and VIP",
+      "issue": 4,
+      "depends_on": [],
+      "user_visible_behavior": "docs/algorithms/pls-regression.md names the implemented variant and every convention around it, so a second implementer could reproduce our numbers from the document alone.",
+      "status": "not_started",
+      "verification": [
+        "Open docs/algorithms/pls-regression.md.",
+        "Confirm NIPALS or SIMPLS is chosen, with a stated reason and a note on what the other would change.",
+        "Confirm deflation, centring, scaling and sign conventions are each specified.",
+        "Confirm the regression-coefficient computation and the back-transform to original units are given.",
+        "Confirm the VIP formula is written out and its normalisation stated.",
+        "Confirm PLS1 versus PLS2 behaviour is described."
+      ],
+      "evidence": "",
+      "notes": "Documentation only. Blocks #7 and #12."
+    },
+    {
+      "id": "spec-pca",
+      "priority": 3,
+      "area": "spec",
+      "title": "Specify the PCA algorithm and its diagnostics",
+      "issue": 3,
+      "depends_on": [],
+      "user_visible_behavior": "docs/algorithms/pca.md defines every quantity a PCA model will ever display, including the Hotelling T-squared and SPE limits.",
+      "status": "not_started",
+      "verification": [
+        "Open docs/algorithms/pca.md.",
+        "Confirm the algorithm (SVD or NIPALS) is chosen with a reason.",
+        "Confirm centring/scaling defaults and the sign convention are stated, including how comparisons are made sign-invariant.",
+        "Confirm explained variance, Hotelling T-squared and SPE/Q each have a formula and a stated confidence limit with its distribution and degrees of freedom.",
+        "Confirm missing-value policy and behaviour when n_components exceeds rank are covered."
+      ],
+      "evidence": "",
+      "notes": "Documentation only. Blocks #7 and #11."
+    },
+    {
+      "id": "scaffold",
+      "priority": 4,
+      "area": "tooling",
+      "title": "Scaffold Python package and toolchain",
+      "issue": 1,
+      "depends_on": [],
+      "user_visible_behavior": "A clean checkout runs lint, type-check and tests with three commands and no manual setup beyond uv sync.",
+      "status": "not_started",
+      "verification": [
+        "Clone into an empty directory.",
+        "Run: uv run ruff check  -> exits 0.",
+        "Run: uv run mypy  -> exits 0.",
+        "Run: uv run pytest  -> exits 0 and includes the data-model invariant test.",
+        "Confirm src/chemometrics_workbench/ exists and the schema module was moved out of design/."
+      ],
+      "evidence": "",
+      "notes": "Independent of the spec work, so it can run in parallel. Quick."
+    },
+    {
+      "id": "ci",
+      "priority": 5,
+      "area": "tooling",
+      "title": "Continuous integration pipeline",
+      "issue": 2,
+      "depends_on": [
+        "scaffold"
+      ],
+      "user_visible_behavior": "Every pull request shows a green check, and a broken lint, type or test turns it red before merge.",
+      "status": "not_started",
+      "verification": [
+        "Open a pull request into dev and confirm the workflow runs on Python 3.12 and 3.13.",
+        "Confirm the run includes ruff check, ruff format --check, mypy and pytest.",
+        "Push a commit with a deliberate lint error and confirm the check goes red.",
+        "Revert it and confirm the check returns green."
+      ],
+      "evidence": "",
+      "notes": "Must exist before the parity tests, since their whole value is running on every commit."
+    },
+    {
+      "id": "reference-datasets",
+      "priority": 6,
+      "area": "data",
+      "title": "Commit reference datasets with loaders",
+      "issue": 6,
+      "depends_on": [],
+      "user_visible_behavior": "load_corn(), load_gasoline() and load_tecator() return documented arrays with targets and a real-unit axis, and their checksums are asserted in CI.",
+      "status": "not_started",
+      "verification": [
+        "Run pytest on the dataset tests and confirm shape and content-hash assertions pass.",
+        "Confirm each dataset directory carries its source URL, licence or terms, and a checksum file.",
+        "Confirm import provenance is recorded in the SourceFile shape from the data model.",
+        "Corrupt one byte of a committed dataset locally and confirm the checksum test fails."
+      ],
+      "evidence": "",
+      "notes": "Check redistribution terms per dataset before committing raw files. If one cannot be redistributed, record a download-and-verify step instead and note which."
+    },
+    {
+      "id": "reference-values",
+      "priority": 7,
+      "area": "parity",
+      "title": "Collect published reference values as parity fixtures",
+      "issue": 7,
+      "depends_on": [
+        "spec-pca",
+        "spec-pls",
+        "spec-metrics-cv",
+        "reference-datasets"
+      ],
+      "user_visible_behavior": "A versioned fixture file holds at least one reference value per algorithm per dataset, each traceable to a named published source or a named open implementation and version.",
+      "status": "not_started",
+      "verification": [
+        "Open the fixture file and pick three entries at random.",
+        "For each, confirm it records the preprocessing chain, algorithm variant, split and seed, software and version, and a citation.",
+        "Confirm every algorithm in scope (PCA, PLS) has at least one value for each of the three datasets.",
+        "Confirm any value that could not be sourced is recorded as missing rather than invented."
+      ],
+      "evidence": "",
+      "notes": "Commercial-package comparison is deliberately out of scope here: licence terms need checking and no CI runner can reproduce it."
+    },
+    {
+      "id": "parity-harness",
+      "priority": 8,
+      "area": "parity",
+      "title": "Parity test harness with an explicit tolerance policy",
+      "issue": 8,
+      "depends_on": [
+        "reference-values"
+      ],
+      "user_visible_behavior": "One pytest entry point runs the whole parity suite, reports each quantity in one of three claim tiers, and emits machine-readable results.",
+      "status": "not_started",
+      "verification": [
+        "Run the parity suite and confirm it passes for at least one trivial case such as mean centring.",
+        "Confirm scores and loadings compare sign-invariantly by flipping a sign in a fixture and seeing the test still pass.",
+        "Perturb a reference value beyond tolerance and confirm the test fails.",
+        "Confirm each result is tagged identical-within-float, agrees-within-tolerance, or differs-by-documented-convention.",
+        "Confirm the run writes machine-readable output that the report generator can consume."
+      ],
+      "evidence": "",
+      "notes": "Built before the kernels so no kernel invents its own comparison rules."
+    },
+    {
+      "id": "kernels-scaling",
+      "priority": 9,
+      "area": "preprocessing",
+      "title": "Kernels: scaling and scatter correction",
+      "issue": 9,
+      "depends_on": [
+        "parity-harness"
+      ],
+      "user_visible_behavior": "SNV, MSC, mean centring, autoscaling, normalisation and range selection run as scikit-learn transformers and land in the tightest parity tier.",
+      "status": "not_started",
+      "verification": [
+        "Run the parity suite for these transformers and confirm each reaches identical-within-float where no convention freedom exists.",
+        "Pass a float32 array and confirm the caller's array is unchanged after the call.",
+        "Pass a transposed array and confirm it is rejected rather than silently accepted.",
+        "Feed a zero-variance row to autoscale and confirm the documented behaviour, not a NaN or a crash.",
+        "Round-trip each transformer through the PreprocessStep schema and confirm parameters survive."
+      ],
+      "evidence": "",
+      "notes": "Deterministic half of preprocessing."
+    },
+    {
+      "id": "kernels-smoothing",
+      "priority": 10,
+      "area": "preprocessing",
+      "title": "Kernels: smoothing, derivatives and baseline correction",
+      "issue": 10,
+      "depends_on": [
+        "parity-harness"
+      ],
+      "user_visible_behavior": "Savitzky-Golay, first and second derivatives, and AsLS, rubberband and polynomial baselines produce documented, tested values including at the spectrum edges.",
+      "status": "not_started",
+      "verification": [
+        "Run the parity suite for these transformers.",
+        "Confirm at least one test asserts values at the first and last variable, not only in the middle.",
+        "Confirm the Savitzky-Golay edge mode is named in docs/algorithms/ and matches the implementation.",
+        "Confirm the derivative scaling convention (per index or per axis unit) is documented and tested.",
+        "Confirm AsLS records its convergence criterion and iteration cap."
+      ],
+      "evidence": "",
+      "notes": "Edge handling is the classic silent mismatch between packages."
+    },
+    {
+      "id": "kernel-pca",
+      "priority": 11,
+      "area": "decomposition",
+      "title": "Kernel: PCA with Hotelling T-squared and SPE diagnostics",
+      "issue": 11,
+      "depends_on": [
+        "spec-pca",
+        "parity-harness"
+      ],
+      "user_visible_behavior": "Fitting PCA on any reference dataset returns scores, loadings, explained variance, T-squared and SPE that match published values within tolerance.",
+      "status": "not_started",
+      "verification": [
+        "Run the parity suite for PCA across all three reference datasets.",
+        "Confirm scores and loadings match sign-invariantly.",
+        "Confirm explained variance per component and cumulative match the reference.",
+        "Confirm the T-squared and SPE limits match published values within the stated tolerance.",
+        "Project a held-out sample onto a fitted model and confirm the result is stable across runs."
+      ],
+      "evidence": "",
+      "notes": "Kernels stay pure functions over arrays with no application knowledge, so they remain usable as a standalone library."
+    },
+    {
+      "id": "kernel-pls",
+      "priority": 12,
+      "area": "regression",
+      "title": "Kernel: PLS regression with VIP",
+      "issue": 12,
+      "depends_on": [
+        "spec-pls",
+        "spec-metrics-cv",
+        "parity-harness"
+      ],
+      "user_visible_behavior": "Fitting PLS on any reference dataset reproduces published coefficients, predictions and RMSECV under the documented cross-validation protocol.",
+      "status": "not_started",
+      "verification": [
+        "Run the parity suite for PLS across all three reference datasets.",
+        "Confirm regression coefficients and predictions match within tolerance.",
+        "Confirm RMSECV matches under the aggregation rule fixed in the metrics spec.",
+        "Confirm VIP scores match the reference.",
+        "Refit from a stored ResolvedSplit alone and confirm the metrics reproduce exactly, independent of the library's own fold assignment."
+      ],
+      "evidence": "",
+      "notes": "The kernel the project is judged on."
+    },
+    {
+      "id": "chemotools-eval",
+      "priority": 13,
+      "area": "deps",
+      "title": "Evaluate chemotools as a preprocessing dependency",
+      "issue": 13,
+      "depends_on": [
+        "kernels-scaling",
+        "kernels-smoothing"
+      ],
+      "user_visible_behavior": "PROPOSAL.md and CLAUDE.md state adopted, partially adopted or rejected with a reason, and the provisional wording is gone.",
+      "status": "not_started",
+      "verification": [
+        "Open docs/decisions/ and confirm a dated decision record exists.",
+        "Confirm it compares numerical agreement, edge handling, documented conventions, dtype and copy behaviour, maintenance activity and dependency weight.",
+        "Confirm the decision is per transformer, not wholesale.",
+        "Confirm PROPOSAL.md section 7 and CLAUDE.md no longer describe chemotools as provisional."
+      ],
+      "evidence": "",
+      "notes": "Decide with evidence from the same fixtures used for our own kernels, not preference."
+    },
+    {
+      "id": "parity-report",
+      "priority": 14,
+      "area": "docs",
+      "title": "Publish the parity report and close Phase 0",
+      "issue": 14,
+      "depends_on": [
+        "kernel-pca",
+        "kernel-pls",
+        "chemotools-eval"
+      ],
+      "user_visible_behavior": "A published documentation page shows, dataset by dataset and algorithm by algorithm, our value beside the reference value with its claim tier and citation. It regenerates in CI and fails the build on regression.",
+      "status": "not_started",
+      "verification": [
+        "Open the published report and confirm every implemented algorithm appears for every reference dataset.",
+        "Confirm rows tagged differs-by-documented-convention show the reason rather than reading as failures.",
+        "Confirm README.md links to the report.",
+        "Change a kernel so a number moves, and confirm CI fails and the report reflects it.",
+        "Regenerate the report from a clean checkout and confirm it reproduces byte-identically."
+      ],
+      "evidence": "",
+      "notes": "Exit criterion for Phase 0 per PROPOSAL.md section 16. Phase 1 does not start before this is met."
+    }
+  ]
+}
