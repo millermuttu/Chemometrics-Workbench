@@ -33,7 +33,7 @@ Follow this on every session. It exists because the failure mode in a long solo 
 - No feature is left `in_progress` without a note recording exactly where it stands and what the next step is.
 - `feature_list.json` is committed if any status, evidence or note changed.
 - The working tree is clean, or every remaining change is explained in the handover.
-- The branch is pushed.
+- The branch is pushed, and a completed feature has its pull request open or merged.
 - The next feature to pick up is named.
 - `session-handoff.md` is rewritten to match the state just described, and committed.
 
@@ -61,7 +61,17 @@ fix/<n>_<short-name>      ──merge──►
 - **`dev`** is the integration line. Every feature and fix branch is cut from `dev` and merged back into `dev`. It is the default base for all new work.
 - **`feature/<n>_<short-name>` / `fix/<n>_<short-name>`** — one per GitHub issue, `<n>` being the issue number. See the `new-branch` skill for the naming rules.
 
-At the end of a phase: merge `dev` into `main`, tag a release, and only then start the next phase's branches.
+**Merges happen through pull requests, not local `git merge`.** A feature branch reaches `dev` by:
+
+1. Push the branch.
+2. Open a pull request **with `dev` as the base** — never `main`. GitHub's default base is the repository's default branch, so if that is still `main` the base must be set explicitly or the pull request targets the release line.
+3. Wait for CI to pass. The pull request is the gate; a red check is not merged around.
+4. Merge, then delete the branch locally and on origin.
+5. Reference the issue in the pull request body (`Closes #n`) so it closes on merge.
+
+`gh` is not installed on this machine — use the GitHub MCP tools to open and merge pull requests.
+
+At the end of a phase: open a pull request from `dev` into `main`, merge it, tag a release, and only then start the next phase's branches.
 
 The repository's release branch is named `main` — there is no `master`.
 

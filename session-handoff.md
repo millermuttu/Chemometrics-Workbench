@@ -43,7 +43,7 @@ After it: #4 (`spec-pls`), then #3 (`spec-pca`). Those three unblock #7 and ever
 
 ## Waiting on the user
 
-- **GitHub default branch is still `main`.** It should be `dev`, or pull requests will target the release line by default. Repository setting; cannot be changed from here with the current tools.
+- **GitHub default branch is still `main`.** Now that merges go through pull requests this matters: any pull request opened without an explicit base will target the release line. Change it under Settings → Branches; it cannot be changed from here with the current tools.
 - **Dataset redistribution terms** (#6) need checking per dataset before raw files are committed.
 - **Parity against a commercial package** — `PROPOSAL.md` §19 Q4 is unresolved. The EULA is not public; a licence would have to be confirmed and written permission sought before publishing a comparison. Tier 1 parity (R `mdatools`, `pls`, scikit-learn, published literature) is unaffected and is what Phase 0 builds.
 - Remaining open questions are in `PROPOSAL.md` §19 — team and pace, funding intent, project name.
