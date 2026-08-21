@@ -44,6 +44,23 @@ When scaffolding, use these — they are the recorded stack, and deviating from 
 
 Docker is a developer-environment tool only. End users never see a container.
 
+## Branching and release
+
+Three levels, and work never skips one.
+
+```
+feature/<n>_<short-name>  ──merge──►  dev  ──merge at phase end──►  main  ──►  release tag
+fix/<n>_<short-name>      ──merge──►
+```
+
+- **`main`** is the release line. It only ever receives a merge from `dev`, and only when a whole phase is complete. Never commit to it directly.
+- **`dev`** is the integration line. Every feature and fix branch is cut from `dev` and merged back into `dev`. It is the default base for all new work.
+- **`feature/<n>_<short-name>` / `fix/<n>_<short-name>`** — one per GitHub issue, `<n>` being the issue number. See the `new-branch` skill for the naming rules.
+
+At the end of a phase: merge `dev` into `main`, tag a release, and only then start the next phase's branches.
+
+The repository's release branch is named `main` — there is no `master`.
+
 ## Documents
 
 `PROPOSAL.md` is canonical and git-diffable. A designed HTML rendering of the same content is published as an artifact at https://claude.ai/code/artifact/3d5f2071-b55a-4197-aa97-409146fbb488 — when `PROPOSAL.md` changes materially, the artifact should be republished to that same URL so the two do not drift.
