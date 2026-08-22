@@ -191,7 +191,41 @@ def test_a_scalar_claim_shows_both_numbers_and_an_array_shows_its_worst_differen
     )
 
     assert "`0.0495755` vs `0.0495755`" in report
-    assert "400 values, worst Δ 1.000e-16" in report
+    assert "400 values, worst Δ < 1e-16" in report
+
+
+def test_last_bit_noise_cannot_change_what_is_published() -> None:
+    """#38: the gate broke on the difference between two correct machines.
+
+    The worst difference between two implementations of the same formula is
+    arithmetic noise whose third significant figure depends on which BLAS the
+    local NumPy was built against. The report published those digits, CI
+    regenerated it on a runner, and `git diff --exit-code` called it a
+    regression. What is published is now the decade the measurement supports,
+    which noise cannot move.
+    """
+    fixture = _fixture(_entry())
+    here = parity_report.render(_results(_claim(max_abs_diff=5.539e-12)), fixture)
+    elsewhere = parity_report.render(_results(_claim(max_abs_diff=5.541e-12)), fixture)
+
+    assert here == elsewhere
+    assert "worst Δ < 1e-11" in here
+
+
+def test_a_difference_that_moves_by_decades_still_shows() -> None:
+    """The bound is coarse on purpose, not blind: a real regression moves it."""
+    fixture = _fixture(_entry())
+    clean = parity_report.render(_results(_claim(max_abs_diff=5.5e-12)), fixture)
+    broken = parity_report.render(_results(_claim(max_abs_diff=5.5e-4)), fixture)
+
+    assert clean != broken
+    assert "worst Δ < 1e-3" in broken
+
+
+def test_an_exact_match_says_so_rather_than_bounding_zero() -> None:
+    """`log10(0)` has no decade, and "identical" is worth stating outright."""
+    report = parity_report.render(_results(_claim(max_abs_diff=0.0)), _fixture(_entry()))
+    assert "worst Δ 0, exactly" in report
 
 
 def test_no_cell_contains_a_pipe_that_would_break_a_table() -> None:

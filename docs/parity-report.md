@@ -38,7 +38,14 @@ show them:
    inner product with the reference before comparing (`pca.md` §5,
    `pls-regression.md` §6). Comparing absolute values instead would pass a result
    whose scores and loadings disagreed with each other.
-3. **Most references here are open implementations pinned by version, not numbers
+3. **The difference column for an array is an upper bound, not a measurement.**
+   The worst difference between two correct implementations is last-bit
+   arithmetic noise, and its digits depend on the BLAS the local NumPy was built
+   against — so publishing them would make this report disagree with itself
+   between machines. The measured values are in `parity-results.json`; what is
+   published is the decade they support. Single numbers are shown in full,
+   because six significant figures are beyond the reach of that noise.
+4. **Most references here are open implementations pinned by version, not numbers
    printed in a paper.** The exceptions are the two R `pls` vignette entries and
    the Tecator SEP below, and they are labelled as such. An implementation
    comparison is reproducible by anyone; a published number is independent of any
@@ -52,103 +59,103 @@ show them:
 
 | Dataset | Quantity | Reference | Claim | Ours vs reference |
 | --- | --- | --- | --- | --- |
-| corn | `autoscaled` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0 |
-| corn | `baseline_asls` | chemotools 0.4.3 | within rtol 1.000e-07 | 360 values, worst Δ 5.539e-12 |
-| corn | `baseline_polynomial` | chemotools 0.4.3 | identical | 360 values, worst Δ 9.021e-17 |
-| corn | `baseline_rubberband` | chemotools 0.4.3 | identical | 360 values, worst Δ 0 |
-| corn | `mean_centred` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0 |
-| corn | `msc_corrected` | chemotools 0.4.3 | within rtol 1.000e-07 | 40 values, worst Δ 1.873e-13 |
-| corn | `normalised_l1` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0 |
-| corn | `normalised_l2` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0 |
-| corn | `normalised_max` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0 |
-| corn | `savgol_deriv0` | SciPy 1.18.1 | identical | 40 values, worst Δ 5.551e-17 |
-| corn | `savgol_deriv1` | SciPy 1.18.1 | identical | 40 values, worst Δ 6.771e-17 |
-| corn | `savgol_deriv2` | SciPy 1.18.1 | identical | 40 values, worst Δ 2.904e-17 |
-| corn | `snv_corrected` | chemotools 0.4.3 | identical | 40 values, worst Δ 0 |
-| gasoline | `autoscaled` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0 |
-| gasoline | `baseline_asls` | chemotools 0.4.3 | within rtol 1.000e-07 | 360 values, worst Δ 1.697e-11 |
-| gasoline | `baseline_polynomial` | chemotools 0.4.3 | identical | 360 values, worst Δ 6.939e-17 |
-| gasoline | `baseline_rubberband` | chemotools 0.4.3 | identical | 360 values, worst Δ 0 |
-| gasoline | `mean_centred` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0 |
-| gasoline | `msc_corrected` | chemotools 0.4.3 | identical | 40 values, worst Δ 3.469e-17 |
-| gasoline | `normalised_l1` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0 |
-| gasoline | `normalised_l2` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0 |
-| gasoline | `normalised_max` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0 |
-| gasoline | `savgol_deriv0` | SciPy 1.18.1 | identical | 40 values, worst Δ 4.163e-17 |
-| gasoline | `savgol_deriv1` | SciPy 1.18.1 | identical | 40 values, worst Δ 6.765e-17 |
-| gasoline | `savgol_deriv2` | SciPy 1.18.1 | identical | 40 values, worst Δ 3.502e-17 |
-| gasoline | `snv_corrected` | chemotools 0.4.3 | identical | 40 values, worst Δ 0 |
-| tecator | `autoscaled` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0 |
-| tecator | `baseline_asls` | chemotools 0.4.3 | within rtol 1.000e-07 | 300 values, worst Δ 5.056e-10 |
-| tecator | `baseline_polynomial` | chemotools 0.4.3 | identical | 300 values, worst Δ 4.441e-15 |
-| tecator | `baseline_rubberband` | chemotools 0.4.3 | identical | 300 values, worst Δ 0 |
-| tecator | `mean_centred` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0 |
-| tecator | `msc_corrected` | chemotools 0.4.3 | within rtol 1.000e-07 | 40 values, worst Δ 2.875e-10 |
-| tecator | `normalised_l1` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0 |
-| tecator | `normalised_l2` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 5.551e-17 |
-| tecator | `normalised_max` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0 |
-| tecator | `savgol_deriv0` | SciPy 1.18.1 | identical | 40 values, worst Δ 2.220e-15 |
-| tecator | `savgol_deriv1` | SciPy 1.18.1 | identical | 40 values, worst Δ 3.172e-15 |
-| tecator | `savgol_deriv2` | SciPy 1.18.1 | identical | 40 values, worst Δ 1.594e-15 |
-| tecator | `snv_corrected` | chemotools 0.4.3 | identical | 40 values, worst Δ 0 |
+| corn | `autoscaled` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
+| corn | `baseline_asls` | chemotools 0.4.3 | within rtol 1.000e-07 | 360 values, worst Δ < 1e-11 |
+| corn | `baseline_polynomial` | chemotools 0.4.3 | identical | 360 values, worst Δ < 1e-16 |
+| corn | `baseline_rubberband` | chemotools 0.4.3 | identical | 360 values, worst Δ 0, exactly |
+| corn | `mean_centred` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
+| corn | `msc_corrected` | chemotools 0.4.3 | within rtol 1.000e-07 | 40 values, worst Δ < 1e-12 |
+| corn | `normalised_l1` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
+| corn | `normalised_l2` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
+| corn | `normalised_max` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
+| corn | `savgol_deriv0` | SciPy 1.18.1 | identical | 40 values, worst Δ < 1e-16 |
+| corn | `savgol_deriv1` | SciPy 1.18.1 | identical | 40 values, worst Δ < 1e-16 |
+| corn | `savgol_deriv2` | SciPy 1.18.1 | identical | 40 values, worst Δ < 1e-16 |
+| corn | `snv_corrected` | chemotools 0.4.3 | identical | 40 values, worst Δ 0, exactly |
+| gasoline | `autoscaled` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
+| gasoline | `baseline_asls` | chemotools 0.4.3 | within rtol 1.000e-07 | 360 values, worst Δ < 1e-10 |
+| gasoline | `baseline_polynomial` | chemotools 0.4.3 | identical | 360 values, worst Δ < 1e-16 |
+| gasoline | `baseline_rubberband` | chemotools 0.4.3 | identical | 360 values, worst Δ 0, exactly |
+| gasoline | `mean_centred` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
+| gasoline | `msc_corrected` | chemotools 0.4.3 | identical | 40 values, worst Δ < 1e-16 |
+| gasoline | `normalised_l1` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
+| gasoline | `normalised_l2` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
+| gasoline | `normalised_max` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
+| gasoline | `savgol_deriv0` | SciPy 1.18.1 | identical | 40 values, worst Δ < 1e-16 |
+| gasoline | `savgol_deriv1` | SciPy 1.18.1 | identical | 40 values, worst Δ < 1e-16 |
+| gasoline | `savgol_deriv2` | SciPy 1.18.1 | identical | 40 values, worst Δ < 1e-16 |
+| gasoline | `snv_corrected` | chemotools 0.4.3 | identical | 40 values, worst Δ 0, exactly |
+| tecator | `autoscaled` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
+| tecator | `baseline_asls` | chemotools 0.4.3 | within rtol 1.000e-07 | 300 values, worst Δ < 1e-9 |
+| tecator | `baseline_polynomial` | chemotools 0.4.3 | identical | 300 values, worst Δ < 1e-14 |
+| tecator | `baseline_rubberband` | chemotools 0.4.3 | identical | 300 values, worst Δ 0, exactly |
+| tecator | `mean_centred` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
+| tecator | `msc_corrected` | chemotools 0.4.3 | within rtol 1.000e-07 | 40 values, worst Δ < 1e-9 |
+| tecator | `normalised_l1` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
+| tecator | `normalised_l2` | scikit-learn 1.9.0 | identical | 40 values, worst Δ < 1e-16 |
+| tecator | `normalised_max` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
+| tecator | `savgol_deriv0` | SciPy 1.18.1 | identical | 40 values, worst Δ < 1e-14 |
+| tecator | `savgol_deriv1` | SciPy 1.18.1 | identical | 40 values, worst Δ < 1e-14 |
+| tecator | `savgol_deriv2` | SciPy 1.18.1 | identical | 40 values, worst Δ < 1e-14 |
+| tecator | `snv_corrected` | chemotools 0.4.3 | identical | 40 values, worst Δ 0, exactly |
 
 ### Principal component analysis
 
 | Dataset | Quantity | Reference | Claim | Ours vs reference |
 | --- | --- | --- | --- | --- |
-| corn | `cumulative_explained_variance` † | scikit-learn 1.9.0 | identical | 5 values, worst Δ 1.110e-16 |
-| corn | `eigenvalues` | scikit-learn 1.9.0 | identical | 5 values, worst Δ 7.589e-19 |
-| corn | `explained_variance_ratio` | scikit-learn 1.9.0 | identical | 5 values, worst Δ 1.110e-16 |
-| corn | `hotelling_t2` † | scikit-learn 1.9.0 | identical | 80 values, worst Δ 1.670e-13 |
+| corn | `cumulative_explained_variance` † | scikit-learn 1.9.0 | identical | 5 values, worst Δ < 1e-15 |
+| corn | `eigenvalues` | scikit-learn 1.9.0 | identical | 5 values, worst Δ < 1e-18 |
+| corn | `explained_variance_ratio` | scikit-learn 1.9.0 | identical | 5 values, worst Δ < 1e-15 |
+| corn | `hotelling_t2` † | scikit-learn 1.9.0 | identical | 80 values, worst Δ < 1e-12 |
 | corn | `hotelling_t2_limit` | chemotools 0.4.3 | documented divergence | not compared — see below |
-| corn | `loadings` ‡ | scikit-learn 1.9.0 | identical | 3500 values, worst Δ 2.512e-15 |
-| corn | `scores` ‡ | scikit-learn 1.9.0 | identical | 400 values, worst Δ 6.471e-16 |
-| corn | `spe` † | scikit-learn 1.9.0 | identical | 80 values, worst Δ 1.572e-18 |
+| corn | `loadings` ‡ | scikit-learn 1.9.0 | identical | 3500 values, worst Δ < 1e-14 |
+| corn | `scores` ‡ | scikit-learn 1.9.0 | identical | 400 values, worst Δ < 1e-15 |
+| corn | `spe` † | scikit-learn 1.9.0 | identical | 80 values, worst Δ < 1e-17 |
 | corn | `spe_limit` | chemotools 0.4.3 | identical | `0.000710673` vs `0.000710673` |
-| gasoline | `cumulative_explained_variance` † | scikit-learn 1.9.0 | identical | 5 values, worst Δ 2.220e-16 |
-| gasoline | `eigenvalues` | scikit-learn 1.9.0 | identical | 5 values, worst Δ 6.939e-18 |
-| gasoline | `explained_variance_ratio` | scikit-learn 1.9.0 | identical | 5 values, worst Δ 1.110e-16 |
-| gasoline | `hotelling_t2` † | scikit-learn 1.9.0 | identical | 60 values, worst Δ 3.553e-14 |
+| gasoline | `cumulative_explained_variance` † | scikit-learn 1.9.0 | identical | 5 values, worst Δ < 1e-15 |
+| gasoline | `eigenvalues` | scikit-learn 1.9.0 | identical | 5 values, worst Δ < 1e-17 |
+| gasoline | `explained_variance_ratio` | scikit-learn 1.9.0 | identical | 5 values, worst Δ < 1e-15 |
+| gasoline | `hotelling_t2` † | scikit-learn 1.9.0 | identical | 60 values, worst Δ < 1e-13 |
 | gasoline | `hotelling_t2_limit` | chemotools 0.4.3 | documented divergence | not compared — see below |
-| gasoline | `loadings` ‡ | scikit-learn 1.9.0 | identical | 2005 values, worst Δ 6.661e-16 |
-| gasoline | `scores` ‡ | scikit-learn 1.9.0 | identical | 300 values, worst Δ 4.441e-16 |
-| gasoline | `spe` † | scikit-learn 1.9.0 | identical | 60 values, worst Δ 9.107e-18 |
+| gasoline | `loadings` ‡ | scikit-learn 1.9.0 | identical | 2005 values, worst Δ < 1e-15 |
+| gasoline | `scores` ‡ | scikit-learn 1.9.0 | identical | 300 values, worst Δ < 1e-15 |
+| gasoline | `spe` † | scikit-learn 1.9.0 | identical | 60 values, worst Δ < 1e-17 |
 | gasoline | `spe_limit` | chemotools 0.4.3 | identical | `0.000726396` vs `0.000726396` |
-| tecator | `cumulative_explained_variance` † | scikit-learn 1.9.0 | identical | 5 values, worst Δ 0 |
-| tecator | `eigenvalues` | scikit-learn 1.9.0 | identical | 5 values, worst Δ 1.066e-14 |
-| tecator | `explained_variance_ratio` | scikit-learn 1.9.0 | identical | 5 values, worst Δ 3.469e-18 |
-| tecator | `hotelling_t2` † | scikit-learn 1.9.0 | within rtol 1.000e-08 | 240 values, worst Δ 4.725e-13 |
+| tecator | `cumulative_explained_variance` † | scikit-learn 1.9.0 | identical | 5 values, worst Δ 0, exactly |
+| tecator | `eigenvalues` | scikit-learn 1.9.0 | identical | 5 values, worst Δ < 1e-13 |
+| tecator | `explained_variance_ratio` | scikit-learn 1.9.0 | identical | 5 values, worst Δ < 1e-17 |
+| tecator | `hotelling_t2` † | scikit-learn 1.9.0 | within rtol 1.000e-08 | 240 values, worst Δ < 1e-12 |
 | tecator | `hotelling_t2_limit` | chemotools 0.4.3 | documented divergence | not compared — see below |
-| tecator | `loadings` ‡ | scikit-learn 1.9.0 | identical | 500 values, worst Δ 1.082e-15 |
-| tecator | `scores` ‡ | scikit-learn 1.9.0 | identical | 1200 values, worst Δ 7.105e-15 |
-| tecator | `spe` † | scikit-learn 1.9.0 | identical | 240 values, worst Δ 8.153e-17 |
+| tecator | `loadings` ‡ | scikit-learn 1.9.0 | identical | 500 values, worst Δ < 1e-14 |
+| tecator | `scores` ‡ | scikit-learn 1.9.0 | identical | 1200 values, worst Δ < 1e-14 |
+| tecator | `spe` † | scikit-learn 1.9.0 | identical | 240 values, worst Δ < 1e-16 |
 | tecator | `spe_limit` | chemotools 0.4.3 | identical | `0.00294202` vs `0.00294202` |
 
 ### PLS regression
 
 | Dataset | Quantity | Reference | Claim | Ours vs reference |
 | --- | --- | --- | --- | --- |
-| corn | `coefficients` | scikit-learn 1.9.0 | identical | 700 values, worst Δ 2.665e-15 |
-| corn | `predictions` | scikit-learn 1.9.0 | identical | 80 values, worst Δ 5.329e-15 |
+| corn | `coefficients` | scikit-learn 1.9.0 | identical | 700 values, worst Δ < 1e-14 |
+| corn | `predictions` | scikit-learn 1.9.0 | identical | 80 values, worst Δ < 1e-14 |
 | corn | `r2` | scikit-learn 1.9.0 | identical | `0.982797` vs `0.982797` |
 | corn | `rmsec` | scikit-learn 1.9.0 | identical | `0.0495755` vs `0.0495755` |
-| corn | `rmsecv_curve` | scikit-learn 1.9.0 | identical | 10 values, worst Δ 3.081e-15 |
-| corn | `vip` † | scikit-learn 1.9.0 | identical | 700 values, worst Δ 3.109e-15 |
-| gasoline | `coefficients` | scikit-learn 1.9.0 | identical | 401 values, worst Δ 8.882e-15 |
-| gasoline | `cumulative_explained_variance_at_2_components` | R pls 2.8-5 | within rtol 0.005 | 2 values, worst Δ 2.993e-05 |
-| gasoline | `predictions` | scikit-learn 1.9.0 | identical | 60 values, worst Δ 1.421e-14 |
+| corn | `rmsecv_curve` | scikit-learn 1.9.0 | identical | 10 values, worst Δ < 1e-14 |
+| corn | `vip` † | scikit-learn 1.9.0 | identical | 700 values, worst Δ < 1e-14 |
+| gasoline | `coefficients` | scikit-learn 1.9.0 | identical | 401 values, worst Δ < 1e-14 |
+| gasoline | `cumulative_explained_variance_at_2_components` | R pls 2.8-5 | within rtol 0.005 | 2 values, worst Δ < 1e-4 |
+| gasoline | `predictions` | scikit-learn 1.9.0 | identical | 60 values, worst Δ < 1e-13 |
 | gasoline | `r2` | scikit-learn 1.9.0 | identical | `0.986801` vs `0.986801` |
 | gasoline | `rmsec` | scikit-learn 1.9.0 | identical | `0.174317` vs `0.174317` |
-| gasoline | `rmsecv_curve` | R pls 2.8-5 | within rtol 0.005 | 11 values, worst Δ 7.588e-05 |
-| gasoline | `rmsecv_curve` | scikit-learn 1.9.0 | identical | 10 values, worst Δ 2.165e-15 |
-| gasoline | `vip` † | scikit-learn 1.9.0 | identical | 401 values, worst Δ 2.665e-15 |
-| tecator | `coefficients` | scikit-learn 1.9.0 | identical | 100 values, worst Δ 5.355e-14 |
-| tecator | `predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 240 values, worst Δ 6.537e-13 |
+| gasoline | `rmsecv_curve` | R pls 2.8-5 | within rtol 0.005 | 11 values, worst Δ < 1e-4 |
+| gasoline | `rmsecv_curve` | scikit-learn 1.9.0 | identical | 10 values, worst Δ < 1e-14 |
+| gasoline | `vip` † | scikit-learn 1.9.0 | identical | 401 values, worst Δ < 1e-14 |
+| tecator | `coefficients` | scikit-learn 1.9.0 | identical | 100 values, worst Δ < 1e-13 |
+| tecator | `predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 240 values, worst Δ < 1e-12 |
 | tecator | `r2` | scikit-learn 1.9.0 | identical | `0.940354` vs `0.940354` |
 | tecator | `rmsec` | scikit-learn 1.9.0 | identical | `3.50037` vs `3.50037` |
-| tecator | `rmsecv_curve` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 10 values, worst Δ 1.257e-13 |
+| tecator | `rmsecv_curve` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 10 values, worst Δ < 1e-12 |
 | tecator | `sep` | unstated | documented divergence | not compared — see below |
-| tecator | `vip` † | scikit-learn 1.9.0 | identical | 100 values, worst Δ 8.882e-16 |
+| tecator | `vip` † | scikit-learn 1.9.0 | identical | 100 values, worst Δ < 1e-15 |
 
 ---
 
