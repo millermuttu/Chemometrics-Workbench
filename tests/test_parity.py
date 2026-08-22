@@ -26,9 +26,12 @@ from chemometrics_workbench.datasets import load_corn, load_gasoline, load_tecat
 from chemometrics_workbench.decomposition import PCA
 from chemometrics_workbench.preprocessing import (
     AutoscaleTransformer,
+    BaselineCorrectTransformer,
     MeanCentreTransformer,
+    MSCTransformer,
     NormaliseTransformer,
     SavitzkyGolayTransformer,
+    SNVTransformer,
 )
 from chemometrics_workbench.regression import PLS, rmsecv_curve
 from chemometrics_workbench.validation import (
@@ -64,6 +67,16 @@ PREPROCESS_BLOCK = (slice(0, 5), slice(0, 8))
 SAVGOL_WINDOW = 5
 SAVGOL_POLYORDER = 2
 
+# The baseline references are computed on a wider, shallower block, because a
+# baseline over eight variables is not a baseline. Repeated from the generator
+# for the same reason as PREPROCESS_BLOCK: a mismatch would compare two
+# different blocks and pass.
+BASELINE_BLOCK = (slice(0, 3), slice(0, 120))
+ASLS_LAM = 1e5
+ASLS_P = 0.01
+ASLS_ITERATIONS = 20
+POLYNOMIAL_ORDER = 2
+
 
 def _block(name: str) -> np.ndarray:
     return LOADERS[name]().spectra[PREPROCESS_BLOCK]
@@ -75,6 +88,10 @@ def _folds_from_entry(entry: dict[str, object]) -> list[Fold]:
     return folds_from_indices(
         [f["train_indices"] for f in folds], [f["test_indices"] for f in folds]
     )
+
+
+def _baseline_block(name: str) -> np.ndarray:
+    return LOADERS[name]().spectra[BASELINE_BLOCK]
 
 
 def _centred(name: str) -> np.ndarray:
@@ -166,6 +183,103 @@ def test_savitzky_golay_agrees_with_the_reference_at_the_first_and_last_variable
         rtol=parity.TOLERANCES["smoothing"].rtol,
         atol=parity.TOLERANCES["smoothing"].atol,
     )
+
+
+# --------------------------------------------------------------------------
+# scatter correction and baselines, against chemotools
+# --------------------------------------------------------------------------
+#
+# These five quantities had no external reference at all until #13 evaluated
+# chemotools and #27 wired it in: neither scikit-learn nor SciPy implements
+# scatter correction or baseline estimation. The identity tests in
+# test_preprocessing.py stay exactly where they are — an SNV row has mean 0 and
+# standard deviation 1 *by construction*, which is a stronger statement than
+# agreement with anyone — and these add the second opinion that the identities
+# cannot give: that our arithmetic matches somebody else's.
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_snv_matches_the_reference_at_its_ddof(dataset: str) -> None:
+    """`ddof=0` is passed explicitly, exactly as for autoscaling.
+
+    chemotools uses the population standard deviation and offers no choice;
+    our default is `ddof=1`, the sample convention used for eigenvalues and for
+    SEC and SEP. Comparing our default here would fail on a convention rather
+    than on a defect, so the comparison is made at the reference's convention —
+    and at that convention the two are bit-identical.
+    """
+    ours = SNVTransformer(ddof=0).fit_transform(_block(dataset))
+    result = parity.check(f"{dataset}.preprocess.snv.chemotools", ours)
+    assert result.passed
+    assert result.tier is parity.Tier.IDENTICAL
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_msc_matches_the_reference(dataset: str) -> None:
+    """The same estimator by a differently conditioned route.
+
+    chemotools forms the normal equations for the two-column design
+    `[reference, 1]` and inverts `A'A`; our kernel centres the reference and
+    projects onto it. Same regression, and the normal-equation route squares
+    the condition number — which is why this quantity has its own tolerance
+    class and why the agreement is 3.5e-17 on gasoline and 2.9e-10 on tecator,
+    whose absorbances are an order of magnitude larger and whose normal
+    equations are correspondingly worse conditioned.
+    """
+    ours = MSCTransformer("mean").fit_transform(_block(dataset))
+    assert parity.check(f"{dataset}.preprocess.msc.chemotools", ours).passed
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_asls_baseline_matches_the_reference(dataset: str) -> None:
+    """Two independent implementations of Eilers and Boelens, and two solvers.
+
+    chemotools factorises the penalised system as a banded Cholesky and runs a
+    fixed iteration count with no convergence test; ours solves the sparse
+    system and stops at an exact fixed point of the reweighting. The iteration
+    caps are matched deliberately — and once our weights stop changing the
+    remaining iterations change nothing, so the two agree whether ours stopped
+    early or ran to the cap. That is asserted here rather than assumed.
+    """
+    kernel = BaselineCorrectTransformer("asls", lam=ASLS_LAM, p=ASLS_P, max_iter=ASLS_ITERATIONS)
+    ours = kernel.fit_transform(_baseline_block(dataset))
+
+    assert kernel.n_iterations_ is not None
+    assert (kernel.n_iterations_ <= ASLS_ITERATIONS).all()
+    assert parity.check(f"{dataset}.preprocess.baseline_asls.chemotools", ours).passed
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_rubberband_baseline_matches_the_reference(dataset: str) -> None:
+    """Bit-identical, and it should be.
+
+    The lower convex hull is decided by comparisons rather than by arithmetic,
+    so two correct implementations cannot differ by rounding. Anything other
+    than an exact match here is a different hull, not a different sum, and the
+    tier is asserted for that reason.
+    """
+    ours = BaselineCorrectTransformer("rubberband").fit_transform(_baseline_block(dataset))
+    result = parity.check(f"{dataset}.preprocess.baseline_rubberband.chemotools", ours)
+    assert result.passed
+    assert result.tier is parity.Tier.IDENTICAL
+    assert result.max_abs_diff == 0.0
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_polynomial_baseline_matches_the_reference(dataset: str) -> None:
+    """The evidence that mapping the index onto [-1, 1] changes nothing.
+
+    chemotools fits against the raw variable index; our kernel maps it onto
+    [-1, 1] first, because a raw index over 700 variables to the fourth power
+    spans 1e11 and the fit is then decided by the least-squares cutoff rather
+    than by the data. `smoothing-and-baselines.md` claims that is exactly an
+    affine change of variable. Two fits against differently scaled abscissae
+    agreeing to the last bits is what that claim looks like when it is true.
+    """
+    ours = BaselineCorrectTransformer("polynomial", order=POLYNOMIAL_ORDER).fit_transform(
+        _baseline_block(dataset)
+    )
+    assert parity.check(f"{dataset}.preprocess.baseline_polynomial.chemotools", ours).passed
 
 
 # --------------------------------------------------------------------------

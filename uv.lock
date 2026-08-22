@@ -98,6 +98,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "chemotools" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "rdata" },
@@ -114,11 +115,26 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "chemotools", specifier = ">=0.4.3" },
     { name = "mypy", specifier = ">=1.11" },
     { name = "pytest", specifier = ">=8.3" },
     { name = "rdata", specifier = ">=0.11" },
     { name = "ruff", specifier = ">=0.6" },
     { name = "scikit-learn", specifier = ">=1.5" },
+]
+
+[[package]]
+name = "chemotools"
+version = "0.4.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "scikit-learn" },
+    { name = "scipy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/bc/a1/e7c33f4629f823629595ca0e517f88764f1390e5e45ee078feda81302ea7/chemotools-0.4.3.tar.gz", hash = "sha256:cecc027773a95d2511b68b86a87222d3d8e0ab6efb0f7c0e24b5fd27d7fc5e26", size = 48038386, upload-time = "2026-06-30T05:32:20.549Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7d/c8/262f27a32976abd708c6d08827bf02cf7df2c14c210167977b03ac966a48/chemotools-0.4.3-py3-none-any.whl", hash = "sha256:61ae1baad906aabd1a95c02e234eb4a65f1549ed05c54e30a0285d7e4e8e9435", size = 7679235, upload-time = "2026-06-30T05:32:18.068Z" },
 ]
 
 [[package]]
