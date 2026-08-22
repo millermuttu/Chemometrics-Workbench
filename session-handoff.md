@@ -8,25 +8,23 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 ## Where things stand
 
-**Every kernel is written and the `chemotools` question is decided.** Phase 0 has one deliverable left that was in the original plan — the parity report, #14 — plus two small sourcing features that #13 turned up.
+**Phase 0 has one deliverable left: the parity report, #14.** Every kernel is written, every fixture entry that can be sourced here is sourced, and `kernel-pca` is no longer blocked.
 
-Issues #1–#10, #12, #13 and #30 are merged and closed. **#11 is merged but deliberately still open**, blocked on the one verification step that has nothing to verify against — **and #13 found what verifies it, without R**. Pull requests #26, #29 and #31 merged on 2026-08-22 and their branches are deleted locally and on origin. Nothing is in flight.
+Issues #1–#13, #27, #28 and #30 are merged and closed. **#11 closed too** — the verification step it had been blocked on since it landed was run at last, via #28. Pull requests #26, #29, #31, #32 and #33 merged on 2026-08-22 and their branches are deleted locally and on origin. Nothing is in flight.
 
-**The parity fixture is fully covered by what is in it.** `parity-results.json` records 66 comparisons, 66 passed, and **`not_compared` is empty**. What is missing is not coverage of the entries but *entries*: eight quantities across SNV, MSC, the three baselines and the two PCA limits are `unsourced`, and #27 and #28 now source all of them from `chemotools`.
+**The fixture is as sourced as this machine can make it.** 94 entries, 87 sourced, and `parity-results.json` records 87 comparisons, 87 passed, `not_compared` empty. What is still `unsourced` is six R `mdatools` entries and one corn PCA loading vector — the first needs R (#24), the second needs a paper that states its preprocessing chain precisely enough to reproduce, and neither is on the critical path.
 
-**What is left in Phase 0**: `reference-values-chemotools` (#27), `reference-values-chemotools-limits` (#28), `parity-report` (#14), and `reference-values-r-mdatools` (#24, no longer on the critical path).
+**What is left in Phase 0**: `parity-report` (#14), and `reference-values-r-mdatools` (#24) whenever R is installed.
 
-### Why #11 is blocked, and what now unblocks it
+### #11 is passing, and the caveat is worth carrying into #14
 
-Its fourth verification step asks that the T² and SPE limits **match published values**. When it landed there were none: scikit-learn reports neither limit, and the only reference identified was R `mdatools`, which is not installed here (#24).
+Its fourth verification step asked that the T² and SPE limits **match published values**. What they now match is `chemotools` 0.4.3 — an open implementation pinned by version, which is what `PROPOSAL.md` §10 calls a tier-1 reference and what every scikit-learn entry in the fixture already is, but **not a number printed in a paper**. Specifically:
 
-**#13 found a second reference, and it is a better one.** `chemotools.outliers` reports both limits from a fitted scikit-learn model, and measured against our PCA on all three datasets:
+- **The SPE limit matches exactly** — 1.6e-18, 2.2e-19, 5.6e-18 across the three datasets. It is the first PCA diagnostic claim that tests our *formula*: `T²`, SPE and the cumulative explained variance entries are all our formula on scikit-learn's decomposition, because scikit-learn reports none of them.
+- **The T² limit matches nothing.** `chemotools` computes `a(n−1)/(n−a)·F`, `pca.md` §7's new-sample form is `a(n²−1)/(n(n−a))·F`, and the test proves the ratio is exactly `(n+1)/n` before recording the divergence — so a drift in either formula fails, where a bare `record_divergence()` would pass forever.
+- **The beta form for calibration samples has no external counterpart at all** and is still checked against its coverage alone.
 
-- **Our SPE limit and theirs are the same number** — both Jackson–Mudholkar, agreeing to 2.3e-15 relative.
-- **The T² limits differ by exactly `(n+1)/n`**, because theirs is `a(n−1)/(n−a)·F` and our new-sample form is `a(n²−1)/(n(n−a))·F`. That is a documented convention difference with the formula identified, which is what the harness's third tier exists for — not a failure.
-- The T² and SPE *statistics* agree with ours to 4.7e-13 and 3.4e-16, which is a second independent check on the diagnostics themselves.
-
-**#28 is the work**, and it is what should flip `kernel-pca` to `passing`. **#24 (R `mdatools`) is no longer the only route** — it stays worth having, because SIMPLS is a genuinely different algorithm where `chemotools` is another Python implementation on the same NumPy, but nothing is waiting on it.
+**#14 must not describe these three the same way.** If the maintainer reads step 4 as requiring a literature value, #11's honest status is still `blocked` and #24 is what closes it — the evidence field says exactly what was and was not matched, so the status can be reverted without touching it.
 
 **The offline question was raised and settled** in an earlier session. Corn and gasoline are downloaded rather than committed. The option of writing to Eigenvector and Prof. Kalivas to ask for redistribution permission was offered and **declined — do not open that issue and do not chase it.**
 
@@ -37,39 +35,39 @@ Its fourth verification step asks that the T² and SPE limits **match published 
 | Current branch | `dev`, clean, in sync with origin |
 | Open pull requests | None |
 | `main` | behind `dev`; receives a merge only at the end of Phase 0 |
-| Open issues | 5 — #11 (blocked, merged), #14, #24, #27, #28 |
-| Feature statuses | 12 × `passing`, 2 × `blocked`, 3 × `not_started` |
-| Parity claims | 66 compared, 66 passed, 60 identical-within-float, 5 within tolerance, 1 documented divergence, **0 not compared** |
-| Verification | `uv run ruff check`, `ruff format --check`, `mypy`, `pytest` — all green (408 tests), enforced by CI on 3.12 and 3.13 |
+| Open issues | 2 — #14, #24 |
+| Feature statuses | 16 × `passing`, 1 × `blocked`, 1 × `not_started` |
+| Parity claims | 87 compared, 87 passed, 73 identical-within-float, 10 within tolerance, 4 documented divergences, **0 not compared** |
+| Verification | `uv run ruff check`, `ruff format --check`, `mypy`, `pytest` — all green (421 tests), enforced by CI on 3.12 and 3.13 |
 | Runtime dependencies | `pydantic`, `numpy`, `scipy`. **`scikit-learn` and `chemotools` are dev-only and must stay that way** (#13) |
 
 ## Active feature
 
-None is `in_progress`. Two are `blocked`, and they are no longer blocked on the same thing:
+None is `in_progress`. One is `blocked`:
 
-- **`kernel-pca` (#11)** — code merged and green; blocked on its published-limit verification step, which **#28 can now run**. Leave it `blocked` until that has actually been done, not because it is expected to pass.
-- **`reference-values-r-mdatools` (#24)** — blocked on R not being installed, which is an environment decision rather than a coding task. No longer blocking anything else.
+- **`reference-values-r-mdatools` (#24)** — blocked on R not being installed, which is an environment decision rather than a coding task. It is no longer blocking anything: #28 sourced the limits from `chemotools` instead. It stays worth doing because R `mdatools` is SIMPLS and a different lineage, where `chemotools` is another Python implementation on the same NumPy.
 
 ## Next action
 
-**`reference-values-chemotools` (#27) next**, then #28, then #11's re-verification, then #14. That order is not arbitrary: #27 and #28 both add `chemotools` to the dev group and regenerate the same fixture, so running them in parallel would conflict, and #14 must not be written until the entries it describes exist.
+**`parity-report` (#14) — the last feature in Phase 0, and its exit criterion.** Everything it depends on is `passing`.
 
 ```bash
 git fetch origin
-git checkout -b feature/27_reference-values-chemotools origin/dev
-CHEMOMETRICS_DOWNLOAD_DATASETS=1 uv run pytest   # once, to populate the dataset cache
+git checkout -b feature/14_parity-report origin/dev
+CHEMOMETRICS_DOWNLOAD_DATASETS=1 uv run pytest   # populates the cache and writes parity-results.json
 ```
 
-Read `docs/decisions/0001-chemotools.md` first — it is the decision #27 and #28 implement, and every number they need is in it. Re-derive them with:
+`parity-results.json` is the input: it is regenerated by any pytest run that makes a comparison, it is gitignored, and it already carries per claim the tier, the tolerance and the reason that tolerance was chosen. **The report renders that file; it must not recompute anything**, or there are two sources of truth for the same numbers.
 
-```bash
-CHEMOMETRICS_DOWNLOAD_DATASETS=1 uv run --with chemotools==0.4.3 python \
-    docs/decisions/0001-chemotools-evidence.py
-```
+What the report must not overstate — all of it is in the findings below, and three items are specifically about claims that look stronger than they are:
 
-**The trap in #27 is MSC.** It agrees to 1e-10 relative, which is outside the `preprocessing` tolerance class's 1e-12. Widening that class to make it pass would destroy the thing the class exists for — it is tight on purpose, to catch a `ddof` convention or a differently-defined norm. Give MSC its own class with a stated reason, or record the difference. Do not touch `preprocessing`.
+- **T², SPE, the cumulative explained variance and VIP are our formula on scikit-learn's decomposition**, because scikit-learn reports none of them. An independent *decomposition*, not an independent formula.
+- **The SPE limit is different in kind** — `chemotools` computes Jackson-Mudholkar itself, so that one claim does test our formula.
+- **Tecator obliges you to name the instrument and company** (Tecator) wherever a Tecator result is published. A condition of use, not a courtesy.
+- **The R `pls` vignette entries are the only genuinely published numbers being reproduced.** Everything else is an open implementation pinned by version. Say which is which.
+- Seven entries are still `unsourced` and the report must show them as gaps rather than omit them.
 
-The second trap is the SNV entry: generate it at **`ddof=0`**, because `chemotools` uses the population standard deviation where our default is `ddof=1`, and say so in the entry's notes. The autoscale entry already does exactly this against `StandardScaler`, and is the worked example.
+After #14: open a pull request from `dev` into `main`, merge it, tag the release, and only then start Phase 1.
 
 **One feature at a time.** The protocol allows exactly one `in_progress`, and a `blocked` feature does not count against that.
 
@@ -153,6 +151,16 @@ From #12 (PLS kernel):
 - **Folds are data, never a seed, and this is load-bearing in three places** — the fixture, `validation.folds_from_indices()`, and `ResolvedSplit`. `cross_validated_predictions()` refuses a split that is not a partition of the samples *before* pooling anything, because a sample missing from every validation set shrinks the sum silently.
 - **Centring is refitted inside each fold**, and a test pins the direction as well as the difference: leaking the full-set mean into the folds gives a *smaller* RMSECV, which is what makes it tempting.
 - **SEC, SEP, Q² and `coefficients_original_units` are specified but not implemented.** Nothing verified them in #12 and the export format that needs the last one is #14's. They are the known gap between `metrics-and-validation.md` §5–§6 and `validation.py`.
+
+From #27 and #28 (sourcing from chemotools):
+
+- **The five preprocessing entries and the two PCA limits are now sourced**, and the identity tests that stood in for them are still there. An SNV row has mean 0 and standard deviation 1 *by construction*, which is a stronger statement than agreeing with anybody; chemotools adds the second opinion the identities cannot give and does not replace them.
+- **A new tolerance class, `second_implementation` (rtol=1e-7, atol=1e-8), holds MSC and AsLS**, and its reason is the mechanism rather than the measurement: chemotools inverts the normal equations for the MSC design where our kernel projects onto a centred reference, and factorises AsLS as a banded Cholesky where ours solves the sparse system. **`preprocessing` stayed at 1e-12 and `smoothing` at 1e-9** — nothing was widened, which was the whole trap in #27.
+- **The baseline entries live on a 3 × 120 block**, not the 5 × 8 preprocessing block. `BASELINE_BLOCK` in `test_parity.py` must stay in step with `BASELINE_ROWS`/`BASELINE_COLUMNS` in the generator — the same standing trap as `PREPROCESS_BLOCK`, and it fails silently rather than loudly.
+- **Rubberband is asserted as exactly 0.0**, not as within tolerance. A convex hull is decided by comparisons, so two correct implementations cannot differ by rounding; anything non-zero is a different hull.
+- **The polynomial baseline agreeing to 1e-16 is the evidence for the [-1, 1] mapping.** chemotools fits against the raw index and we map first; `smoothing-and-baselines.md` claims that is exactly an affine change of variable, and this is what the claim looks like when it is true.
+- **The T² divergence is proven, not declared.** The test checks `ours/theirs == (n+1)/n` before calling `record_divergence()`. Any divergence that has a known factor should be recorded this way — the bare call would pass forever after a formula drifted.
+- **The fixture is 660 KB and 94 entries.** Both grew by about a fifth; the arrays are stored in full because the harness compares elementwise.
 
 From #13 (chemotools evaluation):
 
