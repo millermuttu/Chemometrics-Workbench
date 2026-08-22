@@ -41,7 +41,8 @@ Follow this on every session. It exists because the failure mode in a long solo 
 
 When scaffolding, use these — they are the recorded stack, and deviating from them is a decision worth surfacing:
 
-- **Backend:** Python, `uv` for environment and dependency management, FastAPI, Pydantic, NumPy, SciPy, pandas, scikit-learn. Lint with `ruff`, type-check with `mypy`, test with `pytest`.
+- **Backend:** Python, `uv` for environment and dependency management, FastAPI, Pydantic, NumPy, SciPy, pandas. Lint with `ruff`, type-check with `mypy`, test with `pytest`.
+- **`scikit-learn` and `chemotools` are development dependencies, not runtime ones**, and must not be added to `[project.dependencies]`. They are the open reference implementations the parity fixtures are generated against; a kernel that imported either would be a wrapper around the thing we claim parity with. `chemotools` was evaluated in Phase 0 (#13) and rejected for the runtime for that reason plus its weight — it requires scikit-learn and installs 20 MB, 17 MB of it bundled example data. It is adopted as a reference for SNV, MSC and the baselines, which have no other. The evidence is in `docs/decisions/0001-chemotools.md`.
 - **Frontend:** Node.js with `pnpm`, Vite, React, TypeScript, Tailwind CSS, shadcn/ui, TanStack Query, Plotly.js. Test with `vitest`, end-to-end with `playwright`.
 - **Data:** SQLite via SQLAlchemy for metadata, pipelines, experiments, metrics and lineage. Files (datasets, processed arrays, model artifacts, reports) live in the project directory on disk; the database stores references, never contents.
 - **Packaging:** PyInstaller, three-platform GitHub Actions matrix.
@@ -76,5 +77,7 @@ At the end of a phase: open a pull request from `dev` into `main`, merge it, tag
 The repository's release branch is named `main` — there is no `master`.
 
 ## Documents
+
+Decisions that were taken with evidence and should not be re-argued from preference live in `docs/decisions/`, numbered and dated. Read the relevant one before revisiting a dependency or a convention it covers.
 
 `PROPOSAL.md` is canonical and git-diffable. A designed HTML rendering of the same content is published as an artifact at https://claude.ai/code/artifact/3d5f2071-b55a-4197-aa97-409146fbb488 — when `PROPOSAL.md` changes materially, the artifact should be republished to that same URL so the two do not drift.
