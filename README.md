@@ -22,20 +22,6 @@ No competing open-source chemometrics project publishes one, and `PROPOSAL.md` �
 argument for why this one does: it is the artifact that turns "an open-source tool" into "a
 tool I can put in a paper".
 
-## What is implemented
-
-| | |
-| --- | --- |
-| Preprocessing | Mean centring, autoscaling, normalisation, SNV, MSC, Savitzky–Golay and derivatives, AsLS / rubberband / polynomial baselines, range selection |
-| Decomposition | PCA with Hotelling's T², SPE and both confidence limits |
-| Regression | PLS1 by NIPALS with VIP, explained variance and the same two diagnostics |
-| Validation | RMSE, bias, R², K-fold and leave-one-out assignment, pooled-residual RMSECV |
-| Reproducibility | The Pydantic schema for projects, pipelines, splits, experiments and lineage |
-
-Every one of them is specified before it is written. The specifications are normative and
-live in [`docs/algorithms/`](docs/algorithms/); where an implementation and its specification
-disagree, one of them is a bug and the disagreement is resolved before either changes.
-
 ## Documents
 
 | | |
