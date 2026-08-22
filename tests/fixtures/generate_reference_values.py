@@ -245,6 +245,16 @@ def sklearn_entries(name: str, dataset: ReferenceDataset) -> list[dict[str, Any]
     # every metric is computed there (metrics-and-validation.md §2).
     predictions = np.asarray(pls.predict(centred)).ravel() + y.mean()
 
+    # VIP, computed here from scikit-learn's own weights, scores and y-loadings
+    # by the Wold form in pls-regression.md §8. scikit-learn reports no VIP, so
+    # this is our formula on an independent decomposition - the same standing
+    # as the PCA T^2 and SPE entries, and it must not be presented in the
+    # report as more than that.
+    y_loadings = np.asarray(pls.y_loadings_).ravel()
+    explained = y_loadings**2 * (np.asarray(pls.x_scores_) ** 2).sum(axis=0)
+    unit_weights = np.asarray(pls.x_weights_) / np.linalg.norm(pls.x_weights_, axis=0)
+    vip = np.sqrt(spectra.shape[1] * ((unit_weights**2) @ explained) / explained.sum())
+
     folds = kfold_indices(len(y), N_FOLDS, SEED)
     split = {
         "strategy": "k_fold",
@@ -420,6 +430,23 @@ def sklearn_entries(name: str, dataset: ReferenceDataset) -> list[dict[str, Any]
             notes=(
                 f"Target '{target}', A={N_COMPONENTS}. Residual form, not squared "
                 "Pearson correlation (§6)."
+            ),
+            **pls_common,
+        ),
+        entry(
+            entry_id=f"{name}.pls.vip.sklearn",
+            quantity="vip",
+            value=vip.tolist(),
+            split=None,
+            notes=(
+                f"Target '{target}', A={N_COMPONENTS}. Wold's form, weighted by "
+                "SS_a = q_a^2 (t_a't_a) and normalised so that sum_j VIP_j^2 = p "
+                "(pls-regression.md §8). scikit-learn reports no VIP, so this is "
+                "computed here from its weights, scores and y-loadings by the "
+                "definition - an independent decomposition rather than an independent "
+                "formula, exactly as for the PCA T^2 and SPE entries. Sign-invariant: "
+                "every weight is squared. Several published VIP variants exist and "
+                "this one is the standard Wold form."
             ),
             **pls_common,
         ),

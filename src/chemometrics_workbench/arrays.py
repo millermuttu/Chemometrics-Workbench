@@ -13,7 +13,7 @@ from __future__ import annotations
 import numpy as np
 from numpy.typing import NDArray
 
-__all__ = ["as_float64"]
+__all__ = ["as_float64", "as_float64_vector"]
 
 
 def as_float64(array: object, name: str) -> NDArray[np.float64]:
@@ -31,5 +31,28 @@ def as_float64(array: object, name: str) -> NDArray[np.float64]:
             f"row {rows[0]}, column {columns[0]}. Missing values are handled upstream "
             "and visibly: exclude the sample, exclude the variable, or add an "
             "imputation step to the pipeline."
+        )
+    return values
+
+
+def as_float64_vector(array: object, name: str) -> NDArray[np.float64]:
+    """The same contract for a response vector: 1-D, finite, float64.
+
+    A response is one value per sample and is never silently ravelled from a
+    column matrix, because an `n x 1` array and a `1 x n` array look alike in
+    every printout and mean opposite things.
+    """
+    values = np.asarray(array, dtype=np.float64)
+    if values.ndim != 1:
+        raise ValueError(
+            f"{name} must be 1-D, one value per sample; got shape {values.shape}. "
+            "Ravel it deliberately if that is what was meant."
+        )
+    if not np.isfinite(values).all():
+        positions = np.nonzero(~np.isfinite(values))[0]
+        raise ValueError(
+            f"{name} holds {positions.size} non-finite values, first at position "
+            f"{positions[0]}. Missing responses are handled upstream and visibly: "
+            "exclude the sample, or model a different response."
         )
     return values

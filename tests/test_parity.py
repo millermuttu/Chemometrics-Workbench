@@ -3,14 +3,14 @@
 Run it alone with `uv run pytest -m parity`; it also runs as part of the full
 suite, and writes `parity-results.json` either way.
 
-The preprocessing cases call the kernels in
-`chemometrics_workbench.preprocessing`, and the PCA cases call
-`chemometrics_workbench.decomposition.PCA`. The PLS cases do not yet call a
-kernel — that is #12 — so what they compare is arithmetic the specification
-defines directly: prediction from coefficients, and the RMSEC denominator.
-Each is still a real comparison against a real fixture entry at a real
-tolerance, and each is rewritten to call its kernel when one lands. The entry
-id, the tolerance and the tier stay as they are when that happens.
+Every case now calls a kernel: the preprocessing cases call
+`chemometrics_workbench.preprocessing`, the PCA cases call
+`chemometrics_workbench.decomposition.PCA`, and the PLS cases call
+`chemometrics_workbench.regression.PLS` and the cross-validation in the same
+module. The two published R `pls` claims are the strongest in the file — the
+vignette's leave-one-out RMSECV curve over the first 50 gasoline samples is
+deterministic, with no shuffle stream to reconcile against ours, and R `pls`
+computes MSEP as `SSE/nobj`, the same divisor as our RMSECV.
 
 Every case takes the same shape: compute a quantity, hand it to
 `parity.check()` with the fixture entry it should match, and let the harness
@@ -29,6 +29,15 @@ from chemometrics_workbench.preprocessing import (
     MeanCentreTransformer,
     NormaliseTransformer,
     SavitzkyGolayTransformer,
+)
+from chemometrics_workbench.regression import PLS, rmsecv_curve
+from chemometrics_workbench.validation import (
+    Fold,
+    folds_from_indices,
+    k_fold,
+    leave_one_out,
+    r2,
+    rmse,
 )
 from tests import parity
 
@@ -58,6 +67,14 @@ SAVGOL_POLYORDER = 2
 
 def _block(name: str) -> np.ndarray:
     return LOADERS[name]().spectra[PREPROCESS_BLOCK]
+
+
+def _folds_from_entry(entry: dict[str, object]) -> list[Fold]:
+    """The fixture's resolved indices, replayed as a stored `ResolvedSplit` is (§10)."""
+    folds = entry["split"]["folds"]  # type: ignore[index]
+    return folds_from_indices(
+        [f["train_indices"] for f in folds], [f["test_indices"] for f in folds]
+    )
 
 
 def _centred(name: str) -> np.ndarray:
@@ -157,6 +174,11 @@ def test_savitzky_golay_agrees_with_the_reference_at_the_first_and_last_variable
 
 
 N_COMPONENTS = 5
+
+# The component count the RMSECV curve runs to. Both are repeated from the
+# generator for the same reason as PREPROCESS_BLOCK above: a mismatch would
+# compare a different model and pass.
+MAX_PLS_COMPONENTS = 10
 
 # One fit per dataset, reused across the PCA cases below. The model is what is
 # being compared from six angles, so fitting it six times would only be slower.
@@ -262,62 +284,207 @@ def test_spe_matches_the_reference(dataset: str, pca_models: dict[str, PCA]) -> 
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
-def test_predictions_follow_from_the_coefficients(
-    dataset: str, fixture_entries: dict[str, dict[str, object]]
-) -> None:
-    """`pls-regression.md` §5: y_hat = Xb, un-centred back to original units.
+@pytest.fixture(scope="module")
+def pls_models() -> dict[str, PLS]:
+    """One fitted PLS per dataset, on the centred matrix and centred response.
 
-    `metrics-and-validation.md` §2 requires the response's original units, so
-    the calibration mean goes back on before anything is compared. Coefficients
-    are sign-invariant already (§5), so no alignment is involved here.
+    `pls-regression.md` §3: the kernel centres nothing, so both blocks are
+    centred here through the preprocessing kernel — and the fixture was
+    generated the same way, with `scale=False` passed to scikit-learn, which
+    would otherwise have centred internally *and* scaled by default.
     """
-    target = parity.load_fixture()["targets"][dataset]
-    dataset_object = LOADERS[dataset]()
-    y = dataset_object.targets[target]
+    return {
+        name: PLS(N_COMPONENTS).fit(_centred(name), _centred_response(name)) for name in DATASETS
+    }
 
-    coefficients = parity.as_array(fixture_entries[f"{dataset}.pls.coefficients.sklearn"]["value"])
-    predictions = _centred(dataset) @ coefficients + y.mean()
 
-    result = parity.check(f"{dataset}.pls.predictions.sklearn", predictions)
+def _target(dataset: str) -> np.ndarray:
+    values: np.ndarray = LOADERS[dataset]().targets[parity.load_fixture()["targets"][dataset]]
+    return values
+
+
+def _centred_response(dataset: str) -> np.ndarray:
+    y = _target(dataset)
+    return y - y.mean()
+
+
+def _predictions(dataset: str, models: dict[str, PLS]) -> np.ndarray:
+    """Calibration predictions in the response's original units.
+
+    The kernel returns them on the scale it was fitted on; the calibration mean
+    goes back on here, because `metrics-and-validation.md` §2 computes every
+    metric in the original units of the reference method.
+    """
+    return models[dataset].predict(_centred(dataset)) + _target(dataset).mean()
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_pls_coefficients_match_the_reference(dataset: str, pls_models: dict[str, PLS]) -> None:
+    """`pls-regression.md` §5: b = Rq, on the centred matrix so there is no intercept.
+
+    Sign-invariant by construction — flipping a component negates `w`, `t`, `p`
+    and `q` together and leaves `Rq` unchanged — so this is compared without
+    alignment, and asserting that is part of the claim. It is also the case
+    that would fail if y were not deflated (§4): the first component would
+    still agree and the rest would not.
+    """
+    result = parity.check(f"{dataset}.pls.coefficients.sklearn", pls_models[dataset].coefficients_)
+    assert result.passed
+    assert not result.sign_aligned, "b = Rq is already sign-invariant (§5)"
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_pls_predictions_match_the_reference(dataset: str, pls_models: dict[str, PLS]) -> None:
+    """`pls-regression.md` §5: y_hat = Xb, un-centred back to original units (§2)."""
+    result = parity.check(f"{dataset}.pls.predictions.sklearn", _predictions(dataset, pls_models))
     assert result.passed
     assert not result.sign_aligned
 
 
 @pytest.mark.parametrize("dataset", DATASETS)
-def test_rmsec_follows_from_the_predictions(
-    dataset: str, fixture_entries: dict[str, dict[str, object]]
-) -> None:
+def test_rmsec_follows_from_the_predictions(dataset: str, pls_models: dict[str, PLS]) -> None:
     """`metrics-and-validation.md` §4: the divisor is n, not n - A - 1.
 
     A package dividing by n - A - 1 under this name is reporting our SEC, and
     on these datasets the difference is a few percent — comfortably outside
     the metric tolerance, so this case would catch it.
     """
-    target = parity.load_fixture()["targets"][dataset]
-    y = LOADERS[dataset]().targets[target]
-    predictions = parity.as_array(fixture_entries[f"{dataset}.pls.predictions.sklearn"]["value"])
-    rmsec = np.sqrt(np.mean((y - predictions) ** 2))
-
-    assert parity.check(f"{dataset}.pls.rmsec.sklearn", rmsec).passed
+    ours = rmse(_target(dataset), _predictions(dataset, pls_models))
+    assert parity.check(f"{dataset}.pls.rmsec.sklearn", ours).passed
 
 
 @pytest.mark.parametrize("dataset", DATASETS)
-def test_r2_is_the_residual_form(
-    dataset: str, fixture_entries: dict[str, dict[str, object]]
-) -> None:
+def test_r2_is_the_residual_form(dataset: str, pls_models: dict[str, PLS]) -> None:
     """`metrics-and-validation.md` §6: residual form, not squared correlation.
 
     The two coincide for a least-squares fit on the same data, which is what
     this case is, so passing here does not distinguish them. The distinction
     bites on a prediction set and is tested when one exists.
     """
-    target = parity.load_fixture()["targets"][dataset]
-    y = LOADERS[dataset]().targets[target]
-    predictions = parity.as_array(fixture_entries[f"{dataset}.pls.predictions.sklearn"]["value"])
-    r2 = 1.0 - np.sum((y - predictions) ** 2) / np.sum((y - y.mean()) ** 2)
+    ours = r2(_target(dataset), _predictions(dataset, pls_models))
+    assert parity.check(f"{dataset}.pls.r2.sklearn", ours).passed
 
-    assert parity.check(f"{dataset}.pls.r2.sklearn", r2).passed
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_vip_matches_the_reference(dataset: str, pls_models: dict[str, PLS]) -> None:
+    """`pls-regression.md` §8, Wold's form.
+
+    scikit-learn reports no VIP, so the reference is computed in the generator
+    from *its* weights, scores and y-loadings by the definition — our formula
+    on an independent decomposition, which is exactly what the PCA T^2 and SPE
+    claims are and must not be reported as more. The normalisation is checked
+    against its own identity here as well, since a VIP that agrees with the
+    reference and does not satisfy `sum VIP^2 = p` would mean both sides
+    dropped the same factor.
+    """
+    vip = pls_models[dataset].vip()
+    result = parity.check(f"{dataset}.pls.vip.sklearn", vip)
+    assert result.passed
+    assert not result.sign_aligned, "every weight is squared, so VIP carries no sign"
+    assert float((vip**2).sum()) == pytest.approx(vip.size)
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_rmsecv_curve_matches_the_reference(dataset: str) -> None:
+    """The claim the whole cross-validation protocol rests on.
+
+    **The fold indices are read out of the fixture**, never reseeded, because
+    `metrics-and-validation.md` §8.2 makes ours `default_rng` (PCG64) and
+    scikit-learn's a legacy `RandomState`: seeding both with 42 gives different
+    folds, and a test written that way passes while comparing two different
+    experiments. `test_our_splitter_reproduces_the_recorded_folds` below checks
+    separately that our splitter would have produced these same indices.
+
+    Centring is refitted inside each fold (§9), and the residuals are pooled
+    across folds and rooted once (§7) rather than averaged as per-fold RMSEs.
+    """
+    entry = parity.entries_by_id()[f"{dataset}.pls.rmsecv_curve.sklearn"]
+    folds = _folds_from_entry(entry)
+    dataset_object = LOADERS[dataset]()
+
+    curve = rmsecv_curve(dataset_object.spectra, _target(dataset), folds, MAX_PLS_COMPONENTS)
+    assert parity.check(f"{dataset}.pls.rmsecv_curve.sklearn", curve).passed
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_our_splitter_reproduces_the_recorded_folds(dataset: str) -> None:
+    """The other half of the case above: the recorded indices are *ours*.
+
+    Reading fold indices out of the fixture makes the RMSECV comparison valid,
+    and it would stay valid even if our splitter drifted — so the splitter is
+    checked against the same indices here. Together the two say that the curve
+    agrees with scikit-learn *and* that the split it was computed on is the one
+    `metrics-and-validation.md` §8.3 describes.
+    """
+    entry = parity.entries_by_id()[f"{dataset}.pls.rmsecv_curve.sklearn"]
+    recorded = _folds_from_entry(entry)
+    ours = k_fold(len(_target(dataset)), entry["split"]["n_folds"], seed=entry["split"]["seed"])
+
+    for mine, theirs in zip(ours, recorded, strict=True):
+        assert np.array_equal(mine.test, theirs.test)
+        assert np.array_equal(mine.train, theirs.train)
+
+
+# --------------------------------------------------------------------------
+# the published R pls claims
+# --------------------------------------------------------------------------
+
+
+def test_leave_one_out_rmsecv_matches_the_r_pls_vignette() -> None:
+    """The strongest claim in the fixture, and the only fully published one.
+
+    Leave-one-out over the first 50 gasoline samples: deterministic, so there
+    is no shuffle stream to reconcile (§8.4), and R `pls` computes MSEP as
+    `SSE/nobj` — divisor `n`, the same as ours — so the curve compares with no
+    definitional correction at all. The vignette prints four significant
+    figures, which is why the harness gives transcribed values their own
+    tolerance rather than the metric one.
+
+    Key `0` is the intercept-only model: no components, so each held-out
+    sample is predicted by its training fold's mean.
+    """
+    entry = parity.entries_by_id()["gasoline.pls.rmsecv_curve.r_pls_vignette"]
+    calibration = entry["split"]["calibration_indices"]
+    gasoline = load_gasoline()
+    spectra = gasoline.spectra[calibration]
+    y = gasoline.targets["octane"][calibration]
+
+    folds = leave_one_out(len(calibration))
+    intercept_only = np.array([float(y[fold.train].mean()) for fold in folds])
+    curve = np.concatenate(
+        [[rmse(y, intercept_only)], rmsecv_curve(spectra, y, folds, MAX_PLS_COMPONENTS)]
+    )
+
+    result = parity.check("gasoline.pls.rmsecv_curve.r_pls_vignette", curve)
+    assert result.passed
+    assert result.tier is parity.Tier.WITHIN_TOLERANCE, "a transcribed value is never identical"
+
+
+def test_explained_variance_matches_the_r_pls_vignette() -> None:
+    """The vignette's two-component `summary()`: 85.58% of X, 96.85% of octane.
+
+    X's share is `||t_a||^2 ||p_a||^2` over the total sum of squares of the
+    fitted matrix; the response's is `q_a^2 ||t_a||^2` over its own, whose
+    running total is the model's R^2 because the X-scores are orthogonal (§4).
+    Both denominators are the whole block — normalising over the retained
+    components would put this at 100% and it would still look plausible.
+    """
+    gasoline = load_gasoline()
+    calibration = parity.entries_by_id()["gasoline.pls.explained_variance.r_pls_vignette"]["split"][
+        "calibration_indices"
+    ]
+    spectra = gasoline.spectra[calibration]
+    y = gasoline.targets["octane"][calibration]
+
+    model = PLS(2).fit(spectra - spectra.mean(axis=0), y - y.mean())
+    ours = np.array(
+        [
+            model.cumulative_explained_variance("x")[-1],
+            model.cumulative_explained_variance("y")[-1],
+        ]
+    )
+
+    assert parity.check("gasoline.pls.explained_variance.r_pls_vignette", ours).passed
 
 
 # --------------------------------------------------------------------------

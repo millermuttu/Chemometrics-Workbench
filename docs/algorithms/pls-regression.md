@@ -70,7 +70,7 @@ Deflating $y$ as well as $X$ is the classical NIPALS formulation and is what `sc
 
 - $\lVert w_a \rVert = 1$
 - $t_a^{\top} t_b = 0$ for $a \neq b$ — the X-scores are mutually orthogonal
-- $w_a^{\top} w_b$ is *not* generally zero; the weights are not orthogonal, only the scores are
+- $w_a^{\top} w_b = 0$ for $a \neq b$ **in PLS1**, which this document specifies. The weights of a single-response NIPALS fit are orthogonal as well as unit length, and both our kernel and `scikit-learn` produce them so to within a few ulp. This does **not** hold for PLS2 (§10), where the weights are not orthogonal and only the scores are — so a test written for PLS2 does not transfer, and one written here will fail when PLS2 lands.
 
 **Stopping.** Iteration stops at $A$ components, or earlier if $\lVert E_{a}^{\top} f_{a} \rVert$ falls below $\varepsilon^{1/2} \cdot \lVert E_0^{\top} f_0 \rVert$, which means the response has been exhausted. Stopping early is reported, never silent.
 
@@ -135,7 +135,7 @@ An exported model therefore carries a **residual preprocessing chain** plus a co
 
 ---
 
-## 8. VIP scores
+## 8. VIP scores and explained variance
 
 With $\mathrm{SS}_a = q_a^{2}\, (t_a^{\top} t_a)$, the sum of squares of $y$ explained by component $a$:
 
@@ -148,6 +148,31 @@ Since weights are already unit length (§4), $\lVert w_a \rVert = 1$; it is writ
 VIP depends on $A$: it is a property of the fitted model, not of the data. Reporting VIP without the component count is meaningless.
 
 Multiple published variants exist. This one is the standard Wold form and is what the parity report compares.
+
+### Explained variance
+
+Each component takes a share of both blocks, and the two shares are what a
+summary table prints:
+
+$$\mathrm{XVar}_a = \lVert t_a \rVert^{2}\,\lVert p_a \rVert^{2}
+\qquad
+\mathrm{YVar}_a = q_a^{2}\,\lVert t_a \rVert^{2}$$
+
+each divided by the total sum of squares of the **whole** block as fitted —
+$\lVert X \rVert_F^{2}$ and $\lVert y \rVert^{2}$ — never by the part the retained
+components reach. Normalising over the retained components would make the
+cumulative curve reach 100% every time, which is the same mistake [`pca.md`
+§6](pca.md) warns about.
+
+$\mathrm{XVar}_a$ is exact because deflation removes the rank-one outer product
+$t_a p_a^{\top}$, and $\mathrm{YVar}_a$ is exact because the X-scores are
+orthogonal (§4) — so **the running total of the $y$ share is precisely the
+$R^2$ of the model at that component count**, which is a cheap unit test and
+the reason no separate cumulative-$R^2$ quantity is reported.
+
+R `pls` prints these two as cumulative percentages in `summary()`, and the
+gasoline vignette's two-component figures — 85.58% of X and 96.85% of octane —
+are a parity claim in the fixture.
 
 ---
 
@@ -213,6 +238,7 @@ Selection heuristics (first minimum, one-standard-error rule, Wold's R) are a wo
 | `coefficients` | $b$ | §5 |
 | `coefficients_original_units` | $b^{\text{orig}}, b_0$ | §7 |
 | `vip` | $\mathrm{VIP}_j$ | §8 |
+| `explained_variance_ratio`, `cumulative_explained_variance` | $\mathrm{XVar}_a$, $\mathrm{YVar}_a$ | §8 |
 | `hotelling_t2`, `hotelling_t2_limit` | | §9 |
 | `spe`, `spe_limit` | | §9 |
 | `n_components` | $A$ | §11 |
