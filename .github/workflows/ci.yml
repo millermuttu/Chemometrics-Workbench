@@ -62,11 +62,13 @@ jobs:
         env:
           CHEMOMETRICS_DOWNLOAD_DATASETS: "1"
 
-      # The parity report is generated from the run above, never written by
-      # hand, so a scientific number that moved shows up here as a diff even if
-      # every test still passed - a widened tolerance, for instance. The tests
-      # are the gate on correctness; this is the gate on the published claim.
-      - name: Parity report is up to date
-        run: |
-          uv run python -m tests.parity_report
-          git diff --exit-code docs/parity-report.md
+      # The report is regenerated so that a renderer which crashes, or a run
+      # that did not cover every comparable entry, fails the build. It is
+      # deliberately NOT byte-compared against the committed copy: claim tiers
+      # at the 32-ulp boundary and last-bit differences are machine-dependent,
+      # and two correct runners disagree on them (#38). What guards the
+      # published claim instead is in the suite - the tolerances are frozen in
+      # a test, and the committed report is checked against the fixture for
+      # staleness.
+      - name: Parity report regenerates
+        run: uv run python -m tests.parity_report

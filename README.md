@@ -15,8 +15,9 @@ next to an independent implementation's value for the same thing, with a claim t
 tolerance that has a stated reason, and a citation.
 
 It is regenerated in CI on every push, and a change that moves a scientific number fails the
-build. It also lists what could *not* be compared and why, because a report that shows only
-its coverage overstates it.
+build — the parity suite is the gate, and the tolerances it compares against are frozen in a
+test of their own, so weakening one cannot pass quietly. The report also lists what could
+*not* be compared and why, because a report that shows only its coverage overstates it.
 
 No competing open-source chemometrics project publishes one, and `PROPOSAL.md` §10.4 is the
 argument for why this one does: it is the artifact that turns "an open-source tool" into "a

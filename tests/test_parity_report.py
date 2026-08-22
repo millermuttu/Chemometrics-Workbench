@@ -6,11 +6,16 @@ flattering. Every case below is a way the report could overstate the evidence:
 a failure omitted, a divergence shown as a pass, a gap left out, a
 reference-that-is-really-our-own-formula presented like an independent one.
 
-The fixtures are small synthetic result documents rather than a real run, so
-these tests neither need `parity-results.json` to exist nor care what is in it.
-The check that the *committed* report matches a real run is the CI step that
-regenerates it and diffs, which is a different kind of assertion and belongs
-where it is.
+Most fixtures here are small synthetic result documents, so those tests neither
+need `parity-results.json` to exist nor care what is in it.
+
+The last two cases are different: they are what guards the *published* report
+now that CI cannot byte-compare it. #38 established that two correct machines
+disagree on the last bits and on the tier of any comparison sitting near the
+32-ulp boundary, so a byte gate is flaky by construction. What is machine
+independent — and therefore what is asserted — is that the committed report
+covers exactly the claims and gaps the fixture defines, and that the published
+tolerances are the ones this project agreed to.
 """
 
 from __future__ import annotations
@@ -191,7 +196,41 @@ def test_a_scalar_claim_shows_both_numbers_and_an_array_shows_its_worst_differen
     )
 
     assert "`0.0495755` vs `0.0495755`" in report
-    assert "400 values, worst Δ 1.000e-16" in report
+    assert "400 values, worst Δ < 1e-16" in report
+
+
+def test_last_bit_noise_cannot_change_what_is_published() -> None:
+    """#38: the gate broke on the difference between two correct machines.
+
+    The worst difference between two implementations of the same formula is
+    arithmetic noise whose third significant figure depends on which BLAS the
+    local NumPy was built against. The report published those digits, CI
+    regenerated it on a runner, and `git diff --exit-code` called it a
+    regression. What is published is now the decade the measurement supports,
+    which noise cannot move.
+    """
+    fixture = _fixture(_entry())
+    here = parity_report.render(_results(_claim(max_abs_diff=5.539e-12)), fixture)
+    elsewhere = parity_report.render(_results(_claim(max_abs_diff=5.541e-12)), fixture)
+
+    assert here == elsewhere
+    assert "worst Δ < 1e-11" in here
+
+
+def test_a_difference_that_moves_by_decades_still_shows() -> None:
+    """The bound is coarse on purpose, not blind: a real regression moves it."""
+    fixture = _fixture(_entry())
+    clean = parity_report.render(_results(_claim(max_abs_diff=5.5e-12)), fixture)
+    broken = parity_report.render(_results(_claim(max_abs_diff=5.5e-4)), fixture)
+
+    assert clean != broken
+    assert "worst Δ < 1e-3" in broken
+
+
+def test_an_exact_match_says_so_rather_than_bounding_zero() -> None:
+    """`log10(0)` has no decade, and "identical" is worth stating outright."""
+    report = parity_report.render(_results(_claim(max_abs_diff=0.0)), _fixture(_entry()))
+    assert "worst Δ 0, exactly" in report
 
 
 def test_no_cell_contains_a_pipe_that_would_break_a_table() -> None:
@@ -249,3 +288,54 @@ def test_a_partial_run_is_refused_rather_than_reported(
     monkeypatch.setattr(parity, "RESULTS", partial)
     with pytest.raises(SystemExit, match="were not compared"):
         parity_report.main()
+
+
+# --------------------------------------------------------------------------
+# what guards the published report, now that CI cannot byte-compare it
+# --------------------------------------------------------------------------
+
+
+def test_the_committed_report_covers_every_claim_and_gap_in_the_fixture() -> None:
+    """Staleness, caught without depending on a machine's last bits.
+
+    A claim added to the fixture, or a gap filled, changes what the report must
+    say. Comparing bytes would catch that — and would also fail on two correct
+    machines (#38). Comparing *coverage* catches the staleness and nothing else:
+    every comparable entry has a row naming its dataset, quantity and software,
+    and every gap is named outright.
+    """
+    report = parity_report.REPORT.read_text(encoding="utf-8")
+    fixture = parity.load_fixture()
+
+    for entry in fixture["entries"]:
+        if entry["status"] == "sourced" and entry["comparable"]:
+            row = f"| {entry['dataset']} | `{entry['quantity']}`"
+            assert row in report, f"{entry['id']} has no row in the committed report"
+            assert entry["software"] in report, entry["id"]
+        else:
+            assert entry["id"] in report, f"{entry['id']} is not listed as a gap"
+
+
+def test_the_published_tolerances_are_the_ones_the_project_agreed_to() -> None:
+    """The gate a moved number cannot trip, and a moved *claim* must.
+
+    Widening a tolerance keeps the whole suite green and changes what the report
+    says in public, which is precisely the failure the CI byte-diff was there to
+    catch. Freezing the values here catches it machine-independently: a widened
+    tolerance now fails this test and names itself in the diff.
+
+    Changing one of these is a deliberate act. Change the number here and in
+    `parity.py` together, and say in the commit message what moved and why —
+    the same rule the reference values themselves are under.
+    """
+    assert {name: (t.rtol, t.atol) for name, t in parity.TOLERANCES.items()} == {
+        "decomposition": (1e-8, 1e-10),
+        "preprocessing": (1e-12, 1e-14),
+        "smoothing": (1e-9, 1e-12),
+        "second_implementation": (1e-7, 1e-8),
+        "coefficients": (1e-6, 1e-9),
+        "predictions": (1e-6, 1e-9),
+        "metrics": (1e-6, 1e-9),
+        "transcribed": (5e-3, 0.0),
+    }
+    assert all(tolerance.reason.strip() for tolerance in parity.TOLERANCES.values())
