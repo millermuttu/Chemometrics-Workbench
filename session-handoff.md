@@ -8,13 +8,19 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 ## Where things stand
 
-**Preprocessing is done.** All eight schema steps now have a kernel, and `from_spec` no longer raises for anything the schema can express.
+**Preprocessing is done and PCA is written.** All eight schema steps have a kernel, and PCA lands with both of its diagnostics.
 
-Issues #1–#10 are merged into `dev`. Pull request #23 merged on 2026-08-22 and its branch is deleted locally and on origin. Nothing is in flight.
+Issues #1–#10 are merged and closed. **#11 is merged but deliberately still open**: the code is complete and green, and the feature is `blocked` on the one verification step that has nothing to verify against. Pull request #25 merged on 2026-08-22 and its branch is deleted locally and on origin. Nothing is in flight.
 
-The parity report has 40 claims in it, 39 of them in `identical_within_float`. The nine new ones are Savitzky–Golay smoothing and both derivatives against SciPy, on all three datasets.
+The parity report has 55 claims in it, 53 of them in `identical_within_float`. The eighteen new ones are PCA — loadings, scores, eigenvalues, explained variance, cumulative explained variance, T² and SPE — on all three datasets.
 
-**What is left in Phase 0 is the two estimators and then the report**: `kernel-pca` (#11), `kernel-pls` (#12), `chemotools-eval` (#13), `parity-report` (#14).
+**What is left in Phase 0**: `kernel-pls` (#12), `chemotools-eval` (#13), `parity-report` (#14), and `reference-values-r-mdatools` (#24, raised out of #11).
+
+### Why #11 is blocked, and what unblocks it
+
+Its fourth verification step asks that the T² and SPE limits **match published values**. There are none to match. scikit-learn reports neither limit, and the only external reference is R `mdatools`, whose entries have been `unsourced` since #7 because R is not installed here. **#24 is the only thing that unblocks it** — install R (`conda install -c conda-forge r-base r-mdatools`, no sudo needed) and source those six entries plus three new `hotelling_t2_limit` ones. You were asked during #11 and chose to land it blocked rather than install R mid-feature.
+
+The limits are not unverified: about α of the calibration samples fall beyond a 1−α limit at three configurations, the exact identity `mean(T²) = a(n−1)/n` holds, and the preconditions and degenerate cases are covered. That is real evidence, and it is not a second implementation.
 
 **The offline question was raised and settled** in an earlier session. Corn and gasoline are downloaded rather than committed. The option of writing to Eigenvector and Prof. Kalivas to ask for redistribution permission was offered and **declined — do not open that issue and do not chase it.**
 
@@ -25,28 +31,35 @@ The parity report has 40 claims in it, 39 of them in `identical_within_float`. T
 | Current branch | `dev`, clean, in sync with origin |
 | Open pull requests | None |
 | `main` | behind `dev`; receives a merge only at the end of Phase 0 |
-| Open issues | 4 of 14 remaining |
-| Feature statuses | 10 × `passing`, 4 × `not_started` |
-| Parity claims | 40 compared, 40 passed, 39 identical-within-float, 1 documented divergence, 14 fixture entries not yet compared |
+| Open issues | 5 of 15 — #11 (blocked, merged), #12, #13, #14, #24 |
+| Feature statuses | 10 × `passing`, 2 × `blocked`, 3 × `not_started` |
+| Parity claims | 55 compared, 55 passed, 53 identical-within-float, 1 within tolerance, 1 documented divergence, 8 fixture entries not yet compared — all of them PLS |
 | Verification | `uv run ruff check`, `ruff format --check`, `mypy`, `pytest` — all green, and enforced by CI on both 3.12 and 3.13 |
 
 ## Active feature
 
-None. Nothing is `in_progress`.
+None is `in_progress`. Two are `blocked`, both on the same thing:
+
+- **`kernel-pca` (#11)** — code merged and green; blocked on its published-limit verification step.
+- **`reference-values-r-mdatools` (#24)** — blocked on R not being installed, which is an environment decision rather than a coding task.
 
 ## Next action
 
-Two features are eligible — `kernel-pca` (#11) and `kernel-pls` (#12). `chemotools-eval` (#13) is *also* eligible now that both preprocessing features are `passing`, but priority order says **`kernel-pca` (#11) next**.
+**`kernel-pls` (#12) next.** `chemotools-eval` (#13) is also eligible; priority order puts PLS first. #24 is eligible the moment you decide to install R.
 
 ```bash
 git fetch origin
-git checkout -b feature/11_kernel-pca origin/dev
+git checkout -b feature/12_kernel-pls origin/dev
 CHEMOMETRICS_DOWNLOAD_DATASETS=1 uv run pytest   # once, to populate the dataset cache
 ```
 
-`pca.md` is normative and complete: SVD through `numpy.linalg.svd(full_matrices=False)`, no internal centring, signs keyed on the largest-magnitude loading, `lambda_k = sigma_k^2/(n-1)`, Hotelling's T² and the Jackson–Mudholkar SPE limit. The parity cases for PCA in `test_parity.py` currently compute `T = XP` and the eigenvalue definition directly from fixture values; **rewrite those to call the kernel, keeping the entry id, the tolerance and the tier where they are.** Three of the fourteen untested entries — the loadings and the explained-variance ratios — become testable the moment the kernel exists.
+`pls-regression.md` is normative and complete: NIPALS with deflation of both X and y, no internal centring, signs keyed as in `pca.md` §5, coefficients `b = Rq` (already sign-invariant), VIP with its normalisation, and a χ² moment match for the SPE limit rather than Jackson–Mudholkar, because PLS components are not covariance eigenvectors.
 
-**One feature at a time**, even though three are eligible. The protocol allows exactly one `in_progress`.
+**All eight remaining untested fixture entries are PLS**, and they are what #12 turns green: three `pls.coefficients.sklearn`, three `pls.rmsecv_curve.sklearn`, and the two R `pls` vignette entries — one of which, `gasoline.pls.rmsecv_curve.r_pls_vignette`, is the strongest reference in the whole fixture. The two remaining placeholder cases in `test_parity.py` (`test_predictions_follow_from_the_coefficients` and `test_rmsec_follows_from_the_predictions`) call no kernel yet; **rewrite them to call it, keeping the entry id, the tolerance and the tier where they are.** #11 did the same for its six PCA cases and is the worked example.
+
+The two findings most likely to sink #12 quietly are both below: the fold indices must be read out of the fixture rather than reseeded, and every matrix in the fixture was pre-centred before scikit-learn saw it.
+
+**One feature at a time.** The protocol allows exactly one `in_progress`, and a `blocked` feature does not count against that.
 
 **Read the carried-forward findings below before writing a kernel.** Several of them are the difference between a parity test that means something and one that passes while testing nothing.
 
@@ -117,6 +130,15 @@ From #10 (smoothing, derivatives and baselines):
 - **SciPy is a runtime dependency, so the Savitzky–Golay parity claim needs its caveat stated**: `scipy.signal` is not on the kernel's code path. SciPy solves a least-squares system per output position; the kernel builds one matrix from the pseudo-inverse of the window's Vandermonde matrix. Say this in the report — it is the one parity claim where the reference ships with the application.
 - **Regenerating the fixture perturbs the corn PCA entries in their last bits.** Four of them moved by at most 2.9e-15 on this regeneration with no formula change — LAPACK on a 700-wide matrix. Well inside the decomposition tolerance of 1e-8, but expect it in the diff and do not go looking for a defect.
 
+From #11 (PCA kernel):
+
+- **The corn PCA reference values were being generated with scikit-learn's randomised SVD**, and this is the finding to remember. `svd_solver="auto"` picks it whenever the matrix is wider than 500 with few components asked for — true of corn, false of gasoline and tecator — and its `random_state` is unseeded, so those four entries moved by about 1e-14 on every regeneration. That is what #10's fixture diff showed and attributed to LAPACK; the mechanism was this. The generator now passes `svd_solver="full"` explicitly, and two consecutive regenerations are bit-identical. **Check the solver before adding any new scikit-learn reference on a wide matrix.**
+- **`spe(X)` requires the matrix; `hotelling_t2()` does not.** The model keeps the scores, so T² needs nothing else, but SPE measures the part of X that is not in the model and so cannot be recovered from it. The model deliberately does not keep a copy of X.
+- **T² and SPE references are our formula on scikit-learn's decomposition**, because scikit-learn reports neither. So is the cumulative explained variance curve. All six entries say so in their notes — an independent *decomposition*, not an independent formula. The report in #14 must not present them as more than that.
+- **`arrays.py` holds the array contract now** — 2-D, finite, float64, the caller's array never modified. Both `preprocessing.py` and `decomposition.py` use it. A third kernel adds nothing new here; it imports `as_float64`.
+- **`mean(T²) = a(n−1)/n` on the calibration set, exactly.** The cheapest check that the eigenvalue weighting and the divisor in λ agree with each other, and it caught nothing only because both were right.
+- **An uncentred constant matrix has rank 1, not 0.** Its one component is the mean spectrum. The "no variance to decompose" error is reachable only from a matrix that is zero after centring.
+
 ## Gotchas that would otherwise waste time
 
 - **Setup is `uv sync`.** Verification commands are in `CONTRIBUTING.md`; `clean-state-checklist.md` refers to them by role rather than by name, so they only need updating in one place.
@@ -125,7 +147,7 @@ From #10 (smoothing, derivatives and baselines):
 - **`uv run pytest -m parity` runs the parity suite alone**, and any pytest run that makes a comparison rewrites `parity-results.json` at the repository root. It is gitignored.
 - **`tests/test_parity_harness.py` deliberately provokes failures**, and saves and restores the recorder around every case so fabricated numbers never reach the run record. Keep new harness tests there, not in `test_parity.py`.
 - **`scikit-learn` is dev-only**, for the same reason as `rdata`: it is a reference implementation, and our kernels must not call it. SciPy is different — it is a runtime dependency and kernels may use it, but not as their own reference (see the #10 finding above).
-- **`reference_values.json` is 478 KB.** Arrays are stored in full because the harness compares elementwise. Do not "tidy" it into summaries.
+- **`reference_values.json` is 513 KB.** Arrays are stored in full because the harness compares elementwise. Do not "tidy" it into summaries.
 - **`rdata` is dev-only and imported lazily** by `load_gasoline`, because the application never reads R files. It pulls in `xarray`, which is not in the recorded stack — transitive dev dependency only.
 - **`ruff format --check` also formats Python blocks inside markdown.** A fenced `python` snippet in `docs/` with cosmetic alignment fails CI. This bit #5.
 - **`design/canvas` is excluded from ruff** — it generates design artboards and is not shipped code.
