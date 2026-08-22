@@ -31,11 +31,25 @@ uv run pytest tests/test_models.py::test_content_hash_tracks_every_parameter
 uv run pytest -k content_hash
 ```
 
+### Reference datasets
+
+The corn and gasoline benchmarks are downloaded rather than committed, so
+their tests skip on a machine that has never fetched them. To run them:
+
+```bash
+CHEMOMETRICS_DOWNLOAD_DATASETS=1 uv run pytest tests/test_datasets.py
+```
+
+The download is cached under `~/.cache/chemometrics-workbench/datasets` and
+verified against a pinned SHA-256 on every read. CI sets the same variable,
+so all three datasets are checksum-asserted there.
+
 ## Layout
 
 | Path | Holds |
 | --- | --- |
 | `src/chemometrics_workbench/` | The package. Algorithm kernels stay pure functions over arrays with no knowledge of the application. |
+| `src/chemometrics_workbench/data/` | Reference datasets, one directory each, carrying the source URL, the terms of use and a checksum. Only Tecator's raw file is committed; see each README for why. |
 | `tests/` | Test suite, mirroring the package layout. |
 | `docs/algorithms/` | One specification per algorithm — the variant implemented, its conventions, and the definition of every quantity it reports. |
 | `design/` | Design brief, data-model diagrams, and the artboard sources for the UI. Not shipped code; excluded from linting. |
