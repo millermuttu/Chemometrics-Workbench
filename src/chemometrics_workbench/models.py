@@ -91,7 +91,8 @@ class Environment(Frozen):
     packages: dict[str, str] = Field(
         default_factory=dict,
         description="Version of every package that can move a number: numpy, scipy, "
-        "scikit-learn, and any algorithm-providing dependency.",
+        "and any algorithm-providing dependency. Not scikit-learn, which is a "
+        "development dependency and never runs here.",
     )
     recorded_at: datetime = Field(default_factory=_now)
 
