@@ -118,6 +118,21 @@ TOLERANCES: dict[str, Tolerance] = {
             "differently. Tight on purpose: this class exists to catch exactly that."
         ),
     ),
+    "smoothing": Tolerance(
+        rtol=1e-9,
+        atol=1e-12,
+        reason=(
+            "Savitzky-Golay smoothing, derivatives and baselines. Unlike the scaling "
+            "kernels this is a least-squares solve: the filter comes from the "
+            "pseudo-inverse of the window's Vandermonde matrix, whose condition "
+            "number grows with the polynomial order, and AsLS solves a penalised "
+            "system per iteration. The absolute tolerance is what decides a "
+            "derivative, because a derivative crosses zero and the relative "
+            "difference between two correct implementations is unbounded there; "
+            "1e-12 is about three orders of magnitude above the largest difference "
+            "observed against SciPy on the fixture block, which is 3e-15."
+        ),
+    ),
     "coefficients": Tolerance(
         rtol=1e-6,
         atol=1e-9,
@@ -169,6 +184,12 @@ QUANTITY_CLASS: dict[str, str] = {
     "normalised_max": "preprocessing",
     "snv_corrected": "preprocessing",
     "msc_corrected": "preprocessing",
+    "savgol_deriv0": "smoothing",
+    "savgol_deriv1": "smoothing",
+    "savgol_deriv2": "smoothing",
+    "baseline_asls": "smoothing",
+    "baseline_rubberband": "smoothing",
+    "baseline_polynomial": "smoothing",
     "coefficients": "coefficients",
     "predictions": "predictions",
     "rmsec": "metrics",
