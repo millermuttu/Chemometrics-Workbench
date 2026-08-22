@@ -333,6 +333,12 @@ class ParityResult:
     n_values: int | None = None
     max_abs_diff: float | None = None
     max_rel_diff: float | None = None
+    # Both sides of the comparison, but only when the quantity is a single
+    # number. The report in #14 promises our value beside the reference value,
+    # and for a scalar that is the honest rendering; for an 80 x 5 score matrix
+    # it is not, so those carry their worst difference instead.
+    our_value: float | None = None
+    reference_value: float | None = None
     sign_aligned: bool = False
     reason: str = ""
 
@@ -352,6 +358,8 @@ class ParityResult:
             "n_values": self.n_values,
             "max_abs_diff": self.max_abs_diff,
             "max_rel_diff": self.max_rel_diff,
+            "our_value": self.our_value,
+            "reference_value": self.reference_value,
             "sign_aligned": self.sign_aligned,
             "reason": self.reason,
         }
@@ -460,10 +468,13 @@ def check(entry_id: str, ours: Any, *, sign_invariant: bool | None = None) -> Pa
     identical = max_abs <= identical_atol(reference)
     within = bool(np.allclose(ours_array, reference, rtol=tolerance.rtol, atol=tolerance.atol))
 
+    scalar = reference.size == 1
     result = _result_for(
         entry,
         tier=Tier.IDENTICAL if identical else Tier.WITHIN_TOLERANCE,
         passed=within,
+        our_value=float(ours_array.reshape(-1)[0]) if scalar else None,
+        reference_value=float(reference.reshape(-1)[0]) if scalar else None,
         rtol=tolerance.rtol,
         atol=tolerance.atol,
         n_values=int(reference.size),

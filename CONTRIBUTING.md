@@ -41,6 +41,17 @@ Every claim the parity report renders is made by a test in `tests/test_parity.py
 
 `tests/test_parity_harness.py` tests the harness rather than any scientific claim, and deliberately provokes failures. It restores the recorder around every case so those never reach the run record.
 
+### The parity report
+
+```bash
+CHEMOMETRICS_DOWNLOAD_DATASETS=1 uv run pytest      # writes parity-results.json
+uv run python -m tests.parity_report                # rewrites docs/parity-report.md
+```
+
+`docs/parity-report.md` is generated and must never be edited by hand. CI regenerates it after the suite and runs `git diff --exit-code` on it, so a scientific number that moved fails the build **even if every test still passes** — a widened tolerance, for instance, keeps the suite green and changes the published claim. The tests are the gate on correctness; the diff is the gate on what the project says in public.
+
+The renderer refuses to run against a partial suite: if `not_compared` in `parity-results.json` is non-empty, a report built from it would understate coverage while looking complete, so it exits with the command to run instead.
+
 ### Reference datasets
 
 The corn and gasoline benchmarks are downloaded rather than committed, so
@@ -63,6 +74,7 @@ so all three datasets are checksum-asserted there.
 | `tests/` | Test suite, mirroring the package layout. |
 | `tests/fixtures/` | Parity fixtures and the script that regenerates them. `reference_values.json` is the numbers every kernel is checked against. |
 | `tests/parity.py` | The parity harness: tolerance policy, sign alignment, claim tiers, run record. Every kernel's parity test goes through it. |
+| `tests/parity_report.py` | Renders `docs/parity-report.md` from the run record. It renders and does not compute: two sources of truth for one number is one too many. |
 | `src/chemometrics_workbench/preprocessing.py` | Scaling and scatter-correction kernels. `fit`/`transform`, duck-compatible with a scikit-learn transformer and importing nothing from it. |
 | `docs/algorithms/` | One specification per algorithm — the variant implemented, its conventions, and the definition of every quantity it reports. |
 | `design/` | Design brief, data-model diagrams, and the artboard sources for the UI. Not shipped code; excluded from linting. |
