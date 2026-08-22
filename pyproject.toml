@@ -59,3 +59,6 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+  "parity: a claim in the parity report. Run the suite alone with `pytest -m parity`.",
+]
