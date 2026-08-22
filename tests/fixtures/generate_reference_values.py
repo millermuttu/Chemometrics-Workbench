@@ -1,0 +1,602 @@
+"""Regenerate `reference_values.json`, the parity fixture for issue #7.
+
+Run with `uv run python tests/fixtures/generate_reference_values.py`. It
+rewrites the fixture in place; commit the result and say in the message what
+moved and why, per the "scientific numbers do not move silently" rule in
+CONTRIBUTING.md.
+
+**This script is the fixture's provenance.** Every entry it writes records the
+preprocessing chain, the algorithm variant, the split, the software and its
+version, and a citation. An entry that cannot record all of those is written
+as `status: "unsourced"` with the reason, never filled in with a plausible
+number.
+
+Two things about the numbers here are easy to get wrong, and both are settled
+in `docs/algorithms/`:
+
+* **Nothing is fed raw data.** `pca.md` §2 and `pls-regression.md` §3 make
+  centring an explicit pipeline step, while scikit-learn centres internally
+  and unconditionally. Every matrix handed to scikit-learn here is already
+  centred, so its own centring is a no-op and the comparison is valid.
+* **Fold indices are resolved here and stored**, not reseeded downstream.
+  `metrics-and-validation.md` §8.2: our shuffle is `default_rng` (PCG64) and
+  scikit-learn's is a legacy `RandomState`, so the same seed gives different
+  folds. The harness in #8 must read the indices out of the fixture rather
+  than seed its own splitter.
+"""
+
+from __future__ import annotations
+
+import json
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import sklearn
+from numpy.typing import NDArray
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.decomposition import PCA
+
+from chemometrics_workbench.datasets import (
+    ReferenceDataset,
+    load_corn,
+    load_gasoline,
+    load_tecator,
+)
+
+FIXTURE = Path(__file__).parent / "reference_values.json"
+SCHEMA_VERSION = 1
+
+# Component counts. Five is enough to expose a sign, ordering or scaling
+# disagreement in a kernel; the RMSECV curve runs further because its shape is
+# the thing being compared, not one value.
+N_COMPONENTS = 5
+MAX_PLS_COMPONENTS = 10
+
+# The split used for every generated RMSECV entry. Seed 42 is the SplitSpec
+# default from metrics-and-validation.md §8.2.
+N_FOLDS = 5
+SEED = 42
+
+SKLEARN_VERSION = sklearn.__version__
+
+# The target modelled for each dataset. One response per dataset keeps the
+# fixture to a size a human will actually read; PLS1 models one response at a
+# time anyway (pls-regression.md §10).
+TARGETS = {"corn": "moisture", "gasoline": "octane", "tecator": "fat"}
+
+
+# --------------------------------------------------------------------------
+# fold assignment, per metrics-and-validation.md §8.2 and §8.3
+# --------------------------------------------------------------------------
+
+
+def kfold_indices(n: int, n_folds: int, seed: int) -> list[dict[str, list[int]]]:
+    """Resolve a shuffled K-fold split into explicit index lists.
+
+    The first `n % n_folds` folds get one extra member, which is
+    scikit-learn's size rule kept deliberately so that only the permutation
+    differs between us.
+    """
+    if n_folds > n:
+        raise ValueError(f"{n_folds} folds requested for {n} samples")
+
+    perm = np.random.default_rng(seed).permutation(n)
+    quotient, remainder = divmod(n, n_folds)
+
+    folds: list[dict[str, list[int]]] = []
+    start = 0
+    for k in range(n_folds):
+        size = quotient + 1 if k < remainder else quotient
+        validation = np.sort(perm[start : start + size])
+        train = np.setdiff1d(np.arange(n), validation)
+        folds.append({"train_indices": train.tolist(), "test_indices": validation.tolist()})
+        start += size
+    return folds
+
+
+def _self_check() -> None:
+    """The worked example from metrics-and-validation.md §8.3.
+
+    If this fails, the permutation, the seeding or the size rule has moved,
+    and every RMSECV in the fixture is against a different split than the
+    document describes.
+    """
+    folds = kfold_indices(10, 3, 42)
+    assert [f["test_indices"] for f in folds] == [[0, 5, 6, 7], [2, 3, 4], [1, 8, 9]], folds
+    assert folds[0]["train_indices"] == [1, 2, 3, 4, 8, 9], folds[0]
+
+    # Every sample is predicted exactly once — the disjoint-union assertion
+    # metrics-and-validation.md §7 requires before pooling residuals.
+    seen = sorted(i for fold in folds for i in fold["test_indices"])
+    assert seen == list(range(10)), seen
+
+
+# --------------------------------------------------------------------------
+# metrics, per metrics-and-validation.md §4 and §6
+# --------------------------------------------------------------------------
+
+
+def rmse(y: NDArray[np.float64], y_hat: NDArray[np.float64]) -> float:
+    """Divisor is n. Degrees-of-freedom corrections live in SEC and SEP (§4)."""
+    return float(np.sqrt(np.mean((y - y_hat) ** 2)))
+
+
+def r2_score(y: NDArray[np.float64], y_hat: NDArray[np.float64]) -> float:
+    """Residual form, not squared Pearson correlation (§6)."""
+    return float(1.0 - np.sum((y - y_hat) ** 2) / np.sum((y - np.mean(y)) ** 2))
+
+
+# --------------------------------------------------------------------------
+# entries
+# --------------------------------------------------------------------------
+
+
+def entry(
+    *,
+    entry_id: str,
+    dataset: str,
+    dataset_content_hash: str | None,
+    algorithm: str,
+    quantity: str,
+    value: Any,
+    preprocessing: list[str],
+    algorithm_variant: str,
+    split: dict[str, Any] | None,
+    software: str,
+    software_version: str,
+    citation: str,
+    status: str = "sourced",
+    comparable: bool = True,
+    notes: str = "",
+) -> dict[str, Any]:
+    return {
+        "id": entry_id,
+        "dataset": dataset,
+        "dataset_content_hash": dataset_content_hash,
+        "algorithm": algorithm,
+        "quantity": quantity,
+        "status": status,
+        "comparable": comparable,
+        "preprocessing": preprocessing,
+        "algorithm_variant": algorithm_variant,
+        "split": split,
+        "software": software,
+        "software_version": software_version,
+        "citation": citation,
+        "notes": notes,
+        "value": value,
+    }
+
+
+PCA_VARIANT = (
+    "SVD via LAPACK, full_matrices=False. sklearn.decomposition.PCA with the default "
+    "svd_solver, on a pre-centred matrix so its unconditional internal centring is a "
+    "no-op (pca.md §2). Randomised SVD is not used."
+)
+PLS_VARIANT = (
+    "sklearn.cross_decomposition.PLSRegression(scale=False) on pre-centred X and y. "
+    "NIPALS with y-deflation, one response (PLS1). pls-regression.md §2 records that "
+    "NIPALS and SIMPLS coincide for a single response in coefficients and predictions, "
+    "so a SIMPLS reference would be valid here but not for weights and loadings."
+)
+
+SIGN_NOTE = (
+    "Signs are scikit-learn's, decided from U (svd_flip u_based_decision=True). Ours "
+    "are keyed on the largest-magnitude loading (pca.md §5). Align by inner product "
+    "before comparing; never compare absolute values."
+)
+
+
+def sklearn_entries(name: str, dataset: ReferenceDataset) -> list[dict[str, Any]]:
+    """PCA and PLS reference values from scikit-learn on one dataset."""
+    content_hash = dataset.source.file_hash
+    target = TARGETS[name]
+    citation = (
+        f"Generated by tests/fixtures/generate_reference_values.py against "
+        f"scikit-learn {SKLEARN_VERSION}. Not a literature value: an open "
+        f"implementation pinned by version, reproducible by anyone."
+    )
+
+    spectra = dataset.spectra
+    centred = spectra - spectra.mean(axis=0)
+    y = dataset.targets[target]
+    y_centred = y - y.mean()
+
+    pca = PCA(n_components=N_COMPONENTS).fit(centred)
+    pls = PLSRegression(n_components=N_COMPONENTS, scale=False).fit(centred, y_centred)
+
+    # coef_ is (n_targets, n_features) in scikit-learn 1.9; the orientation has
+    # changed across releases, so assert it rather than assume it
+    # (pls-regression.md §14).
+    assert pls.coef_.shape == (1, spectra.shape[1]), pls.coef_.shape
+    coefficients = pls.coef_.ravel()
+
+    # Predictions are un-centred back to the response's original units, because
+    # every metric is computed there (metrics-and-validation.md §2).
+    predictions = np.asarray(pls.predict(centred)).ravel() + y.mean()
+
+    folds = kfold_indices(len(y), N_FOLDS, SEED)
+    split = {
+        "strategy": "k_fold",
+        "n_folds": N_FOLDS,
+        "shuffle": True,
+        "seed": SEED,
+        "generator": "numpy.random.default_rng (PCG64)",
+        "folds": folds,
+        "note": (
+            "Resolved indices, not a seed. scikit-learn's legacy RandomState gives "
+            "different folds from the same seed, so the harness must pass these to it "
+            "as an explicit cv iterable (metrics-and-validation.md §8.2, §10)."
+        ),
+    }
+
+    # RMSECV as a function of A, from one fold assignment for every component
+    # count, pooled over folds (metrics-and-validation.md §7 and §9).
+    rmsecv_curve: dict[str, float] = {}
+    for n_components in range(1, MAX_PLS_COMPONENTS + 1):
+        held_out = np.empty_like(y)
+        for fold in folds:
+            train = np.asarray(fold["train_indices"])
+            test = np.asarray(fold["test_indices"])
+            # Every node downstream of the split is refitted on the training
+            # fold alone, centring included (metrics-and-validation.md §9).
+            train_mean = spectra[train].mean(axis=0)
+            train_y_mean = y[train].mean()
+            fold_model = PLSRegression(n_components=n_components, scale=False).fit(
+                spectra[train] - train_mean, y[train] - train_y_mean
+            )
+            held_out[test] = (
+                np.asarray(fold_model.predict(spectra[test] - train_mean)).ravel() + train_y_mean
+            )
+        rmsecv_curve[str(n_components)] = rmse(y, held_out)
+
+    common = {
+        "dataset": name,
+        "dataset_content_hash": content_hash,
+        "software": "scikit-learn",
+        "software_version": SKLEARN_VERSION,
+        "citation": citation,
+    }
+    pca_common = {
+        **common,
+        "algorithm": "pca",
+        "preprocessing": ["mean_centre_x"],
+        "algorithm_variant": PCA_VARIANT,
+        "split": None,
+    }
+    pls_common = {
+        **common,
+        "algorithm": "pls",
+        "preprocessing": ["mean_centre_x", "mean_centre_y"],
+        "algorithm_variant": PLS_VARIANT,
+    }
+
+    return [
+        entry(
+            entry_id=f"{name}.pca.eigenvalues.sklearn",
+            quantity="eigenvalues",
+            value=pca.explained_variance_.tolist(),
+            notes="sigma^2/(n-1), the sample-variance convention (pca.md §4).",
+            **pca_common,
+        ),
+        entry(
+            entry_id=f"{name}.pca.explained_variance_ratio.sklearn",
+            quantity="explained_variance_ratio",
+            value=pca.explained_variance_ratio_.tolist(),
+            notes=(
+                "Denominator is the total variance over all r components, not the "
+                f"{N_COMPONENTS} retained (pca.md §6). Verified against "
+                "X.var(ddof=1).sum() when generated."
+            ),
+            **pca_common,
+        ),
+        entry(
+            entry_id=f"{name}.pca.loadings.sklearn",
+            quantity="loadings",
+            value=pca.components_.T.tolist(),
+            notes=f"Shape p x {N_COMPONENTS}; sklearn stores the transpose. {SIGN_NOTE}",
+            **pca_common,
+        ),
+        entry(
+            entry_id=f"{name}.pca.scores.sklearn",
+            quantity="scores",
+            value=pca.transform(centred).tolist(),
+            notes=f"Shape n x {N_COMPONENTS}. {SIGN_NOTE}",
+            **pca_common,
+        ),
+        entry(
+            entry_id=f"{name}.pls.coefficients.sklearn",
+            quantity="coefficients",
+            value=coefficients.tolist(),
+            split=None,
+            notes=(
+                f"Target '{target}', A={N_COMPONENTS}. On the centred matrix, so no "
+                "intercept term. Coefficients are sign-invariant (pls-regression.md "
+                "§5) and need no alignment. coef_ orientation asserted as "
+                "(n_targets, n_features) when generated."
+            ),
+            **pls_common,
+        ),
+        entry(
+            entry_id=f"{name}.pls.predictions.sklearn",
+            quantity="predictions",
+            value=predictions.tolist(),
+            split=None,
+            notes=(
+                f"Target '{target}', A={N_COMPONENTS}, calibration set. Un-centred "
+                "back to the original units of the response (§2)."
+            ),
+            **pls_common,
+        ),
+        entry(
+            entry_id=f"{name}.pls.rmsec.sklearn",
+            quantity="rmsec",
+            value=rmse(y, predictions),
+            split=None,
+            notes=(
+                f"Target '{target}', A={N_COMPONENTS}. Divisor is n, not n-A-1 "
+                "(§4). A package reporting n-A-1 under this name is reporting our SEC."
+            ),
+            **pls_common,
+        ),
+        entry(
+            entry_id=f"{name}.pls.r2.sklearn",
+            quantity="r2",
+            value=r2_score(y, predictions),
+            split=None,
+            notes=(
+                f"Target '{target}', A={N_COMPONENTS}. Residual form, not squared "
+                "Pearson correlation (§6)."
+            ),
+            **pls_common,
+        ),
+        entry(
+            entry_id=f"{name}.pls.rmsecv_curve.sklearn",
+            quantity="rmsecv_curve",
+            value=rmsecv_curve,
+            split=split,
+            notes=(
+                f"Target '{target}', A=1..{MAX_PLS_COMPONENTS}, keyed by component "
+                "count. Residuals pooled across folds then rooted once, not the mean "
+                "of per-fold RMSEs (§7). One fold assignment for the whole curve (§9). "
+                "Centring refitted on each training fold."
+            ),
+            **pls_common,
+        ),
+    ]
+
+
+def literature_entries() -> list[dict[str, Any]]:
+    """Values taken from published documents rather than generated here.
+
+    These are the entries that make the fixture worth more than a snapshot of
+    our own tooling: an independent implementation, in a published document,
+    with its configuration stated.
+    """
+    pls_citation = (
+        "Mevik, B.-H., Wehrens, R. and Liland, K. H., 'Introduction to the pls "
+        "Package', vignette for R package pls, "
+        "https://cran.r-project.org/web/packages/pls/vignettes/pls-manual.html "
+        "(retrieved 2026-08-22). Underlying data: Kalivas, J. H. (1997), "
+        "'Two data sets of near infrared spectra', Chemometrics and Intelligent "
+        "Laboratory Systems 37, 255-259."
+    )
+    pls_split = {
+        "strategy": "leave_one_out",
+        "note": (
+            "LOO over the first 50 rows. Deterministic, so no seed and no shuffle "
+            "stream to reconcile (metrics-and-validation.md §8.4) - which is why this "
+            "is the strongest reference in the fixture."
+        ),
+        "calibration_indices": list(range(50)),
+        "held_out_indices": list(range(50, 60)),
+    }
+    pls_variant = (
+        "R pls::plsr, defaults read from the pls 2.8-5 source rather than assumed: "
+        "method='kernelpls' (pls.options.R), center=TRUE, scale=FALSE (mvr.R). "
+        "kernelpls and NIPALS agree on coefficients and predictions for a single "
+        "response (pls-regression.md §2)."
+    )
+
+    return [
+        entry(
+            entry_id="gasoline.pls.rmsecv_curve.r_pls_vignette",
+            dataset="gasoline",
+            dataset_content_hash=None,
+            algorithm="pls",
+            quantity="rmsecv_curve",
+            value={
+                "0": 1.545,
+                "1": 1.357,
+                "2": 0.2966,
+                "3": 0.2524,
+                "4": 0.2476,
+                "5": 0.2398,
+                "6": 0.2319,
+                "7": 0.2386,
+                "8": 0.2316,
+                "9": 0.2449,
+                "10": 0.2673,
+            },
+            preprocessing=["mean_centre_x", "mean_centre_y"],
+            algorithm_variant=pls_variant,
+            split=pls_split,
+            software="R pls",
+            software_version="2.8-5",
+            citation=pls_citation,
+            notes=(
+                "The vignette's 'CV' row, printed to four significant figures. Key "
+                "'0' is the intercept-only model. R pls computes MSEP as SSE/nobj "
+                "(mvrVal.R), so its divisor is n and the values are directly "
+                "comparable with our RMSECV with no definitional correction. The "
+                "vignette's 'adjCV' row is a bias-corrected estimate we do not report "
+                "and is deliberately not recorded here. Do not read this curve against "
+                "gasoline.pls.rmsecv_curve.sklearn as if the two were the same "
+                "experiment: that one is 5-fold over all 60 samples, this one is LOO "
+                "over the first 50. They agree closely from about five components "
+                "(0.2398 here against 0.2396 there) and differ at two, where the "
+                "estimate is far more sensitive to the split."
+            ),
+        ),
+        entry(
+            entry_id="gasoline.pls.explained_variance.r_pls_vignette",
+            dataset="gasoline",
+            dataset_content_hash=None,
+            algorithm="pls",
+            quantity="cumulative_explained_variance_at_2_components",
+            value={"x": 0.8558, "y": 0.9685},
+            preprocessing=["mean_centre_x", "mean_centre_y"],
+            algorithm_variant=pls_variant,
+            split={"strategy": "none", "calibration_indices": list(range(50))},
+            software="R pls",
+            software_version="2.8-5",
+            citation=pls_citation,
+            notes=(
+                "Cumulative percentages from the vignette's summary(), converted to "
+                "fractions: X 85.58%, octane 96.85%. Calibration rows 0-49 only."
+            ),
+        ),
+        entry(
+            entry_id="tecator.pls.sep.thodberg",
+            dataset="tecator",
+            dataset_content_hash=None,
+            algorithm="pls",
+            quantity="sep",
+            value=2.78,
+            preprocessing=["principal_components_supplied_with_the_dataset"],
+            algorithm_variant="Linear model on 10 inputs.",
+            split={
+                "strategy": "external_set",
+                "note": "Trained on C+M (samples 0-171), evaluated on T (samples 172-214).",
+            },
+            software="unstated",
+            software_version="unstated",
+            citation=(
+                "tecator.txt section 4, distributed with the dataset; the surrounding "
+                "results are Borggaard, C. and Thodberg, H. H. (1992), 'Optimal "
+                "Minimal Neural Interpretation of Spectra', Analytical Chemistry 64, "
+                "545-551."
+            ),
+            comparable=False,
+            notes=(
+                "Recorded because it is the only published number that travels with "
+                "this dataset, and #14 will want it for context. NOT a parity target: "
+                "the ten inputs are the first ten of the 22 principal components "
+                "supplied in the file, which load_tecator() discards, and the file "
+                "does not define its SEP denominator. Reproducing it would mean "
+                "modelling the authors' 1992 preprocessing rather than ours."
+            ),
+        ),
+    ]
+
+
+def unsourced_entries() -> list[dict[str, Any]]:
+    """Values that were looked for and not found.
+
+    Recorded rather than omitted, because a gap that is written down is a task
+    and a gap that is not is a false impression of coverage.
+    """
+    no_r = (
+        "R is not installed on the development machine, so no mdatools value could "
+        "be generated. Install R and the mdatools package, run the configuration "
+        "named above, and replace this entry with the result."
+    )
+    common: dict[str, Any] = {
+        "value": None,
+        "status": "unsourced",
+        "comparable": False,
+        "dataset_content_hash": None,
+        "software": "R mdatools",
+        "software_version": "not installed",
+        "citation": "none - not sourced",
+        "split": None,
+    }
+    entries = [
+        entry(
+            entry_id=f"{name}.{algorithm}.{quantity}.r_mdatools",
+            dataset=name,
+            algorithm=algorithm,
+            quantity=quantity,
+            preprocessing=["mean_centre_x"]
+            if algorithm == "pca"
+            else ["mean_centre_x", "mean_centre_y"],
+            algorithm_variant=(
+                "mdatools::pca, for the T2 and SPE limits scikit-learn does not "
+                "provide (pca.md §14)."
+                if algorithm == "pca"
+                else "mdatools::pls, SIMPLS. Valid for coefficients and predictions "
+                "only, not weights and loadings (pls-regression.md §2)."
+            ),
+            notes=no_r,
+            **common,
+        )
+        for name in TARGETS
+        for algorithm, quantity in (("pca", "spe_limit"), ("pls", "coefficients"))
+    ]
+
+    entries.append(
+        entry(
+            entry_id="corn.pca.loadings.literature",
+            dataset="corn",
+            dataset_content_hash=None,
+            algorithm="pca",
+            quantity="loadings",
+            value=None,
+            status="unsourced",
+            comparable=False,
+            preprocessing=["mean_centre_x"],
+            algorithm_variant="unknown",
+            split=None,
+            software="published literature",
+            software_version="n/a",
+            citation="none - not sourced",
+            notes=(
+                "The corn dataset is used widely in the calibration-transfer "
+                "literature, but the papers report transfer performance rather than "
+                "the decomposition itself, and none found states a preprocessing "
+                "chain precisely enough to reproduce a loading vector. Recorded as a "
+                "gap rather than filled with a number from a plot."
+            ),
+        )
+    )
+    return entries
+
+
+def main() -> None:
+    _self_check()
+
+    datasets = {
+        "corn": load_corn(),
+        "gasoline": load_gasoline(),
+        "tecator": load_tecator(),
+    }
+
+    entries: list[dict[str, Any]] = []
+    for name, dataset in datasets.items():
+        entries.extend(sklearn_entries(name, dataset))
+    entries.extend(literature_entries())
+    entries.extend(unsourced_entries())
+
+    fixture = {
+        "schema_version": SCHEMA_VERSION,
+        "generated_at": datetime.now(UTC).strftime("%Y-%m-%d"),
+        "generator": "tests/fixtures/generate_reference_values.py",
+        "conventions": (
+            "Every value follows the definitions in docs/algorithms/. Metrics are in "
+            "the original units of the response; RMSE denominators are n; fold "
+            "aggregation is pooled residuals; signs follow the generating software "
+            "and must be aligned by inner product before comparison."
+        ),
+        "targets": TARGETS,
+        "entries": entries,
+    }
+
+    FIXTURE.write_text(json.dumps(fixture, indent=2) + "\n", encoding="utf-8")
+    sourced = sum(1 for e in entries if e["status"] == "sourced")
+    print(f"wrote {FIXTURE} - {len(entries)} entries, {sourced} sourced")
+
+
+if __name__ == "__main__":
+    main()

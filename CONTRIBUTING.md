@@ -51,6 +51,7 @@ so all three datasets are checksum-asserted there.
 | `src/chemometrics_workbench/` | The package. Algorithm kernels stay pure functions over arrays with no knowledge of the application. |
 | `src/chemometrics_workbench/data/` | Reference datasets, one directory each, carrying the source URL, the terms of use and a checksum. Only Tecator's raw file is committed; see each README for why. |
 | `tests/` | Test suite, mirroring the package layout. |
+| `tests/fixtures/` | Parity fixtures and the script that regenerates them. `reference_values.json` is the numbers every kernel is checked against. |
 | `docs/algorithms/` | One specification per algorithm — the variant implemented, its conventions, and the definition of every quantity it reports. |
 | `design/` | Design brief, data-model diagrams, and the artboard sources for the UI. Not shipped code; excluded from linting. |
 
@@ -59,7 +60,7 @@ so all three datasets are checksum-asserted there.
 The order matters, and it is the order Phase 0 itself follows.
 
 1. **Write the specification first**, in `docs/algorithms/`. Name the variant, the centring and scaling conventions, the sign convention, and the exact definition of every quantity that will be reported. "PLS" is not a specification.
-2. **Find reference values.** Published literature, or an established open implementation with its version recorded. A kernel with nothing to be checked against cannot be trusted.
+2. **Find reference values.** Published literature, or an established open implementation with its version recorded. A kernel with nothing to be checked against cannot be trusted. They live in `tests/fixtures/reference_values.json`, one entry per value, each recording its preprocessing chain, algorithm variant, split, software and version, and citation. Regenerate the generated entries with `uv run python tests/fixtures/generate_reference_values.py`, and say in the commit message what moved and why. A value that cannot be sourced is written into the fixture as `status: "unsourced"` with the reason — never omitted, and never filled in with a plausible number.
 3. **Write the kernel** as a pure function over arrays — no application knowledge, no global random state, seeds threaded explicitly, and never mutating the caller's array.
 4. **Add parity tests** through the shared harness, with an explicit tolerance and a claim tier. Comparisons of scores and loadings must be sign-invariant.
 5. **Wire it into the schema** in `models.py` as a new member of the relevant discriminated union, so an invalid configuration fails at parse time.
