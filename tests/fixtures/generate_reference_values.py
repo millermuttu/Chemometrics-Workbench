@@ -182,9 +182,10 @@ def entry(
 
 
 PCA_VARIANT = (
-    "SVD via LAPACK, full_matrices=False. sklearn.decomposition.PCA with the default "
-    "svd_solver, on a pre-centred matrix so its unconditional internal centring is a "
-    "no-op (pca.md §2). Randomised SVD is not used."
+    "SVD via LAPACK, full_matrices=False. sklearn.decomposition.PCA with "
+    "svd_solver='full' passed explicitly, on a pre-centred matrix so its unconditional "
+    "internal centring is a no-op (pca.md §2). Randomised SVD is not used - and the "
+    "default svd_solver='auto' would have used it for corn, unseeded."
 )
 PLS_VARIANT = (
     "sklearn.cross_decomposition.PLSRegression(scale=False) on pre-centred X and y. "
@@ -215,7 +216,23 @@ def sklearn_entries(name: str, dataset: ReferenceDataset) -> list[dict[str, Any]
     y = dataset.targets[target]
     y_centred = y - y.mean()
 
-    pca = PCA(n_components=N_COMPONENTS).fit(centred)
+    # svd_solver="full" is passed deliberately and is not the default. With
+    # svd_solver="auto" scikit-learn picks its randomised solver whenever the
+    # matrix is wider than 500 and few components are asked for, which is true
+    # of corn - and its random_state is unseeded, so the corn reference values
+    # moved by around 1e-14 on every regeneration. pca.md §3 forbids randomised
+    # SVD for our implementation and the reference has to be held to the same
+    # rule, or the parity claim rests on a number that is not reproducible.
+    pca = PCA(n_components=N_COMPONENTS, svd_solver="full").fit(centred)
+    scores = pca.transform(centred)
+
+    # Diagnostics scikit-learn does not provide, computed here from its own
+    # decomposition by the definitions in pca.md §7 and §8. Not an independent
+    # formula - an independent decomposition, which is what the comparison is
+    # actually testing.
+    hotelling_t2 = ((scores**2) / pca.explained_variance_).sum(axis=1)
+    residual = centred - scores @ pca.components_
+    spe = (residual**2).sum(axis=1)
     pls = PLSRegression(n_components=N_COMPONENTS, scale=False).fit(centred, y_centred)
 
     # coef_ is (n_targets, n_features) in scikit-learn 1.9; the orientation has
@@ -304,6 +321,22 @@ def sklearn_entries(name: str, dataset: ReferenceDataset) -> list[dict[str, Any]
             **pca_common,
         ),
         entry(
+            entry_id=f"{name}.pca.cumulative_explained_variance.sklearn",
+            quantity="cumulative_explained_variance",
+            value=np.cumsum(pca.explained_variance_ratio_).tolist(),
+            notes=(
+                f"The running total of the entry above, over {N_COMPONENTS} components "
+                "(pca.md §6). Derived from that entry rather than independently "
+                "sourced - scikit-learn reports no cumulative curve - so it adds no "
+                "information about the decomposition. It is here because §6 names it "
+                "as a reported quantity and the check that it is a running total of "
+                "the right denominator is worth making explicitly: a curve that "
+                "reaches 1.0 at the last retained component is the classic sign of "
+                "normalising over the retained components instead of all r."
+            ),
+            **pca_common,
+        ),
+        entry(
             entry_id=f"{name}.pca.loadings.sklearn",
             quantity="loadings",
             value=pca.components_.T.tolist(),
@@ -313,8 +346,35 @@ def sklearn_entries(name: str, dataset: ReferenceDataset) -> list[dict[str, Any]
         entry(
             entry_id=f"{name}.pca.scores.sklearn",
             quantity="scores",
-            value=pca.transform(centred).tolist(),
+            value=scores.tolist(),
             notes=f"Shape n x {N_COMPONENTS}. {SIGN_NOTE}",
+            **pca_common,
+        ),
+        entry(
+            entry_id=f"{name}.pca.hotelling_t2.sklearn",
+            quantity="hotelling_t2",
+            value=hotelling_t2.tolist(),
+            notes=(
+                f"sum_k t_ik^2/lambda_k over the {N_COMPONENTS} retained components "
+                "(pca.md §7), on the calibration samples. scikit-learn does not report "
+                "T^2, so this is computed here from its scores and eigenvalues by the "
+                "definition - an independent decomposition rather than an independent "
+                "formula. Sign-invariant, since every score is squared."
+            ),
+            **pca_common,
+        ),
+        entry(
+            entry_id=f"{name}.pca.spe.sklearn",
+            quantity="spe",
+            value=spe.tolist(),
+            notes=(
+                f"||x_i - t_i P^T||^2 with A={N_COMPONENTS} (pca.md §8), on the "
+                "calibration samples. The sum of squares, not the mean and not the "
+                "root - other packages report one of those. scikit-learn does not "
+                "report SPE, so this is computed here from its decomposition by the "
+                "definition. Sign-invariant: the reconstruction t_i P^T is unchanged "
+                "by flipping a component."
+            ),
             **pca_common,
         ),
         entry(

@@ -4,13 +4,13 @@ Run it alone with `uv run pytest -m parity`; it also runs as part of the full
 suite, and writes `parity-results.json` either way.
 
 The preprocessing cases call the kernels in
-`chemometrics_workbench.preprocessing`. The PCA and PLS cases do not yet —
-those kernels are #11 and #12 — so what they compare is arithmetic the
-specifications define directly: projection onto loadings, prediction from
-coefficients, the eigenvalue definition and the RMSEC denominator. Each is
-still a real comparison against a real fixture entry at a real tolerance, and
-each is rewritten to call its kernel when one lands. The entry id, the
-tolerance and the tier stay as they are when that happens.
+`chemometrics_workbench.preprocessing`, and the PCA cases call
+`chemometrics_workbench.decomposition.PCA`. The PLS cases do not yet call a
+kernel — that is #12 — so what they compare is arithmetic the specification
+defines directly: prediction from coefficients, and the RMSEC denominator.
+Each is still a real comparison against a real fixture entry at a real
+tolerance, and each is rewritten to call its kernel when one lands. The entry
+id, the tolerance and the tier stay as they are when that happens.
 
 Every case takes the same shape: compute a quantity, hand it to
 `parity.check()` with the fixture entry it should match, and let the harness
@@ -23,6 +23,7 @@ import numpy as np
 import pytest
 
 from chemometrics_workbench.datasets import load_corn, load_gasoline, load_tecator
+from chemometrics_workbench.decomposition import PCA
 from chemometrics_workbench.preprocessing import (
     AutoscaleTransformer,
     MeanCentreTransformer,
@@ -155,38 +156,103 @@ def test_savitzky_golay_agrees_with_the_reference_at_the_first_and_last_variable
 # --------------------------------------------------------------------------
 
 
+N_COMPONENTS = 5
+
+# One fit per dataset, reused across the PCA cases below. The model is what is
+# being compared from six angles, so fitting it six times would only be slower.
+
+
+@pytest.fixture(scope="module")
+def pca_models() -> dict[str, PCA]:
+    """`pca.md` §2: the kernel never centres, so the centring is a step here."""
+    return {name: PCA(N_COMPONENTS).fit(_centred(name)) for name in DATASETS}
+
+
 @pytest.mark.parametrize("dataset", DATASETS)
-def test_scores_are_the_centred_matrix_projected_onto_the_loadings(
-    dataset: str, fixture_entries: dict[str, dict[str, object]]
-) -> None:
-    """`pca.md` §4: T = XP, on the centred matrix.
+def test_pca_loadings_match_the_reference(dataset: str, pca_models: dict[str, PCA]) -> None:
+    """`pca.md` §4 and §5. Our sign rule is the largest-magnitude loading;
+    scikit-learn's is decided from U, so the harness aligns before comparing."""
+    result = parity.check(f"{dataset}.pca.loadings.sklearn", pca_models[dataset].loadings_)
+    assert result.passed
+    assert result.sign_aligned, "loadings are sign-invariant and must be aligned"
 
-    Mean centring plus one matrix product. If the centring convention or the
-    loading orientation is wrong, this is where it shows.
-    """
-    loadings = parity.as_array(fixture_entries[f"{dataset}.pca.loadings.sklearn"]["value"])
-    scores = _centred(dataset) @ loadings
 
-    result = parity.check(f"{dataset}.pca.scores.sklearn", scores)
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_pca_scores_match_the_reference(dataset: str, pca_models: dict[str, PCA]) -> None:
+    """`pca.md` §4: T = XP, computed through the same path a new sample takes."""
+    result = parity.check(f"{dataset}.pca.scores.sklearn", pca_models[dataset].scores_)
     assert result.passed
     assert result.sign_aligned, "scores are sign-invariant and must be aligned"
 
 
 @pytest.mark.parametrize("dataset", DATASETS)
-def test_eigenvalues_are_the_variance_of_the_scores(
-    dataset: str, fixture_entries: dict[str, dict[str, object]]
-) -> None:
-    """`pca.md` §4: lambda_k = sigma_k^2/(n-1), which is var(t_k) with ddof=1.
+def test_pca_eigenvalues_match_the_reference(dataset: str, pca_models: dict[str, PCA]) -> None:
+    """`pca.md` §4: lambda_k = sigma_k^2/(n-1), the sample-variance convention.
 
-    Sign-invariant by construction — squaring a column removes its sign — so
-    this is also the case that would catch a sign convention leaking into a
-    quantity that should not have one.
+    Sign-invariant by construction — squaring removes the sign — so this is
+    also the case that would catch a sign convention leaking into a quantity
+    that should not have one. The fixture holds the first five; the model keeps
+    all r, because §6 and §8 are sums over the ones it discarded.
     """
-    scores = parity.as_array(fixture_entries[f"{dataset}.pca.scores.sklearn"]["value"])
-    n = scores.shape[0]
-    eigenvalues = (scores**2).sum(axis=0) / (n - 1)
+    eigenvalues = pca_models[dataset].eigenvalues_
+    assert eigenvalues is not None
+    result = parity.check(f"{dataset}.pca.eigenvalues.sklearn", eigenvalues[:N_COMPONENTS])
+    assert result.passed
+    assert not result.sign_aligned
 
-    result = parity.check(f"{dataset}.pca.eigenvalues.sklearn", eigenvalues)
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_pca_explained_variance_ratio_matches_the_reference(
+    dataset: str, pca_models: dict[str, PCA]
+) -> None:
+    """`pca.md` §6: the denominator is the total over all r components.
+
+    Normalising by the five retained ones instead would make the cumulative
+    curve reach 100% every time, and this is the case that catches it — the
+    reference sums to well under 1 on every dataset.
+    """
+    ratio = pca_models[dataset].explained_variance_ratio()
+    result = parity.check(f"{dataset}.pca.explained_variance_ratio.sklearn", ratio)
+    assert result.passed
+    assert ratio.sum() < 1.0, "five components explaining everything means the wrong denominator"
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_pca_cumulative_explained_variance_matches_the_reference(
+    dataset: str, pca_models: dict[str, PCA]
+) -> None:
+    """`pca.md` §6, the curve the component-count decision is read off.
+
+    The reference is the running total of the entry above rather than an
+    independently sourced quantity, so this claim is worth exactly one thing:
+    that our curve is a cumulative sum of ratios taken over the right
+    denominator. A curve reaching 1.0 at the last retained component would be
+    the classic wrong denominator, and it is asserted separately here.
+    """
+    cumulative = pca_models[dataset].cumulative_explained_variance()
+    result = parity.check(f"{dataset}.pca.cumulative_explained_variance.sklearn", cumulative)
+    assert result.passed
+    assert cumulative[-1] < 1.0
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_hotelling_t2_matches_the_reference(dataset: str, pca_models: dict[str, PCA]) -> None:
+    """`pca.md` §7, on the calibration samples.
+
+    scikit-learn reports no T^2, so the reference is computed in the generator
+    from *its* scores and eigenvalues by the definition. What that tests is our
+    decomposition against theirs, carried through a formula both sides agree
+    on — worth having, and worth not overstating in the report.
+    """
+    result = parity.check(f"{dataset}.pca.hotelling_t2.sklearn", pca_models[dataset].hotelling_t2())
+    assert result.passed
+    assert not result.sign_aligned, "T^2 squares every score, so it carries no sign"
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_spe_matches_the_reference(dataset: str, pca_models: dict[str, PCA]) -> None:
+    """`pca.md` §8: the sum of squares of the residual, not its mean or root."""
+    result = parity.check(f"{dataset}.pca.spe.sklearn", pca_models[dataset].spe(_centred(dataset)))
     assert result.passed
     assert not result.sign_aligned
 
