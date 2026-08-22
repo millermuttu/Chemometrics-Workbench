@@ -8,11 +8,11 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 ## Where things stand
 
-**Everything a kernel needs before it can be trusted now exists. The next thing built computes science.**
+**The first kernels are written, and the parity report has real claims in it.**
 
-Issues #1–#7 are merged into `dev`. #8 (`parity-harness`) is **complete and green on pull request #21, open and awaiting review** — the maintainer reviews before merge on this project. Nothing else is in flight.
+Issues #1–#8 are merged into `dev`. #9 (`kernels-scaling`) is **complete and green on pull request #22, open and awaiting review** — the maintainer reviews before merge on this project. Nothing else is in flight.
 
-The datasets load, the reference numbers exist, and the machinery that compares against them is built: `tests/parity.py` decides tolerance, sign alignment, claim tier and the run record once, so no kernel invents its own comparison rules. Once #21 merges, four kernel features unblock at once — #9, #10, #11 and #12 — and for the first time there is a choice about what to pick up.
+Six preprocessing transformers now exist in `src/chemometrics_workbench/preprocessing.py`, and all fifteen of their parity claims land in `identical_within_float`, the tightest tier. That is the first evidence the whole Phase 0 apparatus was built to produce.
 
 **The offline question was raised and settled.** Corn and gasoline are downloaded rather than committed, and the maintainer asked why, given that this is a local-first project. The answer is that the download happens once per machine and is cached permanently, the shipped application never imports `datasets.py` at all, and the two datasets have no redistribution terms we can establish. The option of writing to Eigenvector and Prof. Kalivas to ask for permission was offered and **declined — do not open that issue and do not chase it.** The download-and-verify path is the answer, not a placeholder for a better one.
 
@@ -20,37 +20,41 @@ The datasets load, the reference numbers exist, and the machinery that compares 
 
 | | |
 | --- | --- |
-| Current branch | `feature/8_parity-harness` |
-| Open pull request | **#21 → `dev`, CI green on 3.12 and 3.13, awaiting review. Do not merge without the maintainer's say-so.** |
+| Current branch | `feature/9_kernels-scaling` |
+| Open pull request | **#22 → `dev`, CI green on 3.12 and 3.13, awaiting review. Do not merge without the maintainer's say-so.** |
 | `main` | behind `dev`; receives a merge only at the end of Phase 0 |
-| Open issues | 7 of 14 remaining (#8 closes when #21 merges) |
-| Feature statuses | 8 × `passing`, 6 × `not_started` |
+| Open issues | 6 of 14 remaining (#9 closes when #22 merges) |
+| Feature statuses | 9 × `passing`, 5 × `not_started` |
+| Parity claims | 31 compared, 31 passed, 30 identical-within-float, 1 documented divergence, 14 fixture entries not yet compared |
 | Verification | `uv run ruff check`, `ruff format --check`, `mypy`, `pytest` — all green, and enforced by CI on both 3.12 and 3.13 |
 
 ## Active feature
 
-None. `parity-harness` is `passing` with its evidence recorded; the only thing outstanding is a human merging #21.
+None. `kernels-scaling` is `passing` with its evidence recorded; the only thing outstanding is a human merging #22.
 
 ## Next action
 
-**If #21 has merged:** four features unblock together — `kernels-scaling` (#9), `kernels-smoothing` (#10), `kernel-pca` (#11) and `kernel-pls` (#12). Take them in priority order, so **`kernels-scaling` (#9) first**. It is also the right one to go first on merit: the preprocessing steps are what every other kernel's parity case has to run before it, and #11 and #12 both depend on centring being correct.
+**If #22 has merged:** three features are eligible — `kernels-smoothing` (#10), `kernel-pca` (#11) and `kernel-pls` (#12). Priority order says **`kernels-smoothing` (#10) next**.
 
 ```bash
 git fetch origin
-git checkout -b feature/9_kernels-scaling origin/dev
-git branch -d feature/8_parity-harness
+git checkout -b feature/10_kernels-smoothing origin/dev
+git branch -d feature/9_kernels-scaling
 CHEMOMETRICS_DOWNLOAD_DATASETS=1 uv run pytest   # once, to populate the dataset cache
 ```
 
-**If #21 has not merged:** say so and stop. Do not start #9 on top of an unmerged branch, and do not merge #21 to unblock yourself.
+#10 is Savitzky–Golay and derivatives. Two things about it are already known: `scipy.signal.savgol_filter` exists and is the obvious reference, and `pls-regression.md` §7 records that Savitzky–Golay **is** foldable into exported coefficients as a banded matrix, unlike SNV and MSC — so the kernel should expose the convolution matrix, not only the filtered result. `from_spec` already raises for `savgol` by name, which is the seam to fill.
 
-**One feature at a time**, even though four are now eligible. The protocol allows exactly one `in_progress`.
+**If #22 has not merged:** say so and stop. Do not start #10 on top of an unmerged branch, and do not merge #22 to unblock yourself.
+
+**One feature at a time**, even though three are eligible. The protocol allows exactly one `in_progress`.
 
 **Read the carried-forward findings below before writing a kernel.** Several of them are the difference between a parity test that means something and one that passes while testing nothing.
 
 ## Waiting on the user
 
-- **Review and merge pull request #21.** All four kernel features are blocked on it.
+- **Review and merge pull request #22.** The remaining kernel features are blocked on it.
+- **Two questions raised on #22 and not yet answered.** Both are recorded there in full. (a) `MSC(reference="supplied")` has no schema field for the reference spectrum — a schema change and a separate issue. (b) `PROPOSAL.md` §7 says PCA and PLS come from scikit-learn, while `pca.md` §3 and `pls-regression.md` §4 are marked normative and specify our own implementations. Both cannot be right; the specs have been followed throughout.
 - **GitHub default branch is still `main`.** Any pull request opened without an explicit base targets the release line. Change it under Settings → Branches; it cannot be changed from here with the current tools.
 - **Parity against a commercial package** — `PROPOSAL.md` §19 Q4 is unresolved. The EULA is not public; a licence would have to be confirmed and written permission sought before publishing a comparison. Tier 1 parity (R `mdatools`, `pls`, scikit-learn, published literature) is unaffected and is what Phase 0 builds.
 - Remaining open questions are in `PROPOSAL.md` §19 — team and pace, funding intent, project name.
@@ -94,10 +98,21 @@ From #8 (parity harness):
 - **`parity-results.json` lists what was never compared.** Fourteen comparable fixture entries are currently untested. That list shrinking is the real measure of kernel progress, and it is what stops the report overstating coverage.
 - **The identical-within-float threshold is scale-relative**, 32 ulp of the largest reference value, not a fixed `rtol` with `atol=0`. A near-zero score would otherwise have to be bit-exact, which no reordering of a sum can promise.
 
+From #9 (scaling kernels):
+
+- **Kernels import nothing from scikit-learn.** "scikit-learn-compatible" is duck compatibility — `fit`, `transform`, `fit_transform` — and nothing more. sklearn is the reference implementation the fixtures are generated against; a kernel inheriting `BaseEstimator` would be a wrapper around the thing we claim parity with. Follow the same pattern in #10, #11 and #12.
+- **Transformers are stateful, and even the stateless ones have a `fit`.** Fitted parameters are the fit set's, always, because `metrics-and-validation.md` §9 pushes held-out samples through with the *training fold's* parameters. And recording the variable count at fit is the only thing that catches a transposed array — a transposed matrix is still 2-D.
+- **Zero is judged relative to the magnitude of the data, never `== 0.0`.** The standard deviation of a genuinely constant row of 0.7 is 1.16e-16. An exact test was written first and failed on real arithmetic. `_dead_threshold` in `preprocessing.py` is the shared rule.
+- **Two divergences from scikit-learn are deliberate**: autoscale defaults to `ddof=1` where `StandardScaler` is fixed at 0, and a zero-variance row or column raises rather than getting a substituted scale of 1. The parity case passes `ddof=0` explicitly. Do not "fix" either by matching sklearn without asking.
+- **SNV and MSC have no external reference** and are checked against their defining identities. Their fixture entries are `unsourced` on purpose. `chemotools` (#13) would fill the gap.
+- **Preprocessing reference values live on a 5 × 8 block per dataset.** `PREPROCESS_BLOCK` in `test_parity.py` must stay in step with `PREPROCESS_ROWS`/`PREPROCESS_COLUMNS` in the generator, or the comparison silently runs on two different blocks.
+- **`from_spec` is the executor's seam.** It raises by name for steps with no kernel yet, and needs the axis for `RangeSelect` and the spectrum for `MSC(reference="supplied")` — neither of which the schema carries.
+
 ## Gotchas that would otherwise waste time
 
 - **Setup is `uv sync`.** Verification commands are in `CONTRIBUTING.md`; `clean-state-checklist.md` refers to them by role rather than by name, so they only need updating in one place.
 - **Corn and gasoline tests skip on a fresh machine.** Run `CHEMOMETRICS_DOWNLOAD_DATASETS=1 uv run pytest` once to fetch them; CI sets the same variable and caches on the `SHA256SUMS` files. A skipped dataset test is not a failing one, but it is not evidence either.
+- **Regenerating the fixture is `uv run python tests/fixtures/generate_reference_values.py`.** Adding a kernel usually means adding reference entries there, then a tolerance class in `QUANTITY_CLASS`, then an entry in `ALGORITHMS` in `test_reference_values.py` if the algorithm name is new. All three, or a test fails telling you which.
 - **`uv run pytest -m parity` runs the parity suite alone**, and any pytest run that makes a comparison rewrites `parity-results.json` at the repository root. It is gitignored.
 - **`tests/test_parity_harness.py` deliberately provokes failures**, and saves and restores the recorder around every case so fabricated numbers never reach the run record. Keep new harness tests there, not in `test_parity.py`.
 - **`scikit-learn` is dev-only too**, for the same reason as `rdata`: it is a reference implementation, and our kernels must not call it. A kernel that imports sklearn is not a kernel, it is a wrapper.

@@ -63,6 +63,7 @@ so all three datasets are checksum-asserted there.
 | `tests/` | Test suite, mirroring the package layout. |
 | `tests/fixtures/` | Parity fixtures and the script that regenerates them. `reference_values.json` is the numbers every kernel is checked against. |
 | `tests/parity.py` | The parity harness: tolerance policy, sign alignment, claim tiers, run record. Every kernel's parity test goes through it. |
+| `src/chemometrics_workbench/preprocessing.py` | Scaling and scatter-correction kernels. `fit`/`transform`, duck-compatible with a scikit-learn transformer and importing nothing from it. |
 | `docs/algorithms/` | One specification per algorithm — the variant implemented, its conventions, and the definition of every quantity it reports. |
 | `design/` | Design brief, data-model diagrams, and the artboard sources for the UI. Not shipped code; excluded from linting. |
 
