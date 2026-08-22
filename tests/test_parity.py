@@ -27,6 +27,7 @@ from chemometrics_workbench.preprocessing import (
     AutoscaleTransformer,
     MeanCentreTransformer,
     NormaliseTransformer,
+    SavitzkyGolayTransformer,
 )
 from tests import parity
 
@@ -46,6 +47,12 @@ def fixture_entries() -> dict[str, dict[str, object]]:
 # the fixture notes; repeated here because a mismatch would compare two
 # different blocks and pass.
 PREPROCESS_BLOCK = (slice(0, 5), slice(0, 8))
+
+# The Savitzky-Golay configuration the references were generated at. Same rule
+# as the block: repeated from the generator because a mismatch would compare a
+# different filter and pass.
+SAVGOL_WINDOW = 5
+SAVGOL_POLYORDER = 2
 
 
 def _block(name: str) -> np.ndarray:
@@ -93,6 +100,54 @@ def test_autoscaling_matches_the_reference_at_its_ddof(dataset: str) -> None:
 def test_normalisation_matches_the_reference(dataset: str, norm: str) -> None:
     ours = NormaliseTransformer(norm).fit_transform(_block(dataset))  # type: ignore[arg-type]
     assert parity.check(f"{dataset}.preprocess.normalised_{norm}.sklearn", ours).passed
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+@pytest.mark.parametrize("deriv", [0, 1, 2])
+def test_savitzky_golay_matches_the_reference(dataset: str, deriv: int) -> None:
+    """Smoothing and both derivatives, against SciPy at `mode="interp"`.
+
+    SciPy is a runtime dependency of this project, but `scipy.signal` is not on
+    the kernel's code path: SciPy solves a least-squares system per output
+    position, and the kernel builds one convolution matrix from the
+    pseudo-inverse of the window's Vandermonde matrix. The comparison is
+    between two routes to the same filter, which is what makes it worth making.
+
+    The block is 8 variables wide and the half-window is 2, so **four of every
+    eight columns are edge columns** — this case is as much a test of the
+    `interp` edge convention as of the interior.
+    """
+    ours = SavitzkyGolayTransformer(SAVGOL_WINDOW, SAVGOL_POLYORDER, deriv).fit_transform(
+        _block(dataset)
+    )
+    assert parity.check(f"{dataset}.preprocess.savgol_deriv{deriv}.scipy", ours).passed
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+@pytest.mark.parametrize("deriv", [0, 1, 2])
+def test_savitzky_golay_agrees_with_the_reference_at_the_first_and_last_variable(
+    dataset: str, deriv: int, fixture_entries: dict[str, dict[str, object]]
+) -> None:
+    """The bound columns alone, asserted separately and deliberately.
+
+    The case above would still pass if the edges agreed by accident while the
+    interior carried the whole comparison. This one compares nothing but the
+    first and last variable, which is where `interp`, `mirror` and `nearest`
+    disagree, and it is the case that fails if the edge convention ever moves.
+    """
+    reference = parity.as_array(
+        fixture_entries[f"{dataset}.preprocess.savgol_deriv{deriv}.scipy"]["value"]
+    )
+    ours = SavitzkyGolayTransformer(SAVGOL_WINDOW, SAVGOL_POLYORDER, deriv).fit_transform(
+        _block(dataset)
+    )
+    edges = [0, -1]
+    np.testing.assert_allclose(
+        ours[:, edges],
+        reference[:, edges],
+        rtol=parity.TOLERANCES["smoothing"].rtol,
+        atol=parity.TOLERANCES["smoothing"].atol,
+    )
 
 
 # --------------------------------------------------------------------------
