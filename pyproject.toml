@@ -5,7 +5,7 @@ description = "Open-source, local-first chemometrics workbench"
 requires-python = ">=3.12"
 license = "MIT"
 authors = [{ name = "Mallik" }]
-dependencies = ["pydantic>=2.9"]
+dependencies = ["pydantic>=2.9", "numpy>=2.0", "scipy>=1.14"]
 
 [project.urls]
 Repository = "https://github.com/millermuttu/Chemometrics-Workbench"
@@ -18,7 +18,9 @@ build-backend = "hatchling.build"
 packages = ["src/chemometrics_workbench"]
 
 [dependency-groups]
-dev = ["pytest>=8.3", "ruff>=0.6", "mypy>=1.11"]
+# rdata reads the R .RData that carries the gasoline dataset. It is dev-only:
+# the application never reads R files, only the parity work does.
+dev = ["pytest>=8.3", "ruff>=0.6", "mypy>=1.11", "rdata>=0.11"]
 
 [tool.ruff]
 line-length = 100
@@ -46,6 +48,11 @@ strict = true
 files = ["src", "tests"]
 python_version = "3.12"
 plugins = ["pydantic.mypy"]
+
+# Neither scipy nor rdata ships type stubs.
+[[tool.mypy.overrides]]
+module = ["scipy.*", "rdata.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

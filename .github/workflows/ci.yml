@@ -48,5 +48,16 @@ jobs:
       - name: Type check
         run: uv run mypy
 
+      # Corn and gasoline are not committed — see src/chemometrics_workbench/data/.
+      # Cache them on their pinned checksums so CI downloads each one once, and
+      # the parity datasets are genuinely checksum-asserted rather than skipped.
+      - name: Cache downloaded reference datasets
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/chemometrics-workbench/datasets
+          key: reference-datasets-${{ hashFiles('src/chemometrics_workbench/data/*/SHA256SUMS') }}
+
       - name: Tests
         run: uv run pytest
+        env:
+          CHEMOMETRICS_DOWNLOAD_DATASETS: "1"
