@@ -266,15 +266,15 @@
         "kernels-smoothing"
       ],
       "user_visible_behavior": "PROPOSAL.md and CLAUDE.md state adopted, partially adopted or rejected with a reason, and the provisional wording is gone.",
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "Open docs/decisions/ and confirm a dated decision record exists.",
         "Confirm it compares numerical agreement, edge handling, documented conventions, dtype and copy behaviour, maintenance activity and dependency weight.",
         "Confirm the decision is per transformer, not wholesale.",
         "Confirm PROPOSAL.md section 7 and CLAUDE.md no longer describe chemotools as provisional."
       ],
-      "evidence": "",
-      "notes": "Decide with evidence from the same fixtures used for our own kernels, not preference."
+      "evidence": "2026-08-22. `docs/decisions/0001-chemotools.md` records the decision, dated and numbered, against chemotools 0.4.3. Evidence gathered by running its transformers against the same 5 x 8 fixture blocks the #9 and #10 reference values were generated on, and the baselines against the first five full spectra. Numerical agreement, largest absolute difference relative to the largest reference value: SNV bit-identical at ddof=0 (1.3e-01 at our ddof=1 default, a convention); MSC 3.9e-12 corn, 7.1e-16 gasoline, 1.0e-10 tecator; AsLS 8.6e-10, 7.4e-11, 7.6e-10; rubberband bit-identical; polynomial 3.5e-15, 5.3e-16, 1.5e-14; normalise l1 and l2 bit-identical; Savitzky-Golay <=3.2e-15 at mode='interp'. Edge handling: their SavitzkyGolay defaults to mode='nearest' where ours fixes 'interp' - identical in the interior to 1e-16, up to 2.3e-02 apart within a half-window of each end, 30% of the largest value on gasoline's first derivative. Conventions: documented per class in numpydoc, but neither SNV's ddof nor the reason for the mode default is stated; both had to be measured. dtype and copy: equivalent to ours (float32 promoted, caller's array untouched, NaN and shape mismatch both raise) except that a constant spectrum returns NaN silently where ours raises. Maintenance: MIT, 0.4.3 released 2026-06-30, last push 2026-08-03, created 2023-01-26, 82 stars, 39 open issues, 8 contributors of whom one has 543 commits and the rest total 21 - effectively single-maintainer, with visible churn (FutureWarnings for three moved modules, three deprecated constructor arguments, two experimental modules). Dependency weight: requires scikit-learn>=1.6, which is dev-only here; installs 20 MB of which 17 MB is bundled example CSVs. Decision is per transform: reference-only for SNV, MSC and the three baselines; neither adopted nor referenced for Savitzky-Golay and normalisation, both redundant with SciPy and scikit-learn; rejected for the runtime throughout. PROPOSAL.md section 7 and the section 14 stack summary now say so, CLAUDE.md's toolchain section records it, and the provisional wording is gone: `grep -n chemotools PROPOSAL.md CLAUDE.md` shows no remaining 'pending' or 'subject to evaluation'. `uv run ruff check`, `ruff format --check`, `mypy`, `pytest` - all green, 408 passed.",
+      "notes": "Decided with evidence, not preference. Two things were found while evaluating and raised as issues rather than folded in: #27 wires chemotools into the dev group and sources the five unsourced entries, and #28 sources the T2 and SPE limits from chemotools.outliers - which reports the limits scikit-learn does not, agrees with our SPE limit to 2.3e-15, and is therefore a way to unblock #11 that does not need R. PROPOSAL.md section 7's claim that PCA and PLS come from scikit-learn was corrected in the same edit: it had been false since #11, and the section was already being rewritten. That was the standing question (b) from pull request #22."
     },
     {
       "id": "parity-report",
@@ -319,6 +319,47 @@
       ],
       "evidence": "",
       "notes": "Blocked on R not being installed on the development machine, which is an environment decision rather than a coding task: there is no sudo, but `conda install -c conda-forge r-base r-mdatools` installs both into the existing anaconda without root. The maintainer was asked during #11 and chose not to install it then. Raised out of #11, whose fourth verification step this is the only thing that unblocks. Note before recording any discrepancy as a defect: mdatools uses a chi-squared SPE limit in some configurations and Jackson-Mudholkar in others, and pca.md \u00a713 already lists that as a known divergence. Every matrix handed to mdatools must be pre-centred, as with scikit-learn, or R's own centring default applies twice."
+    },
+    {
+      "id": "reference-values-chemotools",
+      "priority": 27,
+      "area": "parity",
+      "title": "Source the SNV, MSC and baseline reference values from chemotools",
+      "issue": 27,
+      "depends_on": [
+        "chemotools-eval"
+      ],
+      "user_visible_behavior": "SNV, MSC and the three baseline methods are compared against an independent implementation rather than against their own defining identities alone.",
+      "status": "not_started",
+      "verification": [
+        "Regenerate the fixture and confirm the five entries per dataset are sourced.",
+        "Run the parity suite and confirm they are compared and passing.",
+        "Confirm parity-results.json still reports an empty not_compared list.",
+        "Confirm no tolerance already in TOLERANCES was loosened to make MSC pass."
+      ],
+      "evidence": "",
+      "notes": "Decided by docs/decisions/0001-chemotools.md. MSC agrees to 1e-10 relative, which is outside the preprocessing class's 1e-12 - it needs its own class with a reason or a recorded divergence, never a widened class."
+    },
+    {
+      "id": "reference-values-chemotools-limits",
+      "priority": 28,
+      "area": "parity",
+      "title": "Source the T-squared and SPE limits from chemotools, and unblock #11",
+      "issue": 28,
+      "depends_on": [
+        "chemotools-eval",
+        "kernel-pca"
+      ],
+      "user_visible_behavior": "The PCA confidence limits are compared against an independent implementation, and kernel-pca's fourth verification step can actually be run.",
+      "status": "not_started",
+      "verification": [
+        "Regenerate the fixture and confirm spe_limit and hotelling_t2_limit entries are sourced.",
+        "Run the parity suite and confirm the SPE limit is compared and passing.",
+        "Confirm the T-squared limit is recorded as a documented divergence with the formula difference stated, not as a failure.",
+        "Re-run kernel-pca's verification and move it to passing, or record what still blocks it."
+      ],
+      "evidence": "",
+      "notes": "Our SPE limit and chemotools' agree to 2.3e-15; the T-squared limits differ by exactly (n+1)/n because theirs is a(n-1)/(n-a)F and ours is a(n^2-1)/(n(n-a))F. Measured during #13 and recorded in docs/decisions/0001-chemotools.md."
     }
   ]
 }
