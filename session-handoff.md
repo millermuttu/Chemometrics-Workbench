@@ -10,42 +10,41 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 **Phase 0's data half is done, and the parity chain is unblocked.**
 
-Issues #1–#5 are merged into `dev`. #6 (`reference-datasets`) is **complete and green, but its pull request is open and deliberately unmerged** — the maintainer asked to review it first. Nothing else is in flight.
+Issues #1–#6 are merged into `dev`. Pull request #19 merged on 2026-08-22 and its branch is deleted locally and on origin. Nothing is in flight.
 
-The three benchmark datasets now load. `load_corn()`, `load_gasoline()` and `load_tecator()` each return a spectra matrix, its wavelength axis in real units, reference values by property name, and a `SourceFile` recording provenance. That was the last thing standing between here and #7, so once #19 merges the whole remaining chain opens up.
+The three benchmark datasets now load. `load_corn()`, `load_gasoline()` and `load_tecator()` each return a spectra matrix, its wavelength axis in real units, reference values by property name, and a `SourceFile` recording provenance. That was the last thing standing between here and #7, and the whole remaining chain is now open.
+
+**The offline question was raised and settled.** Corn and gasoline are downloaded rather than committed, and the maintainer asked why, given that this is a local-first project. The answer is that the download happens once per machine and is cached permanently, the shipped application never imports `datasets.py` at all, and the two datasets have no redistribution terms we can establish. The option of writing to Eigenvector and Prof. Kalivas to ask for permission was offered and **declined — do not open that issue and do not chase it.** The download-and-verify path is the answer, not a placeholder for a better one.
 
 ## Repository
 
 | | |
 | --- | --- |
-| Current branch | `feature/6_reference-datasets` |
-| Open pull request | **#19 → `dev`, CI green, awaiting the maintainer's review. Do not merge it without their say-so.** |
+| Current branch | `dev`, clean, in sync with origin |
+| Open pull requests | None |
 | `main` | behind `dev`; receives a merge only at the end of Phase 0 |
-| Open issues | 9 of 14 remaining (#6 closes when #19 merges) |
+| Open issues | 8 of 14 remaining |
 | Feature statuses | 6 × `passing`, 8 × `not_started` |
 | Verification | `uv run ruff check`, `ruff format --check`, `mypy`, `pytest` — all green, and enforced by CI on both 3.12 and 3.13 |
 
 ## Active feature
 
-None. `reference-datasets` is `passing` with its evidence recorded; the only thing outstanding is a human merging #19.
+None. Nothing is `in_progress`.
 
 ## Next action
 
-**If #19 has merged:** start `reference-values` — issue #7, priority 7. Its dependencies (`spec-pca`, `spec-pls`, `spec-metrics-cv`, `reference-datasets`) are then all `passing`.
+Start **`reference-values`** — issue #7, priority 7. Its dependencies (`spec-pca`, `spec-pls`, `spec-metrics-cv`, `reference-datasets`) are all `passing`.
 
 ```bash
 git fetch origin
 git checkout -b feature/7_reference-values origin/dev
-git branch -d feature/6_reference-datasets
+CHEMOMETRICS_DOWNLOAD_DATASETS=1 uv run pytest   # once, to populate the dataset cache
 ```
 
-**If #19 has not merged:** say so and stop. Do not start #7 on top of an unmerged branch, and do not merge #19 to unblock yourself — the review was asked for explicitly.
-
-Read the carried-forward findings below before recording a single reference value. Two of them will otherwise look like defects in our code.
+**Read the carried-forward findings below before recording a single reference value.** Two of them will otherwise look like defects in our code rather than differences in definition, and one of them will look like it works when it does not.
 
 ## Waiting on the user
 
-- **Review and merge pull request #19.** Everything downstream is blocked on it.
 - **GitHub default branch is still `main`.** Any pull request opened without an explicit base targets the release line. Change it under Settings → Branches; it cannot be changed from here with the current tools.
 - **Parity against a commercial package** — `PROPOSAL.md` §19 Q4 is unresolved. The EULA is not public; a licence would have to be confirmed and written permission sought before publishing a comparison. Tier 1 parity (R `mdatools`, `pls`, scikit-learn, published literature) is unaffected and is what Phase 0 builds.
 - Remaining open questions are in `PROPOSAL.md` §19 — team and pace, funding intent, project name.
