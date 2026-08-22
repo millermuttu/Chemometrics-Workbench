@@ -1,0 +1,283 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Pipeline canvas</title>
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+*{box-sizing:border-box}
+body{margin:0;font-family:'IBM Plex Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#0B6B62}a:hover{color:#075049}
+.t-light{--ground:#E7EBEA;--panel:#F3F6F5;--surface:#FFFFFF;--sunken:#EDF1F0;--ink:#0F1A18;--ink2:#44524E;--ink3:#6E7D79;--rule:#D2DAD8;--rule2:#E5EAE8;--accent:#0B6B62;--accentSoft:#DCEDE9;--accentInk:#075049;--stale:#9A6206;--staleSoft:#F7EEDD;--fail:#A93226;--failSoft:#F9E8E5;--d1:#0072B2;--d2:#E69F00;--d3:#009E73;--d4:#CC79A7;--d5:#56B4E9;--d6:#D55E00;--grid:#EDF1F0;--band:#CBD7D4}
+.t-dark{--ground:#080D0C;--panel:#101816;--surface:#0C1413;--sunken:#141E1C;--ink:#E3EAE8;--ink2:#A6B5B1;--ink3:#788985;--rule:#22302D;--rule2:#192523;--accent:#54BFAB;--accentSoft:#122A26;--accentInk:#7FD3C2;--stale:#DFA85A;--staleSoft:#2A2216;--fail:#E8887C;--failSoft:#2C1A17;--d1:#5AA9DE;--d2:#F0B33C;--d3:#3FC79E;--d4:#DE9DC4;--d5:#8FCCF0;--d6:#F0855A;--grid:#16211F;--band:#263532}
+.app{width:1440px;height:900px;display:flex;flex-direction:column;background:var(--ground);color:var(--ink);font-size:12.5px;line-height:1.45}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.tbar{height:40px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 12px;gap:12px;background:var(--panel);border-bottom:1px solid var(--rule)}
+.tb-l,.tb-r{display:flex;align-items:center;gap:10px}
+.proj{font-weight:600;font-size:13px;letter-spacing:-.01em}
+.crumb{font-size:11px;color:var(--ink3)}
+.pill{display:flex;align-items:center;gap:6px;height:22px;padding:0 8px;border:1px solid var(--rule);border-radius:3px;font-size:11px;color:var(--ink2);background:var(--surface)}
+.btn{display:flex;align-items:center;gap:6px;height:26px;padding:0 10px;border:1px solid var(--rule);border-radius:3px;background:var(--surface);color:var(--ink);font-size:12px;font-weight:500}
+.btn-p{background:var(--accent);border-color:var(--accent);color:#fff}
+.body{flex:1;display:flex;min-height:0}
+.side{width:248px;flex:none;background:var(--panel);border-right:1px solid var(--rule);display:flex;flex-direction:column;overflow:hidden}
+.doc{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--surface)}
+.insp{width:292px;flex:none;background:var(--panel);border-left:1px solid var(--rule);display:flex;flex-direction:column;overflow:hidden}
+.shead{display:flex;align-items:center;justify-content:space-between;height:26px;padding:0 10px;font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink3);margin-top:6px}
+.srow{display:flex;align-items:center;gap:7px;height:24px;padding:0 10px 0 16px;font-size:12px;color:var(--ink2)}
+.srow.sel{background:var(--accentSoft);color:var(--accentInk);font-weight:500}
+.sdim{color:var(--ink3);font-size:11px;margin-left:auto}
+.tabs{height:34px;flex:none;display:flex;align-items:stretch;background:var(--panel);border-bottom:1px solid var(--rule)}
+.tab{display:flex;align-items:center;gap:7px;padding:0 11px;border-right:1px solid var(--rule);font-size:12px;color:var(--ink2);white-space:nowrap}
+.tab.act{background:var(--surface);color:var(--ink);font-weight:500}
+.tab.tr{font-style:italic;color:var(--ink3)}
+.tabx{color:var(--ink3);font-size:14px;line-height:1}
+.pane{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column}
+.status{height:28px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 12px;gap:12px;background:var(--panel);border-top:1px solid var(--rule);font-size:11px;color:var(--ink2)}
+.prog{width:118px;height:4px;border-radius:2px;background:var(--sunken);overflow:hidden}
+.prog i{display:block;height:100%;background:var(--accent)}
+.ihead{padding:9px 12px;border-bottom:1px solid var(--rule);display:flex;flex-direction:column;gap:2px}
+.ilabel{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink3)}
+.kv{display:flex;justify-content:space-between;gap:10px;padding:3px 12px;font-size:11.5px}
+.kv b{font-weight:400;color:var(--ink3)}
+.kv span{color:var(--ink);font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums}
+table{border-collapse:collapse;width:100%;font-size:12px}
+th{background:var(--panel);text-align:left;font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink3);font-weight:500;padding:7px 10px;border-bottom:1px solid var(--rule)}
+td{padding:5px 10px;border-bottom:1px solid var(--rule2);color:var(--ink2)}
+td.n,th.n{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;text-align:right}
+td.n{color:var(--ink)}
+
+  </style>
+</helmet>
+<div class="app {{t}}">
+<div class="tbar">
+<div class="tb-l"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 3v6L4 19a1.6 1.6 0 0 0 1.4 2h13.2A1.6 1.6 0 0 0 20 19l-5-10V3"></path><path d="M8 3h8"></path><path d="M7 14h10"></path></svg><span class="proj">Corn NIR study</span>
+<span class="crumb mono">~/lab/corn-nir</span></div>
+<div class="tb-r"><span class="pill mono">11 nodes · 5 branches</span><span class="btn">Add node</span><span class="btn btn-p">Run all</span></div></div>
+<div class="body">
+<aside class="side">
+<div class="shead"><span>Datasets</span><span style="color:var(--ink3)">+</span></div>
+<div class="srow" style="padding-left:16px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="6" rx="8" ry="3"></ellipse><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"></path><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"></path></svg><span>corn_raw</span><span class="sdim mono">v2 · 80×700</span></div>
+<div class="srow" style="padding-left:16px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="6" rx="8" ry="3"></ellipse><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"></path><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"></path></svg><span>corn_v1</span><span class="sdim mono">v1 · 80×700</span></div>
+<div class="srow" style="padding-left:16px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="6" rx="8" ry="3"></ellipse><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"></path><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"></path></svg><span>validation_set</span><span class="sdim mono">24×700</span></div>
+<div class="shead"><span>Pipeline</span><span class="mono" style="font-size:10px">11 nodes</span></div>
+<div class="srow" style="padding-left:26px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="9" width="7" height="6" rx="1"></rect><rect x="14" y="9" width="7" height="6" rx="1"></rect><path d="M10 12h4"></path></svg><span>corn_raw v2</span></div>
+<div class="srow" style="padding-left:34px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="9" width="7" height="6" rx="1"></rect><rect x="14" y="9" width="7" height="6" rx="1"></rect><path d="M10 12h4"></path></svg><span>SNV</span></div>
+<div class="srow" style="padding-left:34px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="9" width="7" height="6" rx="1"></rect><rect x="14" y="9" width="7" height="6" rx="1"></rect><path d="M10 12h4"></path></svg><span>MSC</span></div>
+<div class="srow" style="padding-left:34px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="9" width="7" height="6" rx="1"></rect><rect x="14" y="9" width="7" height="6" rx="1"></rect><path d="M10 12h4"></path></svg><span>SG d1 w11</span></div>
+<div class="srow" style="padding-left:34px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="9" width="7" height="6" rx="1"></rect><rect x="14" y="9" width="7" height="6" rx="1"></rect><path d="M10 12h4"></path></svg><span>SNV + SG d1</span></div>
+<div class="srow" style="padding-left:34px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="9" width="7" height="6" rx="1"></rect><rect x="14" y="9" width="7" height="6" rx="1"></rect><path d="M10 12h4"></path></svg><span>Baseline ALS</span></div>
+<div class="srow" style="padding-left:34px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="9" width="7" height="6" rx="1"></rect><rect x="14" y="9" width="7" height="6" rx="1"></rect><path d="M10 12h4"></path></svg><span>K-fold 10 · seed 42</span></div>
+<div class="srow sel" style="padding-left:34px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="9" width="7" height="6" rx="1"></rect><rect x="14" y="9" width="7" height="6" rx="1"></rect><path d="M10 12h4"></path></svg><span>PLS 6 LV</span></div>
+<div class="shead"><span>Experiments</span><span class="mono" style="font-size:10px">12</span></div>
+<div class="srow" style="padding-left:26px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 3v6L4 19a1.6 1.6 0 0 0 1.4 2h13.2A1.6 1.6 0 0 0 20 19l-5-10V3"></path><path d="M8 3h8"></path><path d="M7 14h10"></path></svg><span>Runs</span></div>
+<div class="shead"><span>Models</span><span class="mono" style="font-size:10px">4</span></div>
+<div class="srow" style="padding-left:26px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"></path><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"></path></svg><span>Model A</span><span class="sdim mono">0.412</span></div>
+<div class="srow" style="padding-left:26px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"></path><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"></path></svg><span>Model B</span><span class="sdim mono">0.418</span></div>
+<div class="srow" style="padding-left:26px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"></path><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"></path></svg><span>Model C</span><span class="sdim mono">0.389</span></div>
+<div class="srow" style="padding-left:26px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"></path><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"></path></svg><span>Model D</span><span class="sdim mono">0.381</span></div>
+</aside>
+<main class="doc">
+<div class="tabs"><div class="tab"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="6" rx="8" ry="3"></ellipse><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"></path><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"></path></svg><span>corn_raw v2</span></div><div class="tab act"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="9" width="7" height="6" rx="1"></rect><rect x="14" y="9" width="7" height="6" rx="1"></rect><path d="M10 12h4"></path></svg><span>Pipeline</span><span class="tabx">×</span></div><div class="tab"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 20h18"></path><path d="M4 16l5-6 4 3 6-8"></path></svg><span>SG d1 w11</span></div><div class="tab tr"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 20h18"></path><path d="M4 16l5-6 4 3 6-8"></path></svg><span>PCA scores</span></div><div class="tab"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"></path><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"></path></svg><span>Model C</span></div><div class="tab"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 3v6L4 19a1.6 1.6 0 0 0 1.4 2h13.2A1.6 1.6 0 0 0 20 19l-5-10V3"></path><path d="M8 3h8"></path><path d="M7 14h10"></path></svg><span>Runs</span></div><div class="tab mono" style="color:var(--ink3);border-right:none">+3</div></div>
+<div class="pane" style="position:relative;background:var(--surface)">
+  <div style="position:absolute;inset:0;background-image:radial-gradient(var(--grid) 1px,transparent 1px);background-size:22px 22px;opacity:.9"></div>
+  <svg width="900" height="798" style="position:absolute;left:0;top:0;overflow:visible"><path d="M154,344 C196,344 138,84 180,84" fill="none" stroke="var(--rule)" stroke-width="1.4"></path><circle cx="177" cy="84" r="2.4" fill="var(--rule)"></circle><path d="M312,84 C354,84 296,84 338,84" fill="none" stroke="var(--rule)" stroke-width="1.4"></path><circle cx="335" cy="84" r="2.4" fill="var(--rule)"></circle><path d="M470,84 C512,84 454,84 496,84" fill="none" stroke="var(--rule)" stroke-width="1.4"></path><circle cx="493" cy="84" r="2.4" fill="var(--rule)"></circle><path d="M628,84 C670,84 612,84 654,84" fill="none" stroke="var(--rule)" stroke-width="1.4"></path><circle cx="651" cy="84" r="2.4" fill="var(--rule)"></circle><path d="M154,344 C196,344 138,214 180,214" fill="none" stroke="var(--rule)" stroke-width="1.4"></path><circle cx="177" cy="214" r="2.4" fill="var(--rule)"></circle><path d="M312,214 C354,214 296,214 338,214" fill="none" stroke="var(--rule)" stroke-width="1.4"></path><circle cx="335" cy="214" r="2.4" fill="var(--rule)"></circle><path d="M470,214 C512,214 454,214 496,214" fill="none" stroke="var(--rule)" stroke-width="1.4"></path><circle cx="493" cy="214" r="2.4" fill="var(--rule)"></circle><path d="M628,214 C670,214 612,214 654,214" fill="none" stroke="var(--rule)" stroke-width="1.4"></path><circle cx="651" cy="214" r="2.4" fill="var(--rule)"></circle><path d="M154,344 C196,344 138,344 180,344" fill="none" stroke="var(--accent)" stroke-width="1.8"></path><circle cx="177" cy="344" r="2.4" fill="var(--accent)"></circle><path d="M312,344 C354,344 296,344 338,344" fill="none" stroke="var(--accent)" stroke-width="1.8"></path><circle cx="335" cy="344" r="2.4" fill="var(--accent)"></circle><path d="M470,344 C512,344 454,344 496,344" fill="none" stroke="var(--accent)" stroke-width="1.8"></path><circle cx="493" cy="344" r="2.4" fill="var(--accent)"></circle><path d="M628,344 C670,344 612,344 654,344" fill="none" stroke="var(--accent)" stroke-width="1.8"></path><circle cx="651" cy="344" r="2.4" fill="var(--accent)"></circle><path d="M154,344 C196,344 138,474 180,474" fill="none" stroke="var(--stale)" stroke-width="1.4" stroke-dasharray="4 3"></path><circle cx="177" cy="474" r="2.4" fill="var(--stale)"></circle><path d="M312,474 C354,474 296,474 338,474" fill="none" stroke="var(--stale)" stroke-width="1.4" stroke-dasharray="4 3"></path><circle cx="335" cy="474" r="2.4" fill="var(--stale)"></circle><path d="M470,474 C512,474 454,474 496,474" fill="none" stroke="var(--stale)" stroke-width="1.4" stroke-dasharray="4 3"></path><circle cx="493" cy="474" r="2.4" fill="var(--stale)"></circle><path d="M628,474 C670,474 612,474 654,474" fill="none" stroke="var(--stale)" stroke-width="1.4" stroke-dasharray="4 3"></path><circle cx="651" cy="474" r="2.4" fill="var(--stale)"></circle><path d="M154,344 C196,344 138,604 180,604" fill="none" stroke="var(--rule)" stroke-width="1.4"></path><circle cx="177" cy="604" r="2.4" fill="var(--rule)"></circle><path d="M312,604 C354,604 296,604 338,604" fill="none" stroke="var(--rule)" stroke-width="1.4"></path><circle cx="335" cy="604" r="2.4" fill="var(--rule)"></circle><path d="M470,604 C512,604 454,604 496,604" fill="none" stroke="var(--rule)" stroke-width="1.4"></path><circle cx="493" cy="604" r="2.4" fill="var(--rule)"></circle></svg>
+  <div style="position:absolute;left:22px;top:-35px;width:132px;height:74px;
+border:1px solid var(--rule);border-radius:4px;background:var(--surface);opacity:1;overflow:hidden;display:flex;flex-direction:column">
+<div style="height:17px;flex:none;display:flex;align-items:center;padding:0 8px;background:var(--sunken);
+font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3)">source</div>
+<div style="flex:1;padding:5px 8px 0;min-height:0">
+<div style="font-size:12px;font-weight:500;color:var(--ink);line-height:1.25">corn_raw</div>
+<div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--ink3);margin-top:2px">v2 · 80 × 700</div>
+</div><div style="padding:4px 8px 6px;font-family:'IBM Plex Mono',monospace;font-size:10px;font-variant-numeric:tabular-nums;border-top:1px solid var(--rule2)">sha256:9f3c…a71b</div></div><div style="position:absolute;left:180px;top:-35px;width:132px;height:70px;
+border:1px solid var(--rule);border-radius:4px;background:var(--surface);opacity:1;overflow:hidden;display:flex;flex-direction:column">
+<div style="height:17px;flex:none;display:flex;align-items:center;padding:0 8px;background:var(--sunken);
+font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3)">preprocess</div>
+<div style="flex:1;padding:5px 8px 0;min-height:0">
+<div style="font-size:12px;font-weight:500;color:var(--ink);line-height:1.25">SNV</div>
+<div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--ink3);margin-top:2px">—</div>
+</div></div><div style="position:absolute;left:180px;top:-34px;width:132px;height:70px;
+border:1px solid var(--rule);border-radius:4px;background:var(--surface);opacity:1;overflow:hidden;display:flex;flex-direction:column">
+<div style="height:17px;flex:none;display:flex;align-items:center;padding:0 8px;background:var(--sunken);
+font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3)">preprocess</div>
+<div style="flex:1;padding:5px 8px 0;min-height:0">
+<div style="font-size:12px;font-weight:500;color:var(--ink);line-height:1.25">MSC</div>
+<div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--ink3);margin-top:2px">reference: mean</div>
+</div></div><div style="position:absolute;left:180px;top:-33px;width:132px;height:70px;
+border:1px solid var(--rule);border-radius:4px;background:var(--surface);opacity:1;overflow:hidden;display:flex;flex-direction:column">
+<div style="height:17px;flex:none;display:flex;align-items:center;padding:0 8px;background:var(--sunken);
+font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3)">preprocess</div>
+<div style="flex:1;padding:5px 8px 0;min-height:0">
+<div style="font-size:12px;font-weight:500;color:var(--ink);line-height:1.25">SG d1 w11</div>
+<div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--ink3);margin-top:2px">window 11 · poly 2 · deriv 1</div>
+</div></div><div style="position:absolute;left:180px;top:-32px;width:132px;height:70px;
+border:1px dashed var(--stale);border-radius:4px;background:repeating-linear-gradient(135deg,var(--surface),var(--surface) 5px,var(--staleSoft) 5px,var(--staleSoft) 10px);opacity:.72;overflow:hidden;display:flex;flex-direction:column">
+<div style="height:17px;flex:none;display:flex;align-items:center;padding:0 8px;background:var(--staleSoft);
+font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--stale)">preprocess</div>
+<div style="flex:1;padding:5px 8px 0;min-height:0">
+<div style="font-size:12px;font-weight:500;color:var(--ink);line-height:1.25">SNV + SG d1</div>
+<div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--ink3);margin-top:2px">window 15 · poly 3 · deriv 1</div>
+</div><div style="padding:4px 8px 6px;font-family:'IBM Plex Mono',monospace;font-size:10px;font-variant-numeric:tabular-nums;border-top:1px solid var(--rule2)"><span style="color:var(--stale)">edited · downstream stale</span></div></div><div style="position:absolute;left:180px;top:-31px;width:132px;height:70px;
+border:1px solid var(--rule);border-radius:4px;background:var(--surface);opacity:1;overflow:hidden;display:flex;flex-direction:column">
+<div style="height:17px;flex:none;display:flex;align-items:center;padding:0 8px;background:var(--sunken);
+font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3)">preprocess</div>
+<div style="flex:1;padding:5px 8px 0;min-height:0">
+<div style="font-size:12px;font-weight:500;color:var(--ink);line-height:1.25">Baseline ALS</div>
+<div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--ink3);margin-top:2px">lam 1e5 · p 0.01</div>
+</div></div><div style="position:absolute;left:338px;top:-35px;width:132px;height:70px;
+border:1px solid var(--rule);border-radius:4px;background:var(--surface);opacity:1;overflow:hidden;display:flex;flex-direction:column">
+<div style="height:17px;flex:none;display:flex;align-items:center;padding:0 8px;background:var(--sunken);
+font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3)">split</div>
+<div style="flex:1;padding:5px 8px 0;min-height:0">
+<div style="font-size:12px;font-weight:500;color:var(--ink);line-height:1.25">K-fold</div>
+<div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--ink3);margin-top:2px">10 folds · shuffle · seed 42</div>
+</div></div><div style="position:absolute;left:338px;top:-34px;width:132px;height:70px;
+border:1px solid var(--rule);border-radius:4px;background:var(--surface);opacity:1;overflow:hidden;display:flex;flex-direction:column">
+<div style="height:17px;flex:none;display:flex;align-items:center;padding:0 8px;background:var(--sunken);
+font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3)">split</div>
+<div style="flex:1;padding:5px 8px 0;min-height:0">
+<div style="font-size:12px;font-weight:500;color:var(--ink);line-height:1.25">K-fold</div>
+<div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--ink3);margin-top:2px">10 folds · shuffle · seed 42</div>
+</div></div><div style="position:absolute;left:338px;top:-33px;width:132px;height:70px;
+border:1px solid var(--rule);border-radius:4px;background:var(--surface);opacity:1;overflow:hidden;display:flex;flex-direction:column">
+<div style="height:17px;flex:none;display:flex;align-items:center;padding:0 8px;background:var(--sunken);
+font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3)">split</div>
+<div style="flex:1;padding:5px 8px 0;min-height:0">
+<div style="font-size:12px;font-weight:500;color:var(--ink);line-height:1.25">K-fold</div>
+<div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--ink3);margin-top:2px">10 folds · shuffle · seed 42</div>
+</div></div><div style="position:absolute;left:338px;top:-32px;width:132px;height:70px;
+border:1px dashed var(--stale);border-radius:4px;background:repeating-linear-gradient(135deg,var(--surface),var(--surface) 5px,var(--staleSoft) 5px,var(--staleSoft) 10px);opacity:.72;overflow:hidden;display:flex;flex-direction:column">
+<div style="height:17px;flex:none;display:flex;align-items:center;padding:0 8px;background:var(--staleSoft);
+font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--stale)">split</div>
+<div style="flex:1;padding:5px 8px 0;min-height:0">
+<div style="font-size:12px;font-weight:500;color:var(--ink);line-height:1.25">K-fold</div>
+<div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--ink3);margin-top:2px">10 folds · shuffle · seed 42</div>
+</div></div><div style="position:absolute;left:338px;top:-31px;width:132px;height:70px;
+border:1px solid var(--rule);border-radius:4px;background:var(--surface);opacity:1;overflow:hidden;display:flex;flex-direction:column">
+<div style="height:17px;flex:none;display:flex;align-items:center;padding:0 8px;background:var(--sunken);
+font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3)">split</div>
+<div style="flex:1;padding:5px 8px 0;min-height:0">
+<div style="font-size:12px;font-weight:500;color:var(--ink);line-height:1.25">K-fold</div>
+<div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--ink3);margin-top:2px">10 folds · shuffle · seed 42</div>
+</div></div><div style="position:absolute;left:496px;top:-47px;width:132px;height:94px;
+border:1px solid var(--rule);border-radius:4px;background:var(--surface);opacity:1;overflow:hidden;display:flex;flex-direction:column">
+<div style="height:17px;flex:none;display:flex;align-items:center;padding:0 8px;background:var(--sunken);
+font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3)">estimator</div>
+<div style="flex:1;padding:5px 8px 0;min-height:0">
+<div style="font-size:12px;font-weight:500;color:var(--ink);line-height:1.25">PLS</div>
+<div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--ink3);margin-top:2px">6 LV · NIPALS · moisture</div>
+</div><div style="padding:4px 8px 6px;font-family:'IBM Plex Mono',monospace;font-size:10px;font-variant-numeric:tabular-nums;border-top:1px solid var(--rule2)"><span style="color:var(--ink3)">RMSECV</span> <b style="font-weight:600;color:var(--ink)">0.412</b></div></div><div style="position:absolute;left:496px;top:-46px;width:132px;height:94px;
+border:1px solid var(--rule);border-radius:4px;background:var(--surface);opacity:1;overflow:hidden;display:flex;flex-direction:column">
+<div style="height:17px;flex:none;display:flex;align-items:center;padding:0 8px;background:var(--sunken);
+font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3)">estimator</div>
+<div style="flex:1;padding:5px 8px 0;min-height:0">
+<div style="font-size:12px;font-weight:500;color:var(--ink);line-height:1.25">PLS</div>
+<div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--ink3);margin-top:2px">6 LV · NIPALS · moisture</div>
+</div><div style="padding:4px 8px 6px;font-family:'IBM Plex Mono',monospace;font-size:10px;font-variant-numeric:tabular-nums;border-top:1px solid var(--rule2)"><span style="color:var(--ink3)">RMSECV</span> <b style="font-weight:600;color:var(--ink)">0.418</b></div></div><div style="position:absolute;left:496px;top:-45px;width:132px;height:94px;
+border:1.5px solid var(--accent);border-radius:4px;background:var(--surface);opacity:1;overflow:hidden;display:flex;flex-direction:column">
+<div style="height:17px;flex:none;display:flex;align-items:center;padding:0 8px;background:var(--accentSoft);
+font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--accentInk)">estimator</div>
+<div style="flex:1;padding:5px 8px 0;min-height:0">
+<div style="font-size:12px;font-weight:500;color:var(--ink);line-height:1.25">PLS</div>
+<div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--ink3);margin-top:2px">5 LV · NIPALS · moisture</div>
+<div style="margin-top:5px;height:3px;border-radius:2px;background:var(--sunken);overflow:hidden"><div style="width:70%;height:100%;background:var(--accent)"></div></div></div><div style="padding:4px 8px 6px;font-family:'IBM Plex Mono',monospace;font-size:10px;font-variant-numeric:tabular-nums;border-top:1px solid var(--rule2)"><span style="color:var(--accentInk)">fold 7 of 10 · 0:42</span></div></div><div style="position:absolute;left:496px;top:-44px;width:132px;height:94px;
+border:1px dashed var(--stale);border-radius:4px;background:repeating-linear-gradient(135deg,var(--surface),var(--surface) 5px,var(--staleSoft) 5px,var(--staleSoft) 10px);opacity:.72;overflow:hidden;display:flex;flex-direction:column">
+<div style="height:17px;flex:none;display:flex;align-items:center;padding:0 8px;background:var(--staleSoft);
+font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--stale)">estimator</div>
+<div style="flex:1;padding:5px 8px 0;min-height:0">
+<div style="font-size:12px;font-weight:500;color:var(--ink);line-height:1.25">PLS</div>
+<div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--ink3);margin-top:2px">5 LV · NIPALS · moisture</div>
+</div><div style="padding:4px 8px 6px;font-family:'IBM Plex Mono',monospace;font-size:10px;font-variant-numeric:tabular-nums;border-top:1px solid var(--rule2)"><span style="color:var(--ink3)">RMSECV</span> <b style="font-weight:600;color:var(--ink)">0.381</b></div></div><div style="position:absolute;left:496px;top:-43px;width:132px;height:94px;
+border:1px solid var(--fail);border-radius:4px;background:var(--surface);opacity:1;overflow:hidden;display:flex;flex-direction:column"><div style="position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--fail);border-radius:3px 0 0 3px"></div>
+<div style="height:17px;flex:none;display:flex;align-items:center;padding:0 8px;background:var(--failSoft);
+font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--fail)">estimator</div>
+<div style="flex:1;padding:5px 8px 0;min-height:0">
+<div style="font-size:12px;font-weight:500;color:var(--ink);line-height:1.25">PLS</div>
+<div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--ink3);margin-top:2px">6 LV · NIPALS · moisture</div>
+</div><div style="padding:4px 8px 6px;font-family:'IBM Plex Mono',monospace;font-size:10px;font-variant-numeric:tabular-nums;border-top:1px solid var(--rule2)"><span style="color:var(--fail)">did not converge</span></div></div><div style="position:absolute;left:654px;top:-31px;width:132px;height:62px;
+border:1px solid var(--rule);border-radius:4px;background:var(--surface);opacity:1;overflow:hidden;display:flex;flex-direction:column">
+<div style="height:17px;flex:none;display:flex;align-items:center;padding:0 8px;background:var(--sunken);
+font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3)">model</div>
+<div style="flex:1;padding:5px 8px 0;min-height:0">
+<div style="font-size:12px;font-weight:500;color:var(--ink);line-height:1.25">Model A</div>
+<div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--ink3);margin-top:2px">saved 09:14</div>
+</div></div><div style="position:absolute;left:654px;top:-30px;width:132px;height:62px;
+border:1px solid var(--rule);border-radius:4px;background:var(--surface);opacity:1;overflow:hidden;display:flex;flex-direction:column">
+<div style="height:17px;flex:none;display:flex;align-items:center;padding:0 8px;background:var(--sunken);
+font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3)">model</div>
+<div style="flex:1;padding:5px 8px 0;min-height:0">
+<div style="font-size:12px;font-weight:500;color:var(--ink);line-height:1.25">Model B</div>
+<div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--ink3);margin-top:2px">saved 09:16</div>
+</div></div><div style="position:absolute;left:654px;top:-29px;width:132px;height:62px;
+border:1px dashed var(--rule);border-radius:4px;background:transparent;opacity:.62;overflow:hidden;display:flex;flex-direction:column">
+<div style="height:17px;flex:none;display:flex;align-items:center;padding:0 8px;background:transparent;
+font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3)">model</div>
+<div style="flex:1;padding:5px 8px 0;min-height:0">
+<div style="font-size:12px;font-weight:500;color:var(--ink3);line-height:1.25">Model C</div>
+<div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--ink3);margin-top:2px">awaiting fit</div>
+</div></div><div style="position:absolute;left:654px;top:-28px;width:132px;height:62px;
+border:1px dashed var(--stale);border-radius:4px;background:repeating-linear-gradient(135deg,var(--surface),var(--surface) 5px,var(--staleSoft) 5px,var(--staleSoft) 10px);opacity:.72;overflow:hidden;display:flex;flex-direction:column">
+<div style="height:17px;flex:none;display:flex;align-items:center;padding:0 8px;background:var(--staleSoft);
+font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--stale)">model</div>
+<div style="flex:1;padding:5px 8px 0;min-height:0">
+<div style="font-size:12px;font-weight:500;color:var(--ink);line-height:1.25">Model D</div>
+<div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--ink3);margin-top:2px">saved 09:41</div>
+</div></div>
+  <div style="position:absolute;left:14px;bottom:14px;display:flex;align-items:center;gap:2px;
+    background:var(--panel);border:1px solid var(--rule);border-radius:4px;padding:3px">
+    <span style="width:22px;height:20px;display:flex;align-items:center;justify-content:center;color:var(--ink2)">−</span>
+    <span class="mono" style="font-size:10.5px;color:var(--ink2);padding:0 4px">100%</span>
+    <span style="width:22px;height:20px;display:flex;align-items:center;justify-content:center;color:var(--ink2)">+</span>
+    <span style="width:1px;height:14px;background:var(--rule);margin:0 3px"></span>
+    <span style="font-size:11px;color:var(--ink2);padding:0 6px">Fit</span>
+  </div>
+  <div style="position:absolute;right:14px;bottom:14px;display:flex;flex-direction:column;gap:5px;
+    background:var(--panel);border:1px solid var(--rule);border-radius:4px;padding:8px 10px"><div style="display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--ink2)"><span style="width:14px;height:10px;border:1px solid var(--rule);background:var(--surface);border-radius:2px"></span>Complete</div><div style="display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--ink2)"><span style="width:14px;height:10px;border:1.5px solid var(--accent);background:var(--accentSoft);border-radius:2px"></span>Running</div><div style="display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--ink2)"><span style="width:14px;height:10px;border:1px dashed var(--stale);background:var(--staleSoft);border-radius:2px"></span>Stale</div><div style="display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--ink2)"><span style="width:14px;height:10px;border:1px solid var(--fail);background:var(--failSoft);border-radius:2px"></span>Failed</div><div style="display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--ink2)"><span style="width:14px;height:10px;border:1px dashed var(--rule);background:transparent;border-radius:2px"></span>Not run</div></div>
+</div>
+</main>
+<aside class="insp">
+  <div class="ihead"><span class="ilabel">Node · estimator</span>
+    <span style="font-weight:600;font-size:13px">PLS · 6 LV</span></div>
+  <div style="padding:8px 0;border-bottom:1px solid var(--rule)">
+    <div class="ilabel" style="padding:2px 12px 4px">Parameters</div>
+    <div class="kv"><b>Latent variables</b><span>6</span></div>
+    <div class="kv"><b>Algorithm</b><span>NIPALS</span></div>
+    <div class="kv"><b>Target</b><span>moisture</span></div>
+    <div class="kv"><b>Input</b><span>K-fold 10</span></div>
+  </div>
+  <div style="padding:8px 0;border-bottom:1px solid var(--rule)">
+    <div class="ilabel" style="padding:2px 12px 4px">Metrics</div>
+    <div class="kv"><b>RMSECV</b><span style="color:var(--accentInk);font-weight:600">0.412</span></div>
+    <div class="kv"><b>RMSEC</b><span>0.371</span></div>
+    <div class="kv"><b>R²</b><span>0.974</span></div>
+    <div class="kv"><b>Bias</b><span>−0.006</span></div>
+  </div>
+  <div style="padding:8px 0;border-bottom:1px solid var(--rule)">
+    <div class="ilabel" style="padding:2px 12px 4px">Provenance</div>
+    <div class="kv"><b>Pipeline hash</b><span>c41d…8e0f</span></div>
+    <div class="kv"><b>Seed</b><span>42</span></div>
+    <div class="kv"><b>scikit-learn</b><span>1.7.2</span></div>
+    <div class="kv"><b>numpy</b><span>2.1.0</span></div>
+    <div class="kv"><b>Run at</b><span>09:14:22</span></div>
+  </div>
+  <div style="padding:10px 12px;display:flex;gap:6px">
+    <span class="btn" style="flex:1;justify-content:center">Duplicate branch</span>
+    <span class="btn" style="flex:1;justify-content:center">Compare…</span>
+  </div>
+</aside>
+</div>
+<div class="status"><div style="display:flex;align-items:center;gap:9px"><span style="color:var(--accent);font-weight:500">PLS 5 LV · fold 7 of 10</span><div class="prog"><i style="width:70%"></i></div><span class="mono">0:42</span><span style="display:flex;align-items:center;gap:4px;color:var(--ink3)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="1.5"></rect></svg>Cancel</span></div><div style="display:flex;align-items:center;gap:6px;color:var(--ink3)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="10" width="16" height="10" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></svg><span>Local · nothing leaves this machine</span></div></div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light","section":"Theme"},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return { t: this.props.theme === 'dark' ? 't-dark' : 't-light' }; }
+}
+</script>
+</body>
+</html>

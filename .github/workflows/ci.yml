@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+# Least privilege: the workflow only needs to read the repository.
+permissions:
+  contents: read
+
+# A new push to the same ref supersedes the run in flight.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: check (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      # Report every failing version, not just the first.
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      # --locked fails if uv.lock is out of date with pyproject.toml, so a
+      # dependency change cannot land without its lockfile.
+      - name: Sync environment
+        run: uv sync --locked --python ${{ matrix.python-version }}
+
+      - name: Lint
+        run: uv run ruff check
+
+      - name: Formatting
+        run: uv run ruff format --check
+
+      - name: Type check
+        run: uv run mypy
+
+      # Corn and gasoline are not committed — see src/chemometrics_workbench/data/.
+      # Cache them on their pinned checksums so CI downloads each one once, and
+      # the parity datasets are genuinely checksum-asserted rather than skipped.
+      - name: Cache downloaded reference datasets
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/chemometrics-workbench/datasets
+          key: reference-datasets-${{ hashFiles('src/chemometrics_workbench/data/*/SHA256SUMS') }}
+
+      - name: Tests
+        run: uv run pytest
+        env:
+          CHEMOMETRICS_DOWNLOAD_DATASETS: "1"
+
+      # The parity report is generated from the run above, never written by
+      # hand, so a scientific number that moved shows up here as a diff even if
+      # every test still passed - a widened tolerance, for instance. The tests
+      # are the gate on correctness; this is the gate on the published claim.
+      - name: Parity report is up to date
+        run: |
+          uv run python -m tests.parity_report
+          git diff --exit-code docs/parity-report.md

@@ -1,0 +1,63 @@
+{
+  "artboards": [
+    {
+      "file": "Main.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "1 \u00b7 Shell"
+    },
+    {
+      "file": "PipelineCanvas.dc.html",
+      "x": 1560,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "2 \u00b7 Pipeline canvas"
+    },
+    {
+      "file": "SpectraView.dc.html",
+      "x": 3120,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "3 \u00b7 Spectra"
+    },
+    {
+      "file": "AnalysisResults.dc.html",
+      "x": 0,
+      "y": 1020,
+      "w": 1440,
+      "h": 900,
+      "title": "4 \u00b7 Analysis results (dark)"
+    },
+    {
+      "file": "ExperimentComparison.dc.html",
+      "x": 1560,
+      "y": 1020,
+      "w": 1440,
+      "h": 900,
+      "title": "5 \u00b7 Experiment comparison"
+    }
+  ],
+  "annotations": [
+    {
+      "id": "brief",
+      "x": 3120,
+      "y": 1020,
+      "w": 420,
+      "text": "Chemometrics Workbench \u2014 core screens\n\nOne window, three regions: project tree left, tabbed documents centre, contextual inspector right. Every preprocessing step and analysis opens as its own tab; selecting a node in the canvas focuses its tab.\n\nType: IBM Plex Sans / Plex Mono, tabular numerals throughout.\nData series: Okabe-Ito, colourblind-safe, kept separate from the teal UI accent so a failing node can never be mistaken for a red spectrum.\n\nArtboard 4 is set to the dark palette; every artboard carries a light/dark tweak."
+    },
+    {
+      "id": "states",
+      "x": 3120,
+      "y": 1320,
+      "w": 420,
+      "text": "Node states are encoded in form as well as colour: solid (complete), accent border with progress (running), dashed + hatched (stale), left stripe (failed), dashed outline (not run).\n\nStale is the state a branching graph forces \u2014 edit a parameter upstream and downstream results are invalid but must not vanish."
+    }
+  ],
+  "launch": {
+    "view": "canvas"
+  }
+}

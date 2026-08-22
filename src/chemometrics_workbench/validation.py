@@ -1,0 +1,213 @@
+"""Metrics and fold assignment, per `docs/algorithms/metrics-and-validation.md`.
+
+The document is normative and this module implements it; every function names
+the section it comes from. Where the two disagree, one of them is a bug —
+decide which before changing either.
+
+## Why the metrics are here rather than written out where they are used
+
+There are four places a root-mean-square error could be spelled out — the
+kernel, the fixture generator, the parity suite and the report — and a project
+whose whole claim is *our numbers are defined and reproducible* cannot afford
+four spellings of one definition. §4 fixes the divisor at `n`; a package
+dividing by `n - A - 1` under the name RMSEC is reporting what §5 calls SEC,
+and that is the single most common cause of a third-significant-figure
+mismatch against another tool.
+
+## Folds are data, not a seed
+
+`k_fold()` returns realised index arrays, and every function that
+cross-validates takes those arrays rather than a seed. `metrics-and-validation.md`
+§10 is the reason: a seed only reproduces a split against a fixed generator
+implementation, and our stream is `numpy.random.default_rng` (PCG64) where
+scikit-learn's is a legacy `RandomState` — the same seed gives different
+folds. A comparison that seeds both sides and compares is not a comparison,
+and it passes.
+
+That also makes `Fold` the seam `ResolvedSplit` is stored through: a run
+recorded in the schema is replayed by handing its stored index lists back to
+`folds_from_indices()`. The schema itself is deliberately not imported here —
+these are arrays in, arrays out, as in `preprocessing.py` and
+`decomposition.py`.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from dataclasses import dataclass
+
+import numpy as np
+from numpy.typing import NDArray
+
+from chemometrics_workbench.arrays import as_float64_vector
+
+__all__ = [
+    "Fold",
+    "bias",
+    "folds_from_indices",
+    "k_fold",
+    "leave_one_out",
+    "r2",
+    "rmse",
+    "validate_partition",
+]
+
+
+# --------------------------------------------------------------------------
+# metrics, §4 to §6
+# --------------------------------------------------------------------------
+
+
+def rmse(y: object, y_hat: object) -> float:
+    """RMSEC, RMSECV and RMSEP are one formula over three sets (§4).
+
+    **The divisor is `n`.** Degrees-of-freedom corrections live in SEC and SEP
+    (§5) and are not applied here under another name.
+    """
+    residual = _residual(y, y_hat)
+    return float(np.sqrt(np.mean(residual**2)))
+
+
+def bias(y: object, y_hat: object) -> float:
+    """The mean signed residual (§5), essentially zero on a calibration set."""
+    return float(np.mean(_residual(y, y_hat)))
+
+
+def r2(y: object, y_hat: object) -> float:
+    """The residual form, not the squared Pearson correlation (§6).
+
+    The two coincide for a least-squares fit on the data it was fitted to, and
+    diverge on a prediction set, where the correlation is blind to bias and
+    slope error and is therefore flattering. Where the correlation is wanted it
+    is reported separately as `r2_pearson`, never as `r2`.
+    """
+    values = as_float64_vector(y, "y")
+    residual = _residual(y, y_hat)
+    total = float(np.sum((values - values.mean()) ** 2))
+    if total == 0.0:
+        raise ValueError(
+            "R^2 is undefined: the response has no variance about its mean, so the "
+            "denominator is zero. Report it as absent rather than as a number."
+        )
+    return float(1.0 - np.sum(residual**2) / total)
+
+
+# --------------------------------------------------------------------------
+# fold assignment, §8
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Fold:
+    """One fold's realised index sets — what `ResolvedSplit` stores (§10)."""
+
+    train: NDArray[np.intp]
+    test: NDArray[np.intp]
+
+
+def k_fold(n_samples: int, n_splits: int, *, shuffle: bool = True, seed: int = 42) -> list[Fold]:
+    """K-fold assignment, reproducible by hand from §8.2 and §8.3.
+
+    The permutation is `numpy.random.default_rng(seed).permutation(n)`, and the
+    first `n % K` folds take one extra member — scikit-learn's size rule, kept
+    deliberately so that the *only* difference between us is the permutation.
+    With `shuffle=False` the permutation is the identity and the seed is
+    ignored rather than silently accepted.
+    """
+    if n_splits < 2:
+        raise ValueError(f"K-fold needs at least 2 folds, got {n_splits}")
+    if n_splits > n_samples:
+        raise ValueError(
+            f"{n_splits} folds were asked of {n_samples} samples. K may not exceed n; "
+            "K = n is leave-one-out and is expressed as such (§8.3)."
+        )
+
+    perm = (
+        np.random.default_rng(seed).permutation(n_samples)
+        if shuffle
+        else np.arange(n_samples, dtype=np.intp)
+    )
+    quotient, remainder = divmod(n_samples, n_splits)
+
+    folds: list[Fold] = []
+    start = 0
+    for k in range(n_splits):
+        size = quotient + 1 if k < remainder else quotient
+        test = np.sort(perm[start : start + size])
+        folds.append(Fold(train=np.setdiff1d(np.arange(n_samples), test), test=test))
+        start += size
+    return folds
+
+
+def leave_one_out(n_samples: int) -> list[Fold]:
+    """`n` folds, fold `i` holding out sample `i` alone (§8.4).
+
+    Deterministic: no shuffle and no seed, because its result cannot depend on
+    one. It is also the most optimistic scheme for spectral data — replicate
+    scans of one sample stay in the training set when their twin is held out —
+    which the application says where it offers it.
+    """
+    if n_samples < 2:
+        raise ValueError(f"leave-one-out needs at least 2 samples, got {n_samples}")
+    every = np.arange(n_samples)
+    return [Fold(train=np.delete(every, i), test=np.array([i], dtype=np.intp)) for i in every]
+
+
+def folds_from_indices(
+    train_indices: Sequence[Sequence[int]], test_indices: Sequence[Sequence[int]]
+) -> list[Fold]:
+    """Rebuild folds from stored index lists — a `ResolvedSplit` replayed (§10).
+
+    This is the path a recorded experiment is rerun through, and the reason
+    `ResolvedSplit` stores indices rather than a seed: they survive a change of
+    random number generator, a library upgrade, and a switch of splitter.
+    """
+    if len(train_indices) != len(test_indices):
+        raise ValueError(
+            f"{len(train_indices)} training index sets against {len(test_indices)} test "
+            "sets. A stored split has one of each per fold."
+        )
+    return [
+        Fold(train=np.asarray(train, dtype=np.intp), test=np.asarray(test, dtype=np.intp))
+        for train, test in zip(train_indices, test_indices, strict=True)
+    ]
+
+
+def validate_partition(folds: Sequence[Fold], n_samples: int) -> None:
+    """§7: every sample is predicted exactly once, and no fold trains on its own test set.
+
+    Asserted before residuals are pooled, because both failures produce a
+    plausible RMSECV: a sample left out of every validation set silently
+    shrinks the sum, and a sample in two of them is counted twice at a
+    denominator that does not know it.
+    """
+    if not folds:
+        raise ValueError("a split with no folds cross-validates nothing")
+
+    held_out = np.concatenate([fold.test for fold in folds])
+    if held_out.size != n_samples or not np.array_equal(np.sort(held_out), np.arange(n_samples)):
+        raise ValueError(
+            f"the validation sets do not partition the {n_samples} samples: they hold "
+            f"{held_out.size} indices, {np.unique(held_out).size} of them distinct. Every "
+            "sample must be predicted exactly once before residuals are pooled (§7)."
+        )
+    for k, fold in enumerate(folds):
+        if np.intersect1d(fold.train, fold.test).size:
+            raise ValueError(f"fold {k} trains on samples it also validates on")
+
+
+# --------------------------------------------------------------------------
+# shared checks
+# --------------------------------------------------------------------------
+
+
+def _residual(y: object, y_hat: object) -> NDArray[np.float64]:
+    values = as_float64_vector(y, "y")
+    predicted = as_float64_vector(y_hat, "y_hat")
+    if values.shape != predicted.shape:
+        raise ValueError(
+            f"{values.size} reference values against {predicted.size} predictions. A "
+            "metric is computed over one set, and mixing calibration with "
+            "cross-validation in one number is never right (§2)."
+        )
+    return values - predicted

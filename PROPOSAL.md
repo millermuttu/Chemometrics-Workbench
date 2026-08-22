@@ -92,7 +92,7 @@ A native window shell (Tauri or pywebview) is deliberately deferred. It buys a n
 
 **Known costs to budget for, not discover later:**
 
-- Package size will be large (NumPy, SciPy, scikit-learn, pandas ≈ 300–500 MB unpacked). Acceptable; state it plainly on the download page.
+- Package size will be large (NumPy, SciPy, pandas ≈ 300–500 MB unpacked). Acceptable; state it plainly on the download page. scikit-learn and `chemotools` are not in the bundle at all — both are development dependencies (§7) — so the figure is an estimate for what ships, not for the development environment.
 - **Code signing.** Unsigned binaries trigger Windows SmartScreen warnings and macOS Gatekeeper blocks. For an academic audience an unsigned release plus clear "how to open this" documentation is survivable at 1.0, but macOS notarization requires a paid Apple developer account and Windows signing requires a certificate. This is a funding question (§15), not a technical one.
 - Build and release must be automated in CI across three platforms from day one of Phase 4; manual release builds do not survive contact with a second maintainer.
 
@@ -172,9 +172,10 @@ The original draft named **SpectroChemPy** and **process-improve** as core depen
 
 **What is used instead:**
 
-- **NumPy / SciPy / pandas / scikit-learn** — the numerical foundation. `PLSRegression`, `PCA`, cross-validation, pipelines and metrics come from scikit-learn, which is well-tested, widely trusted and already the lingua franca.
-- **`chemotools`** (subject to evaluation in Phase 0) — scikit-learn-compatible spectral preprocessing transformers. If it holds up under the parity tests in §10, it drops directly into a `Pipeline` and saves writing preprocessing from scratch.
-- **Purpose-written kernels** for the remainder: SNV, MSC, baseline correction, Hotelling T², SPE/Q, VIP scores, and any preprocessing `chemotools` does not cover. This is on the order of a few hundred lines of textbook mathematics. Owning it means owning its tests, its numerical conventions and its documentation — which for a project whose credibility rests on numerical trust is a feature, not a burden.
+- **NumPy / SciPy / pandas** — the numerical foundation the kernels are built on.
+- **`scikit-learn`** — the **reference implementation the parity fixtures are generated against, and a development dependency only**. It is not on the application's code path. *This is a change from the draft, which said `PLSRegression`, `PCA`, cross-validation and metrics would come from scikit-learn.* Phase 0 wrote them instead, to the specifications in `docs/algorithms/`, because a kernel built on scikit-learn cannot then be compared against scikit-learn — and the parity report in §10 is the thing this project is asking to be trusted on. What was gained is not accuracy but evidence: coefficients, predictions, scores, loadings, eigenvalues, RMSECV and the rest now agree with an independent implementation to the last bits, and the disagreements that remain are documented conventions rather than accidents.
+- **`chemotools`** — **evaluated in Phase 0 and rejected as a runtime dependency; adopted as a dev-only reference implementation** for SNV, MSC and the three baseline methods, which have no other external reference. It is not shipped: it requires scikit-learn, which is dev-only here, and installs 20 MB of which 17 MB is example datasets the application would never read. The full evidence, per transform, is in [`docs/decisions/0001-chemotools.md`](docs/decisions/0001-chemotools.md).
+- **Purpose-written kernels** for everything scientifically load-bearing: preprocessing, PCA, PLS, the metrics, the cross-validation protocol, Hotelling T², SPE/Q and VIP scores. This is on the order of a few thousand lines of textbook mathematics. Owning it means owning its tests, its numerical conventions and its documentation — which for a project whose credibility rests on numerical trust is a feature, not a burden.
 - **Format readers** — this is where third-party libraries genuinely earn their place (§6).
 
 The dependency rule for the project: *take a dependency for the tedious and well-solved (file formats, numerics primitives); own the scientifically load-bearing and small.*
@@ -207,7 +208,7 @@ Because the pipeline is data rather than code, it can be executed, stored, diffe
 - **Dataset identity by content hash**, not filename. Renaming a file must not break lineage; silently editing one must not go unnoticed.
 - **Complete step parameters**, with defaults written out explicitly rather than implied.
 - **Split reproducibility**: strategy, random seed, and the resulting index sets, stored — so a split survives a change in library version.
-- **Environment**: application version, and versions of NumPy, SciPy, scikit-learn and any algorithm-providing dependency.
+- **Environment**: application version, and versions of NumPy, SciPy and any other library that computed the result. Not scikit-learn: it is a development dependency and never runs here (§7), so it belongs in the parity record — which pins the version every reference value was generated against — and not in an experiment's environment.
 - **Timing and outcome**, including failures. A failed experiment is a result.
 
 ### 8.3 What this makes possible
@@ -304,7 +305,9 @@ React · TypeScript · Vite · Tailwind CSS · shadcn/ui · TanStack Query · Pl
 *Change from v1:* Zustand is dropped for now. For a single-user local application, TanStack Query covers server state and React's own state covers the rest. A dedicated client-state library can be added the moment there is state that genuinely needs it — shipping two state systems by default is a cost with no current benefit.
 
 ### Backend
-Python · FastAPI · Pydantic · NumPy · SciPy · pandas · scikit-learn · `chemotools` (pending Phase 0 evaluation) · format readers per §6
+Python · FastAPI · Pydantic · NumPy · SciPy · pandas · format readers per §6
+
+*Not shipped:* scikit-learn and `chemotools` are development dependencies — reference implementations the parity fixtures are generated against, never on the application's code path (§7).
 
 *Change from v1:* SpectroChemPy and process-improve removed (§7).
 

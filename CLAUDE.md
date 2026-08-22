@@ -4,46 +4,80 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-**Pre-implementation.** There is no source code, no commits, and no build tooling yet. `PROPOSAL.md` is the entire repository and is the specification — read it before proposing or writing anything. Everything below is a summary of decisions recorded there that are easy to violate accidentally.
+**Pre-implementation.** There is no source code and no build tooling yet — Phase 0 creates both. What exists is specification and design:
+
+- `PROPOSAL.md` — the specification. Read it before proposing or writing anything.
+- `feature_list.json` — the Phase 0 task list, mirroring GitHub issues 1–14.
+- `design/DESIGN_BRIEF.md` — screens, states and plot rules for the UI.
+- `src/chemometrics_workbench/models.py` — the Pydantic schema for the reproducibility model; its invariants are exercised by `tests/test_models.py`.
+- `design/data-model.md` — the same schema as mermaid diagrams.
+- `design/canvas/` — artboard sources for the five core screens.
+
+Everything below summarises decisions recorded in those documents that are easy to violate accidentally.
 
 The project is an open-source, local-first chemometrics workbench: a Python/FastAPI backend and React UI shipped as one double-clickable desktop application, aimed at replacing closed tools such as Unscrambler, SIMCA and OPUS for research and academic users.
 
-## Locked decisions — do not re-litigate without being asked
+## Working protocol
 
-| Decision | Value |
-| --- | --- |
-| Distribution | Single downloadable application (PyInstaller onedir + system default browser). Not Docker, not pip, not WASM/Pyodide |
-| Licence | MIT |
-| Data scope | 2-D spectra only (samples × variables). Hyperspectral cubes and 3-way data are out |
-| Audience | Research and academia. GxP / 21 CFR Part 11 is out of scope |
+Follow this on every session. It exists because the failure mode in a long solo project is not bad code — it is half-finished work with no record of what was actually verified.
 
-A native window shell (Tauri, pywebview) is deliberately deferred; the default browser is the shipped UX until browser-tab UX proves to be a real complaint.
+**Read the state before starting.** Never begin from this file's summary alone. Read, in order: `session-handoff.md` (where the last session stopped and what to pick up), `feature_list.json` (what is done, in progress and blocked), `git log` on `dev` (what actually landed), and the open GitHub issues (what the task really asks for). If those three disagree, the repository is the truth and the disagreement is itself worth fixing first.
 
-## Constraints that are expensive to retrofit
+**One feature at a time.** Pick the highest-priority feature whose `status` is `not_started` and whose every `depends_on` entry is `passing`. Set it to `in_progress`. **At most one feature may be `in_progress` at any moment.** Anything discovered mid-feature that falls outside its scope becomes a new GitHub issue and a new `feature_list.json` entry — never a quietly widened branch.
 
-**Localhost is a trust boundary.** Any backend work must preserve: bind `127.0.0.1` only (never `0.0.0.0`), ephemeral port, per-session bearer token required on every request (header, never a cookie), strict `Origin` and `Host` validation against DNS rebinding, and filesystem access confined to the user-chosen project directory — the API must never accept an arbitrary server-side path from the client.
+**Evidence before done.** A feature becomes `passing` only after its `verification` steps have actually been run, with the result recorded in `evidence`: the command, its real output or the path to the artifact, and the date. Never mark `passing` from reasoning, from a code review, or because the implementation looks correct. If a verification step cannot be run, the status is `blocked` with the reason in `notes` — not `passing` with a caveat.
 
-**Parity before UI.** Phase 0 is numerical correctness with no user interface. Algorithm kernels are pure functions over arrays with no knowledge of the application, so they stay testable in isolation and reusable as a library. Any change that moves a scientific number must fail CI unless the parity fixtures are updated deliberately. Algorithm variants (NIPALS vs SIMPLS), centring/scaling conventions, sign conventions and metric definitions are documented per algorithm — "PLS" alone is never a sufficient specification.
+**Blocked is a real status.** Use it. Record in `notes` what is blocking and what would unblock it. A blocked feature that is honestly labelled is worth more than an optimistic `in_progress` that hides a dead end.
 
-**The pipeline is data.** An analysis is a serialisable JSON DAG of typed steps, and executing one is the *only* path from a dataset to a result. Do not add a second, direct path — lineage, reproducibility and model export all depend on this being the single route. Datasets are identified by content hash, not filename. Splits store strategy, seed *and* the resulting index sets.
-
-**Dependency rule.** Take a dependency for the tedious and well-solved (instrument file formats, numerics primitives); own the scientifically load-bearing and small (SNV, MSC, baseline correction, Hotelling T², SPE/Q, VIP). SpectroChemPy and process-improve were evaluated and deliberately rejected — do not reintroduce them. `chemotools` is provisional, pending Phase 0 parity evaluation.
-
-**Deferral is deliberate.** PCR, SIMCA, permutation testing, bootstrap, variable selection, additional classifiers, PostgreSQL, object storage, multi-user/auth and self-hosted mode are all post-1.0 by decision, not by oversight. The test each must pass: it stays *additive* against the 1.0 data model. Do not build for them in advance.
-
-**Plot performance is a design constraint, not an optimisation.** Server-side decimation, a cap on individually drawn traces with the remainder as a density band, and WebGL (`scattergl`) are required from the first plot. Target envelope: ~20,000 spectra × ~4,000 variables as float32.
+**A session ends clean when all of these hold** — `clean-state-checklist.md` is the runnable version of this list, and takes precedence when the two differ:
+- No feature is left `in_progress` without a note recording exactly where it stands and what the next step is.
+- `feature_list.json` is committed if any status, evidence or note changed.
+- The working tree is clean, or every remaining change is explained in the handover.
+- The branch is pushed, and a completed feature has its pull request open or merged.
+- The next feature to pick up is named.
+- `session-handoff.md` is rewritten to match the state just described, and committed.
 
 ## Intended toolchain (not yet scaffolded)
 
 When scaffolding, use these — they are the recorded stack, and deviating from them is a decision worth surfacing:
 
-- **Backend:** Python, `uv` for environment and dependency management, FastAPI, Pydantic, NumPy, SciPy, pandas, scikit-learn. Lint with `ruff`, type-check with `mypy`, test with `pytest`.
+- **Backend:** Python, `uv` for environment and dependency management, FastAPI, Pydantic, NumPy, SciPy, pandas. Lint with `ruff`, type-check with `mypy`, test with `pytest`.
+- **`scikit-learn` and `chemotools` are development dependencies, not runtime ones**, and must not be added to `[project.dependencies]`. They are the open reference implementations the parity fixtures are generated against; a kernel that imported either would be a wrapper around the thing we claim parity with. `chemotools` was evaluated in Phase 0 (#13) and rejected for the runtime for that reason plus its weight — it requires scikit-learn and installs 20 MB, 17 MB of it bundled example data. It is adopted as a reference for SNV, MSC and the baselines, which have no other. The evidence is in `docs/decisions/0001-chemotools.md`.
 - **Frontend:** Node.js with `pnpm`, Vite, React, TypeScript, Tailwind CSS, shadcn/ui, TanStack Query, Plotly.js. Test with `vitest`, end-to-end with `playwright`.
 - **Data:** SQLite via SQLAlchemy for metadata, pipelines, experiments, metrics and lineage. Files (datasets, processed arrays, model artifacts, reports) live in the project directory on disk; the database stores references, never contents.
 - **Packaging:** PyInstaller, three-platform GitHub Actions matrix.
 
 Docker is a developer-environment tool only. End users never see a container.
 
+## Branching and release
+
+Three levels, and work never skips one.
+
+```
+feature/<n>_<short-name>  ──merge──►  dev  ──merge at phase end──►  main  ──►  release tag
+fix/<n>_<short-name>      ──merge──►
+```
+
+- **`main`** is the release line. It only ever receives a merge from `dev`, and only when a whole phase is complete. Never commit to it directly.
+- **`dev`** is the integration line. Every feature and fix branch is cut from `dev` and merged back into `dev`. It is the default base for all new work.
+- **`feature/<n>_<short-name>` / `fix/<n>_<short-name>`** — one per GitHub issue, `<n>` being the issue number. See the `new-branch` skill for the naming rules.
+
+**Merges happen through pull requests, not local `git merge`.** A feature branch reaches `dev` by:
+
+1. Push the branch.
+2. Open a pull request **with `dev` as the base** — never `main`. GitHub's default base is the repository's default branch, so if that is still `main` the base must be set explicitly or the pull request targets the release line.
+3. Wait for CI to pass. The pull request is the gate; a red check is not merged around.
+4. Merge, then delete the branch locally and on origin.
+5. Reference the issue in the pull request body (`Closes #n`) so it closes on merge.
+
+`gh` is not installed on this machine — use the GitHub MCP tools to open and merge pull requests.
+
+At the end of a phase: open a pull request from `dev` into `main`, merge it, tag a release, and only then start the next phase's branches.
+
+The repository's release branch is named `main` — there is no `master`.
+
 ## Documents
+
+Decisions that were taken with evidence and should not be re-argued from preference live in `docs/decisions/`, numbered and dated. Read the relevant one before revisiting a dependency or a convention it covers.
 
 `PROPOSAL.md` is canonical and git-diffable. A designed HTML rendering of the same content is published as an artifact at https://claude.ai/code/artifact/3d5f2071-b55a-4197-aa97-409146fbb488 — when `PROPOSAL.md` changes materially, the artifact should be republished to that same URL so the two do not drift.
