@@ -3,14 +3,14 @@
 Run it alone with `uv run pytest -m parity`; it also runs as part of the full
 suite, and writes `parity-results.json` either way.
 
-**These cases are the harness proving itself, not the kernels.** No kernel
-exists yet — that is #9 through #12 — so what is compared here is arithmetic
-the specifications define directly: mean centring, projection onto loadings,
-prediction from coefficients, and the eigenvalue definition. Each is a real
-comparison against a real fixture entry with a real tolerance, and each will
-be replaced by the kernel that is supposed to produce it. When a kernel lands,
-the case is rewritten to call the kernel; the entry id, the tolerance and the
-tier stay as they are.
+The preprocessing cases call the kernels in
+`chemometrics_workbench.preprocessing`. The PCA and PLS cases do not yet —
+those kernels are #11 and #12 — so what they compare is arithmetic the
+specifications define directly: projection onto loadings, prediction from
+coefficients, the eigenvalue definition and the RMSEC denominator. Each is
+still a real comparison against a real fixture entry at a real tolerance, and
+each is rewritten to call its kernel when one lands. The entry id, the
+tolerance and the tier stay as they are when that happens.
 
 Every case takes the same shape: compute a quantity, hand it to
 `parity.check()` with the fixture entry it should match, and let the harness
@@ -23,6 +23,11 @@ import numpy as np
 import pytest
 
 from chemometrics_workbench.datasets import load_corn, load_gasoline, load_tecator
+from chemometrics_workbench.preprocessing import (
+    AutoscaleTransformer,
+    MeanCentreTransformer,
+    NormaliseTransformer,
+)
 from tests import parity
 
 pytestmark = pytest.mark.parity
@@ -37,15 +42,57 @@ def fixture_entries() -> dict[str, dict[str, object]]:
     return parity.entries_by_id()
 
 
+# The submatrix the preprocessing references were generated on. Recorded in
+# the fixture notes; repeated here because a mismatch would compare two
+# different blocks and pass.
+PREPROCESS_BLOCK = (slice(0, 5), slice(0, 8))
+
+
+def _block(name: str) -> np.ndarray:
+    return LOADERS[name]().spectra[PREPROCESS_BLOCK]
+
+
 def _centred(name: str) -> np.ndarray:
-    """Mean centring, the trivial case the harness is first proved against.
+    """Mean centring, through the kernel that is supposed to do it.
 
     `pca.md` §2: centring is an explicit step, never something the algorithm
-    does for itself. Every comparison below depends on this being right, which
-    is what makes it a useful thing to fail first.
+    does for itself. Every PCA and PLS comparison below depends on this being
+    right, which is what makes it a useful thing to fail first.
     """
-    spectra = LOADERS[name]().spectra
-    return spectra - spectra.mean(axis=0)
+    return MeanCentreTransformer().fit_transform(LOADERS[name]().spectra)
+
+
+# --------------------------------------------------------------------------
+# preprocessing kernels
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_mean_centring_matches_the_reference(dataset: str) -> None:
+    ours = MeanCentreTransformer().fit_transform(_block(dataset))
+    assert parity.check(f"{dataset}.preprocess.mean_centred.sklearn", ours).passed
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_autoscaling_matches_the_reference_at_its_ddof(dataset: str) -> None:
+    """`ddof=0` is passed explicitly, because StandardScaler offers no choice.
+
+    Our default is `ddof=1`, the sample convention used for eigenvalues in
+    `pca.md` §4 and for SEC and SEP in `metrics-and-validation.md` §5. Comparing
+    our default against StandardScaler would fail, and it would be a convention
+    difference rather than a defect — so the comparison is made at the
+    reference's convention and the divergence is recorded in the module
+    docstring of `preprocessing.py`.
+    """
+    ours = AutoscaleTransformer(ddof=0).fit_transform(_block(dataset))
+    assert parity.check(f"{dataset}.preprocess.autoscaled_ddof0.sklearn", ours).passed
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+@pytest.mark.parametrize("norm", ["l1", "l2", "max"])
+def test_normalisation_matches_the_reference(dataset: str, norm: str) -> None:
+    ours = NormaliseTransformer(norm).fit_transform(_block(dataset))  # type: ignore[arg-type]
+    assert parity.check(f"{dataset}.preprocess.normalised_{norm}.sklearn", ours).passed
 
 
 # --------------------------------------------------------------------------

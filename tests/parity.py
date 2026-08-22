@@ -107,6 +107,17 @@ TOLERANCES: dict[str, Tolerance] = {
             "covers a different SVD path, not a different algorithm."
         ),
     ),
+    "preprocessing": Tolerance(
+        rtol=1e-12,
+        atol=1e-14,
+        reason=(
+            "Scaling and scatter correction are a mean, a standard deviation and a "
+            "division. There is no iteration and no decomposition to accumulate "
+            "error, so anything beyond the last bits is a different formula rather "
+            "than a different code path - a ddof convention, or a norm defined "
+            "differently. Tight on purpose: this class exists to catch exactly that."
+        ),
+    ),
     "coefficients": Tolerance(
         rtol=1e-6,
         atol=1e-9,
@@ -151,6 +162,13 @@ QUANTITY_CLASS: dict[str, str] = {
     "explained_variance_ratio": "decomposition",
     "cumulative_explained_variance_at_2_components": "decomposition",
     "spe_limit": "decomposition",
+    "mean_centred": "preprocessing",
+    "autoscaled": "preprocessing",
+    "normalised_l1": "preprocessing",
+    "normalised_l2": "preprocessing",
+    "normalised_max": "preprocessing",
+    "snv_corrected": "preprocessing",
+    "msc_corrected": "preprocessing",
     "coefficients": "coefficients",
     "predictions": "predictions",
     "rmsec": "metrics",

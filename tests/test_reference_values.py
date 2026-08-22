@@ -25,7 +25,7 @@ from chemometrics_workbench.datasets import load_corn, load_gasoline, load_tecat
 FIXTURE = Path(__file__).parent / "fixtures" / "reference_values.json"
 
 DATASETS = ("corn", "gasoline", "tecator")
-ALGORITHMS = ("pca", "pls")
+ALGORITHMS = ("pca", "pls", "preprocess")
 
 # Keys every entry must carry, whatever its status. This list is the promise
 # the issue makes: a value nobody can trace is worse than no value.
