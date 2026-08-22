@@ -92,7 +92,7 @@ A native window shell (Tauri or pywebview) is deliberately deferred. It buys a n
 
 **Known costs to budget for, not discover later:**
 
-- Package size will be large (NumPy, SciPy, scikit-learn, pandas ≈ 300–500 MB unpacked). Acceptable; state it plainly on the download page.
+- Package size will be large (NumPy, SciPy, pandas ≈ 300–500 MB unpacked). Acceptable; state it plainly on the download page. scikit-learn and `chemotools` are not in the bundle at all — both are development dependencies (§7) — so the figure is an estimate for what ships, not for the development environment.
 - **Code signing.** Unsigned binaries trigger Windows SmartScreen warnings and macOS Gatekeeper blocks. For an academic audience an unsigned release plus clear "how to open this" documentation is survivable at 1.0, but macOS notarization requires a paid Apple developer account and Windows signing requires a certificate. This is a funding question (§15), not a technical one.
 - Build and release must be automated in CI across three platforms from day one of Phase 4; manual release builds do not survive contact with a second maintainer.
 
@@ -208,7 +208,7 @@ Because the pipeline is data rather than code, it can be executed, stored, diffe
 - **Dataset identity by content hash**, not filename. Renaming a file must not break lineage; silently editing one must not go unnoticed.
 - **Complete step parameters**, with defaults written out explicitly rather than implied.
 - **Split reproducibility**: strategy, random seed, and the resulting index sets, stored — so a split survives a change in library version.
-- **Environment**: application version, and versions of NumPy, SciPy, scikit-learn and any algorithm-providing dependency.
+- **Environment**: application version, and versions of NumPy, SciPy and any other library that computed the result. Not scikit-learn: it is a development dependency and never runs here (§7), so it belongs in the parity record — which pins the version every reference value was generated against — and not in an experiment's environment.
 - **Timing and outcome**, including failures. A failed experiment is a result.
 
 ### 8.3 What this makes possible
