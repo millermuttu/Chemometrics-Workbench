@@ -133,6 +133,25 @@ TOLERANCES: dict[str, Tolerance] = {
             "observed against SciPy on the fixture block, which is 3e-15."
         ),
     ),
+    "second_implementation": Tolerance(
+        rtol=1e-7,
+        atol=1e-8,
+        reason=(
+            "Quantities where an independent implementation computes the same "
+            "estimator by a differently conditioned route, and the difference is "
+            "arithmetic rather than definition. chemotools's MSC forms the normal "
+            "equations for the two-column design and inverts A'A, squaring the "
+            "condition number where our kernel centres the reference and projects; "
+            "its AsLS solves the penalised system with a banded Cholesky "
+            "factorisation across 20 reweightings where ours uses a sparse LU. "
+            "Neither is wrong, and neither can be held to the preprocessing class's "
+            "1e-12: a normal-equation solve on absorbance data costs about five of "
+            "the sixteen digits available, so this is set from that loss and not "
+            "from what happened to pass. The other three chemotools entries stay in "
+            "their original classes, because SNV and rubberband are bit-identical "
+            "and the polynomial baseline agrees to 4e-15."
+        ),
+    ),
     "coefficients": Tolerance(
         rtol=1e-6,
         atol=1e-9,
@@ -186,11 +205,11 @@ QUANTITY_CLASS: dict[str, str] = {
     "normalised_l2": "preprocessing",
     "normalised_max": "preprocessing",
     "snv_corrected": "preprocessing",
-    "msc_corrected": "preprocessing",
+    "msc_corrected": "second_implementation",
     "savgol_deriv0": "smoothing",
     "savgol_deriv1": "smoothing",
     "savgol_deriv2": "smoothing",
-    "baseline_asls": "smoothing",
+    "baseline_asls": "second_implementation",
     "baseline_rubberband": "smoothing",
     "baseline_polynomial": "smoothing",
     "coefficients": "coefficients",

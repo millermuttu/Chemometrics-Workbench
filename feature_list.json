@@ -330,15 +330,15 @@
         "chemotools-eval"
       ],
       "user_visible_behavior": "SNV, MSC and the three baseline methods are compared against an independent implementation rather than against their own defining identities alone.",
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "Regenerate the fixture and confirm the five entries per dataset are sourced.",
         "Run the parity suite and confirm they are compared and passing.",
         "Confirm parity-results.json still reports an empty not_compared list.",
         "Confirm no tolerance already in TOLERANCES was loosened to make MSC pass."
       ],
-      "evidence": "",
-      "notes": "Decided by docs/decisions/0001-chemotools.md. MSC agrees to 1e-10 relative, which is outside the preprocessing class's 1e-12 - it needs its own class with a reason or a recorded divergence, never a widened class."
+      "evidence": "2026-08-22. `CHEMOMETRICS_DOWNLOAD_DATASETS=1 uv run python tests/fixtures/generate_reference_values.py` - 88 entries, 81 sourced (was 66). The fifteen `.external` unsourced entries are replaced by fifteen sourced `.chemotools` ones, five per dataset; an entry-by-entry diff against HEAD shows fifteen added, fifteen removed and **no existing value changed**. `CHEMOMETRICS_DOWNLOAD_DATASETS=1 uv run pytest -m parity -q` - 94 passed; parity-results.json records 81 comparisons, 81 passed, 70 identical_within_float, 10 within tolerance, 1 documented divergence, and `not_compared` is still empty. Per quantity, largest absolute difference: SNV at ddof=0 exactly 0.0 on all three datasets; rubberband exactly 0.0 on all three (asserted as == 0.0, since a convex hull is decided by comparisons and cannot differ by rounding); polynomial 9.0e-17 corn, 6.9e-17 gasoline, 4.4e-15 tecator; MSC 1.9e-13 corn, 3.5e-17 gasoline, 2.9e-10 tecator; AsLS 5.5e-12 corn, 1.7e-11 gasoline, 5.1e-10 tecator. No existing tolerance was loosened: `preprocessing` is still rtol=1e-12/atol=1e-14 and `smoothing` still rtol=1e-9/atol=1e-12, and SNV, rubberband and the polynomial baseline are compared at those. MSC and AsLS moved to a new `second_implementation` class (rtol=1e-7/atol=1e-8) whose reason is the mechanism, not the number: chemotools inverts the normal equations for MSC where we project onto a centred reference, and factorises AsLS as a banded Cholesky where we solve the sparse system. `uv run ruff check`, `ruff format --check`, `mypy`, `pytest` - all green, 415 passed.",
+      "notes": "chemotools 0.4.3 pinned as `chemotools>=0.4.3` in the dev group, with the comment saying why it is not a runtime dependency. The baselines are generated on a 3 x 120 block rather than the 5 x 8 preprocessing block, because a baseline over eight variables is not a baseline; tecator has only 100 variables and contributes all of them. BASELINE_BLOCK in test_parity.py must stay in step with BASELINE_ROWS/BASELINE_COLUMNS in the generator, the same standing trap as PREPROCESS_BLOCK. The fixture grew from 551 KB to 660 KB."
     },
     {
       "id": "reference-values-chemotools-limits",
