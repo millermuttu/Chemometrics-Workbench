@@ -48,9 +48,14 @@ CHEMOMETRICS_DOWNLOAD_DATASETS=1 uv run pytest      # writes parity-results.json
 uv run python -m tests.parity_report                # rewrites docs/parity-report.md
 ```
 
-`docs/parity-report.md` is generated and must never be edited by hand. CI regenerates it after the suite and runs `git diff --exit-code` on it, so a scientific number that moved fails the build **even if every test still passes** — a widened tolerance, for instance, keeps the suite green and changes the published claim. The tests are the gate on correctness; the diff is the gate on what the project says in public.
+`docs/parity-report.md` is generated and must never be edited by hand. Regenerate it whenever a claim, a gap or a tolerance changes, in the same commit, and say what moved.
 
-The renderer refuses to run against a partial suite: if `not_compared` in `parity-results.json` is non-empty, a report built from it would understate coverage while looking complete, so it exits with the command to run instead.
+**It is deliberately not byte-compared in CI.** That was tried and it is flaky by construction (#38): the last bits of any difference depend on the BLAS the local NumPy was built against, and several comparisons sit within a factor of two of the 32-ulp line between *identical within floating point* and *agrees within tolerance*, so two correct runners disagree on their tier. What guards the published claim instead lives in the suite, where it is machine-independent:
+
+- `test_the_committed_report_covers_every_claim_and_gap_in_the_fixture` fails when a claim or a gap is added and the report is not regenerated.
+- `test_the_published_tolerances_are_the_ones_the_project_agreed_to` freezes every tolerance. Widening one keeps the rest of the suite green and changes what the project says in public, which is exactly the failure the byte-diff was meant to catch. Change the number in `parity.py` and in that test together, with the reason in the commit message.
+
+CI still regenerates the report, so a renderer that crashes or a run that missed an entry fails the build. The renderer also refuses to run against a partial suite: if `not_compared` in `parity-results.json` is non-empty, a report built from it would understate coverage while looking complete, so it exits with the command to run instead.
 
 ### Reference datasets
 

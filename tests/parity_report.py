@@ -24,11 +24,17 @@ the build fails if it differs from the committed copy, which is what "green in
 CI against published reference values" means in practice. So nothing here reads
 the clock, the environment or the filesystem beyond the two JSON files, and
 every table is sorted by a stable key.
+
+Determinism has to survive a **different machine**, too, which is what #38
+taught. The worst difference between two correct implementations is last-bit
+noise whose digits depend on the local BLAS, so array comparisons are published
+as a decade upper bound rather than as a reading. See `_bound`.
 """
 
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -87,16 +93,34 @@ def _number(value: float) -> str:
     return f"{value:.3e}"
 
 
+def _bound(value: float) -> str:
+    """The next power of ten at or above `value` — an upper bound, not a reading.
+
+    **This is what makes the report reproducible on someone else's machine.**
+    The worst difference between two correct implementations is last-bit
+    arithmetic noise, and its third significant figure depends on which BLAS
+    the local NumPy was built against: 5.539e-12 here and 5.541e-12 on a CI
+    runner are the same claim. Printing the measured digits made the
+    byte-comparison gate read that as a regression (#38).
+
+    A decade cannot be moved by noise, and a real regression moves several.
+    The measured value is still in `parity-results.json` for anyone who wants
+    it; what is *published* is the bound it supports.
+    """
+    if value == 0.0:
+        return "0, exactly"
+    return f"< 1e{math.ceil(math.log10(abs(value)))}"
+
+
 def _agreement(result: dict[str, Any]) -> str:
     """What the two sides actually did, in one cell."""
     if result["tier"] == str(parity.Tier.DOCUMENTED_DIVERGENCE):
         return "not compared — see below"
     if result["our_value"] is not None and result["reference_value"] is not None:
+        # Six significant figures, which last-bit noise cannot reach.
         return f"`{_number(result['our_value'])}` vs `{_number(result['reference_value'])}`"
-    n_values = result["n_values"]
-    worst = result["max_abs_diff"]
     # No pipe characters: this lands in a markdown table cell.
-    return f"{n_values} values, worst Δ {_number(worst)}"
+    return f"{result['n_values']} values, worst Δ {_bound(result['max_abs_diff'])}"
 
 
 def _claim(result: dict[str, Any]) -> str:
@@ -193,7 +217,21 @@ def render(results: dict[str, Any], fixture: dict[str, Any]) -> str:
         "   inner product with the reference before comparing (`pca.md` §5,",
         "   `pls-regression.md` §6). Comparing absolute values instead would pass a result",
         "   whose scores and loadings disagreed with each other.",
-        "3. **Most references here are open implementations pinned by version, not numbers",
+        "3. **A claim tier at the boundary is not stable between machines.** The line",
+        "   between *identical* and *within tolerance* is 32 units in the last place, and",
+        "   several comparisons here land within a factor of two of it — so the same",
+        "   comparison can be tiered either way on two correct machines with differently",
+        "   built BLAS libraries. Read a boundary row as *the difference is at the level of",
+        "   rounding*, which both tiers say. The measured value is in",
+        "   `parity-results.json`.",
+        "4. **The difference column for an array is an upper bound, not a measurement.**",
+        "   The worst difference between two correct implementations is last-bit",
+        "   arithmetic noise, and its digits depend on the BLAS the local NumPy was built",
+        "   against — so publishing them would make this report disagree with itself",
+        "   between machines. The measured values are in `parity-results.json`; what is",
+        "   published is the decade they support. Single numbers are shown in full,",
+        "   because six significant figures are beyond the reach of that noise.",
+        "5. **Most references here are open implementations pinned by version, not numbers",
         "   printed in a paper.** The exceptions are the two R `pls` vignette entries and",
         "   the Tecator SEP below, and they are labelled as such. An implementation",
         "   comparison is reproducible by anyone; a published number is independent of any",
