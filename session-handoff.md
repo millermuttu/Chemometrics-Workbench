@@ -10,7 +10,7 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 **Every kernel is written and the `chemotools` question is decided.** Phase 0 has one deliverable left that was in the original plan — the parity report, #14 — plus two small sourcing features that #13 turned up.
 
-Issues #1–#10, #12 and #13 are merged and closed. **#11 is merged but deliberately still open**, blocked on the one verification step that has nothing to verify against — **and #13 found what verifies it, without R**. Pull requests #26 and #29 merged on 2026-08-22 and their branches are deleted locally and on origin. Nothing is in flight.
+Issues #1–#10, #12, #13 and #30 are merged and closed. **#11 is merged but deliberately still open**, blocked on the one verification step that has nothing to verify against — **and #13 found what verifies it, without R**. Pull requests #26, #29 and #31 merged on 2026-08-22 and their branches are deleted locally and on origin. Nothing is in flight.
 
 **The parity fixture is fully covered by what is in it.** `parity-results.json` records 66 comparisons, 66 passed, and **`not_compared` is empty**. What is missing is not coverage of the entries but *entries*: eight quantities across SNV, MSC, the three baselines and the two PCA limits are `unsourced`, and #27 and #28 now source all of them from `chemotools`.
 
@@ -76,7 +76,7 @@ The second trap is the SNV entry: generate it at **`ddof=0`**, because `chemotoo
 ## Waiting on the user
 
 - **One question raised on pull request #22 is still unanswered**: `MSC(reference="supplied")` has no schema field for the reference spectrum — a schema change and a separate issue. **Question (b) is closed**: `PROPOSAL.md` §7 said PCA and PLS come from scikit-learn, which has been false since #11, and #13 rewrote the section to say what the repository actually does — scikit-learn and `chemotools` are dev-only reference implementations, and the kernels are ours. Nothing is waiting on it now.
-- **`PROPOSAL.md` changed materially in #13** (§7 and the §14 stack summary). The published artifact at the URL below is now behind, and `CLAUDE.md` says it should be republished to the same URL when that happens.
+- Nothing else. `PROPOSAL.md` changed materially in #13 and again in #30, and **the artifact was republished to the same URL both times** — the two are in step as of 2026-08-22.
 - **GitHub default branch is still `main`.** Any pull request opened without an explicit base targets the release line. Change it under Settings → Branches; it cannot be changed from here with the current tools.
 - **Parity against a commercial package** — `PROPOSAL.md` §19 Q4 is unresolved. The EULA is not public; a licence would have to be confirmed and written permission sought before publishing a comparison. Tier 1 parity (R `mdatools`, `pls`, scikit-learn, published literature) is unaffected and is what Phase 0 builds.
 - Remaining open questions are in `PROPOSAL.md` §19 — team and pace, funding intent, project name.
@@ -162,6 +162,7 @@ From #13 (chemotools evaluation):
 - **Their SNV uses the population standard deviation**; ours defaults to `ddof=1`. Bit-identical at `ddof=0`, so the entry #27 generates must be at `ddof=0` and must say why.
 - **MSC agrees to 1e-10, not to the last bits.** That is outside the `preprocessing` tolerance class and the class must not be widened for it.
 - **A constant spectrum returns `NaN` there and raises here.** The one behavioural difference that would matter in an application, and the reason `_dead_threshold` exists.
+- **Three lines outside §7 still called scikit-learn a shipped dependency** after #13 rewrote §7 — the download-size estimate, the experiment environment record, and `Environment.packages`'s field description in `models.py`. Fixed in #30. A section rewrite is not finished until `grep` says the rest of the document agrees with it.
 - **`docs/decisions/` is the new home for decisions taken with evidence.** Numbered and dated, one per decision, with a re-runnable script beside it where the decision rests on measurements.
 
 ## Gotchas that would otherwise waste time
