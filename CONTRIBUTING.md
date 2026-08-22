@@ -31,6 +31,16 @@ uv run pytest tests/test_models.py::test_content_hash_tracks_every_parameter
 uv run pytest -k content_hash
 ```
 
+### The parity suite
+
+```bash
+uv run pytest -m parity
+```
+
+Every claim the parity report renders is made by a test in `tests/test_parity.py`. A run writes `parity-results.json` at the repository root — one record per comparison, plus the fixture entries nothing was checked against, which is what stops the report overstating its own coverage. The file is gitignored; it is rebuilt by running the suite.
+
+`tests/test_parity_harness.py` tests the harness rather than any scientific claim, and deliberately provokes failures. It restores the recorder around every case so those never reach the run record.
+
 ### Reference datasets
 
 The corn and gasoline benchmarks are downloaded rather than committed, so
@@ -52,6 +62,7 @@ so all three datasets are checksum-asserted there.
 | `src/chemometrics_workbench/data/` | Reference datasets, one directory each, carrying the source URL, the terms of use and a checksum. Only Tecator's raw file is committed; see each README for why. |
 | `tests/` | Test suite, mirroring the package layout. |
 | `tests/fixtures/` | Parity fixtures and the script that regenerates them. `reference_values.json` is the numbers every kernel is checked against. |
+| `tests/parity.py` | The parity harness: tolerance policy, sign alignment, claim tiers, run record. Every kernel's parity test goes through it. |
 | `docs/algorithms/` | One specification per algorithm — the variant implemented, its conventions, and the definition of every quantity it reports. |
 | `design/` | Design brief, data-model diagrams, and the artboard sources for the UI. Not shipped code; excluded from linting. |
 
@@ -62,7 +73,7 @@ The order matters, and it is the order Phase 0 itself follows.
 1. **Write the specification first**, in `docs/algorithms/`. Name the variant, the centring and scaling conventions, the sign convention, and the exact definition of every quantity that will be reported. "PLS" is not a specification.
 2. **Find reference values.** Published literature, or an established open implementation with its version recorded. A kernel with nothing to be checked against cannot be trusted. They live in `tests/fixtures/reference_values.json`, one entry per value, each recording its preprocessing chain, algorithm variant, split, software and version, and citation. Regenerate the generated entries with `uv run python tests/fixtures/generate_reference_values.py`, and say in the commit message what moved and why. A value that cannot be sourced is written into the fixture as `status: "unsourced"` with the reason — never omitted, and never filled in with a plausible number.
 3. **Write the kernel** as a pure function over arrays — no application knowledge, no global random state, seeds threaded explicitly, and never mutating the caller's array.
-4. **Add parity tests** through the shared harness, with an explicit tolerance and a claim tier. Comparisons of scores and loadings must be sign-invariant.
+4. **Add parity tests** through the shared harness in `tests/parity.py`, never with a bare `assert_allclose`. Call `parity.check(entry_id, ours)`; it picks the tolerance for the quantity's class, aligns signs where the quantity is sign-invariant, tags the claim tier and records the result for the report. Where a quantity differs from a reference by documented convention, call `parity.record_divergence(entry_id, reason)` instead of loosening a tolerance. **Tolerances are not knobs** — a comparison that fails is a finding, and widening the tolerance to make it pass converts a finding into a lie in the one artifact this project cannot afford to have lying in it.
 5. **Wire it into the schema** in `models.py` as a new member of the relevant discriminated union, so an invalid configuration fails at parse time.
 
 ## Conventions worth knowing before you write code
