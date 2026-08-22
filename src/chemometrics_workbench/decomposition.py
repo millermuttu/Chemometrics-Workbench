@@ -62,9 +62,63 @@ from scipy.stats import beta, f, norm
 
 from chemometrics_workbench.arrays import as_float64
 
-__all__ = ["PCA"]
+__all__ = ["PCA", "hotelling_t2_limit"]
 
 LimitFor = Literal["calibration", "new"]
+
+
+def check_alpha(alpha: float) -> None:
+    if not 0.0 < alpha < 1.0:
+        raise ValueError(f"alpha must be strictly between 0 and 1, got {alpha}")
+
+
+def hotelling_t2_limit(
+    n_samples: int,
+    n_components: int,
+    alpha: float = 0.05,
+    samples: LimitFor = "calibration",
+) -> float:
+    """The `T^2` confidence limit, in the form that matches what is being plotted.
+
+    Two limits, because they answer different questions, and **which one is
+    drawn must be stated in the plot legend rather than left implicit**:
+
+    * `samples="calibration"` — the beta form. A calibration sample's scores
+      are not independent of the model that was fitted to them, and this is the
+      exact limit for that case.
+    * `samples="new"` — the F form, for samples projected onto an existing
+      model.
+
+    `n` and `a` are always the *calibration* model's, including for the new
+    sample limit. The two converge as `n` grows and differ noticeably for small
+    `n`, which is the common case in chemometrics, so both exist rather than
+    one approximating the other.
+
+    A module-level function rather than a method because `pls-regression.md` §9
+    takes it unchanged: the limit is a property of a score matrix with `a`
+    orthogonal columns from `n` samples, and nothing in it knows whether those
+    columns came from an eigen-decomposition or from NIPALS.
+    """
+    check_alpha(alpha)
+    n, a = n_samples, n_components
+
+    if samples == "calibration":
+        if n <= a + 1:
+            raise ValueError(
+                f"the beta limit needs n > a + 1; this model has n={n} and a={a}. "
+                "No limit is defined, and none should be drawn."
+            )
+        quantile = float(beta.ppf(1.0 - alpha, a / 2.0, (n - a - 1) / 2.0))
+        return (n - 1) ** 2 / n * quantile
+    if samples == "new":
+        if n <= a:
+            raise ValueError(
+                f"the F limit needs n > a; this model has n={n} and a={a}. "
+                "No limit is defined, and none should be drawn."
+            )
+        quantile = float(f.ppf(1.0 - alpha, a, n - a))
+        return a * (n**2 - 1) / (n * (n - a)) * quantile
+    raise ValueError(f"samples must be 'calibration' or 'new', got {samples!r}")
 
 
 class PCA:
@@ -207,43 +261,11 @@ class PCA:
         return t2
 
     def hotelling_t2_limit(self, alpha: float = 0.05, samples: LimitFor = "calibration") -> float:
-        """The confidence limit, in the form that matches what is being plotted.
-
-        Two limits, because they answer different questions, and **which one is
-        drawn must be stated in the plot legend rather than left implicit**:
-
-        * `samples="calibration"` — the beta form. A calibration sample's
-          scores are not independent of the model that was fitted to them, and
-          this is the exact limit for that case.
-        * `samples="new"` — the F form, for samples projected onto an existing
-          model.
-
-        `n` and `a` are always the *calibration* model's, including for the new
-        sample limit. The two converge as `n` grows and differ noticeably for
-        small `n`, which is the common case in chemometrics, so both exist
-        rather than one approximating the other.
-        """
-        self._check_alpha(alpha)
-        n = self._fitted_n_samples()
-        a = self.n_components
-
-        if samples == "calibration":
-            if n <= a + 1:
-                raise ValueError(
-                    f"the beta limit needs n > a + 1; this model has n={n} and a={a}. "
-                    "No limit is defined, and none should be drawn."
-                )
-            quantile = float(beta.ppf(1.0 - alpha, a / 2.0, (n - a - 1) / 2.0))
-            return (n - 1) ** 2 / n * quantile
-        if samples == "new":
-            if n <= a:
-                raise ValueError(
-                    f"the F limit needs n > a; this model has n={n} and a={a}. "
-                    "No limit is defined, and none should be drawn."
-                )
-            quantile = float(f.ppf(1.0 - alpha, a, n - a))
-            return a * (n**2 - 1) / (n * (n - a)) * quantile
-        raise ValueError(f"samples must be 'calibration' or 'new', got {samples!r}")
+        """The confidence limit for this model's `n` and `a` — see §7 and the
+        module-level `hotelling_t2_limit()`, which PLS shares."""
+        return hotelling_t2_limit(
+            self._fitted_n_samples(), self.n_components, alpha=alpha, samples=samples
+        )
 
     # ----------------------------------------------------------------------
     # distance from the model plane, §8
@@ -318,8 +340,7 @@ class PCA:
 
     @staticmethod
     def _check_alpha(alpha: float) -> None:
-        if not 0.0 < alpha < 1.0:
-            raise ValueError(f"alpha must be strictly between 0 and 1, got {alpha}")
+        check_alpha(alpha)
 
     def _unfitted(self) -> RuntimeError:
         return RuntimeError(

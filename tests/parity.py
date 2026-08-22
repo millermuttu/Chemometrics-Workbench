@@ -194,6 +194,7 @@ QUANTITY_CLASS: dict[str, str] = {
     "baseline_rubberband": "smoothing",
     "baseline_polynomial": "smoothing",
     "coefficients": "coefficients",
+    "vip": "coefficients",
     "predictions": "predictions",
     "rmsec": "metrics",
     "rmsecv": "metrics",
@@ -242,7 +243,14 @@ def comparable_entry_ids() -> list[str]:
 def as_array(value: Any) -> NDArray[np.float64]:
     """Fixture values are floats, nested lists, or dicts keyed by a label."""
     if isinstance(value, dict):
-        return np.asarray([value[k] for k in sorted(value, key=int)], dtype=np.float64)
+        # Numeric keys are a curve indexed by component count and must be read
+        # in numeric order, or "10" sorts between "1" and "2". Anything else -
+        # the R pls vignette's {"x": ..., "y": ...} - is read in key order.
+        try:
+            keys = sorted(value, key=int)
+        except ValueError:
+            keys = sorted(value)
+        return np.asarray([value[k] for k in keys], dtype=np.float64)
     return np.asarray(value, dtype=np.float64)
 
 
