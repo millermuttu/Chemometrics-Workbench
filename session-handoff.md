@@ -8,9 +8,9 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 ## Where things stand
 
-**The first kernels are written, and the parity report has real claims in it.**
+**The first kernels are written and merged, and the parity report has real claims in it.**
 
-Issues #1–#8 are merged into `dev`. #9 (`kernels-scaling`) is **complete and green on pull request #22, open and awaiting review** — the maintainer reviews before merge on this project. Nothing else is in flight.
+Issues #1–#9 are merged into `dev`. Pull request #22 merged on 2026-08-22 and its branch is deleted locally and on origin. Nothing is in flight.
 
 Six preprocessing transformers now exist in `src/chemometrics_workbench/preprocessing.py`, and all fifteen of their parity claims land in `identical_within_float`, the tightest tier. That is the first evidence the whole Phase 0 apparatus was built to produce.
 
@@ -20,32 +20,29 @@ Six preprocessing transformers now exist in `src/chemometrics_workbench/preproce
 
 | | |
 | --- | --- |
-| Current branch | `feature/9_kernels-scaling` |
-| Open pull request | **#22 → `dev`, CI green on 3.12 and 3.13, awaiting review. Do not merge without the maintainer's say-so.** |
+| Current branch | `dev`, clean, in sync with origin |
+| Open pull requests | None |
 | `main` | behind `dev`; receives a merge only at the end of Phase 0 |
-| Open issues | 6 of 14 remaining (#9 closes when #22 merges) |
+| Open issues | 5 of 14 remaining |
 | Feature statuses | 9 × `passing`, 5 × `not_started` |
 | Parity claims | 31 compared, 31 passed, 30 identical-within-float, 1 documented divergence, 14 fixture entries not yet compared |
 | Verification | `uv run ruff check`, `ruff format --check`, `mypy`, `pytest` — all green, and enforced by CI on both 3.12 and 3.13 |
 
 ## Active feature
 
-None. `kernels-scaling` is `passing` with its evidence recorded; the only thing outstanding is a human merging #22.
+None. Nothing is `in_progress`.
 
 ## Next action
 
-**If #22 has merged:** three features are eligible — `kernels-smoothing` (#10), `kernel-pca` (#11) and `kernel-pls` (#12). Priority order says **`kernels-smoothing` (#10) next**.
+Three features are eligible — `kernels-smoothing` (#10), `kernel-pca` (#11) and `kernel-pls` (#12). Priority order says **`kernels-smoothing` (#10) next**.
 
 ```bash
 git fetch origin
 git checkout -b feature/10_kernels-smoothing origin/dev
-git branch -d feature/9_kernels-scaling
 CHEMOMETRICS_DOWNLOAD_DATASETS=1 uv run pytest   # once, to populate the dataset cache
 ```
 
 #10 is Savitzky–Golay and derivatives. Two things about it are already known: `scipy.signal.savgol_filter` exists and is the obvious reference, and `pls-regression.md` §7 records that Savitzky–Golay **is** foldable into exported coefficients as a banded matrix, unlike SNV and MSC — so the kernel should expose the convolution matrix, not only the filtered result. `from_spec` already raises for `savgol` by name, which is the seam to fill.
-
-**If #22 has not merged:** say so and stop. Do not start #10 on top of an unmerged branch, and do not merge #22 to unblock yourself.
 
 **One feature at a time**, even though three are eligible. The protocol allows exactly one `in_progress`.
 
@@ -53,8 +50,7 @@ CHEMOMETRICS_DOWNLOAD_DATASETS=1 uv run pytest   # once, to populate the dataset
 
 ## Waiting on the user
 
-- **Review and merge pull request #22.** The remaining kernel features are blocked on it.
-- **Two questions raised on #22 and not yet answered.** Both are recorded there in full. (a) `MSC(reference="supplied")` has no schema field for the reference spectrum — a schema change and a separate issue. (b) `PROPOSAL.md` §7 says PCA and PLS come from scikit-learn, while `pca.md` §3 and `pls-regression.md` §4 are marked normative and specify our own implementations. Both cannot be right; the specs have been followed throughout.
+- **Two questions raised on pull request #22 and still unanswered.** Both are recorded there in full. (a) `MSC(reference="supplied")` has no schema field for the reference spectrum — a schema change and a separate issue. (b) `PROPOSAL.md` §7 says PCA and PLS come from scikit-learn, while `pca.md` §3 and `pls-regression.md` §4 are marked normative and specify our own implementations. Both cannot be right; the specs have been followed throughout.
 - **GitHub default branch is still `main`.** Any pull request opened without an explicit base targets the release line. Change it under Settings → Branches; it cannot be changed from here with the current tools.
 - **Parity against a commercial package** — `PROPOSAL.md` §19 Q4 is unresolved. The EULA is not public; a licence would have to be confirmed and written permission sought before publishing a comparison. Tier 1 parity (R `mdatools`, `pls`, scikit-learn, published literature) is unaffected and is what Phase 0 builds.
 - Remaining open questions are in `PROPOSAL.md` §19 — team and pace, funding intent, project name.
