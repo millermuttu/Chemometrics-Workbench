@@ -103,6 +103,7 @@ from numpy.typing import NDArray
 from scipy.sparse import csc_matrix, diags
 from scipy.sparse.linalg import spsolve
 
+from chemometrics_workbench.arrays import as_float64
 from chemometrics_workbench.models import (
     MSC,
     SNV,
@@ -136,25 +137,6 @@ BaselineMethod = Literal["asls", "rubberband", "polynomial"]
 # --------------------------------------------------------------------------
 # shared validation
 # --------------------------------------------------------------------------
-
-
-def _as_float64(array: object, name: str) -> NDArray[np.float64]:
-    """Promote to float64 and reject anything that is not a 2-D matrix."""
-    values = np.asarray(array, dtype=np.float64)
-    if values.ndim != 2:
-        raise ValueError(
-            f"{name} must be 2-D, n_samples x n_variables; got shape {values.shape}. "
-            "A single spectrum is a 1 x n_variables matrix, not a 1-D array."
-        )
-    if not np.isfinite(values).all():
-        rows, columns = np.nonzero(~np.isfinite(values))
-        raise ValueError(
-            f"{name} holds {rows.size} non-finite values, first at "
-            f"row {rows[0]}, column {columns[0]}. Missing values are handled upstream "
-            "and visibly: exclude the sample, exclude the variable, or add an "
-            "imputation step to the pipeline."
-        )
-    return values
 
 
 # A scale that "should" be zero rarely is, in floating point: the standard
@@ -202,7 +184,7 @@ class Transformer(ABC):
     n_variables_: int | None = None
 
     def fit(self, X: object) -> Self:
-        values = _as_float64(X, "X")
+        values = as_float64(X, "X")
         self.n_variables_ = int(values.shape[1])
         self._fit(values)
         return self
@@ -214,7 +196,7 @@ class Transformer(ABC):
                 "estimates nothing must be fitted, because that is what records the "
                 "variable count the shape contract is checked against."
             )
-        values = _as_float64(X, "X")
+        values = as_float64(X, "X")
         if values.shape[1] != self.n_variables_:
             raise ValueError(
                 f"{type(self).__name__} was fitted on {self.n_variables_} variables and "
@@ -805,7 +787,7 @@ class BaselineCorrectTransformer(Transformer):
 
     def baseline(self, X: object) -> NDArray[np.float64]:
         """The estimated baselines themselves — the plot the UI draws over the raw data."""
-        values = _as_float64(X, "X")
+        values = as_float64(X, "X")
         rows = [self._baseline_of(row) for row in values]
         iterations = [n for _, n, _ in rows]
         self.n_iterations_ = np.asarray(iterations, dtype=np.int_)

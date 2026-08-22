@@ -221,7 +221,7 @@
         "parity-harness"
       ],
       "user_visible_behavior": "Fitting PCA on any reference dataset returns scores, loadings, explained variance, T-squared and SPE that match published values within tolerance.",
-      "status": "not_started",
+      "status": "blocked",
       "verification": [
         "Run the parity suite for PCA across all three reference datasets.",
         "Confirm scores and loadings match sign-invariantly.",
@@ -229,8 +229,8 @@
         "Confirm the T-squared and SPE limits match published values within the stated tolerance.",
         "Project a held-out sample onto a fitted model and confirm the result is stable across runs."
       ],
-      "evidence": "",
-      "notes": "Kernels stay pure functions over arrays with no application knowledge, so they remain usable as a standalone library."
+      "evidence": "2026-08-22, branch feature/11_kernel-pca. Kernel in src/chemometrics_workbench/decomposition.py (PCA), array contract shared with the preprocessing kernels via src/chemometrics_workbench/arrays.py. Four of the five verification steps were run; the fourth could not be - see notes. (1) `uv run pytest -m parity` -> '65 passed, 257 deselected'. Eighteen PCA claims across all three datasets - loadings, scores, eigenvalues, explained variance ratio, cumulative explained variance, Hotelling T2 and SPE - of which 17 are identical_within_float and 1 (tecator.pca.hotelling_t2, 4.7e-13 against an identical-threshold of 2.8e-13) is agrees_within_tolerance. parity-results.json now records 55 compared, 55 passed, 53 identical, 1 within tolerance, 1 documented divergence; not_compared is down from 14 to 8 and every remaining entry is PLS. `uv run pytest` -> '322 passed in 3.28s'. (2) test_pca_loadings_match_the_reference and test_pca_scores_match_the_reference each assert result.sign_aligned, so the comparison went through the harness's inner-product alignment rather than around it; test_the_largest_magnitude_loading_of_every_component_is_positive checks our own rule (pca.md \u00a75, keyed on the loading, not on U), and test_the_sign_rule_survives_a_negated_input checks it is stable. (3) Per component: test_pca_explained_variance_ratio_matches_the_reference against {dataset}.pca.explained_variance_ratio.sklearn, plus an assertion that the five ratios sum to less than 1, which is what catches the wrong denominator. Cumulative: test_pca_cumulative_explained_variance_matches_the_reference against three new entries {dataset}.pca.cumulative_explained_variance.sklearn. Those are derived from the ratio entry rather than independently sourced - scikit-learn reports no cumulative curve - and the entry notes say so. (5) test_projecting_a_held_out_sample_is_stable_and_is_a_plain_projection fits on a training block, projects a held-out block twice, asserts the two are bit-identical with assert_array_equal, and asserts the result equals X_new @ P with the calibration loadings. test_pca_is_deterministic_and_takes_no_seed asserts two independent fits of the same matrix agree bit-for-bit. 39 unit tests in tests/test_decomposition.py cover the rest of pca.md section by section: no internal centring (\u00a72), orthonormal loadings and T = XP (\u00a74), every eigenvalue retained rather than the a retained ones (\u00a74), the sign rule and its tie break (\u00a75), the explained-variance denominator equalling X.var(ddof=1).sum() (\u00a76), mean calibration T2 = a(n-1)/n exactly (\u00a77), the beta and F limits and their n > a + 1 and n > a preconditions (\u00a77), SPE as the sum of squares with SPE + reconstruction = the row's total (\u00a78), the a == r degenerate case returning exact zeros and refusing a limit (\u00a78), and rank overflow raising with both numbers named (\u00a79). Toolchain suite: `uv run ruff check` -> 'All checks passed!', `uv run ruff format --check` -> clean, `uv run mypy` -> 'Success: no issues found in 17 source files'.",
+      "notes": "BLOCKED on verification step 4 - 'confirm the T-squared and SPE limits match published values within the stated tolerance'. There is no published or reference value to compare them against: scikit-learn reports neither limit, and the only external reference is R mdatools, whose six fixture entries have been unsourced since #7 because R is not installed on this machine. Issue #24 tracks installing R (conda, no sudo needed) and sourcing those entries plus three new hotelling_t2_limit ones; that is what unblocks this step, and nothing else does. The maintainer was asked and chose to land the feature blocked rather than install R inside this feature. Everything else is done and green. What the limits are verified against in the meantime is the distributional claim they make - about alpha of the calibration samples beyond a 1-alpha limit, checked at three configurations - plus their preconditions and their degenerate cases. That is real evidence and it is not a second implementation. A finding worth carrying: the corn PCA reference values were being generated with scikit-learn's RANDOMISED SVD. svd_solver='auto' picks it whenever the matrix is wider than 500 with few components asked for, which is true of corn and of neither other dataset, and its random_state is unseeded - so those four entries moved by around 1e-14 on every regeneration, including in #10's diff where the movement was attributed to LAPACK. The generator now passes svd_solver='full' explicitly, two consecutive regenerations are bit-identical, and the fixture's algorithm_variant text - which claimed randomised SVD was not used - is now true. pca.md \u00a73 forbids randomised SVD for our implementation and the reference has to be held to the same rule. Other decisions: the kernel imports nothing from scikit-learn, as in #9 and #10. spe(X) requires the matrix, where hotelling_t2() defaults to the calibration samples - the model keeps the scores, so T2 needs nothing else, but SPE measures the part of X the model does not contain and so cannot be recovered from the model. U is discarded at fit for the same reason it is not needed: every reported quantity is defined from the loadings. The array contract (2-D, finite, float64, caller's array untouched) moved out of preprocessing.py into arrays.py so the estimators and the preprocessing kernels enforce one rule rather than two that drift."
     },
     {
       "id": "kernel-pls",
@@ -298,6 +298,27 @@
       ],
       "evidence": "",
       "notes": "Exit criterion for Phase 0 per PROPOSAL.md section 16. Phase 1 does not start before this is met."
+    },
+    {
+      "id": "reference-values-r-mdatools",
+      "priority": 15,
+      "area": "reference",
+      "title": "Source the R mdatools reference values, which need R installed",
+      "issue": 24,
+      "depends_on": [
+        "reference-values"
+      ],
+      "user_visible_behavior": "The T-squared and SPE limits, and the SIMPLS coefficients, are compared against an implementation that is not ours and not scikit-learn's, so the parity report can make a claim about them at all.",
+      "status": "blocked",
+      "verification": [
+        "Confirm R and mdatools are installed and their versions are recorded in the fixture.",
+        "Confirm the six previously unsourced entries hold real values with full provenance.",
+        "Confirm three hotelling_t2_limit entries exist, for the beta form and the F form.",
+        "Run the parity suite and confirm parity-results.json shows each of them compared.",
+        "Confirm issue #11's fourth verification step can now be run."
+      ],
+      "evidence": "",
+      "notes": "Blocked on R not being installed on the development machine, which is an environment decision rather than a coding task: there is no sudo, but `conda install -c conda-forge r-base r-mdatools` installs both into the existing anaconda without root. The maintainer was asked during #11 and chose not to install it then. Raised out of #11, whose fourth verification step this is the only thing that unblocks. Note before recording any discrepancy as a defect: mdatools uses a chi-squared SPE limit in some configurations and Jackson-Mudholkar in others, and pca.md \u00a713 already lists that as a known divergence. Every matrix handed to mdatools must be pre-centred, as with scikit-learn, or R's own centring default applies twice."
     }
   ]
 }
