@@ -125,7 +125,7 @@ From #10 (smoothing, derivatives and baselines):
 - **`uv run pytest -m parity` runs the parity suite alone**, and any pytest run that makes a comparison rewrites `parity-results.json` at the repository root. It is gitignored.
 - **`tests/test_parity_harness.py` deliberately provokes failures**, and saves and restores the recorder around every case so fabricated numbers never reach the run record. Keep new harness tests there, not in `test_parity.py`.
 - **`scikit-learn` is dev-only**, for the same reason as `rdata`: it is a reference implementation, and our kernels must not call it. SciPy is different — it is a runtime dependency and kernels may use it, but not as their own reference (see the #10 finding above).
-- **`reference_values.json` is 476 KB.** Arrays are stored in full because the harness compares elementwise. Do not "tidy" it into summaries.
+- **`reference_values.json` is 478 KB.** Arrays are stored in full because the harness compares elementwise. Do not "tidy" it into summaries.
 - **`rdata` is dev-only and imported lazily** by `load_gasoline`, because the application never reads R files. It pulls in `xarray`, which is not in the recorded stack — transitive dev dependency only.
 - **`ruff format --check` also formats Python blocks inside markdown.** A fenced `python` snippet in `docs/` with cosmetic alignment fails CI. This bit #5.
 - **`design/canvas` is excluded from ruff** — it generates design artboards and is not shipped code.
