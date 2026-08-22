@@ -8,19 +8,25 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 ## Where things stand
 
-**Both estimator kernels are done.** PLS landed with VIP, cross-validation and the diagnostics, and it is the last kernel Phase 0 needs.
+**Every kernel is written and the `chemotools` question is decided.** Phase 0 has one deliverable left that was in the original plan — the parity report, #14 — plus two small sourcing features that #13 turned up.
 
-Issues #1–#10 and #12 are merged and closed. **#11 is merged but deliberately still open**, blocked on the one verification step that has nothing to verify against. Pull request #26 merged on 2026-08-22 and its branch is deleted locally and on origin. Nothing is in flight.
+Issues #1–#10, #12 and #13 are merged and closed. **#11 is merged but deliberately still open**, blocked on the one verification step that has nothing to verify against — **and #13 found what verifies it, without R**. Pull requests #26 and #29 merged on 2026-08-22 and their branches are deleted locally and on origin. Nothing is in flight.
 
-**The parity fixture is now fully covered.** `parity-results.json` records 66 comparisons, 66 passed, and **`not_compared` is empty** — every comparable entry in the fixture has been checked against a kernel. That was fourteen untested before #11 and eight before #12, and it is the number the report in #14 is allowed to stand on.
+**The parity fixture is fully covered by what is in it.** `parity-results.json` records 66 comparisons, 66 passed, and **`not_compared` is empty**. What is missing is not coverage of the entries but *entries*: eight quantities across SNV, MSC, the three baselines and the two PCA limits are `unsourced`, and #27 and #28 now source all of them from `chemotools`.
 
-**What is left in Phase 0**: `chemotools-eval` (#13), `parity-report` (#14), and `reference-values-r-mdatools` (#24, raised out of #11).
+**What is left in Phase 0**: `reference-values-chemotools` (#27), `reference-values-chemotools-limits` (#28), `parity-report` (#14), and `reference-values-r-mdatools` (#24, no longer on the critical path).
 
-### Why #11 is blocked, and what unblocks it
+### Why #11 is blocked, and what now unblocks it
 
-Unchanged by this session. Its fourth verification step asks that the T² and SPE limits **match published values**, and there are none to match: scikit-learn reports neither limit, and the only external reference is R `mdatools`, whose entries have been `unsourced` since #7 because R is not installed here. **#24 is the only thing that unblocks it** — install R (`conda install -c conda-forge r-base r-mdatools`, no sudo needed) and source those six entries plus three new `hotelling_t2_limit` ones. You were asked during #11 and chose to land it blocked rather than install R mid-feature.
+Its fourth verification step asks that the T² and SPE limits **match published values**. When it landed there were none: scikit-learn reports neither limit, and the only reference identified was R `mdatools`, which is not installed here (#24).
 
-**Note that #12 did not inherit this problem**, and the difference is worth understanding before #14 writes either up. PLS's SPE limit is a χ² moment match on the observed calibration residuals, so it is checked against its own coverage; its T² limit is `pca.md` §7's, shared with PCA, and carries exactly the same gap. What made #12 verifiable where #11 was not is that every quantity in its issue's "done when" had a reference — VIP included, once three entries were added for it.
+**#13 found a second reference, and it is a better one.** `chemotools.outliers` reports both limits from a fitted scikit-learn model, and measured against our PCA on all three datasets:
+
+- **Our SPE limit and theirs are the same number** — both Jackson–Mudholkar, agreeing to 2.3e-15 relative.
+- **The T² limits differ by exactly `(n+1)/n`**, because theirs is `a(n−1)/(n−a)·F` and our new-sample form is `a(n²−1)/(n(n−a))·F`. That is a documented convention difference with the formula identified, which is what the harness's third tier exists for — not a failure.
+- The T² and SPE *statistics* agree with ours to 4.7e-13 and 3.4e-16, which is a second independent check on the diagnostics themselves.
+
+**#28 is the work**, and it is what should flip `kernel-pca` to `passing`. **#24 (R `mdatools`) is no longer the only route** — it stays worth having, because SIMPLS is a genuinely different algorithm where `chemotools` is another Python implementation on the same NumPy, but nothing is waiting on it.
 
 **The offline question was raised and settled** in an earlier session. Corn and gasoline are downloaded rather than committed. The option of writing to Eigenvector and Prof. Kalivas to ask for redistribution permission was offered and **declined — do not open that issue and do not chase it.**
 
@@ -31,37 +37,46 @@ Unchanged by this session. Its fourth verification step asks that the T² and SP
 | Current branch | `dev`, clean, in sync with origin |
 | Open pull requests | None |
 | `main` | behind `dev`; receives a merge only at the end of Phase 0 |
-| Open issues | 4 of 15 — #11 (blocked, merged), #13, #14, #24 |
-| Feature statuses | 11 × `passing`, 2 × `blocked`, 2 × `not_started` |
+| Open issues | 5 — #11 (blocked, merged), #14, #24, #27, #28 |
+| Feature statuses | 12 × `passing`, 2 × `blocked`, 3 × `not_started` |
 | Parity claims | 66 compared, 66 passed, 60 identical-within-float, 5 within tolerance, 1 documented divergence, **0 not compared** |
 | Verification | `uv run ruff check`, `ruff format --check`, `mypy`, `pytest` — all green (408 tests), enforced by CI on 3.12 and 3.13 |
+| Runtime dependencies | `pydantic`, `numpy`, `scipy`. **`scikit-learn` and `chemotools` are dev-only and must stay that way** (#13) |
 
 ## Active feature
 
-None is `in_progress`. Two are `blocked`, both on the same thing:
+None is `in_progress`. Two are `blocked`, and they are no longer blocked on the same thing:
 
-- **`kernel-pca` (#11)** — code merged and green; blocked on its published-limit verification step.
-- **`reference-values-r-mdatools` (#24)** — blocked on R not being installed, which is an environment decision rather than a coding task.
+- **`kernel-pca` (#11)** — code merged and green; blocked on its published-limit verification step, which **#28 can now run**. Leave it `blocked` until that has actually been done, not because it is expected to pass.
+- **`reference-values-r-mdatools` (#24)** — blocked on R not being installed, which is an environment decision rather than a coding task. No longer blocking anything else.
 
 ## Next action
 
-**`chemotools-eval` (#13) next.** It is the only eligible feature: `parity-report` (#14) depends on it, and #24 becomes eligible the moment you decide to install R.
+**`reference-values-chemotools` (#27) next**, then #28, then #11's re-verification, then #14. That order is not arbitrary: #27 and #28 both add `chemotools` to the dev group and regenerate the same fixture, so running them in parallel would conflict, and #14 must not be written until the entries it describes exist.
 
 ```bash
 git fetch origin
-git checkout -b feature/13_chemotools-eval origin/dev
+git checkout -b feature/27_reference-values-chemotools origin/dev
 CHEMOMETRICS_DOWNLOAD_DATASETS=1 uv run pytest   # once, to populate the dataset cache
 ```
 
-Read the issue before scoping it: it is an *evaluation*, and its output may legitimately be "no, and here is why". Two findings already point at it — **SNV, MSC and the three baseline methods have no external reference at all**, and their fixture entries are `unsourced` for that reason. `chemotools` is the obvious candidate for the first two and `pybaselines` for the third, and adding either is a dependency decision rather than a kernel one.
+Read `docs/decisions/0001-chemotools.md` first — it is the decision #27 and #28 implement, and every number they need is in it. Re-derive them with:
 
-**#14 is the phase's exit criterion** and it now has everything it needs from the kernels. What it must not do is overstate what the fixture says; the list under "carried forward" below is where the caveats are written down, and three of them are specifically about claims that look stronger than they are.
+```bash
+CHEMOMETRICS_DOWNLOAD_DATASETS=1 uv run --with chemotools==0.4.3 python \
+    docs/decisions/0001-chemotools-evidence.py
+```
+
+**The trap in #27 is MSC.** It agrees to 1e-10 relative, which is outside the `preprocessing` tolerance class's 1e-12. Widening that class to make it pass would destroy the thing the class exists for — it is tight on purpose, to catch a `ddof` convention or a differently-defined norm. Give MSC its own class with a stated reason, or record the difference. Do not touch `preprocessing`.
+
+The second trap is the SNV entry: generate it at **`ddof=0`**, because `chemotools` uses the population standard deviation where our default is `ddof=1`, and say so in the entry's notes. The autoscale entry already does exactly this against `StandardScaler`, and is the worked example.
 
 **One feature at a time.** The protocol allows exactly one `in_progress`, and a `blocked` feature does not count against that.
 
 ## Waiting on the user
 
-- **Two questions raised on pull request #22 and still unanswered.** (a) `MSC(reference="supplied")` has no schema field for the reference spectrum — a schema change and a separate issue. (b) `PROPOSAL.md` §7 says PCA and PLS come from scikit-learn, while `pca.md` §3 and `pls-regression.md` §4 are marked normative and specify our own implementations. **Both kernels have now been written to the specifications** and are green against scikit-learn as a reference rather than built on it. The contradiction is now historical rather than blocking, but `PROPOSAL.md` §7 still says something that is not true of the code and should be corrected.
+- **One question raised on pull request #22 is still unanswered**: `MSC(reference="supplied")` has no schema field for the reference spectrum — a schema change and a separate issue. **Question (b) is closed**: `PROPOSAL.md` §7 said PCA and PLS come from scikit-learn, which has been false since #11, and #13 rewrote the section to say what the repository actually does — scikit-learn and `chemotools` are dev-only reference implementations, and the kernels are ours. Nothing is waiting on it now.
+- **`PROPOSAL.md` changed materially in #13** (§7 and the §14 stack summary). The published artifact at the URL below is now behind, and `CLAUDE.md` says it should be republished to the same URL when that happens.
 - **GitHub default branch is still `main`.** Any pull request opened without an explicit base targets the release line. Change it under Settings → Branches; it cannot be changed from here with the current tools.
 - **Parity against a commercial package** — `PROPOSAL.md` §19 Q4 is unresolved. The EULA is not public; a licence would have to be confirmed and written permission sought before publishing a comparison. Tier 1 parity (R `mdatools`, `pls`, scikit-learn, published literature) is unaffected and is what Phase 0 builds.
 - Remaining open questions are in `PROPOSAL.md` §19 — team and pace, funding intent, project name.
@@ -139,6 +154,16 @@ From #12 (PLS kernel):
 - **Centring is refitted inside each fold**, and a test pins the direction as well as the difference: leaking the full-set mean into the folds gives a *smaller* RMSECV, which is what makes it tempting.
 - **SEC, SEP, Q² and `coefficients_original_units` are specified but not implemented.** Nothing verified them in #12 and the export format that needs the last one is #14's. They are the known gap between `metrics-and-validation.md` §5–§6 and `validation.py`.
 
+From #13 (chemotools evaluation):
+
+- **`scikit-learn` and `chemotools` are dev-only and must not enter `[project.dependencies]`.** `chemotools` requires scikit-learn, and installs 20 MB of which 17 MB is bundled example CSVs the application would never read. `CLAUDE.md`'s toolchain section now says so, and `docs/decisions/0001-chemotools.md` carries the evidence.
+- **The decision is per transform.** Reference-only for SNV, MSC and the three baselines, which have no other external reference; neither adopted nor referenced for Savitzky-Golay and normalisation, both redundant with SciPy and scikit-learn. Do not re-argue it from preference — re-run `docs/decisions/0001-chemotools-evidence.py` and argue from numbers.
+- **Their Savitzky-Golay defaults to `mode="nearest"`**, ours fixes `"interp"`. Identical in the interior to 1e-16, up to 30% of the largest value apart within a half-window of each end. This is the clearest confirmation that #10 was right to make the mode a property of the software rather than a caller's default.
+- **Their SNV uses the population standard deviation**; ours defaults to `ddof=1`. Bit-identical at `ddof=0`, so the entry #27 generates must be at `ddof=0` and must say why.
+- **MSC agrees to 1e-10, not to the last bits.** That is outside the `preprocessing` tolerance class and the class must not be widened for it.
+- **A constant spectrum returns `NaN` there and raises here.** The one behavioural difference that would matter in an application, and the reason `_dead_threshold` exists.
+- **`docs/decisions/` is the new home for decisions taken with evidence.** Numbered and dated, one per decision, with a re-runnable script beside it where the decision rests on measurements.
+
 ## Gotchas that would otherwise waste time
 
 - **Setup is `uv sync`.** Verification commands are in `CONTRIBUTING.md`; `clean-state-checklist.md` refers to them by role rather than by name.
@@ -148,6 +173,7 @@ From #12 (PLS kernel):
 - **`uv run pytest -m parity` runs the parity suite alone**, and any pytest run that makes a comparison rewrites `parity-results.json` at the repository root. It is gitignored.
 - **`tests/test_parity_harness.py` deliberately provokes failures**, and saves and restores the recorder around every case. Keep new harness tests there, not in `test_parity.py`.
 - **`scikit-learn` is dev-only**, for the same reason as `rdata`: it is a reference implementation. SciPy is a runtime dependency and kernels may use it, but not as their own reference.
+- **`uv run --with <package>` is how a package is evaluated without adding it.** #13's evidence script runs `chemotools` that way, so nothing about the evaluation touched `pyproject.toml` or `uv.lock`.
 - **`reference_values.json` is 551 KB.** Arrays are stored in full because the harness compares elementwise. Do not "tidy" it into summaries.
 - **`rdata` is dev-only and imported lazily** by `load_gasoline`. It pulls in `xarray`, which is not in the recorded stack — transitive dev dependency only.
 - **`ruff format --check` also formats Python blocks inside markdown.** A fenced `python` snippet in `docs/` with cosmetic alignment fails CI.

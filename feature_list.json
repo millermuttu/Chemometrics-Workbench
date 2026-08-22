@@ -348,7 +348,7 @@
       "issue": 28,
       "depends_on": [
         "chemotools-eval",
-        "kernel-pca"
+        "reference-values-chemotools"
       ],
       "user_visible_behavior": "The PCA confidence limits are compared against an independent implementation, and kernel-pca's fourth verification step can actually be run.",
       "status": "not_started",
@@ -359,7 +359,7 @@
         "Re-run kernel-pca's verification and move it to passing, or record what still blocks it."
       ],
       "evidence": "",
-      "notes": "Our SPE limit and chemotools' agree to 2.3e-15; the T-squared limits differ by exactly (n+1)/n because theirs is a(n-1)/(n-a)F and ours is a(n^2-1)/(n(n-a))F. Measured during #13 and recorded in docs/decisions/0001-chemotools.md."
+      "notes": "Our SPE limit and chemotools' agree to 2.3e-15; the T-squared limits differ by exactly (n+1)/n because theirs is a(n-1)/(n-a)F and ours is a(n^2-1)/(n(n-a))F. Measured during #13 and recorded in docs/decisions/0001-chemotools.md. Depends on #27 rather than on kernel-pca: #11 is blocked, so gating on it would make this ineligible under the one-feature-at-a-time rule and nothing would ever unblock #11. It is sequenced after #27 because both add chemotools to the dev group and regenerate the same fixture."
     }
   ]
 }
