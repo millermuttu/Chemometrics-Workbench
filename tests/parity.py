@@ -197,6 +197,7 @@ QUANTITY_CLASS: dict[str, str] = {
     "cumulative_explained_variance_at_2_components": "decomposition",
     "cumulative_explained_variance": "decomposition",
     "spe_limit": "decomposition",
+    "hotelling_t2_limit": "decomposition",
     "hotelling_t2": "decomposition",
     "spe": "decomposition",
     "mean_centred": "preprocessing",

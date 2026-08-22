@@ -289,6 +289,10 @@ def test_polynomial_baseline_matches_the_reference(dataset: str) -> None:
 
 N_COMPONENTS = 5
 
+# The confidence level the limit entries were generated at. chemotools takes a
+# confidence where pca.md takes an alpha; 0.95 there is this.
+LIMIT_ALPHA = 0.05
+
 # The component count the RMSECV curve runs to. Both are repeated from the
 # generator for the same reason as PREPROCESS_BLOCK above: a mismatch would
 # compare a different model and pass.
@@ -391,6 +395,66 @@ def test_spe_matches_the_reference(dataset: str, pca_models: dict[str, PCA]) -> 
     result = parity.check(f"{dataset}.pca.spe.sklearn", pca_models[dataset].spe(_centred(dataset)))
     assert result.passed
     assert not result.sign_aligned
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_the_spe_limit_matches_the_reference(dataset: str, pca_models: dict[str, PCA]) -> None:
+    """`pca.md` §8, and the claim #11 could not make when it landed.
+
+    Every other PCA diagnostic in this file is *our* formula on scikit-learn's
+    decomposition, because scikit-learn reports no `T^2` and no SPE. This one
+    is different in kind: `chemotools` computes the Jackson-Mudholkar limit
+    itself, so the comparison tests the formula and not only the decomposition
+    it was fed. That is what the fourth verification step of #11 asked for and
+    what nothing available could answer until #13.
+    """
+    result = parity.check(
+        f"{dataset}.pca.spe_limit.chemotools", pca_models[dataset].spe_limit(LIMIT_ALPHA)
+    )
+    assert result.passed
+    assert result.tier is parity.Tier.IDENTICAL
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_the_t2_limit_differs_from_the_reference_by_exactly_one_over_n(
+    dataset: str, pca_models: dict[str, PCA], fixture_entries: dict[str, dict[str, object]]
+) -> None:
+    """A documented convention, and the factor is known exactly — so assert it.
+
+    `chemotools` computes `a(n-1)/(n-a) F`; `pca.md` §7's new-sample form is
+    `a(n²-1)/(n(n-a)) F`. The ratio is therefore exactly `(n+1)/n`, and our
+    calibration limit — the beta form, which is the exact one for samples the
+    model was fitted to — has no counterpart there at all.
+
+    Recording this as a divergence rather than a failure is only honest if the
+    difference really is the documented one, so the identity is checked to the
+    last bits first. A drift in either formula would break the ratio and this
+    case, where a bare `record_divergence()` would keep passing.
+    """
+    model = pca_models[dataset]
+    n = model.n_samples_
+    assert n is not None
+    theirs = float(fixture_entries[f"{dataset}.pca.hotelling_t2_limit.chemotools"]["value"])  # type: ignore[arg-type]
+    ours = model.hotelling_t2_limit(LIMIT_ALPHA, "new")
+
+    assert ours / theirs == pytest.approx((n + 1) / n, rel=1e-12)
+    assert model.hotelling_t2_limit(LIMIT_ALPHA, "calibration") < theirs
+
+    result = parity.record_divergence(
+        f"{dataset}.pca.hotelling_t2_limit.chemotools",
+        reason=(
+            "Both are F-distribution limits on the same scores and they differ by a "
+            "convention, not by an error. chemotools computes a(n-1)/(n-a) F(a, n-a); "
+            "pca.md §7 gives the new-sample form a(n^2-1)/(n(n-a)) F(a, n-a), which is "
+            f"larger by exactly (n+1)/n - a factor of {(n + 1) / n:.4f} at n={n}. The "
+            "two answer different questions: theirs is the limit for the calibration "
+            "samples under an F approximation, ours is the exact limit for a sample "
+            "the model has not seen, and pca.md §7 draws the beta form for calibration "
+            "samples instead of approximating it. Which limit is drawn belongs in the "
+            "plot legend, which is why we report both and name them."
+        ),
+    )
+    assert result.tier is parity.Tier.DOCUMENTED_DIVERGENCE
 
 
 # --------------------------------------------------------------------------
