@@ -35,7 +35,7 @@ dev = [
 
 [tool.ruff]
 line-length = 100
-src = ["src", "tests"]
+src = ["src", "tests", "stub"]
 target-version = "py312"
 # design/canvas holds a one-off generator for design artboards, not shipped code.
 extend-exclude = ["design/canvas"]
@@ -56,7 +56,7 @@ ignore = ["RUF001", "RUF002", "RUF003"]
 
 [tool.mypy]
 strict = true
-files = ["src", "tests"]
+files = ["src", "tests", "stub"]
 python_version = "3.12"
 plugins = ["pydantic.mypy"]
 

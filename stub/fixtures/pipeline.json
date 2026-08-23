@@ -1,0 +1,159 @@
+{
+  "pipeline_id": "0cf0d33b-a116-5df7-b129-03436bbd1d68",
+  "project_id": "e8dbb827-f1b1-57b7-962a-e848fa4070ac",
+  "name": "Scatter correction comparison",
+  "nodes": [
+    {
+      "type": "source",
+      "id": "source",
+      "inputs": [],
+      "version_id": "d2a7613a-f58a-566a-ae23-61d38aa4267e"
+    },
+    {
+      "type": "preprocess",
+      "id": "snv",
+      "inputs": [
+        "source"
+      ],
+      "step": {
+        "kind": "snv"
+      }
+    },
+    {
+      "type": "preprocess",
+      "id": "centre_a",
+      "inputs": [
+        "snv"
+      ],
+      "step": {
+        "kind": "mean_centre"
+      }
+    },
+    {
+      "type": "estimator",
+      "id": "pca_a",
+      "inputs": [
+        "centre_a"
+      ],
+      "spec": {
+        "kind": "pca",
+        "n_components": 5
+      }
+    },
+    {
+      "type": "preprocess",
+      "id": "msc",
+      "inputs": [
+        "source"
+      ],
+      "step": {
+        "kind": "msc",
+        "reference": "mean"
+      }
+    },
+    {
+      "type": "preprocess",
+      "id": "centre_b",
+      "inputs": [
+        "msc"
+      ],
+      "step": {
+        "kind": "mean_centre"
+      }
+    },
+    {
+      "type": "estimator",
+      "id": "pca_b",
+      "inputs": [
+        "centre_b"
+      ],
+      "spec": {
+        "kind": "pca",
+        "n_components": 5
+      }
+    },
+    {
+      "type": "preprocess",
+      "id": "savgol",
+      "inputs": [
+        "source"
+      ],
+      "step": {
+        "kind": "savgol",
+        "window_length": 11,
+        "polyorder": 2,
+        "deriv": 1
+      }
+    },
+    {
+      "type": "preprocess",
+      "id": "autoscale_c",
+      "inputs": [
+        "savgol"
+      ],
+      "step": {
+        "kind": "autoscale",
+        "ddof": 1
+      }
+    },
+    {
+      "type": "estimator",
+      "id": "pca_c",
+      "inputs": [
+        "autoscale_c"
+      ],
+      "spec": {
+        "kind": "pca",
+        "n_components": 5
+      }
+    },
+    {
+      "type": "preprocess",
+      "id": "snv_savgol",
+      "inputs": [
+        "snv"
+      ],
+      "step": {
+        "kind": "savgol",
+        "window_length": 11,
+        "polyorder": 2,
+        "deriv": 1
+      }
+    },
+    {
+      "type": "split",
+      "id": "split_d",
+      "inputs": [
+        "snv_savgol"
+      ],
+      "spec": {
+        "kind": "kfold",
+        "n_splits": 10,
+        "shuffle": true,
+        "seed": 42
+      }
+    },
+    {
+      "type": "preprocess",
+      "id": "centre_d",
+      "inputs": [
+        "split_d"
+      ],
+      "step": {
+        "kind": "mean_centre"
+      }
+    },
+    {
+      "type": "estimator",
+      "id": "pca_d",
+      "inputs": [
+        "centre_d"
+      ],
+      "spec": {
+        "kind": "pca",
+        "n_components": 5
+      }
+    }
+  ],
+  "created_at": "2026-08-24T09:00:00Z"
+}
