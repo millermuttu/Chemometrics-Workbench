@@ -41,10 +41,12 @@
         "CI runs a Node job alongside the Python matrix and it is green.",
         "The token page shows the categorical data palette as distinct from both the accent and the semantic run-state colours.",
         "Neither Inter nor Space Grotesk is the interface default, and numerals in a metrics table align.",
-        "No Zustand or comparable client-state library is in package.json."
+        "No Zustand or comparable client-state library is in package.json.",
+        "The token page's values match design/canvas/_base.css exactly for both .t-light and .t-dark - no value was reinvented.",
+        "IBM Plex Sans and IBM Plex Mono load from a bundled asset with the network disabled, not from fonts.googleapis.com."
       ],
       "evidence": null,
-      "notes": null
+      "notes": "Tokens are ported from design/canvas/_base.css, not designed. Both palettes, the Okabe-Ito data series d1-d6 and the semantic run-state colours already exist there, and IBM Plex Sans/Mono is settled - which answers the brief's 'avoid Inter and Space Grotesk'. The one real difference from the artboards: they @import webfonts from Google, and a local-first application must bundle them."
     },
     {
       "id": "contract-fixtures",
@@ -83,7 +85,9 @@
         "Exceeding the tab bar shows an overflow menu with working search.",
         "Selecting a node in the sidebar outline focuses its tab, opening it if it was closed.",
         "Both sidebars resize and collapse, the left one to icons.",
-        "The status bar reports a running job without blocking interaction anywhere else."
+        "The status bar reports a running job without blocking interaction anywhere else.",
+        "The shell matches design/canvas/Main.dc.html at 1440x900 in both themes: 40px top bar, 248px sidebar, 34px tab strip, 292px inspector, 28px status bar.",
+        "A transient tab renders italic in --ink3, as the artboard draws it."
       ],
       "evidence": null,
       "notes": null
@@ -107,10 +111,11 @@
         "A wrongly detected decimal separator can be corrected the same way.",
         "Cancelling the preview leaves the project with no dataset.",
         "The dataset view lists samples, variables, metadata columns and exclusions.",
-        "The failure state names the offending file or setting and shows no stack trace."
+        "The failure state names the offending file or setting and shows no stack trace.",
+        "The screen uses only components the artboards already establish - table rules, .kv rows, .pill, .btn, sidebar section headers - and any new one was raised rather than introduced in passing."
       ],
       "evidence": null,
-      "notes": null
+      "notes": "No artboard exists for this screen. DESIGN_BRIEF.md section 6 asked for the first four screens fully and the rest as needed; screens 6 and 7 and the importing state were never drawn. Default taken: build from the component vocabulary the artboards establish. If it should be drawn first, that is one more artboard and this feature waits."
     },
     {
       "id": "spectra-view",
@@ -131,7 +136,9 @@
         "Hovering a spectrum names the sample.",
         "Rendering uses scattergl, confirmed in the Plotly trace type.",
         "The spectrum count is visible.",
-        "The categorical palette passes a colourblind check and is not the accent colour."
+        "The categorical palette passes a colourblind check and is not the accent colour.",
+        "The screen matches design/canvas/SpectraView.dc.html in both themes.",
+        "Plotly's fonts and palette are driven from the design tokens, not from its defaults."
       ],
       "evidence": null,
       "notes": "Decimation is consumed here, not computed. Phase 1.2 computes it server-side per PROPOSAL.md section 13."
@@ -155,7 +162,10 @@
         "Edges animate only while a run is in progress, and not at all under prefers-reduced-motion.",
         "A linear SNV to Savitzky-Golay to PCA pipeline can be assembled through the step list.",
         "Moving a node does not change Pipeline.content_hash - layout is stored beside the pipeline, not inside it.",
-        "Selecting a node focuses its tab."
+        "Selecting a node focuses its tab.",
+        "Nodes match design/canvas/PipelineCanvas.dc.html: 132x70, 17px mono uppercase type header, parameters in mono 9.5px.",
+        "Stale renders as a dashed --stale border over a 135 degree --staleSoft hatch at 0.72 opacity with an 'edited - downstream stale' footer, as drawn.",
+        "Edges are 1.4px --rule at rest, 1.8px --accent on the active path, dashed 4 3 in --stale where stale, over a 22px --grid dot ground."
       ],
       "evidence": null,
       "notes": "Direct canvas editing is deliberately deferred to #51 in Phase 2, where branch comparison first needs it."
@@ -179,7 +189,8 @@
         "Stale results dim and remain readable rather than disappearing.",
         "A re-run affordance appears on a stale node.",
         "The metrics block uses tabular numerals and the columns align.",
-        "The provenance section collapses and shows the environment record from the fixture."
+        "The provenance section collapses and shows the environment record from the fixture.",
+        "The inspector matches the artboards in both themes: .ihead block, .ilabel in mono uppercase, .kv rows with the value in mono tabular numerals."
       ],
       "evidence": null,
       "notes": "Where form validation could drift from models.py, generate it from the schema rather than restating the rules."
@@ -203,10 +214,11 @@
         "Explained variance shows per component and cumulative.",
         "Hovering a score point names its sample.",
         "The three plots coexist legibly at 1440px, and the layout rule chosen is written into the design brief as the answer to open question 11.1.",
-        "Numbers align with tabular numerals."
+        "Numbers align with tabular numerals.",
+        "The panel grid matches design/canvas/AnalysisResults.dc.html, which is drawn in the dark palette, and leaves room for the Phase 2 predicted-vs-measured panel rather than a layout that has to be torn up."
       ],
       "evidence": null,
-      "notes": "Answers open design question DESIGN_BRIEF.md section 11.1 - fixed grid, resizable split or user-arranged panels."
+      "notes": "Answers open design question DESIGN_BRIEF.md section 11.1 - the artboard shows one tab holding a panel grid. The artboard also shows predicted-vs-measured on a PLS model, which is Phase 2, not this feature."
     },
     {
       "id": "application-states",
@@ -229,10 +241,11 @@
         "The failed state names a cause and shows no stack trace.",
         "The overloaded state states the envelope limit from PROPOSAL.md section 13 rather than freezing.",
         "A failed node is not mistakable for a red spectrum - run-state colour is separate from the data palette.",
-        "Each of the six is reachable from the fixture harness and screenshotted."
+        "Each of the six is reachable from the fixture harness and screenshotted.",
+        "Running and stale match the encodings drawn in PipelineCanvas.dc.html and stated in canvas.json's states annotation."
       ],
       "evidence": null,
-      "notes": "Given its own issue because it is spread across every screen and is therefore the first thing to get skipped."
+      "notes": "Given its own issue because it is spread across every screen and is therefore the first thing to get skipped. Running and stale are drawn; importing, screen-level failed and overloaded are not, and inherit the fail and stale tokens that exist in both palettes for exactly that."
     },
     {
       "id": "e2e-walkthrough",
