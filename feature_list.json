@@ -1,6 +1,6 @@
 {
-  "phase": "Phase 0 - Numerical foundation",
-  "exit_criterion": "Parity report green in CI against published reference values (PROPOSAL.md section 16).",
+  "phase": "Phase 1.1 - Frontend shell and core screens",
+  "exit_criterion": "A Playwright walkthrough passes with no backend running: empty project, import with a detection preview, SNV then Savitzky-Golay added through the step list, PCA run, scores plot read - against fixtures generated from the real kernels (issue #50).",
   "status_values": [
     "not_started",
     "in_progress",
@@ -9,357 +9,268 @@
   ],
   "features": [
     {
-      "id": "spec-metrics-cv",
+      "id": "phase-1-1-feature-list",
       "priority": 1,
-      "area": "spec",
-      "title": "Specify metric definitions and the cross-validation protocol",
-      "issue": 5,
+      "area": "process",
+      "title": "Archive the Phase 0 feature list and open the Phase 1.1 list",
+      "issue": 40,
       "depends_on": [],
-      "user_visible_behavior": "docs/algorithms/metrics-and-validation.md exists and gives a formula for every metric the UI can display, plus the exact fold-assignment and aggregation rules. A reader can compute RMSECV by hand from it and get our number.",
+      "user_visible_behavior": "feature_list.json is the live Phase 1.1 list, Phase 0's is preserved at docs/phase-0/feature_list.json as its record, and CLAUDE.md describes the repository as it now stands rather than as pre-implementation.",
       "status": "passing",
       "verification": [
-        "Open docs/algorithms/metrics-and-validation.md.",
-        "Confirm RMSEC, RMSECV and RMSEP each state their denominator (n, n-1 or n-a-1) and whether the metric is on the original or scaled units.",
-        "Confirm the fold-aggregation rule is stated explicitly as either pooled residuals or mean of per-fold RMSEs.",
-        "Confirm R2, Q2, bias, SEC and SEP each have a formula, not just a name.",
-        "Confirm fold assignment, shuffling, seeding and stratification are described well enough to reproduce a split from the document alone.",
-        "Confirm the section listing known divergences from commercial packages names at least leverage-corrected RMSE."
+        "docs/phase-0/feature_list.json exists and parses, with every Phase 0 status unchanged.",
+        "feature_list.json parses and its phase is Phase 1.1.",
+        "grep CLAUDE.md for 'Pre-implementation' returns nothing.",
+        "CLAUDE.md names the three Phase 1 sub-phases and which file is the live task list."
       ],
-      "evidence": "2026-08-22. docs/algorithms/metrics-and-validation.md written (278 lines) on feature/5_metrics-cv-spec. Verification steps walked against the document: \u00a74 gives RMSEC, RMSECV and RMSEP a denominator of n in every case and defers degrees-of-freedom corrections to SEC (n_c-A-1) and SEP (n_p-1) in \u00a75; \u00a72 fixes every metric to the original units of the response. \u00a77 states fold aggregation as pooled residuals, not the mean of per-fold RMSEs, and gives both forms side by side. \u00a75 and \u00a76 give formulas for bias, SEC, SEP, R2 and Q2. \u00a78 specifies indices, numpy.random.default_rng seeding, the K-fold size rule, LOO, repeated K-fold (seed+r, mean of per-repeat RMSECVs), train/test, external sets and stratification, with a worked n=10 K=3 seed=42 table reproduced from a live numpy run. \u00a712 lists known divergences and names leverage-corrected RMSE with a paragraph on why it is not reported. Toolchain suite green: `uv run ruff check` -> 'All checks passed!', `uv run ruff format --check` -> '14 files already formatted', `uv run mypy` -> 'Success: no issues found in 4 source files', `uv run pytest -q` -> 20 passed.",
-      "notes": "Highest priority: explains more future 'why does this not match Unscrambler' reports than the algorithms do. Blocks #7, and therefore the whole parity chain. Documentation only."
+      "evidence": "2026-08-23. On feature/40_phase-1-1-feature-list. git mv feature_list.json docs/phase-0/feature_list.json - loads and reports 'Phase 0 - Numerical foundation', 17 features, statuses unchanged (16 passing, 1 blocked). New feature_list.json loads and reports 'Phase 1.1 - Frontend shell and core screens', 11 features, no dangling depends_on, exactly one in_progress. grep -c 'Pre-implementation' CLAUDE.md returns 0. CLAUDE.md:10 names feature_list.json as the live list and CLAUDE.md:19 names the three sub-phases.",
+      "notes": "This branch. The sub-phase split was decided in session on 2026-08-23: 1.1 frontend against generated fixtures, 1.2 backend, 1.3 database and integration."
     },
     {
-      "id": "spec-pls",
+      "id": "frontend-scaffold",
       "priority": 2,
-      "area": "spec",
-      "title": "Specify the PLS regression algorithm and VIP",
-      "issue": 4,
+      "area": "frontend",
+      "title": "Frontend scaffold, design tokens and both themes",
+      "issue": 42,
       "depends_on": [],
-      "user_visible_behavior": "docs/algorithms/pls-regression.md names the implemented variant and every convention around it, so a second implementer could reproduce our numbers from the document alone.",
-      "status": "passing",
+      "user_visible_behavior": "pnpm build produces a static bundle and pnpm test passes. A token page renders the full palette, type scale and run-state colours in both light and dark, each designed rather than inverted.",
+      "status": "not_started",
       "verification": [
-        "Open docs/algorithms/pls-regression.md.",
-        "Confirm NIPALS or SIMPLS is chosen, with a stated reason and a note on what the other would change.",
-        "Confirm deflation, centring, scaling and sign conventions are each specified.",
-        "Confirm the regression-coefficient computation and the back-transform to original units are given.",
-        "Confirm the VIP formula is written out and its normalisation stated.",
-        "Confirm PLS1 versus PLS2 behaviour is described."
+        "pnpm install && pnpm build succeeds from a clean checkout.",
+        "pnpm test and pnpm typecheck pass.",
+        "CI runs a Node job alongside the Python matrix and it is green.",
+        "The token page shows the categorical data palette as distinct from both the accent and the semantic run-state colours.",
+        "Neither Inter nor Space Grotesk is the interface default, and numerals in a metrics table align.",
+        "No Zustand or comparable client-state library is in package.json.",
+        "The token page's values match design/canvas/_base.css exactly for both .t-light and .t-dark - no value was reinvented.",
+        "IBM Plex Sans and IBM Plex Mono load from a bundled asset with the network disabled, not from fonts.googleapis.com."
       ],
-      "evidence": "2026-08-22, branch feature/4_pls-spec. docs/algorithms/pls-regression.md reviewed against the issue #4 checklist, each item mapped to a section: variant chosen with reason and what SIMPLS would change -> section 2; deflation of both X and y -> section 4; centring and scaling of X and y with default -> section 3; sign convention -> section 6; coefficient computation and back-transform to original units -> sections 5 and 7; prediction with preprocessing reapplied from calibration parameters -> section 7; VIP formula and its sum-of-squares normalisation -> section 8; how A is chosen and reported -> section 11; PLS1 versus PLS2 -> section 10. Section 13 lists every reported quantity against its defining section.",
-      "notes": "NIPALS chosen by the maintainer. For a single response NIPALS and SIMPLS coincide, so a SIMPLS reference such as R mdatools is valid for coefficients and predictions but not for weights and loadings. Both X and y are deflated, the classical form; skipping y-deflation changes the weights from component 2 onward. The regression coefficients are sign-invariant, so only scores, loadings and weights need sign alignment in parity tests. Two findings worth carrying forward: the Jackson-Mudholkar SPE limit does not transfer from PCA because PLS components are not covariance eigenvectors, so PLS uses a chi-squared moment match; and SNV and MSC cannot be folded into exported coefficients because they depend on the sample being predicted, so an exported model carries a residual preprocessing chain rather than a bare coefficient vector. That shapes the export format in issue #14 and PROPOSAL.md section 9. PLS2 deferred post-1.0; v1 models one response at a time."
+      "evidence": null,
+      "notes": "Tokens are ported from design/canvas/_base.css, not designed. Both palettes, the Okabe-Ito data series d1-d6 and the semantic run-state colours already exist there, and IBM Plex Sans/Mono is settled - which answers the brief's 'avoid Inter and Space Grotesk'. The one real difference from the artboards: they @import webfonts from Google, and a local-first application must bundle them."
     },
     {
-      "id": "spec-pca",
+      "id": "contract-fixtures",
       "priority": 3,
-      "area": "spec",
-      "title": "Specify the PCA algorithm and its diagnostics",
-      "issue": 3,
+      "area": "contract",
+      "title": "Contract fixtures generated from the real kernels",
+      "issue": 41,
       "depends_on": [],
-      "user_visible_behavior": "docs/algorithms/pca.md defines every quantity a PCA model will ever display, including the Hotelling T-squared and SPE limits.",
-      "status": "passing",
+      "user_visible_behavior": "Committed JSON the UI builds and tests against with no Python present, where every number was produced by a kernel in src/chemometrics_workbench rather than typed by hand.",
+      "status": "not_started",
       "verification": [
-        "Open docs/algorithms/pca.md.",
-        "Confirm the algorithm (SVD or NIPALS) is chosen with a reason.",
-        "Confirm centring/scaling defaults and the sign convention are stated, including how comparisons are made sign-invariant.",
-        "Confirm explained variance, Hotelling T-squared and SPE/Q each have a formula and a stated confidence limit with its distribution and degrees of freedom.",
-        "Confirm missing-value policy and behaviour when n_components exceeds rank are covered."
+        "Running the generator reproduces the committed fixtures byte for byte.",
+        "The spectra fixture carries the full, decimated and density-band forms, and the decimated form came from a real preprocessing run.",
+        "The PCA fixture carries scores, loadings, per-component and cumulative explained variance, Hotelling T2 with its limit and SPE with its limit, all from decomposition.py.",
+        "Project, Dataset, DatasetVersion, Pipeline and Experiment payloads round-trip through their Pydantic models.",
+        "The job fixture covers queued, running with progress, complete and failed.",
+        "The generator computes no number of its own - grep it for arithmetic on kernel output."
       ],
-      "evidence": "2026-08-22, branch feature/3_pca-spec. docs/algorithms/pca.md reviewed against the issue #3 checklist, each item mapped to a section: algorithm choice with reason -> section 3; centring/scaling convention and default -> section 2; sign convention and sign-invariant comparison -> section 5; explained variance and cumulative form -> section 6; Hotelling T2 with beta and F limits, distributions and degrees of freedom -> section 7; SPE with the Jackson-Mudholkar limit -> section 8; missing-value policy -> section 10; n_components beyond rank -> section 9. Section 12 lists every reported quantity with its defining section, so the 'one written definition per displayed quantity' exit condition is checkable.",
-      "notes": "Decisions worth knowing: SVD not NIPALS, and not randomised SVD, because a decomposition that depends on a random draw cannot back a parity report. PCA performs no centring of its own - centring is a pipeline node, so it appears in the lineage; this diverges from scikit-learn and means parity tests must feed sklearn pre-centred data. Sign rule keys on the largest-magnitude loading, not on U as sklearn does. All r eigenvalues are retained because the SPE limit sums over the discarded ones. Two T2 limits (beta for calibration samples, F for new) rather than approximating one with the other, since n is typically small in chemometrics. Section 13 lists six known divergences from other packages for the parity report to classify."
+      "evidence": null,
+      "notes": "The fixture shape is the proposed API response shape. Phase 1.2's HTTP surface has to meet it or explain the change."
     },
     {
-      "id": "scaffold",
+      "id": "app-shell",
       "priority": 4,
-      "area": "tooling",
-      "title": "Scaffold Python package and toolchain",
-      "issue": 1,
-      "depends_on": [],
-      "user_visible_behavior": "A clean checkout runs lint, type-check and tests with three commands and no manual setup beyond uv sync.",
-      "status": "passing",
-      "verification": [
-        "Clone into an empty directory.",
-        "Run: uv run ruff check  -> exits 0.",
-        "Run: uv run mypy  -> exits 0.",
-        "Run: uv run pytest  -> exits 0 and includes the data-model invariant test.",
-        "Confirm src/chemometrics_workbench/ exists and the schema module was moved out of design/."
+      "area": "frontend",
+      "title": "Application shell: three regions, tabs and status bar",
+      "issue": 43,
+      "depends_on": [
+        "frontend-scaffold"
       ],
-      "evidence": "2026-08-22, branch feature/1_scaffold-toolchain, commit f2cf938. Verified from a fresh `git clone` into a temp dir, not the working tree: `uv sync` succeeded; `uv run pytest` -> 20 passed in 0.23s; `uv run ruff check` -> All checks passed!; `uv run ruff format --check` -> 11 files already formatted; `uv run mypy` -> Success: no issues found in 4 source files. src/chemometrics_workbench/models.py exists and design/data_models.py is gone.",
-      "notes": "Schema moved to src/chemometrics_workbench/models.py; its self-check became tests/test_models.py (20 tests). Splitting it surfaced a missing type narrowing on a PipelineNode union, now fixed. CONTRIBUTING.md holds the canonical setup and verification commands that clean-state-checklist.md refers to by role. design/canvas is excluded from ruff: it generates design artboards, not shipped code."
+      "user_visible_behavior": "A single window with a resizable project tree, a tabbed document area and a collapsible inspector, over a status bar carrying job name, progress, elapsed time and cancel.",
+      "status": "not_started",
+      "verification": [
+        "Tabs open, close, reorder and split side by side.",
+        "A single click previews into the transient tab and replaces it; a double click or an edit pins it.",
+        "Exceeding the tab bar shows an overflow menu with working search.",
+        "Selecting a node in the sidebar outline focuses its tab, opening it if it was closed.",
+        "Both sidebars resize and collapse, the left one to icons.",
+        "The status bar reports a running job without blocking interaction anywhere else.",
+        "The shell matches design/canvas/Main.dc.html at 1440x900 in both themes: 40px top bar, 248px sidebar, 34px tab strip, 292px inspector, 28px status bar.",
+        "A transient tab renders italic in --ink3, as the artboard draws it."
+      ],
+      "evidence": null,
+      "notes": null
     },
     {
-      "id": "ci",
+      "id": "import-flow",
       "priority": 5,
-      "area": "tooling",
-      "title": "Continuous integration pipeline",
-      "issue": 2,
+      "area": "frontend",
+      "title": "Empty project and the import flow with detection preview",
+      "issue": 44,
       "depends_on": [
-        "scaffold"
+        "contract-fixtures",
+        "app-shell"
       ],
-      "user_visible_behavior": "Every pull request shows a green check, and a broken lint, type or test turns it red before merge.",
-      "status": "passing",
+      "user_visible_behavior": "A new project states its next action plainly. Choosing a file shows what the reader detected - wavelength range, sample count, delimiter, decimal separator, orientation, metadata columns - and nothing is committed until that is confirmed.",
+      "status": "not_started",
       "verification": [
-        "Open a pull request into dev and confirm the workflow runs on Python 3.12 and 3.13.",
-        "Confirm the run includes ruff check, ruff format --check, mypy and pytest.",
-        "Push a commit with a deliberate lint error and confirm the check goes red.",
-        "Revert it and confirm the check returns green."
+        "The empty state names the next action without a tour or a modal.",
+        "The preview shows all six detected properties before any commit.",
+        "A wrongly detected orientation can be corrected in the preview and the preview updates.",
+        "A wrongly detected decimal separator can be corrected the same way.",
+        "Cancelling the preview leaves the project with no dataset.",
+        "The dataset view lists samples, variables, metadata columns and exclusions.",
+        "The failure state names the offending file or setting and shows no stack trace.",
+        "The screen uses only components the artboards already establish - table rules, .kv rows, .pill, .btn, sidebar section headers - and any new one was raised rather than introduced in passing."
       ],
-      "evidence": "2026-08-22, PR #15 into dev, commit 1ff265a. Observed the full gate cycle on the PR, not locally: (1) green - runs/32518425893, check (py3.12) and check (py3.13) both conclusion=success; (2) red - pushed a deliberate unused-import error, runs/32518478528, both jobs conclusion=failure, confirming the gate actually blocks; (3) green again after dropping that commit - runs/32518536838, both conclusion=success. Matrix confirmed running 3.12 and 3.13 as separate jobs.",
-      "notes": "Workflow at .github/workflows/ci.yml. Triggers on push and pull_request for main and dev - the issue said main only, but dev is the integration branch, so that is where checks need to run. uv sync --locked blocks a dependency change landing without its lockfile. fail-fast: false reports every failing version. Concurrency grouped by ref. permissions: contents: read."
+      "evidence": null,
+      "notes": "No artboard exists for this screen. DESIGN_BRIEF.md section 6 asked for the first four screens fully and the rest as needed; screens 6 and 7 and the importing state were never drawn. Default taken: build from the component vocabulary the artboards establish. If it should be drawn first, that is one more artboard and this feature waits."
     },
     {
-      "id": "reference-datasets",
+      "id": "spectra-view",
       "priority": 6,
-      "area": "data",
-      "title": "Commit reference datasets with loaders",
-      "issue": 6,
-      "depends_on": [],
-      "user_visible_behavior": "load_corn(), load_gasoline() and load_tecator() return documented arrays with targets and a real-unit axis, and their checksums are asserted in CI.",
-      "status": "passing",
-      "verification": [
-        "Run pytest on the dataset tests and confirm shape and content-hash assertions pass.",
-        "Confirm each dataset directory carries its source URL, licence or terms, and a checksum file.",
-        "Confirm import provenance is recorded in the SourceFile shape from the data model.",
-        "Corrupt one byte of a committed dataset locally and confirm the checksum test fails."
+      "area": "frontend",
+      "title": "Spectra view with decimation and the density band",
+      "issue": 45,
+      "depends_on": [
+        "contract-fixtures",
+        "app-shell"
       ],
-      "evidence": "2026-08-22. Loaders in src/chemometrics_workbench/datasets.py, tests in tests/test_datasets.py (18 cases), data directories under src/chemometrics_workbench/data/{corn,gasoline,tecator}/. (1) `CHEMOMETRICS_DOWNLOAD_DATASETS=1 uv run pytest tests/test_datasets.py` -> '18 passed in 0.71s'; full suite `uv run pytest` -> '38 passed in 0.74s'. Shapes asserted: tecator 240x100 over 850-1050 nm, corn 80x700 over 1100-2498 nm on each of m5/mp5/mp6, gasoline 60x401 over 900-1700 nm; content hashes asserted against the pinned values, and the pins themselves frozen by test_pinned_checksums_are_unchanged. (2) Each of the three directories carries README.md (source URL, terms, retrieval date) and SHA256SUMS; test_each_dataset_directory_records_source_terms_and_checksum asserts it for all three. Terms established individually: tecator carries an explicit redistribution permission ('The data can be redistributed as long as this permission note is attached') and is committed with that note reproduced; corn states no terms (Eigenvector were given permission to distribute, which does not transfer) and gasoline has no licence and travels inside the GPL-2 R package pls, so both are downloaded on demand and checksum-verified instead of committed. (3) Every loader returns SourceFile(filename, file_hash='sha256:...', reader, reader_version) - scipy.io.loadmat 1.18.1, rdata 1.1.0, tecator_txt 1 - asserted by test_tecator_content_hash_is_pinned and the corn/gasoline hash assertions. (4) Corruption check run for real on disk: one byte of the committed tecator.txt overwritten with dd at offset 200000, `uv run pytest tests/test_datasets.py` -> '4 failed, 14 passed', ValueError 'does not match its pinned checksum. expected sha256:e435c053... actual sha256:f2822b9d...'; file restored and the suite is green again. Toolchain suite: `uv run ruff check` -> 'All checks passed!', `uv run ruff format --check` -> '19 files already formatted', `uv run mypy` -> 'Success: no issues found in 6 source files', `uv run pytest` -> '38 passed'.",
-      "notes": "Two of the three datasets are downloaded rather than committed, on licence grounds recorded per dataset in src/chemometrics_workbench/data/*/README.md. CI sets CHEMOMETRICS_DOWNLOAD_DATASETS=1 and caches the downloads on the SHA256SUMS files, so all three are checksum-asserted there; a developer who has never fetched them sees the corn and gasoline tests skip with the command to run. numpy and scipy became runtime dependencies; rdata is dev-only and imported lazily by load_gasoline, because only the parity work reads R files. rdata pulls in xarray, which was not in the recorded stack - it is a transitive dev dependency only. The NBS glass standards in corn.mat and the 22 precomputed principal components in tecator.txt are deliberately not exposed."
+      "user_visible_behavior": "Raw and processed spectra overlaid on a labelled wavelength axis, with large sets shown as a shaded density envelope and selected spectra drawn over it at full resolution.",
+      "status": "not_started",
+      "verification": [
+        "The largest fixture dataset renders as a density band rather than one trace per spectrum.",
+        "A selected spectrum draws at full resolution on top of the band.",
+        "The axis carries its unit - nm or cm-1 - and so does the ordinate.",
+        "Hovering a spectrum names the sample.",
+        "Rendering uses scattergl, confirmed in the Plotly trace type.",
+        "The spectrum count is visible.",
+        "The categorical palette passes a colourblind check and is not the accent colour.",
+        "The screen matches design/canvas/SpectraView.dc.html in both themes.",
+        "Plotly's fonts and palette are driven from the design tokens, not from its defaults."
+      ],
+      "evidence": null,
+      "notes": "Decimation is consumed here, not computed. Phase 1.2 computes it server-side per PROPOSAL.md section 13."
     },
     {
-      "id": "reference-values",
+      "id": "pipeline-canvas",
       "priority": 7,
-      "area": "parity",
-      "title": "Collect published reference values as parity fixtures",
-      "issue": 7,
+      "area": "frontend",
+      "title": "Pipeline canvas, read-only, with a step-list builder",
+      "issue": 46,
       "depends_on": [
-        "spec-pca",
-        "spec-pls",
-        "spec-metrics-cv",
-        "reference-datasets"
+        "contract-fixtures",
+        "app-shell"
       ],
-      "user_visible_behavior": "A versioned fixture file holds at least one reference value per algorithm per dataset, each traceable to a named published source or a named open implementation and version.",
-      "status": "passing",
+      "user_visible_behavior": "The pipeline renders as a pan and zoom node graph with every node type and run state legible at a glance. Steps are added through a list rather than by dragging.",
+      "status": "not_started",
       "verification": [
-        "Open the fixture file and pick three entries at random.",
-        "For each, confirm it records the preprocessing chain, algorithm variant, split and seed, software and version, and a citation.",
-        "Confirm every algorithm in scope (PCA, PLS) has at least one value for each of the three datasets.",
-        "Confirm any value that could not be sourced is recorded as missing rather than invented."
+        "The fixture's four-branch pipeline renders with its branches distinct.",
+        "All six node states are visible simultaneously in the fixture and are distinguishable in greyscale as well as in colour.",
+        "A source node shows its dimensions, a split node shows its seed, a completed model node shows its headline metric.",
+        "Edges animate only while a run is in progress, and not at all under prefers-reduced-motion.",
+        "A linear SNV to Savitzky-Golay to PCA pipeline can be assembled through the step list.",
+        "Moving a node does not change Pipeline.content_hash - layout is stored beside the pipeline, not inside it.",
+        "Selecting a node focuses its tab.",
+        "Nodes match design/canvas/PipelineCanvas.dc.html: 132x70, 17px mono uppercase type header, parameters in mono 9.5px.",
+        "Stale renders as a dashed --stale border over a 135 degree --staleSoft hatch at 0.72 opacity with an 'edited - downstream stale' footer, as drawn.",
+        "Edges are 1.4px --rule at rest, 1.8px --accent on the active path, dashed 4 3 in --stale where stale, over a 22px --grid dot ground."
       ],
-      "evidence": "2026-08-22. Fixture at tests/fixtures/reference_values.json (403 KB, schema_version 1, 37 entries: 30 sourced, 7 unsourced), regenerated by tests/fixtures/generate_reference_values.py; tests in tests/test_reference_values.py (21 cases). (1) and (2) Three entries drawn at random with random.seed(7) - tecator.pca.loadings.sklearn, gasoline.pca.eigenvalues.sklearn, tecator.pls.r2.sklearn - each printed with its preprocessing chain (['mean_centre_x'] or ['mean_centre_x','mean_centre_y']), algorithm variant (SVD via LAPACK full_matrices=False on a pre-centred matrix / PLSRegression(scale=False), NIPALS with y-deflation, PLS1), split (None - none of the three is a cross-validated quantity), software and version (scikit-learn 1.9.0) and citation. Split and seed are asserted for every CV entry by test_cross_validated_entries_record_a_split and test_generated_splits_use_the_default_seed, and every entry's provenance keys by test_every_entry_records_its_provenance. (3) PCA and PLS each have at least one comparable sourced value for each of corn, gasoline and tecator - asserted by the six parametrised cases of test_every_algorithm_has_a_comparable_value_for_every_dataset. (4) Seven gaps recorded as status 'unsourced' with value null and a reason: six R mdatools entries (R is not installed on this machine) and corn.pca.loadings.literature (no paper found stating a reproducible preprocessing chain). test_unsourced_entries_are_empty_and_explained asserts value is null, comparable is false, and the note is longer than 40 characters. Independent cross-check: the R pls vignette's LOO RMSECV for gasoline (0.2398 at five components) agrees with the fixture's own 5-fold value (0.2396) to within 0.02, asserted by test_our_gasoline_curve_agrees_with_r_where_the_splits_converge - which is the closest thing to a parity check available before the kernels exist. The metrics-and-validation.md \u00a78.3 worked example (n=10, K=3, seed=42, perm [5,6,0,7,3,2,4,9,1,8], folds [[0,5,6,7],[2,3,4],[1,8,9]]) is reproduced both as a self-check in the generator and as a test. Toolchain suite: `uv run ruff check` -> 'All checks passed!', `uv run ruff format --check` -> '21 files already formatted', `uv run mypy` -> 'Success: no issues found in 8 source files', `uv run pytest` -> '59 passed in 0.81s'.",
-      "notes": "Reference values come from scikit-learn 1.9.0 (all three datasets, PCA and PLS) and from the published R pls vignette (gasoline, LOO over rows 0-49). R is not installed on this machine, so the six R mdatools entries - the T2 and SPE limits scikit-learn does not provide, and a SIMPLS coefficient check - are recorded as unsourced with the command needed to fill them. That is the largest real gap in the fixture. Every scikit-learn matrix is pre-centred, because sklearn centres internally and unconditionally while our specs make centring a pipeline step; feeding both raw data would be an invalid test. Fold indices are resolved and stored in the fixture rather than left as a seed, because our default_rng shuffle and sklearn's legacy RandomState give different folds from seed 42 - #8 must read the indices out, not reseed. tecator.pls.sep.thodberg is sourced but carries comparable=false: it is the only published number travelling with that dataset, but its ten inputs are principal components the loader discards. scikit-learn is a dev-only dependency; our kernels do not call it. Commercial-package comparison remains out of scope."
+      "evidence": null,
+      "notes": "Direct canvas editing is deliberately deferred to #51 in Phase 2, where branch comparison first needs it."
     },
     {
-      "id": "parity-harness",
+      "id": "inspector",
       "priority": 8,
-      "area": "parity",
-      "title": "Parity test harness with an explicit tolerance policy",
-      "issue": 8,
+      "area": "frontend",
+      "title": "Inspector: node parameters, metrics, provenance",
+      "issue": 47,
       "depends_on": [
-        "reference-values"
+        "app-shell",
+        "pipeline-canvas"
       ],
-      "user_visible_behavior": "One pytest entry point runs the whole parity suite, reports each quantity in one of three claim tiers, and emits machine-readable results.",
-      "status": "passing",
+      "user_visible_behavior": "The right sidebar shows whatever is selected - node parameters, model metrics, dataset metadata, provenance - and is the only place a pipeline parameter is edited in this sub-phase.",
+      "status": "not_started",
       "verification": [
-        "Run the parity suite and confirm it passes for at least one trivial case such as mean centring.",
-        "Confirm scores and loadings compare sign-invariantly by flipping a sign in a fixture and seeing the test still pass.",
-        "Perturb a reference value beyond tolerance and confirm the test fails.",
-        "Confirm each result is tagged identical-within-float, agrees-within-tolerance, or differs-by-documented-convention.",
-        "Confirm the run writes machine-readable output that the report generator can consume."
+        "Every preprocessing step the schema can express has an editable form.",
+        "An even Savitzky-Golay window is refused by the form with a specific message, matching what models.py refuses.",
+        "Editing a parameter marks the downstream nodes stale and leaves the upstream ones alone.",
+        "Stale results dim and remain readable rather than disappearing.",
+        "A re-run affordance appears on a stale node.",
+        "The metrics block uses tabular numerals and the columns align.",
+        "The provenance section collapses and shows the environment record from the fixture.",
+        "The inspector matches the artboards in both themes: .ihead block, .ilabel in mono uppercase, .kv rows with the value in mono tabular numerals."
       ],
-      "evidence": "2026-08-22. Harness in tests/parity.py; parity suite in tests/test_parity.py (17 cases, marker 'parity'); harness self-tests in tests/test_parity_harness.py (22 cases); run record written by tests/conftest.py. (1) `uv run pytest -m parity` -> '17 passed, 81 deselected in 0.92s'. The trivial case is mean centring: test_scores_are_the_centred_matrix_projected_onto_the_loadings centres each dataset and projects onto the fixture loadings, matching the fixture scores; test_predictions_follow_from_the_coefficients, test_eigenvalues_are_the_variance_of_the_scores, test_rmsec_follows_from_the_predictions and test_r2_is_the_residual_form do the same for the PLS and metric identities. (2) Sign invariance: test_a_flipped_component_still_passes negates component 2 of the gasoline loadings and the comparison still passes; test_every_component_flipped_still_passes negates all five. test_the_alignment_is_what_makes_it_pass runs the same flipped input with sign_invariant=False and asserts it fails, so the first test cannot pass vacuously, and test_alignment_does_not_hide_an_internal_sign_disagreement asserts a vector whose halves disagree is still rejected - abs() would have passed it. (3) Perturbation: test_a_perturbed_value_fails adds a 1e-4 relative perturbation against a 1e-8 tolerance and asserts AssertionError; test_the_failure_message_names_the_tolerance_and_refuses_to_suggest_widening asserts the message carries 'rtol=1e-08', the observed maximum difference, the reason the tolerance was chosen, and the line refusing to offer widening as a fix. test_a_failure_is_still_recorded asserts a failing comparison reaches the run record. (4) Every result carries a tier. Observed distribution over the parity run: 15 identical_within_float, 0 agrees_within_tolerance, 1 differs_by_documented_convention (tecator.pls.sep.thodberg, recorded via record_divergence with its reason). Tier 2 has no occurrence in the suite yet - the current cases are exact arithmetic on the same data - and is exercised by test_a_close_match_is_tagged_within_tolerance, which nudges by 1e-10 relative. (5) `parity-results.json` written at the repository root: schema_version 1, fixture_schema_version 1, totals {compared 16, passed 16, failed 0}, 16 result objects each carrying entry_id, dataset, algorithm, quantity, tier, passed, software, software_version, citation, rtol, atol, n_values, max_abs_diff, max_rel_diff, sign_aligned and reason, plus a not_compared list of the 14 comparable fixture entries nothing was checked against. Structure asserted by test_the_run_record_is_written_and_readable and test_the_run_record_names_what_was_never_compared. Toolchain suite: `uv run ruff check` -> 'All checks passed!', `uv run ruff format --check` -> '25 files already formatted', `uv run mypy` -> 'Success: no issues found in 12 source files', `uv run pytest` -> '98 passed in 1.37s'.",
-      "notes": "The parity suite's current cases are the harness proving itself, not the kernels - no kernel exists yet. They compare arithmetic the specifications define directly (centring, T=XP, y_hat=Xb, the eigenvalue and RMSEC definitions) against real fixture entries at real tolerances. When #11 and #12 land, each case is rewritten to call the kernel; the entry id, tolerance and tier stay. Fourteen comparable fixture entries are listed in not_compared for exactly that reason, and that list is what stops #14 overstating coverage. The identical-within-float threshold is scale-relative (32 ulp of the largest reference value, floor 1.0) rather than a fixed rtol: with atol=0 a score that lands near zero would have to be bit-exact, which no reordering of a sum can promise, and genuinely float-identical results were being mislabelled as merely within-tolerance. Transcribed values get a 5e-3 tolerance because the R pls vignette prints four significant figures; generated values are detected by the exact 'Generated by ' citation prefix our fixture generator writes. If R mdatools entries are later generated by running R at full precision, that rule will treat them as transcribed and be too generous - revisit it then. parity-results.json is gitignored and rebuilt by every run."
+      "evidence": null,
+      "notes": "Where form validation could drift from models.py, generate it from the schema rather than restating the rules."
     },
     {
-      "id": "kernels-scaling",
+      "id": "analysis-results",
       "priority": 9,
-      "area": "preprocessing",
-      "title": "Kernels: scaling and scatter correction",
-      "issue": 9,
+      "area": "frontend",
+      "title": "Analysis results: scores, loadings, explained variance",
+      "issue": 48,
       "depends_on": [
-        "parity-harness"
+        "contract-fixtures",
+        "app-shell"
       ],
-      "user_visible_behavior": "SNV, MSC, mean centring, autoscaling, normalisation and range selection run as scikit-learn transformers and land in the tightest parity tier.",
-      "status": "passing",
+      "user_visible_behavior": "A PCA result opens as one tab holding a scores plot with its Hotelling T2 ellipse, a loadings plot and a scree plot, without becoming a cramped dashboard.",
+      "status": "not_started",
       "verification": [
-        "Run the parity suite for these transformers and confirm each reaches identical-within-float where no convention freedom exists.",
-        "Pass a float32 array and confirm the caller's array is unchanged after the call.",
-        "Pass a transposed array and confirm it is rejected rather than silently accepted.",
-        "Feed a zero-variance row to autoscale and confirm the documented behaviour, not a NaN or a crash.",
-        "Round-trip each transformer through the PreprocessStep schema and confirm parameters survive."
+        "The scores plot draws the T2 ellipse from the limit in the fixture, not from a value computed in the browser.",
+        "Both score axes select their component.",
+        "Loadings plot against the variable axis in its real units.",
+        "Explained variance shows per component and cumulative.",
+        "Hovering a score point names its sample.",
+        "The three plots coexist legibly at 1440px, and the layout rule chosen is written into the design brief as the answer to open question 11.1.",
+        "Numbers align with tabular numerals.",
+        "The panel grid matches design/canvas/AnalysisResults.dc.html, which is drawn in the dark palette, and leaves room for the Phase 2 predicted-vs-measured panel rather than a layout that has to be torn up."
       ],
-      "evidence": "2026-08-22. Kernels in src/chemometrics_workbench/preprocessing.py (SNVTransformer, MSCTransformer, MeanCentreTransformer, AutoscaleTransformer, NormaliseTransformer, RangeSelectTransformer, plus from_spec); tests in tests/test_preprocessing.py (80 cases); parity cases in tests/test_parity.py; 21 new reference entries added to tests/fixtures/reference_values.json (58 entries total, 45 sourced). (1) `uv run pytest -m parity` -> '32 passed'. All 15 preprocessing claims land in identical_within_float, the tightest tier: mean centring, autoscaling at ddof=0 and normalisation l1/l2/max, on all three datasets, against StandardScaler and sklearn.preprocessing.normalize. 14 of the 15 are bit-exact (max_abs_diff 0.0); the exception is tecator normalised_l2 at 5.55e-17. Run totals: 31 compared, 31 passed, 30 identical_within_float, 1 differs_by_documented_convention. (2) test_the_callers_array_is_never_modified and test_float32_input_is_promoted_and_the_result_is_float64 run over all seven transformer configurations: the caller's array is byte-identical afterwards, stays float32, and the result is float64. (3) test_a_transposed_array_is_rejected fits on 6x12 then transforms 12x6 and asserts ValueError 'never silently transposed', over all seven. A transposed matrix is still 2-D, so what catches it is the variable count recorded at fit - which is why the stateless transformers have a fit at all. (4) Zero variance: test_a_constant_variable_stops_autoscaling_and_names_the_column asserts ValueError naming 'variable 4'; test_a_constant_spectrum_stops_snv_and_names_the_row names 'sample 1'; test_a_row_summing_to_zero_stops_area_normalisation covers the signed area norm. Not a NaN and not an unhandled division. Detection is scale-relative (8 ulp of the data's magnitude) because a genuinely constant row of 0.7 has standard deviation 1.16e-16 rather than 0 - an exact ==0 test was written first and failed. (5) test_every_supported_step_round_trips_through_the_schema serialises each of the six steps to JSON, parses it back, builds through from_spec and asserts the output matches the directly constructed transformer; test_autoscale_ddof_survives_the_round_trip covers the one parameter that moves a number. from_spec raises by name for SavitzkyGolay and BaselineCorrect. Toolchain suite: `uv run ruff check` -> 'All checks passed!', `uv run ruff format --check` -> '27 files already formatted', `uv run mypy` -> 'Success: no issues found in 14 source files', `uv run pytest` -> '196 passed in 1.84s'.",
-      "notes": "'scikit-learn-compatible' is implemented as duck compatibility - fit/transform/fit_transform - with no import from sklearn. sklearn is a dev-only dependency because it is the reference implementation the fixtures are generated against, and a kernel inheriting BaseEstimator would be a wrapper around the thing we claim parity with. The transformers are stateful because metrics-and-validation.md \u00a79 requires refitting per fold and pushing held-out samples through with the training fold's parameters; a pure function cannot carry the calibration mean across that boundary. Two deliberate divergences from scikit-learn, both documented in the module docstring: autoscale defaults to ddof=1 (StandardScaler is fixed at 0, so the parity case passes ddof=0 explicitly), and a zero-variance row or column raises rather than getting a substituted scale of 1 - substituting reports a successful transform over a dead channel, which is the failure mode pca.md \u00a710 rejects for missing values. normalise(norm='area') divides by the signed row sum at unit spacing, not a trapezoid against the real axis; all three datasets are uniformly spaced and threading the axis into a row-wise transform to gain a cancelling factor is not worth the coupling. SNV and MSC have no open reference implementation available here, so they are recorded as unsourced in the fixture and checked against their defining identities instead. chemotools (#13) would fill that gap. Preprocessing reference values are computed on a 5x8 block per dataset: these transforms are independent per row or column so the block tests them completely, and storing a full preprocessed 80x700 matrix would add megabytes to a fixture meant to be readable. MSC(reference='supplied') has no field in the schema for the spectrum itself - a real gap, surfaced by from_spec rather than papered over, and a schema change rather than something to fix here."
+      "evidence": null,
+      "notes": "Answers open design question DESIGN_BRIEF.md section 11.1 - the artboard shows one tab holding a panel grid. The artboard also shows predicted-vs-measured on a PLS model, which is Phase 2, not this feature."
     },
     {
-      "id": "kernels-smoothing",
+      "id": "application-states",
       "priority": 10,
-      "area": "preprocessing",
-      "title": "Kernels: smoothing, derivatives and baseline correction",
-      "issue": 10,
+      "area": "frontend",
+      "title": "The six application states",
+      "issue": 49,
       "depends_on": [
-        "parity-harness"
+        "import-flow",
+        "spectra-view",
+        "pipeline-canvas",
+        "analysis-results"
       ],
-      "user_visible_behavior": "Savitzky-Golay, first and second derivatives, and AsLS, rubberband and polynomial baselines produce documented, tested values including at the spectrum edges.",
-      "status": "passing",
+      "user_visible_behavior": "Empty, importing, running, stale, failed and overloaded each have a designed state rather than a blank screen or a spinner.",
+      "status": "not_started",
       "verification": [
-        "Run the parity suite for these transformers.",
-        "Confirm at least one test asserts values at the first and last variable, not only in the middle.",
-        "Confirm the Savitzky-Golay edge mode is named in docs/algorithms/ and matches the implementation.",
-        "Confirm the derivative scaling convention (per index or per axis unit) is documented and tested.",
-        "Confirm AsLS records its convergence criterion and iteration cap."
+        "A running job shows progress in the node, the tab and the status bar at the same time.",
+        "A running job can be cancelled and nothing else is blocked while it runs.",
+        "The stale state dims downstream results and keeps them readable.",
+        "The failed state names a cause and shows no stack trace.",
+        "The overloaded state states the envelope limit from PROPOSAL.md section 13 rather than freezing.",
+        "A failed node is not mistakable for a red spectrum - run-state colour is separate from the data palette.",
+        "Each of the six is reachable from the fixture harness and screenshotted.",
+        "Running and stale match the encodings drawn in PipelineCanvas.dc.html and stated in canvas.json's states annotation."
       ],
-      "evidence": "2026-08-22, branch feature/10_kernels-smoothing. Kernels in src/chemometrics_workbench/preprocessing.py: SavitzkyGolayTransformer and BaselineCorrectTransformer (asls, rubberband, polynomial), both wired into from_spec. (1) `uv run pytest -m parity` -> '50 passed, 218 deselected in 2.50s'. Nine new claims - {corn,gasoline,tecator}.preprocess.savgol_deriv{0,1,2}.scipy - and parity-results.json now records 40 compared, 40 passed, 39 identical_within_float, 1 documented divergence. All nine savgol claims land in identical_within_float; the largest absolute difference against SciPy on any of them is 3.2e-15. `uv run pytest` -> '268 passed in 2.50s'. (2) test_savitzky_golay_agrees_with_the_reference_at_the_first_and_last_variable in tests/test_parity.py compares columns [0, -1] alone against the fixture for all three datasets and all three derivative orders; test_savitzky_golay_derivatives_are_exact_on_a_polynomial_including_at_the_bounds in tests/test_preprocessing.py asserts the bound values separately from the interior. The parity block is 8 variables wide with a half-window of 2, so four of its eight columns are edge columns. (3) Edge mode is named as `interp` in docs/algorithms/smoothing-and-baselines.md \u00a73, with a table of what mirror/nearest/wrap/constant do instead, and it matches the implementation: SavitzkyGolayTransformer builds the first and last h rows of the convolution matrix from the end window's polynomial evaluated off-centre, pads nothing, and the parity comparison is against scipy.signal.savgol_filter(mode='interp'). (4) Derivative scaling is per variable index (delta=1) - \u00a75 of the same document and the class docstring - and tested by test_the_derivative_is_per_index_unless_delta_says_otherwise, which asserts delta=2.5 divides the first derivative by 2.5 and the second by 2.5**2. from_spec builds delta=1.0 because the schema carries no spacing field, asserted by test_savitzky_golay_parameters_survive_the_round_trip. (5) AsLS convergence criterion (the weight vector stops changing - an exact fixed point, since the weights are a step function of the residual sign) and iteration cap (max_iter, default 20) are in \u00a76.1 and in the class docstring, and are recorded per spectrum on n_iterations_ and converged_. test_asls_records_whether_it_converged_and_how_many_iterations_it_took asserts both the settled case (converged, 4 iterations) and the capped case (max_iter=1, not converged). Toolchain suite: `uv run ruff check` -> 'All checks passed!', `uv run ruff format --check` -> '28 files already formatted', `uv run mypy` -> 'Success: no issues found in 14 source files'.",
-      "notes": "Edge handling is fixed at `interp` and is deliberately not configurable: a recipe recording 'Savitzky-Golay, 11, 2, 1' is only reproducible if the mode is a property of the software. mirror, nearest, wrap and constant all pad the spectrum before filtering and give different values at the bounds; several chemometrics tools instead leave the first and last half-window unfiltered or drop it, which changes the variable count and desynchronises the axis. Ours always returns p values. The filter is exposed as its p x p convolution matrix (convolution_matrix()), not only as filtered values, because pls-regression.md \u00a77 records that Savitzky-Golay - unlike SNV, MSC and baseline correction - folds into exported coefficients as b_raw = M.T @ b_filtered, and #14's export depends on it. Derivatives are per variable index; the schema has no spacing field, so a recipe always means per index, and a caller wanting per-axis-unit derivatives passes delta and records that themselves. The polynomial baseline maps the index onto [-1, 1] before fitting: exact in the same sense that any affine change of variable is, but a raw index over 700 variables to the fourth power spans 1e11 and the fit is then decided by the least-squares cutoff rather than the data - a test comparing an index fit against a raw-axis fit failed on exactly that before the scaling was added. The three baseline methods have no external reference (neither SciPy nor scikit-learn implements baseline correction), so their fixture entries are unsourced on purpose and they are checked against defining properties instead; pybaselines would fill the gap and is a dependency decision rather than a kernel one. AsLS and rubberband assume uniform spacing, which all three reference datasets have; that is not currently checked for. A rubberband baseline corrects both ends to exactly zero because the lower hull always includes the first and last variable - a real limitation when the first variable sits on a peak, and the answer is range selection rather than a fudged hull."
+      "evidence": null,
+      "notes": "Given its own issue because it is spread across every screen and is therefore the first thing to get skipped. Running and stale are drawn; importing, screen-level failed and overloaded are not, and inherit the fail and stale tokens that exist in both palettes for exactly that."
     },
     {
-      "id": "kernel-pca",
+      "id": "e2e-walkthrough",
       "priority": 11,
-      "area": "decomposition",
-      "title": "Kernel: PCA with Hotelling T-squared and SPE diagnostics",
-      "issue": 11,
+      "area": "frontend",
+      "title": "Playwright walkthrough: the sub-phase exit criterion as a test",
+      "issue": 50,
       "depends_on": [
-        "spec-pca",
-        "parity-harness"
+        "import-flow",
+        "spectra-view",
+        "pipeline-canvas",
+        "inspector",
+        "analysis-results"
       ],
-      "user_visible_behavior": "Fitting PCA on any reference dataset returns scores, loadings, explained variance, T-squared and SPE that match published values within tolerance.",
-      "status": "passing",
+      "user_visible_behavior": "The whole Phase 1.1 path runs as one automated test, so the sub-phase is finished by evidence rather than by eye.",
+      "status": "not_started",
       "verification": [
-        "Run the parity suite for PCA across all three reference datasets.",
-        "Confirm scores and loadings match sign-invariantly.",
-        "Confirm explained variance per component and cumulative match the reference.",
-        "Confirm the T-squared and SPE limits match published values within the stated tolerance.",
-        "Project a held-out sample onto a fitted model and confirm the result is stable across runs."
+        "pnpm test:e2e walks empty project, import preview, SNV, Savitzky-Golay, PCA, scores plot.",
+        "The test asserts on rendered values, not only on elements existing.",
+        "It runs with no Python environment present.",
+        "It runs in both themes.",
+        "It is green in CI."
       ],
-      "evidence": "2026-08-22, branch feature/11_kernel-pca. Kernel in src/chemometrics_workbench/decomposition.py (PCA), array contract shared with the preprocessing kernels via src/chemometrics_workbench/arrays.py. Four of the five verification steps were run; the fourth could not be - see notes. (1) `uv run pytest -m parity` -> '65 passed, 257 deselected'. Eighteen PCA claims across all three datasets - loadings, scores, eigenvalues, explained variance ratio, cumulative explained variance, Hotelling T2 and SPE - of which 17 are identical_within_float and 1 (tecator.pca.hotelling_t2, 4.7e-13 against an identical-threshold of 2.8e-13) is agrees_within_tolerance. parity-results.json now records 55 compared, 55 passed, 53 identical, 1 within tolerance, 1 documented divergence; not_compared is down from 14 to 8 and every remaining entry is PLS. `uv run pytest` -> '322 passed in 3.28s'. (2) test_pca_loadings_match_the_reference and test_pca_scores_match_the_reference each assert result.sign_aligned, so the comparison went through the harness's inner-product alignment rather than around it; test_the_largest_magnitude_loading_of_every_component_is_positive checks our own rule (pca.md \u00a75, keyed on the loading, not on U), and test_the_sign_rule_survives_a_negated_input checks it is stable. (3) Per component: test_pca_explained_variance_ratio_matches_the_reference against {dataset}.pca.explained_variance_ratio.sklearn, plus an assertion that the five ratios sum to less than 1, which is what catches the wrong denominator. Cumulative: test_pca_cumulative_explained_variance_matches_the_reference against three new entries {dataset}.pca.cumulative_explained_variance.sklearn. Those are derived from the ratio entry rather than independently sourced - scikit-learn reports no cumulative curve - and the entry notes say so. (5) test_projecting_a_held_out_sample_is_stable_and_is_a_plain_projection fits on a training block, projects a held-out block twice, asserts the two are bit-identical with assert_array_equal, and asserts the result equals X_new @ P with the calibration loadings. test_pca_is_deterministic_and_takes_no_seed asserts two independent fits of the same matrix agree bit-for-bit. 39 unit tests in tests/test_decomposition.py cover the rest of pca.md section by section: no internal centring (\u00a72), orthonormal loadings and T = XP (\u00a74), every eigenvalue retained rather than the a retained ones (\u00a74), the sign rule and its tie break (\u00a75), the explained-variance denominator equalling X.var(ddof=1).sum() (\u00a76), mean calibration T2 = a(n-1)/n exactly (\u00a77), the beta and F limits and their n > a + 1 and n > a preconditions (\u00a77), SPE as the sum of squares with SPE + reconstruction = the row's total (\u00a78), the a == r degenerate case returning exact zeros and refusing a limit (\u00a78), and rank overflow raising with both numbers named (\u00a79). Toolchain suite: `uv run ruff check` -> 'All checks passed!', `uv run ruff format --check` -> clean, `uv run mypy` -> 'Success: no issues found in 17 source files'. 2026-08-22, verification step 4 run at last, via #28: `{dataset}.pca.spe_limit.chemotools` compares our Jackson-Mudholkar SPE limit against chemotools 0.4.3's own implementation of it - not our formula on someone else's decomposition, which is what every other PCA diagnostic entry is, but someone else's formula - and the two are identical within float: 1.6e-18 corn, 2.2e-19 gasoline, 5.6e-18 tecator. The T-squared limit does NOT match and is recorded as a documented divergence, with the factor proven: ours/theirs == (n+1)/n exactly, because chemotools computes a(n-1)/(n-a)F where pca.md \u00a77's new-sample form is a(n^2-1)/(n(n-a))F. The beta form pca.md draws for calibration samples has no counterpart in chemotools and remains checked against its coverage alone.",
-      "notes": "UNBLOCKED by #28 on 2026-08-22, and the caveat matters: step 4 asked the limits to 'match published values'. The reference is chemotools 0.4.3 - an open implementation pinned by version, the same standing as every scikit-learn entry in the fixture and what PROPOSAL.md \u00a710 calls a tier-1 reference - not a value printed in a paper. The SPE limit matches it exactly. The T-squared limit does not match anything and is a documented convention difference; the beta calibration limit has no external reference at all. Marked passing because the step can now be run and was, not because every limit found a match. #24 (R mdatools) would add a second and genuinely independent opinion. The limits are also verified against the distributional claim they make - about alpha of the calibration samples beyond a 1-alpha limit, checked at three configurations - plus their preconditions and their degenerate cases. That was the only evidence before #28 and it is still worth having: it is a different kind of check from agreement with anybody. A finding worth carrying: the corn PCA reference values were being generated with scikit-learn's RANDOMISED SVD. svd_solver='auto' picks it whenever the matrix is wider than 500 with few components asked for, which is true of corn and of neither other dataset, and its random_state is unseeded - so those four entries moved by around 1e-14 on every regeneration, including in #10's diff where the movement was attributed to LAPACK. The generator now passes svd_solver='full' explicitly, two consecutive regenerations are bit-identical, and the fixture's algorithm_variant text - which claimed randomised SVD was not used - is now true. pca.md \u00a73 forbids randomised SVD for our implementation and the reference has to be held to the same rule. Other decisions: the kernel imports nothing from scikit-learn, as in #9 and #10. spe(X) requires the matrix, where hotelling_t2() defaults to the calibration samples - the model keeps the scores, so T2 needs nothing else, but SPE measures the part of X the model does not contain and so cannot be recovered from the model. U is discarded at fit for the same reason it is not needed: every reported quantity is defined from the loadings. The array contract (2-D, finite, float64, caller's array untouched) moved out of preprocessing.py into arrays.py so the estimators and the preprocessing kernels enforce one rule rather than two that drift."
-    },
-    {
-      "id": "kernel-pls",
-      "priority": 12,
-      "area": "regression",
-      "title": "Kernel: PLS regression with VIP",
-      "issue": 12,
-      "depends_on": [
-        "spec-pls",
-        "spec-metrics-cv",
-        "parity-harness"
-      ],
-      "user_visible_behavior": "Fitting PLS on any reference dataset reproduces published coefficients, predictions and RMSECV under the documented cross-validation protocol.",
-      "status": "passing",
-      "verification": [
-        "Run the parity suite for PLS across all three reference datasets.",
-        "Confirm regression coefficients and predictions match within tolerance.",
-        "Confirm RMSECV matches under the aggregation rule fixed in the metrics spec.",
-        "Confirm VIP scores match the reference.",
-        "Refit from a stored ResolvedSplit alone and confirm the metrics reproduce exactly, independent of the library's own fold assignment."
-      ],
-      "evidence": "2026-08-22. `CHEMOMETRICS_DOWNLOAD_DATASETS=1 uv run pytest -m parity -q` - 79 passed; parity-results.json records 66 comparisons, 66 passed, 60 identical_within_float, 5 within tolerance, 1 documented divergence, and `not_compared` is now empty: every comparable fixture entry has been checked. 21 of those claims are PLS. (1) Coefficients on all three datasets are identical within float - worst absolute difference 5.4e-14 on tecator, which is 2.2e-15 relative to the largest coefficient. (2) Predictions identical within float on corn and gasoline (5.3e-15, 1.4e-14) and within tolerance on tecator (6.5e-13). RMSEC and R2 follow at 1e-16. (3) The RMSECV curve, A=1..10, matches on all three datasets with the fold indices read out of the fixture rather than reseeded: worst 3.1e-15 (corn), 2.2e-15 (gasoline), 1.3e-13 (tecator). `test_our_splitter_reproduces_the_recorded_folds` separately shows k_fold() would have produced those same indices. The published R pls vignette LOO curve over gasoline rows 0-49 reproduces all eleven printed values to their four significant figures (worst 7.6e-05), and the vignette's two-component explained variance - 85.58% of X, 96.85% of octane - matches to 3.0e-05. (4) VIP matches on all three datasets at 3.1e-15 or better. The reference is our formula on scikit-learn's own weights, scores and y-loadings, because scikit-learn reports no VIP - the same standing as the PCA T2 and SPE entries, and #14 must not present it as more. `sum VIP^2 = p` is asserted independently. (5) `test_a_cross_validated_fit_replays_from_a_stored_resolved_split_alone` builds a ResolvedSplit from a resolved k-fold, replays it through folds_from_indices() and reproduces the RMSECV with `==`, not approx. `uv run pytest -q` - 408 passed; `uv run ruff check`, `ruff format --check`, `mypy` all clean.",
-      "notes": "The kernel the project is judged on. Landed with two findings against the specification. (a) `pls-regression.md` \u00a74 said the weights are not orthogonal; for PLS1 they are - ours and scikit-learn's agree to a few ulp - and the section now says so, with the PLS2 case stated separately. (b) Explained variance was reported in the fixture (the R pls vignette entry) but defined nowhere; \u00a78 now defines both block shares and \u00a713 lists them. Three `pls.vip.sklearn` entries were added to the fixture so the VIP verification step had something to run against; the regeneration was additive and moved no existing value. SEC, SEP, Q2 and `coefficients_original_units` are specified but not implemented - nothing in this feature verifies them and the export format is #14's."
-    },
-    {
-      "id": "chemotools-eval",
-      "priority": 13,
-      "area": "deps",
-      "title": "Evaluate chemotools as a preprocessing dependency",
-      "issue": 13,
-      "depends_on": [
-        "kernels-scaling",
-        "kernels-smoothing"
-      ],
-      "user_visible_behavior": "PROPOSAL.md and CLAUDE.md state adopted, partially adopted or rejected with a reason, and the provisional wording is gone.",
-      "status": "passing",
-      "verification": [
-        "Open docs/decisions/ and confirm a dated decision record exists.",
-        "Confirm it compares numerical agreement, edge handling, documented conventions, dtype and copy behaviour, maintenance activity and dependency weight.",
-        "Confirm the decision is per transformer, not wholesale.",
-        "Confirm PROPOSAL.md section 7 and CLAUDE.md no longer describe chemotools as provisional."
-      ],
-      "evidence": "2026-08-22. `docs/decisions/0001-chemotools.md` records the decision, dated and numbered, against chemotools 0.4.3. Evidence gathered by running its transformers against the same 5 x 8 fixture blocks the #9 and #10 reference values were generated on, and the baselines against the first five full spectra. Numerical agreement, largest absolute difference relative to the largest reference value: SNV bit-identical at ddof=0 (1.3e-01 at our ddof=1 default, a convention); MSC 3.9e-12 corn, 7.1e-16 gasoline, 1.0e-10 tecator; AsLS 8.6e-10, 7.4e-11, 7.6e-10; rubberband bit-identical; polynomial 3.5e-15, 5.3e-16, 1.5e-14; normalise l1 and l2 bit-identical; Savitzky-Golay <=3.2e-15 at mode='interp'. Edge handling: their SavitzkyGolay defaults to mode='nearest' where ours fixes 'interp' - identical in the interior to 1e-16, up to 2.3e-02 apart within a half-window of each end, 30% of the largest value on gasoline's first derivative. Conventions: documented per class in numpydoc, but neither SNV's ddof nor the reason for the mode default is stated; both had to be measured. dtype and copy: equivalent to ours (float32 promoted, caller's array untouched, NaN and shape mismatch both raise) except that a constant spectrum returns NaN silently where ours raises. Maintenance: MIT, 0.4.3 released 2026-06-30, last push 2026-08-03, created 2023-01-26, 82 stars, 39 open issues, 8 contributors of whom one has 543 commits and the rest total 21 - effectively single-maintainer, with visible churn (FutureWarnings for three moved modules, three deprecated constructor arguments, two experimental modules). Dependency weight: requires scikit-learn>=1.6, which is dev-only here; installs 20 MB of which 17 MB is bundled example CSVs. Decision is per transform: reference-only for SNV, MSC and the three baselines; neither adopted nor referenced for Savitzky-Golay and normalisation, both redundant with SciPy and scikit-learn; rejected for the runtime throughout. PROPOSAL.md section 7 and the section 14 stack summary now say so, CLAUDE.md's toolchain section records it, and the provisional wording is gone: `grep -n chemotools PROPOSAL.md CLAUDE.md` shows no remaining 'pending' or 'subject to evaluation'. `uv run ruff check`, `ruff format --check`, `mypy`, `pytest` - all green, 408 passed.",
-      "notes": "Decided with evidence, not preference. Two things were found while evaluating and raised as issues rather than folded in: #27 wires chemotools into the dev group and sources the five unsourced entries, and #28 sources the T2 and SPE limits from chemotools.outliers - which reports the limits scikit-learn does not, agrees with our SPE limit to 2.3e-15, and is therefore a way to unblock #11 that does not need R. PROPOSAL.md section 7's claim that PCA and PLS come from scikit-learn was corrected in the same edit: it had been false since #11, and the section was already being rewritten. That was the standing question (b) from pull request #22."
-    },
-    {
-      "id": "parity-report",
-      "priority": 14,
-      "area": "docs",
-      "title": "Publish the parity report and close Phase 0",
-      "issue": 14,
-      "depends_on": [
-        "kernel-pca",
-        "kernel-pls",
-        "chemotools-eval"
-      ],
-      "user_visible_behavior": "A published documentation page shows, dataset by dataset and algorithm by algorithm, our value beside the reference value with its claim tier and citation. It regenerates in CI and fails the build on regression.",
-      "status": "passing",
-      "verification": [
-        "Open the published report and confirm every implemented algorithm appears for every reference dataset.",
-        "Confirm rows tagged differs-by-documented-convention show the reason rather than reading as failures.",
-        "Confirm README.md links to the report.",
-        "Change a kernel so a number moves, and confirm CI fails and the report reflects it.",
-        "Regenerate the report from a clean checkout and confirm it reproduces byte-identically."
-      ],
-      "evidence": "2026-08-22. `docs/parity-report.md` - 274 lines, 87 claims, rendered by `uv run python -m tests.parity_report` from parity-results.json. (1) Every implemented algorithm appears for every dataset: three tables - Preprocessing, Principal component analysis, PLS regression - and each lists corn, gasoline and tecator. 87 comparisons, 87 passed, 73 identical within float, 10 within tolerance, 4 documented divergences. (2) The four divergence rows read 'not compared - see below' in the table and carry their full reason in a section headed 'These are **not failures**'. (3) README.md is new and links the report from its second section; test_parity_report.py has a case per way the report could flatter - a dropped failure, a divergence shown as a pass, a missing gap, an unmarked our-formula-on-their-decomposition claim. (4) Regression was rehearsed, not assumed: changing the eigenvalue divisor in decomposition.py from n-1 to n failed 9 parity tests (eigenvalues, hotelling_t2 and spe_limit on all three datasets) and the regenerated report showed a WARNING block naming all nine, with `0.00070179` vs `0.000710673` for corn's SPE limit and worst-delta figures for the arrays. The kernel was then restored and the report regenerated clean. (5) Two consecutive full runs render the report byte-identically, and the CI job runs `uv run python -m tests.parity_report` followed by `git diff --exit-code docs/parity-report.md` after the suite. **That gate was flaky as first built and #38 fixed it**: the report printed each array comparison's worst difference to four significant figures, and those digits are last-bit noise that depends on the BLAS the local NumPy was built against - CI failed on py3.12 and passed on py3.13 for the same commit. Array differences are now published as a decade upper bound, and the byte-comparison gate is gone: the claim tier itself is machine-dependent for the six comparisons that sit within a factor of two of the 32-ulp line, so no byte gate over a report containing tiers can be stable. What replaced it is machine-independent and in the suite - a staleness test that every fixture claim and gap appears in the committed report, and a test that freezes all eight tolerances, which is the failure the byte gate was actually there to catch. `uv run ruff check`, `ruff format --check`, `mypy`, `pytest` - all green, 432 passed.",
-      "notes": "The report renders and does not compute: every number comes from parity-results.json, so there is one source of truth per figure. The harness now records our_value and reference_value for scalar claims, which is what makes 'our number beside the reference number' literal for the nine scalars; arrays carry their worst absolute difference instead, because printing an 80 x 5 score matrix would not be readable evidence. Two things the report deliberately does NOT do: it refuses to render from a partial run, because a report built from `pytest -k` would understate coverage while looking complete; and it marks with a dagger every quantity whose reference is our own formula on scikit-learn's decomposition - T2, SPE, the cumulative explained variance curve and VIP - because the agreement column looks equally strong either way and a reader cannot otherwise tell. Phase 0's exit criterion is now met: the next step is a pull request from dev into main, a release tag, and only then Phase 1. The byte-identical claim originally recorded here was made from a single commit where both runners happened to agree; #38 is what it cost and what was done about it."
-    },
-    {
-      "id": "reference-values-r-mdatools",
-      "priority": 15,
-      "area": "reference",
-      "title": "Source the R mdatools reference values, which need R installed",
-      "issue": 24,
-      "depends_on": [
-        "reference-values"
-      ],
-      "user_visible_behavior": "The T-squared and SPE limits, and the SIMPLS coefficients, are compared against an implementation that is not ours and not scikit-learn's, so the parity report can make a claim about them at all.",
-      "status": "blocked",
-      "verification": [
-        "Confirm R and mdatools are installed and their versions are recorded in the fixture.",
-        "Confirm the six previously unsourced entries hold real values with full provenance.",
-        "Confirm three hotelling_t2_limit entries exist, for the beta form and the F form.",
-        "Run the parity suite and confirm parity-results.json shows each of them compared.",
-        "Confirm issue #11's fourth verification step can now be run."
-      ],
-      "evidence": "",
-      "notes": "Blocked on R not being installed on the development machine, which is an environment decision rather than a coding task: there is no sudo, but `conda install -c conda-forge r-base r-mdatools` installs both into the existing anaconda without root. The maintainer was asked during #11 and chose not to install it then. Raised out of #11, whose fourth verification step this is the only thing that unblocks. Note before recording any discrepancy as a defect: mdatools uses a chi-squared SPE limit in some configurations and Jackson-Mudholkar in others, and pca.md \u00a713 already lists that as a known divergence. Every matrix handed to mdatools must be pre-centred, as with scikit-learn, or R's own centring default applies twice."
-    },
-    {
-      "id": "reference-values-chemotools",
-      "priority": 27,
-      "area": "parity",
-      "title": "Source the SNV, MSC and baseline reference values from chemotools",
-      "issue": 27,
-      "depends_on": [
-        "chemotools-eval"
-      ],
-      "user_visible_behavior": "SNV, MSC and the three baseline methods are compared against an independent implementation rather than against their own defining identities alone.",
-      "status": "passing",
-      "verification": [
-        "Regenerate the fixture and confirm the five entries per dataset are sourced.",
-        "Run the parity suite and confirm they are compared and passing.",
-        "Confirm parity-results.json still reports an empty not_compared list.",
-        "Confirm no tolerance already in TOLERANCES was loosened to make MSC pass."
-      ],
-      "evidence": "2026-08-22. `CHEMOMETRICS_DOWNLOAD_DATASETS=1 uv run python tests/fixtures/generate_reference_values.py` - 88 entries, 81 sourced (was 66). The fifteen `.external` unsourced entries are replaced by fifteen sourced `.chemotools` ones, five per dataset; an entry-by-entry diff against HEAD shows fifteen added, fifteen removed and **no existing value changed**. `CHEMOMETRICS_DOWNLOAD_DATASETS=1 uv run pytest -m parity -q` - 94 passed; parity-results.json records 81 comparisons, 81 passed, 70 identical_within_float, 10 within tolerance, 1 documented divergence, and `not_compared` is still empty. Per quantity, largest absolute difference: SNV at ddof=0 exactly 0.0 on all three datasets; rubberband exactly 0.0 on all three (asserted as == 0.0, since a convex hull is decided by comparisons and cannot differ by rounding); polynomial 9.0e-17 corn, 6.9e-17 gasoline, 4.4e-15 tecator; MSC 1.9e-13 corn, 3.5e-17 gasoline, 2.9e-10 tecator; AsLS 5.5e-12 corn, 1.7e-11 gasoline, 5.1e-10 tecator. No existing tolerance was loosened: `preprocessing` is still rtol=1e-12/atol=1e-14 and `smoothing` still rtol=1e-9/atol=1e-12, and SNV, rubberband and the polynomial baseline are compared at those. MSC and AsLS moved to a new `second_implementation` class (rtol=1e-7/atol=1e-8) whose reason is the mechanism, not the number: chemotools inverts the normal equations for MSC where we project onto a centred reference, and factorises AsLS as a banded Cholesky where we solve the sparse system. `uv run ruff check`, `ruff format --check`, `mypy`, `pytest` - all green, 415 passed.",
-      "notes": "chemotools 0.4.3 pinned as `chemotools>=0.4.3` in the dev group, with the comment saying why it is not a runtime dependency. The baselines are generated on a 3 x 120 block rather than the 5 x 8 preprocessing block, because a baseline over eight variables is not a baseline; tecator has only 100 variables and contributes all of them. BASELINE_BLOCK in test_parity.py must stay in step with BASELINE_ROWS/BASELINE_COLUMNS in the generator, the same standing trap as PREPROCESS_BLOCK. The fixture grew from 551 KB to 660 KB."
-    },
-    {
-      "id": "reference-values-chemotools-limits",
-      "priority": 28,
-      "area": "parity",
-      "title": "Source the T-squared and SPE limits from chemotools, and unblock #11",
-      "issue": 28,
-      "depends_on": [
-        "chemotools-eval",
-        "reference-values-chemotools"
-      ],
-      "user_visible_behavior": "The PCA confidence limits are compared against an independent implementation, and kernel-pca's fourth verification step can actually be run.",
-      "status": "passing",
-      "verification": [
-        "Regenerate the fixture and confirm spe_limit and hotelling_t2_limit entries are sourced.",
-        "Run the parity suite and confirm the SPE limit is compared and passing.",
-        "Confirm the T-squared limit is recorded as a documented divergence with the formula difference stated, not as a failure.",
-        "Re-run kernel-pca's verification and move it to passing, or record what still blocks it."
-      ],
-      "evidence": "2026-08-22. Six entries added, three per limit: `{dataset}.pca.spe_limit.chemotools` (comparable) and `{dataset}.pca.hotelling_t2_limit.chemotools` (comparable=false, a documented divergence). Regeneration diff against HEAD: six added, none removed, **no existing value changed**. 94 entries, 87 sourced. `CHEMOMETRICS_DOWNLOAD_DATASETS=1 uv run pytest -m parity -q` - 100 passed; parity-results.json records 87 comparisons, 87 passed, 73 identical_within_float, 10 within tolerance, 4 documented divergences, `not_compared` empty. SPE limit: ours against chemotools' QResiduals(method='jackson-mudholkar') differs by 1.6e-18 (corn), 2.2e-19 (gasoline), 5.6e-18 (tecator) - identical within float on all three, and asserted as that tier rather than merely passing. T-squared limit: recorded with parity.record_divergence(), and the divergence is proven rather than asserted - the test checks ours/theirs == (n+1)/n to rtol 1e-12 on each dataset, which is what the two formulas predict exactly (theirs a(n-1)/(n-a)F, ours a(n^2-1)/(n(n-a))F). A drift in either formula breaks that identity, where a bare record_divergence() would keep passing. `uv run ruff check`, `ruff format --check`, `mypy`, `pytest` - all green, 421 passed.",
-      "notes": "The T-squared entry is comparable=false on purpose: it is a real value from an open implementation that is not a numeric target, the same standing as tecator.pls.sep.thodberg. Our beta form for calibration samples still has no external counterpart anywhere - chemotools reports only the F form - so that limit remains checked against its coverage alone. #24 (R mdatools) would be a second, genuinely independent opinion on both, since SIMPLS and mdatools' limits are a different lineage."
+      "evidence": null,
+      "notes": "This is Phase 1.1's exit criterion. It passes or the sub-phase is not done."
     }
   ]
 }
