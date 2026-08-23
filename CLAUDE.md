@@ -18,9 +18,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Phase 1 runs in three sub-phases**, because the interface and the backend are independently riskiest and a frontend built against invented JSON would encode an API contract nobody agreed to:
 
-- **1.1 — frontend only.** The React shell and the core screens, built against fixtures generated from the real kernels. No server, no database.
-- **1.2 — backend.** Readers, the pipeline executor, jobs and the HTTP surface, meeting the contract 1.1's fixtures established.
-- **1.3 — database and integration.** SQLite per project directory, and the two halves joined.
+- **1.1 — walking skeleton.** The React shell and the core screens over a **stub server**: FastAPI on `127.0.0.1`, token-authenticated, serving fixtures generated from the real kernels at the endpoint paths 1.2 will implement. Jobs advance and can be cancelled and made to fail; there is no executor, no database and no persistence behind them. The frontend talks HTTP from its first commit, so 1.2 replaces handlers behind unchanged URLs rather than integrating in one moment.
+- **1.2 — backend.** Readers, the pipeline executor, real jobs and the HTTP surface, replacing the stubs one at a time.
+- **1.3 — database and integration.** SQLite in each project directory, and the two halves joined.
 
 Everything below summarises decisions recorded in those documents that are easy to violate accidentally.
 
