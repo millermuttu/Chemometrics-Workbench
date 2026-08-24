@@ -14,6 +14,7 @@ import {
 import { DatasetView } from "@/screens/DatasetView";
 import { EmptyProject } from "@/screens/EmptyProject";
 import { Import } from "@/screens/Import";
+import { SpectraView } from "@/screens/SpectraView";
 import { Inspector } from "@/shell/Inspector";
 import { Sidebar } from "@/shell/Sidebar";
 import { StatusBar } from "@/shell/StatusBar";
@@ -71,6 +72,8 @@ function Pane({
   if (tab?.kind === "import") {
     return <Import onImported={onImported} onCancel={onCloseImport} />;
   }
+
+  if (tab?.kind === "spectra") return <SpectraView nodeId={tab.id} title={tab.title} />;
 
   const found = datasets
     ?.flatMap((entry) => entry.versions.map((version) => ({ entry, version })))

@@ -20,6 +20,9 @@ importers:
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
+      plotly.js-gl2d-dist-min:
+        specifier: ^3.7.0
+        version: 3.7.0
       react:
         specifier: ^19.0.0
         version: 19.2.8
@@ -1413,6 +1416,9 @@ packages:
     resolution: {integrity: sha512-0M+L3LAD8/nm554LOla9Ayx0j0tmFZ0FBcoQ7F1VuVHpM/XpiC8RcDzBQB8W5+hA8L22THxELzeF+2WcUzvcLg==}
     engines: {node: '>=20'}
     hasBin: true
+
+  plotly.js-gl2d-dist-min@3.7.0:
+    resolution: {integrity: sha512-3vR+89HBYkuLNIx/DmIQbIG6JW+4Ok6MMuWVNYO4OsghZR2n0fB+XL241buc0YsvNWKtLV1YtRrPUiZmOdvBsw==}
 
   postcss@8.5.26:
     resolution: {integrity: sha512-u82N74LFzG8ca+dD8puPnplTXoGH4fTPpVGuIbt36G3qvNlkvfD0lEAZSxaly3KX8TS/L1A1gsCEmvKmBcVbkQ==}
@@ -2824,6 +2830,8 @@ snapshots:
       playwright-core: 1.62.1
     optionalDependencies:
       fsevents: 2.3.2
+
+  plotly.js-gl2d-dist-min@3.7.0: {}
 
   postcss@8.5.26:
     dependencies:
