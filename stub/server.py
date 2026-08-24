@@ -129,12 +129,28 @@ def get_project(project_id: str) -> Any:
 
 
 @api.get("/projects/{project_id}/datasets")
-def list_datasets(project_id: str, empty: Annotated[bool, Query()] = False) -> Any:
+def list_datasets(
+    project_id: str,
+    empty: Annotated[bool, Query()] = False,
+    oversize: Annotated[bool, Query()] = False,
+) -> Any:
     # `?empty=true` is the same kind of affordance as `?fail=true` on a run:
     # the empty-project state (#44) has to be reachable without editing code,
     # and a project with no datasets is otherwise unreachable from a fixture
     # that always has one.
-    return [] if empty else fixture("datasets")
+    if empty:
+        return []
+    entries = fixture("datasets")
+    if oversize:
+        # `?oversize=true` reports the committed dataset as one past the
+        # envelope in PROPOSAL.md section 13, so the overloaded state (#49) can
+        # be entered without committing a 320 MB fixture to git. Only the
+        # declared shape changes; no array is fabricated.
+        for entry in entries:
+            for version in entry["versions"]:
+                version["n_samples"] = 42_000
+                version["n_variables"] = 6_200
+    return entries
 
 
 @api.post("/import/preview")

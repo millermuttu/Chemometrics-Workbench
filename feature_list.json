@@ -258,7 +258,7 @@
         "analysis-results"
       ],
       "user_visible_behavior": "Empty, importing, running, stale, failed and overloaded each have a designed state rather than a blank screen or a spinner.",
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "A running job shows progress in the node, the tab and the status bar at the same time.",
         "A running job can be cancelled and nothing else is blocked while it runs.",
@@ -269,8 +269,8 @@
         "Each of the six is reachable from the fixture harness and screenshotted.",
         "Running and stale match the encodings drawn in PipelineCanvas.dc.html and stated in canvas.json's states annotation."
       ],
-      "evidence": null,
-      "notes": "Given its own issue because it is spread across every screen and is therefore the first thing to get skipped. Running and stale are drawn; importing, screen-level failed and overloaded are not, and inherit the fail and stale tokens that exist in both palettes for exactly that."
+      "evidence": "2026-08-24. On feature/49_application-states. `pnpm e2e` is 35 passed, 6 of them one per state, each entered against the stub server rather than from a hard-coded flag; `pnpm test` is 52 passed (4 new, the envelope); Python 487 passed (1 new, the oversize knob). Twelve screenshots taken, each of the six states in both themes. Running: the status bar, the tab and the node carry the same job at once, and cancelling stops it and clears the tab's progress. Failed: `?failrun` takes the server's failing sequence and the banner reads RUN FAILED with the rank-4 message and no traceback; the test also reads --fail and --d1..--d6 off the running application and asserts they are disjoint, so a failing thing can never be a red spectrum. Stale: applying a parameter change dims downstream nodes - computed style is a dashed border over a 135deg hatch at opacity below 1 - and all 14 nodes remain. Overloaded: `?oversize` reports the dataset as 42,000 x 6,200 and the spectra tab states `BEYOND THE V1 ENVELOPE`, `42,000 \u00d7 6,200`, `about 320 MB`, draws no plot at all, and the rest of the application stays responsive. Empty and importing were re-checked against the others.",
+      "notes": "The envelope numbers come from PROPOSAL.md section 13 and live in src/states/envelope.ts: 20,000 x 4,000 float32 is 320 MB, and the message names which bound was crossed rather than saying 'too big'. Past it the spectra view returns before any hook or query runs - preparing a plot of eighty million points is the freeze the state exists to avoid. `?oversize` on the datasets endpoint rewrites only the declared shape, so no 320 MB fixture enters git and no array is fabricated. With `?empty`, `?fail=true` and `?failrun` that makes four 1.1-only affordances, all of which go in 1.2 where a truncated file, a rank-deficient matrix and a genuinely large dataset reach these states on their own."
     },
     {
       "id": "e2e-walkthrough",

@@ -175,10 +175,13 @@ export function useProjects() {
  * with no datasets, which is how the empty-project state (#44) is reached
  * without editing code. In 1.2 a new project is simply empty. */
 export function useDatasets(projectId: string | undefined) {
-  const empty = new URLSearchParams(window.location.search).has("empty");
+  const flags = new URLSearchParams(window.location.search);
+  const empty = flags.has("empty");
+  const oversize = flags.has("oversize");
+  const query = empty ? "?empty=true" : oversize ? "?oversize=true" : "";
   return useQuery({
-    queryKey: ["datasets", projectId, empty],
-    queryFn: () => api<DatasetEntry[]>(`/projects/${projectId}/datasets${empty ? "?empty=true" : ""}`),
+    queryKey: ["datasets", projectId, query],
+    queryFn: () => api<DatasetEntry[]>(`/projects/${projectId}/datasets${query}`),
     enabled: Boolean(projectId),
   });
 }
