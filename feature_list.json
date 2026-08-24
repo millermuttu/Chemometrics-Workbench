@@ -231,7 +231,7 @@
         "app-shell"
       ],
       "user_visible_behavior": "A PCA result opens as one tab holding a scores plot with its Hotelling T2 ellipse, a loadings plot and a scree plot, without becoming a cramped dashboard.",
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "The scores plot draws the T2 ellipse from the limit in the fixture, not from a value computed in the browser.",
         "Both score axes select their component.",
@@ -242,8 +242,8 @@
         "Numbers align with tabular numerals.",
         "The panel grid matches design/canvas/AnalysisResults.dc.html, which is drawn in the dark palette, and leaves room for the Phase 2 predicted-vs-measured panel rather than a layout that has to be torn up."
       ],
-      "evidence": null,
-      "notes": "Answers open design question DESIGN_BRIEF.md section 11.1 - the artboard shows one tab holding a panel grid. The artboard also shows predicted-vs-measured on a PLS model, which is Phase 2, not this feature."
+      "evidence": "2026-08-24. On feature/48_analysis-results. `pnpm e2e` is 29 passed, 5 of them this feature; `pnpm test` is 48 passed (7 new, the panel traces); Python unchanged at 486; typecheck, lint and build clean. Asserted in the browser: one tab holds Scores, Loadings, Explained variance and Diagnostics as titled panels, with the header reading `PCA 5 components \u00b7 240 \u00d7 100`, PC1 68.9% and cumulative 99.9%; the scores axes read `PC 1 (68.9%)` and `PC 2 (28.4%)` and changing the y axis to PC 3 relabels it `PC 3 (1.6%)`; the loadings axis reads `wavelength_nm (nm)`. The T2 ellipse's semi-axes were read back off the running plot and compared against sqrt(limit * eigenvalue) computed from a fresh fetch of /api/results/pca_a - equal to 9 decimal places, so the ellipse is the server's limit and not a browser statistic. The diagnostics block lists 28 of 240 samples beyond a limit, in cells that computed-style as tabular-nums. Hovering the scores cloud names a sample. DESIGN_BRIEF.md section 11 now records 11.1 as settled. Screenshots in both themes.",
+      "notes": "Nothing is computed here: scores, loadings, variances, T2, SPE and both limits arrive as data. The only arithmetic is the ellipse's points, which is drawing the limit that was sent - the unit test pins it to sqrt(limit * eigenvalue). The explained-variance bars are layout shapes rather than a `bar` trace, because the gl2d bundle carries scatter and scattergl only and a second Plotly bundle for five rectangles would cost about a megabyte; an invisible marker trace carries the hover. A sample beyond a limit is drawn in --stale, off the data palette, because an outlier is a warning rather than a series. The second row is laid out so Phase 2's predicted-vs-measured panel arrives beside Explained variance and Diagnostics rather than replacing them."
     },
     {
       "id": "application-states",

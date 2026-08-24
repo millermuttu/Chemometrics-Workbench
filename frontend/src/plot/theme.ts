@@ -12,6 +12,9 @@ export interface PlotTheme {
   surface: string;
   grid: string;
   band: string;
+  /** Semantic, and deliberately off the data palette: an outlier is a warning,
+   * never a series. */
+  stale: string;
   series: string[];
   font: string;
   mono: string;
@@ -26,6 +29,7 @@ export function readTheme(element: HTMLElement): PlotTheme {
     surface: token("surface"),
     grid: token("grid"),
     band: token("band"),
+    stale: token("stale"),
     series: ["d1", "d2", "d3", "d4", "d5", "d6"].map(token),
     font: "'IBM Plex Sans', system-ui, sans-serif",
     mono: "'IBM Plex Mono', ui-monospace, monospace",
