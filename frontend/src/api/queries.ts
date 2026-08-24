@@ -106,6 +106,26 @@ export interface Experiment {
   metrics: { explained_variance: number[] | null };
 }
 
+/** What the spectra endpoint returns for one node. Decimation is consumed,
+ * never computed here: the fixture carries the decimated and band forms and
+ * 1.2 computes them server-side, where PROPOSAL.md section 13 puts them. */
+export interface SpectraPayload {
+  node_id: string;
+  label: string;
+  axis: { kind: string; unit: string | null; values: number[] };
+  ordinate: { label: string };
+  n_spectra: number;
+  decimation: {
+    variables_total: number;
+    variables_kept: number;
+    traces_total: number;
+    traces_drawn: number;
+    banded: boolean;
+  };
+  traces: { index: number; sample_id: string; y: number[] }[];
+  band: { n_spectra: number; y_lower: number[]; y_median: number[]; y_upper: number[] };
+}
+
 export interface Job {
   job_id: string;
   experiment_id: string;
@@ -178,6 +198,17 @@ export function useExperiment() {
 
 /** A run is a real job: it advances, it can be cancelled and it can fail. The
  * poll stops when the job reaches a terminal status. */
+export function useSpectra(nodeId: string | undefined) {
+  return useQuery({
+    queryKey: ["spectra", nodeId],
+    queryFn: () => api<SpectraPayload>(`/spectra/${nodeId}`),
+    enabled: Boolean(nodeId),
+    // The decimated payload is the largest thing crossing the wire; holding it
+    // means switching between two nodes does not refetch either.
+    staleTime: Infinity,
+  });
+}
+
 export function useJob(jobId: string | null) {
   return useQuery({
     queryKey: ["job", jobId],

@@ -155,7 +155,7 @@
         "app-shell"
       ],
       "user_visible_behavior": "Raw and processed spectra overlaid on a labelled wavelength axis, with large sets shown as a shaded density envelope and selected spectra drawn over it at full resolution.",
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "The largest fixture dataset renders as a density band rather than one trace per spectrum.",
         "A selected spectrum draws at full resolution on top of the band.",
@@ -167,8 +167,8 @@
         "The screen matches design/canvas/SpectraView.dc.html in both themes.",
         "Plotly's fonts and palette are driven from the design tokens, not from its defaults."
       ],
-      "evidence": null,
-      "notes": "Decimation is consumed here, not computed. Phase 1.2 computes it server-side per PROPOSAL.md section 13."
+      "evidence": "2026-08-24. On feature/45_spectra-view. `pnpm e2e` is 16 passed, 6 of them this feature; `pnpm test` is 24 passed (7 new, the trace rules); typecheck, lint and build clean; Python unchanged at 484. Asserted in the browser: the header reads `240 spectra \u00b7 0 highlighted \u00b7 100 variables` with pills `60 of 240 drawn` and `no x decimation`, and the note `shaded band = full set (240)`; the axes read `wavelength_nm (nm)` and `Absorbance`; highlighting a sample puts one trace at opacity 1 with more than 50 others below it and names it under the plot; the envelope's fillcolor equals the `--band` token read off the running application; the paper background follows the theme, rgb(255,255,255) light and rgb(12,20,19) dark. Every drawn trace is `scattergl` on the Okabe-Ito series, never the accent - checked in the unit tests against the committed fixture. Screenshots taken in both themes, with the hover readout naming sample E1005 at 967.2 nm.",
+      "notes": "Plotly is the gl2d dist bundle called directly - react-plotly.js would be a wrapper dependency for two function calls, and it lags React. The bundle ships no types, so src/plot/plotly.d.ts declares only `react` and `purge`. Every colour and font comes from the CSS variables read off the DOM, so a theme switch repaints the plot; a plot that ignored the theme is how this screen would drift from the artboards. Decimation is consumed, never computed: 240 spectra arrive as 60 traces plus a 5/50/95 band, and Tecator's 100 variables mean the x-axis decimation path is populated but not exercised - the screen says `no x decimation` rather than pretending otherwise. Clicking a trace selects it (plotly_click, bound once the plot exists); a `Highlight sample` list does the same thing deterministically, because sixty overlapping lines are a small target."
     },
     {
       "id": "pipeline-canvas",
