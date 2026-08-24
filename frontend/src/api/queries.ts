@@ -20,9 +20,56 @@ export interface DatasetVersion {
   n_samples: number;
   n_variables: number;
   axis: { kind: string; unit: string | null; values?: number[] };
-  source: { filename: string; reader: string; reader_version: string; file_hash: string } | null;
+  sample_ids: string[];
+  targets: Record<string, number[]>;
+  metadata_columns: Record<string, (string | number)[]>;
+  excluded_samples: number[];
+  excluded_variables: number[];
+  source: {
+    filename: string;
+    reader: string;
+    reader_version: string;
+    file_hash: string;
+    imported_at?: string;
+  } | null;
   derived_from: string | null;
   created_at: string;
+}
+
+/** What a reader says it found, before anything is committed. Every value the
+ * user can correct arrives with the alternatives the reader considered. */
+export interface Detected<T> {
+  value: T;
+  alternatives: T[];
+}
+
+export interface ImportPreview {
+  source: {
+    filename: string;
+    file_hash: string;
+    reader: string;
+    reader_version: string;
+    size_bytes: number;
+  };
+  detected: {
+    delimiter: Detected<string>;
+    decimal: Detected<string>;
+    orientation: Detected<string>;
+    n_samples: number;
+    n_variables: number;
+    axis: {
+      kind: string;
+      unit: string | null;
+      start: number;
+      end: number;
+      reconstructed: boolean;
+      note?: string;
+    };
+    metadata_columns: string[];
+    targets: string[];
+    discarded: { what: string; why: string }[];
+  };
+  head: { sample_ids: string[]; rows: number[][] };
 }
 
 export interface DatasetEntry {
@@ -71,11 +118,41 @@ export function useProjects() {
   return useQuery({ queryKey: ["projects"], queryFn: () => api<Project[]>("/projects") });
 }
 
+/** `?empty` in the application's own URL asks the stub server for a project
+ * with no datasets, which is how the empty-project state (#44) is reached
+ * without editing code. In 1.2 a new project is simply empty. */
 export function useDatasets(projectId: string | undefined) {
+  const empty = new URLSearchParams(window.location.search).has("empty");
   return useQuery({
-    queryKey: ["datasets", projectId],
-    queryFn: () => api<DatasetEntry[]>(`/projects/${projectId}/datasets`),
+    queryKey: ["datasets", projectId, empty],
+    queryFn: () => api<DatasetEntry[]>(`/projects/${projectId}/datasets${empty ? "?empty=true" : ""}`),
     enabled: Boolean(projectId),
+  });
+}
+
+/** Nothing is committed by a preview: it reports what the reader found and
+ * the user confirms or corrects it. The corrections ride along on the import
+ * so 1.2's reader has them; the stub server ignores them. */
+export function useImportPreview() {
+  return useMutation({
+    mutationFn: (options: { fail?: boolean } = {}) =>
+      api<ImportPreview>("/import/preview", {
+        method: "POST",
+        headers: options.fail ? { "X-Stub-Fail": "1" } : {},
+      }),
+  });
+}
+
+export function useImportDataset() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (corrections: Record<string, string>) =>
+      api<DatasetEntry>("/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ corrections }),
+      }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["datasets"] }),
   });
 }
 

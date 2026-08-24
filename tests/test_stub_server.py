@@ -157,3 +157,9 @@ def test_a_path_from_the_client_cannot_escape_the_bundle(client: TestClient) -> 
     response = client.get("/../../etc/passwd")
     assert response.status_code == 200
     assert "root:" not in response.text
+
+
+def test_a_project_can_be_asked_to_look_empty(client: TestClient) -> None:
+    """The empty-project state is unreachable from a fixture that has a dataset."""
+    assert client.get("/api/projects/p/datasets?empty=true", headers=AUTH).json() == []
+    assert client.get("/api/projects/p/datasets", headers=AUTH).json() == fixture("datasets")
