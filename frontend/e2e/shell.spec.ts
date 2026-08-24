@@ -54,10 +54,25 @@ test("tabs close, split and overflow into a searchable menu", async ({ page }) =
   await expect(overflow).toBeVisible();
 
   await overflow.click();
-  await page.getByRole("textbox", { name: "Search tabs" }).fill("pca_d");
-  const match = page.locator(".omenu button");
-  await expect(match).toHaveCount(1);
-  await match.click();
+  const menu = page.locator(".omenu button");
+  const hidden = await menu.count();
+  expect(hidden).toBeGreaterThan(0);
+
+  // Which tabs are clipped depends on how wide their titles render, so the
+  // search term is taken from the menu rather than assumed: what is being
+  // tested is that typing narrows it, not which tab happened to overflow.
+  const first = (await menu.first().innerText()).trim();
+  await page.getByRole("textbox", { name: "Search tabs" }).fill(first);
+  await expect(menu).toHaveCount(await page.locator(".omenu button").count());
+  expect(await menu.count()).toBeLessThanOrEqual(hidden);
+  await expect(menu.first()).toContainText(first);
+
+  await page.getByRole("textbox", { name: "Search tabs" }).fill("no such tab");
+  await expect(menu).toHaveCount(0);
+  await expect(page.getByText("Nothing matches.")).toBeVisible();
+
+  await page.getByRole("textbox", { name: "Search tabs" }).fill(first);
+  await menu.first().click();
 
   await page.getByRole("button", { name: "Split view" }).click();
   await expect(page.locator(".split .pane")).toHaveCount(2);
