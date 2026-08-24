@@ -57,7 +57,7 @@
         "contract-fixtures"
       ],
       "user_visible_behavior": "A FastAPI application on 127.0.0.1 and an ephemeral port, token-authenticated, serving the generated fixtures at the endpoint paths Phase 1.2 will implement. A run started from the UI is a real job that advances, can be cancelled, and can be made to fail.",
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "The server binds 127.0.0.1 on an ephemeral port and refuses a request with no token or a wrong one.",
         "Every endpoint the frontend calls returns its fixture body unmodified.",
@@ -68,8 +68,8 @@
         "No database, no persistence and no executor - state is in memory only.",
         "Every handler names the Phase 1.2 issue that will replace it."
       ],
-      "evidence": null,
-      "notes": "This is what makes Phase 1.1 a walking skeleton rather than a horizontal layer, which is what PROPOSAL.md section 16 asked for. The frontend talks HTTP from its first commit and 1.2 replaces handlers behind unchanged URLs, so there is never a single integration moment. Static fixtures cannot exercise the three things most likely to be got wrong: a job that takes time, a request that fails, and a response with real bulk."
+      "evidence": "2026-08-24. On feature/53_stub-server. `uv run pytest` is 481 passed; tests/test_stub_server.py adds 15 covering every verification step. Live run: `STUB_TOKEN=live-token uv run python stub/server.py` printed `Launch URL: http://127.0.0.1:45117/?token=live-token`; `ss -ltnp` showed the socket bound to 127.0.0.1:45117 only and the host's LAN address refused the same request (curl exit 000). No token and a wrong token both returned 401 with an `{\"error\": {...}}` body. GET /api/spectra/source returned 53,469 bytes of fixture, byte-identical to spectra.json's `source` entry. A run polled once a second reported queued 0.0, running 0.15, 0.4, 0.65, 0.85 and succeeded 1.0 with the fixture's messages; cancelling at 2.5s returned cancelled at progress 0.4 and it stayed 0.4 four seconds later; `?fail=true` ended failed at 0.85 with the rank message. `X-Stub-Fail: 1` returned 422 carrying error.json unmodified. The bundle mount is exercised through STUB_BUNDLE against a temporary dist, and the CORS preflight from http://localhost:5173 is allowed. `uv run ruff check .`, `ruff format --check` and `uv run mypy` (strict, 27 files) are clean.",
+      "notes": "In-memory only: a job is its status sequence from jobs.json, the monotonic time it started and the step it was cancelled at, so the current step is elapsed/STEP_SECONDS with no background task, no lock and no executor. STUB_JOB_STEP_SECONDS (default 1.2) turns a six-step run down to milliseconds for the tests. Handlers carry `Phase 1.2:` markers naming the work that replaces them rather than issue numbers, because 1.2's issues are not cut yet - grep `Phase 1.2:` when they are, and put the numbers in."
     },
     {
       "id": "frontend-scaffold",
