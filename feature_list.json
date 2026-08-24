@@ -107,7 +107,7 @@
         "frontend-scaffold"
       ],
       "user_visible_behavior": "A single window with a resizable project tree, a tabbed document area and a collapsible inspector, over a status bar carrying job name, progress, elapsed time and cancel.",
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "Tabs open, close, reorder and split side by side.",
         "A single click previews into the transient tab and replaces it; a double click or an edit pins it.",
@@ -118,8 +118,8 @@
         "The shell matches design/canvas/Main.dc.html at 1440x900 in both themes: 40px top bar, 248px sidebar, 34px tab strip, 292px inspector, 28px status bar.",
         "A transient tab renders italic in --ink3, as the artboard draws it."
       ],
-      "evidence": null,
-      "notes": null
+      "evidence": "2026-08-24. On feature/43_app-shell. `pnpm test` is 17 passed (10 new, the tab rules); `pnpm e2e` is 6 passed, of which 5 are the shell; `pnpm typecheck`, `pnpm lint` and `pnpm build` are clean; the Python side is 483 passed (2 new: the deep link and the traversal guard). The measurements are asserted in the browser against the artboard, not eyeballed: top bar 40, sidebar 248, tab strip 34, inspector 292, status bar 28. Tab rules exercised end to end - a single click previews into one italic transient tab and a second preview replaces it; a double click pins; opening 16 outline rows overflows the strip and the +N menu finds pca_d by id; the split shows two panes; closing removes the tab. A run started from the top bar reports Queued then Preprocessing: SNV then advances, and Cancel stops it at the step it had reached - the progress width is unchanged 1.2s later. Both palettes checked through --accent: #0B6B62 light, #54BFAB dark. Screenshots of both themes were taken against the stub server at 127.0.0.1:8765.",
+      "notes": "The overflow measurement had a real bug the e2e caught: rendering only the tabs that fit means an unrendered tab has no width, so the measurement can only ever confirm what it already shows and the strip stuck at one tab. Every tab now stays in the DOM and the strip clips them; the +N button floats over the clipped ones. The stub server gained a catch-all that serves index.html so /tokens arrives as the application rather than a 404, with a traversal guard, and the e2e suite now runs against the stub server serving the built bundle rather than a Vite preview - the same origin and token the packaged application uses, so CI's frontend job needs uv. Models has an empty state: no fixture describes a model and they are Phase 2 (#51). Pane contents are placeholders naming the issue that fills them (#44-#48)."
     },
     {
       "id": "import-flow",

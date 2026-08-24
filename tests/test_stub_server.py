@@ -144,3 +144,16 @@ def test_development_mode_lets_the_vite_dev_server_call_the_api(client: TestClie
         },
     )
     assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+
+
+def test_a_deep_link_arrives_as_the_application_not_a_404(client: TestClient) -> None:
+    """The frontend routes on the path, so /tokens must be served the bundle."""
+    response = client.get("/tokens")
+    assert response.status_code == 200
+    assert "bundle" in response.text
+
+
+def test_a_path_from_the_client_cannot_escape_the_bundle(client: TestClient) -> None:
+    response = client.get("/../../etc/passwd")
+    assert response.status_code == 200
+    assert "root:" not in response.text
