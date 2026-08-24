@@ -14,6 +14,7 @@ import {
 import { DatasetView } from "@/screens/DatasetView";
 import { EmptyProject } from "@/screens/EmptyProject";
 import { Import } from "@/screens/Import";
+import { PipelineCanvas } from "@/canvas/PipelineCanvas";
 import { SpectraView } from "@/screens/SpectraView";
 import { Inspector } from "@/shell/Inspector";
 import { Sidebar } from "@/shell/Sidebar";
@@ -63,9 +64,11 @@ function Pane({
   datasets,
   onImported,
   onCloseImport,
+  onOpenNode,
 }: {
   tab: Tab | undefined;
   datasets: DatasetEntry[] | undefined;
+  onOpenNode: (id: string, label: string) => void;
   onImported: (versionId: string, name: string) => void;
   onCloseImport: () => void;
 }) {
@@ -73,6 +76,7 @@ function Pane({
     return <Import onImported={onImported} onCancel={onCloseImport} />;
   }
 
+  if (tab?.kind === "pipeline") return <PipelineCanvas onOpenNode={onOpenNode} />;
   if (tab?.kind === "spectra") return <SpectraView nodeId={tab.id} title={tab.title} />;
 
   const found = datasets
@@ -155,6 +159,17 @@ export function Shell() {
     [],
   );
 
+  const openNode = useCallback(
+    (id: string, label: string) => {
+      const node = pipeline.data?.nodes.find((candidate) => candidate.id === id);
+      open(
+        { id, kind: node?.type === "estimator" ? "results" : "spectra", title: label },
+        false,
+      );
+    },
+    [open, pipeline.data],
+  );
+
   const activeTab = state.tabs.find((tab) => tab.id === state.activeId);
   const splitTab = state.tabs.find((tab) => tab.id === state.splitId);
   const samples = datasets.data?.[0]?.versions.at(-1);
@@ -174,6 +189,12 @@ export function Shell() {
               {samples.n_samples} × {samples.n_variables}
             </span>
           ) : null}
+          <button
+            className="btn"
+            onClick={() => open({ id: "pipeline", kind: "pipeline", title: "Pipeline" }, false)}
+          >
+            Pipeline
+          </button>
           <button className="btn" onClick={openImport}>
             Import…
           </button>
@@ -229,11 +250,11 @@ export function Shell() {
             <EmptyProject onImport={openImport} />
           ) : state.splitId ? (
             <div className="split">
-              <Pane tab={activeTab} datasets={datasets.data} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} />
-              <Pane tab={splitTab} datasets={datasets.data} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} />
+              <Pane tab={activeTab} datasets={datasets.data} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} />
+              <Pane tab={splitTab} datasets={datasets.data} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} />
             </div>
           ) : (
-            <Pane tab={activeTab} datasets={datasets.data} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} />
+            <Pane tab={activeTab} datasets={datasets.data} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} />
           )}
         </main>
 

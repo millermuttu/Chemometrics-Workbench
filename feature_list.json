@@ -180,7 +180,7 @@
         "app-shell"
       ],
       "user_visible_behavior": "The pipeline renders as a pan and zoom node graph with every node type and run state legible at a glance. Steps are added through a list rather than by dragging.",
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "The fixture's four-branch pipeline renders with its branches distinct.",
         "All six node states are visible simultaneously in the fixture and are distinguishable in greyscale as well as in colour.",
@@ -193,8 +193,8 @@
         "Stale renders as a dashed --stale border over a 135 degree --staleSoft hatch at 0.72 opacity with an 'edited - downstream stale' footer, as drawn.",
         "Edges are 1.4px --rule at rest, 1.8px --accent on the active path, dashed 4 3 in --stale where stale, over a 22px --grid dot ground."
       ],
-      "evidence": null,
-      "notes": "Direct canvas editing is deliberately deferred to #51 in Phase 2, where branch comparison first needs it."
+      "evidence": "2026-08-24. On feature/46_pipeline-canvas. `pnpm e2e` is 20 passed, 4 of them this feature; `pnpm test` is 33 passed (9 new, the node and edge encodings); typecheck, lint and build clean; Python 484 passed. Asserted in the browser: the fixture's branching pipeline renders as 14 nodes and 13 edges with their parameter lines (`window 11 \u00b7 poly 2 \u00b7 deriv 1`, `10 folds \u00b7 shuffle \u00b7 seed 42`); all five states are on screen at once and separable by form, not only colour - stale is dashed over a repeating-linear-gradient hatch, not_run is dashed, failed carries a 3px left stripe, complete is solid, and the running node shows its progress bar; the stale node says `edited - downstream stale` and the failed one names the rank-4 matrix. Clicking a node opens its tab. Adding SNV, SG d1 w11 and PCA through the step list adds three nodes to the canvas, Validate reports `valid \u00b7 3 steps`, and removing a step removes its node. Screenshots taken in both themes.",
+      "notes": "React Flow (@xyflow/react) as the issue asks, with a custom node type rather than its default: the artboard fixes 132x70, a 17px mono header, the parameter line and the footer. Edges take --accent at 1.8px into a running or queued node, dashed 4 3 in --stale wherever either end is stale, and --rule at 1.4px at rest; animation rides only on the accent path and is off entirely under prefers-reduced-motion. Layout coordinates come from pipeline_state.json, outside Pipeline.content_hash(), and a test asserts the pipeline itself carries no layout - moving a node must not change the science. The fixture generator gained the fifth state: pca_d now fails with the same rank-4 message jobs.json's failing run ends on, because the node that failed and the run that failed are one event seen twice. Only pipeline_state.json changed. The canvas is read-only: dragging nodes into place is #51."
     },
     {
       "id": "inspector",
