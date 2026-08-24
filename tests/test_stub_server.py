@@ -163,3 +163,28 @@ def test_a_project_can_be_asked_to_look_empty(client: TestClient) -> None:
     """The empty-project state is unreachable from a fixture that has a dataset."""
     assert client.get("/api/projects/p/datasets?empty=true", headers=AUTH).json() == []
     assert client.get("/api/projects/p/datasets", headers=AUTH).json() == fixture("datasets")
+
+
+def test_the_step_schema_is_the_models_own(client: TestClient) -> None:
+    schema = client.get("/api/schema/steps", headers=AUTH).json()
+    kinds = {entry["properties"]["kind"]["const"] for entry in schema["$defs"].values()}
+    assert {"snv", "msc", "savgol", "mean_centre", "autoscale", "normalise"} <= kinds
+    assert schema["$defs"]["SavitzkyGolay"]["properties"]["deriv"]["maximum"] == 2
+
+
+def test_a_step_is_validated_against_the_model_that_will_enforce_it(client: TestClient) -> None:
+    """The cross-field rules have no JSON Schema form, so the model checks them."""
+    good = {"kind": "savgol", "window_length": 11, "polyorder": 2, "deriv": 1}
+    assert client.post("/api/steps/validate", json=good, headers=AUTH).json() == {
+        "valid": True,
+        "errors": [],
+    }
+
+    even = client.post("/api/steps/validate", json={**good, "window_length": 10}, headers=AUTH)
+    body = even.json()
+    assert body["valid"] is False
+    assert body["errors"][0]["message"] == "window_length must be odd"
+
+    bounded = client.post("/api/steps/validate", json={**good, "deriv": 5}, headers=AUTH).json()
+    assert bounded["valid"] is False
+    assert bounded["errors"][0]["field"] == "savgol.deriv"

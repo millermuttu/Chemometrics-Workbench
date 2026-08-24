@@ -181,7 +181,10 @@ export function SpectraView({ nodeId, title }: { nodeId: string; title: string }
       >
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <Segmented layer={isSource ? "raw" : layer} onChange={setLayer} disabled={isSource} />
-          <span className="mono" style={{ fontSize: 11, color: "var(--ink3)" }}>
+          <span
+            className="mono"
+            style={{ fontSize: 11, color: "var(--ink3)", whiteSpace: "nowrap" }}
+          >
             {primary.n_spectra} spectra · {selected.length} highlighted ·{" "}
             {decimation.variables_total} variables
           </span>

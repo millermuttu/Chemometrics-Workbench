@@ -65,6 +65,7 @@ from uuid import UUID, uuid5
 import numpy as np
 import scipy
 from numpy.typing import NDArray
+from pydantic import TypeAdapter
 
 import chemometrics_workbench as cw
 from chemometrics_workbench import preprocessing, validation
@@ -86,6 +87,7 @@ from chemometrics_workbench.models import (
     PCASpec,
     Pipeline,
     PreprocessNode,
+    PreprocessStep,
     Project,
     ResolvedSplit,
     SavitzkyGolay,
@@ -456,6 +458,23 @@ def error_payload() -> dict[str, Any]:
     }
 
 
+def step_schema() -> dict[str, Any]:
+    """The preprocessing steps' own JSON Schema, straight out of `models.py`.
+
+    NOT a guess, and deliberately not written by hand: the inspector builds its
+    parameter forms from this, so a field's type, its bounds, its enum and its
+    default come from the same place the backend enforces them. Restating them
+    in TypeScript is how a form ends up refusing what the schema allows, or
+    allowing what it refuses.
+
+    The cross-field rules - an odd Savitzky-Golay window, `polyorder` below it,
+    `start` below `end` - live in `model_validator` and have no JSON Schema
+    equivalent. The stub server validates against the model itself instead of
+    restating them; see `/steps/validate`.
+    """
+    return TypeAdapter(PreprocessStep).json_schema()
+
+
 def node_states(pipeline: Pipeline) -> dict[str, Any]:
     """Run state per node, for the canvas.
 
@@ -679,6 +698,7 @@ def main() -> None:
         write("import_preview", import_preview(version, tecator)),
         write("jobs", job_sequences(experiment.experiment_id)),
         write("error", error_payload()),
+        write("step_schema", step_schema()),
         write(
             "spectra",
             {
