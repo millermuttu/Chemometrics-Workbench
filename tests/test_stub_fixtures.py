@@ -51,6 +51,9 @@ EXPECTED_FILES = {
     "error",
     "spectra",
     "pca",
+    # The preprocessing steps' own JSON Schema, which the inspector builds its
+    # parameter forms from (#47) rather than restating the constraints.
+    "step_schema",
 }
 
 

@@ -44,6 +44,9 @@ import uvicorn
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from pydantic import TypeAdapter, ValidationError
+
+from chemometrics_workbench.models import PreprocessStep
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 # Production mode serves the built frontend from here. STUB_BUNDLE overrides it,
@@ -142,6 +145,47 @@ def import_preview() -> Any:
 @api.post("/import")
 def import_dataset() -> Any:
     return fixture("datasets")[0]
+
+
+@api.get("/schema/steps")
+def step_schema() -> Any:
+    """The preprocessing steps' JSON Schema, generated from models.py (#41).
+
+    Phase 1.2: served from the live models rather than from a file, which is a
+    change of source and not of shape.
+    """
+    return fixture("step_schema")
+
+
+@api.post("/steps/validate")
+def validate_step(step: dict[str, Any]) -> Any:
+    """Validate one step against the model that will enforce it.
+
+    This is the one place the stub server computes something, and it does so
+    on purpose. The cross-field rules - an odd Savitzky-Golay window,
+    `polyorder` below it, `start` below `end` - live in `model_validator` and
+    have no JSON Schema equivalent, so a form that checked them itself would be
+    restating `models.py` in TypeScript and drifting from it. Validating
+    against the model means the message the user reads is the model's own.
+
+    Phase 1.2: the same call, with the step going on to be stored.
+    """
+    try:
+        TypeAdapter(PreprocessStep).validate_python(step)
+    except ValidationError as error:
+        return {
+            "valid": False,
+            "errors": [
+                {
+                    # Pydantic prefixes its own message; the part after the
+                    # comma is what a person needs to read.
+                    "field": ".".join(str(part) for part in problem["loc"]) or "step",
+                    "message": problem["msg"].removeprefix("Value error, "),
+                }
+                for problem in error.errors()
+            ],
+        }
+    return {"valid": True, "errors": []}
 
 
 # --- Pipelines -----------------------------------------------------------

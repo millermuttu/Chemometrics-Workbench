@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import type { StepSchema } from "@/inspector/schema";
+
 import { api } from "./client";
 
 /** The payload shapes are the stub server's, generated from the kernels by
@@ -33,6 +35,7 @@ export interface DatasetVersion {
     imported_at?: string;
   } | null;
   derived_from: string | null;
+  array_path: string;
   created_at: string;
 }
 
@@ -189,6 +192,10 @@ export function usePipelineState() {
   return useQuery({
     queryKey: ["pipeline-state"],
     queryFn: () => api<PipelineState>("/pipelines/current/state"),
+    // Run state changes because something in this session changed it - an edit
+    // marking downstream nodes stale, or a run advancing. Refetching on every
+    // remount would throw those away, and 1.1 has nothing else writing it.
+    staleTime: Infinity,
   });
 }
 
@@ -208,6 +215,14 @@ export function useSpectra(nodeId: string | undefined) {
     enabled: Boolean(nodeId),
     // The decimated payload is the largest thing crossing the wire; holding it
     // means switching between two nodes does not refetch either.
+    staleTime: Infinity,
+  });
+}
+
+export function useStepSchema() {
+  return useQuery({
+    queryKey: ["step-schema"],
+    queryFn: () => api<StepSchema>("/schema/steps"),
     staleTime: Infinity,
   });
 }

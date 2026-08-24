@@ -93,3 +93,7 @@ td.n{color:var(--ink)}
  * artboard's rows are one line each. */
 .srow span:not(.sdim){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sdim{flex:none;padding-left:6px}
+
+/* A pill is one line. At 1440 with both sidebars open the spectra header has
+ * little room, and a wrapped pill reads as two broken ones. */
+.pill{white-space:nowrap;flex:none}

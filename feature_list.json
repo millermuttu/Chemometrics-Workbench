@@ -207,7 +207,7 @@
         "pipeline-canvas"
       ],
       "user_visible_behavior": "The right sidebar shows whatever is selected - node parameters, model metrics, dataset metadata, provenance - and is the only place a pipeline parameter is edited in this sub-phase.",
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "Every preprocessing step the schema can express has an editable form.",
         "An even Savitzky-Golay window is refused by the form with a specific message, matching what models.py refuses.",
@@ -218,8 +218,8 @@
         "The provenance section collapses and shows the environment record from the fixture.",
         "The inspector matches the artboards in both themes: .ihead block, .ilabel in mono uppercase, .kv rows with the value in mono tabular numerals."
       ],
-      "evidence": null,
-      "notes": "Where form validation could drift from models.py, generate it from the schema rather than restating the rules."
+      "evidence": "2026-08-24. On feature/47_inspector. `pnpm e2e` is 24 passed, 4 of them this feature; `pnpm test` is 41 passed (8 new, the generated form and the staleness walk); Python is 486 passed (3 new: the served schema, model-backed step validation, and the fixture register). Asserted in the browser: selecting the Savitzky-Golay node fills a typed form with window_length 11, polyorder 2 and deriv 1; entering deriv 5 refuses with `Deriv must be at most 2` from the schema's own bounds and disables Apply; entering an even window is accepted by the form and refused by the model with its own sentence, `window_length must be odd`; changing MSC's reference to median and applying raises `Downstream results are stale.`, increases the count of stale nodes on the canvas and leaves all 14 nodes in place - a stale result dims, it does not vanish - and Re-run starts a job. Provenance is collapsed until asked for and truncates in the middle (`sha256:e435\u202690d7`). Screenshots taken in both themes.",
+      "notes": "The parameter form is generated from `models.py`'s JSON Schema, served at GET /api/schema/steps and committed as stub/fixtures/step_schema.json - so a field's type, bounds, enum and default come from the same place the backend enforces them. The cross-field rules (odd window, polyorder below window, deriv below polyorder, start below end) live in model_validator and have no JSON Schema form, so the stub server validates the step against PreprocessStep at POST /api/steps/validate and the message the user reads is the model's own. That is the one place the stub server computes anything, and it is on purpose: the alternative is restating models.py in TypeScript and drifting from it. Editing marks the node and everything downstream stale through a pure graph walk (src/inspector/stale.ts, tested against the fixture); the pipeline-state query holds its data so a tab switch does not refetch the optimistic update away."
     },
     {
       "id": "analysis-results",

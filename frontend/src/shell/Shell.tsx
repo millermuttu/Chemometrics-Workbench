@@ -1,6 +1,8 @@
 import { useCallback, useReducer, useRef, useState } from "react";
 
-import type { DatasetEntry } from "@/api/queries";
+import { useQueryClient } from "@tanstack/react-query";
+
+import type { DatasetEntry, PipelineState } from "@/api/queries";
 import {
   useCancelJob,
   useDatasets,
@@ -21,6 +23,7 @@ import { Sidebar } from "@/shell/Sidebar";
 import { StatusBar } from "@/shell/StatusBar";
 import { TabStrip } from "@/shell/TabStrip";
 import { FlaskIcon, KIND_ICONS } from "@/shell/icons";
+import { downstreamOf } from "@/inspector/stale";
 import { emptyTabs, tabsReducer, type Tab } from "@/shell/tabs";
 
 /** The frame every screen opens inside. The measurements are the artboard's -
@@ -128,6 +131,7 @@ export function Shell() {
   const sidebar = useResizable(248, 180, 420, "left");
   const inspector = useResizable(292, 220, 460, "right");
 
+  const queryClient = useQueryClient();
   const projects = useProjects();
   const project = projects.data?.[0];
   const datasets = useDatasets(project?.project_id);
@@ -135,6 +139,7 @@ export function Shell() {
   const pipelineState = usePipelineState();
   const experiment = useExperiment();
 
+  const [staleFrom, setStaleFrom] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const job = useJob(jobId);
@@ -170,13 +175,57 @@ export function Shell() {
     [open, pipeline.data],
   );
 
+  /** Editing a parameter invalidates everything computed from it. The results
+   * stay on screen, dimmed - a stale result must not vanish. */
+  const markStale = useCallback(
+    (nodeId: string) => {
+      if (!pipeline.data) return;
+      const affected = [nodeId, ...downstreamOf(pipeline.data, nodeId)];
+      queryClient.setQueryData<PipelineState>(["pipeline-state"], (current) =>
+        current
+          ? {
+              ...current,
+              nodes: {
+                ...current.nodes,
+                ...Object.fromEntries(
+                  affected.map((id) => [
+                    id,
+                    {
+                      ...current.nodes[id],
+                      state: "stale",
+                      reason: id === nodeId ? "edited - downstream stale" : "upstream changed",
+                    },
+                  ]),
+                ),
+              },
+            }
+          : current,
+      );
+      setStaleFrom(nodeId);
+    },
+    [pipeline.data, queryClient],
+  );
+
   const activeTab = state.tabs.find((tab) => tab.id === state.activeId);
   const splitTab = state.tabs.find((tab) => tab.id === state.splitId);
   const samples = datasets.data?.[0]?.versions.at(-1);
   const noDatasets = datasets.isSuccess && datasets.data.length === 0;
 
+  /** An estimator node's headline numbers, in .kv form with tabular numerals.
+   * The full results table is #48; this is what fits in 292px. */
+  const metricsFor = (tab: Tab | undefined) => {
+    const node = pipeline.data?.nodes.find((candidate) => candidate.id === tab?.id);
+    if (node?.type !== "estimator" || !experiment.data) return undefined;
+    const variance = experiment.data.metrics.explained_variance ?? [];
+    return {
+      "PC1 variance": variance[0] ?? null,
+      "PC1-5 cumulative": variance.slice(0, 5).reduce((total, item) => total + item, 0) || null,
+      components: (node.spec?.n_components as number) ?? null,
+    };
+  };
+
   return (
-    <div className={`app ${theme}`}>
+    <div className={`app ${theme}`} style={{ position: "relative" }}>
       <div className="tbar">
         <div className="tb-l">
           <FlaskIcon />
@@ -265,14 +314,53 @@ export function Shell() {
           <div style={{ flex: 1, display: "flex", minWidth: 0 }}>
             <Inspector
               tab={activeTab}
+              project={project}
               datasets={datasets.data}
-              nodes={pipeline.data?.nodes}
+              pipeline={pipeline.data}
               state={pipelineState.data}
+              metrics={metricsFor(activeTab)}
               collapsed={inspectorCollapsed}
+              onEdit={markStale}
             />
           </div>
         </div>
       </div>
+
+      {staleFrom ? (
+        <div
+          role="status"
+          style={{
+            position: "absolute",
+            right: 304,
+            bottom: 36,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "6px 10px",
+            borderRadius: 3,
+            border: "1px solid var(--stale)",
+            background: "var(--staleSoft)",
+            fontSize: 11.5,
+          }}
+        >
+          <span style={{ color: "var(--stale)" }}>Downstream results are stale.</span>
+          <button
+            className="btn"
+            style={{ height: 22 }}
+            onClick={async () => {
+              const started = await run.mutateAsync({});
+              setJobId(started.job_id);
+              setStartedAt(Date.now());
+              setStaleFrom(null);
+            }}
+          >
+            Re-run
+          </button>
+          <button className="tabx" aria-label="Dismiss" onClick={() => setStaleFrom(null)}>
+            ×
+          </button>
+        </div>
+      ) : null}
 
       <StatusBar
         job={job.data}
