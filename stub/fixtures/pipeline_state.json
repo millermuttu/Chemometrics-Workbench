@@ -1,0 +1,112 @@
+{
+  "pipeline_id": "0cf0d33b-a116-5df7-b129-03436bbd1d68",
+  "nodes": {
+    "source": {
+      "state": "complete"
+    },
+    "snv": {
+      "state": "complete"
+    },
+    "centre_a": {
+      "state": "complete"
+    },
+    "pca_a": {
+      "state": "complete",
+      "headline": {
+        "label": "PC1-5 var",
+        "value": null
+      }
+    },
+    "msc": {
+      "state": "running",
+      "progress": 0.45
+    },
+    "centre_b": {
+      "state": "not_run"
+    },
+    "pca_b": {
+      "state": "queued"
+    },
+    "savgol": {
+      "state": "stale",
+      "reason": "edited - downstream stale"
+    },
+    "autoscale_c": {
+      "state": "stale",
+      "reason": "upstream changed"
+    },
+    "pca_c": {
+      "state": "not_run"
+    },
+    "snv_savgol": {
+      "state": "complete"
+    },
+    "split_d": {
+      "state": "complete"
+    },
+    "centre_d": {
+      "state": "complete"
+    },
+    "pca_d": {
+      "state": "complete"
+    }
+  },
+  "layout": {
+    "source": {
+      "x": 40,
+      "y": 40
+    },
+    "snv": {
+      "x": 210,
+      "y": 40
+    },
+    "centre_a": {
+      "x": 380,
+      "y": 40
+    },
+    "pca_a": {
+      "x": 550,
+      "y": 40
+    },
+    "msc": {
+      "x": 210,
+      "y": 170
+    },
+    "centre_b": {
+      "x": 380,
+      "y": 170
+    },
+    "pca_b": {
+      "x": 550,
+      "y": 170
+    },
+    "savgol": {
+      "x": 210,
+      "y": 300
+    },
+    "autoscale_c": {
+      "x": 380,
+      "y": 300
+    },
+    "pca_c": {
+      "x": 550,
+      "y": 300
+    },
+    "snv_savgol": {
+      "x": 380,
+      "y": 430
+    },
+    "split_d": {
+      "x": 550,
+      "y": 430
+    },
+    "centre_d": {
+      "x": 720,
+      "y": 40
+    },
+    "pca_d": {
+      "x": 890,
+      "y": 40
+    }
+  }
+}

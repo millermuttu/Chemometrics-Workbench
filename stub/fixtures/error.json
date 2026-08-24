@@ -1,0 +1,11 @@
+{
+  "error": {
+    "code": "reader_failed",
+    "message": "tecator.txt: expected a multiple of 125 values per row, found 124 on row 87. The file may be truncated.",
+    "detail": {
+      "file": "tecator.txt",
+      "row": 87,
+      "reader": "tecator_txt"
+    }
+  }
+}

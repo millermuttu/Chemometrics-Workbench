@@ -1,0 +1,127 @@
+{
+  "succeeded": [
+    {
+      "status": "queued",
+      "progress": 0.0,
+      "message": "Queued",
+      "job_id": "c724994e-94a8-54b6-a1f1-8f4e43323e28",
+      "experiment_id": "9e66e4b7-1927-5d34-b792-f05e626cbf92"
+    },
+    {
+      "status": "running",
+      "progress": 0.15,
+      "message": "Preprocessing: SNV",
+      "job_id": "c724994e-94a8-54b6-a1f1-8f4e43323e28",
+      "experiment_id": "9e66e4b7-1927-5d34-b792-f05e626cbf92"
+    },
+    {
+      "status": "running",
+      "progress": 0.4,
+      "message": "Preprocessing: Savitzky-Golay (window 11, poly 2, deriv 1)",
+      "job_id": "c724994e-94a8-54b6-a1f1-8f4e43323e28",
+      "experiment_id": "9e66e4b7-1927-5d34-b792-f05e626cbf92"
+    },
+    {
+      "status": "running",
+      "progress": 0.65,
+      "message": "Resolving split: 10-fold, seed 42",
+      "job_id": "c724994e-94a8-54b6-a1f1-8f4e43323e28",
+      "experiment_id": "9e66e4b7-1927-5d34-b792-f05e626cbf92"
+    },
+    {
+      "status": "running",
+      "progress": 0.85,
+      "message": "Fitting PCA, 5 components",
+      "job_id": "c724994e-94a8-54b6-a1f1-8f4e43323e28",
+      "experiment_id": "9e66e4b7-1927-5d34-b792-f05e626cbf92"
+    },
+    {
+      "status": "succeeded",
+      "progress": 1.0,
+      "message": "Complete",
+      "job_id": "c724994e-94a8-54b6-a1f1-8f4e43323e28",
+      "experiment_id": "9e66e4b7-1927-5d34-b792-f05e626cbf92"
+    }
+  ],
+  "failed": [
+    {
+      "status": "queued",
+      "progress": 0.0,
+      "message": "Queued",
+      "job_id": "db0b7b0e-d056-5498-a6be-dd1fc7cf879f",
+      "experiment_id": "9e66e4b7-1927-5d34-b792-f05e626cbf92"
+    },
+    {
+      "status": "running",
+      "progress": 0.15,
+      "message": "Preprocessing: SNV",
+      "job_id": "db0b7b0e-d056-5498-a6be-dd1fc7cf879f",
+      "experiment_id": "9e66e4b7-1927-5d34-b792-f05e626cbf92"
+    },
+    {
+      "status": "running",
+      "progress": 0.4,
+      "message": "Preprocessing: Savitzky-Golay (window 11, poly 2, deriv 1)",
+      "job_id": "db0b7b0e-d056-5498-a6be-dd1fc7cf879f",
+      "experiment_id": "9e66e4b7-1927-5d34-b792-f05e626cbf92"
+    },
+    {
+      "status": "running",
+      "progress": 0.65,
+      "message": "Resolving split: 10-fold, seed 42",
+      "job_id": "db0b7b0e-d056-5498-a6be-dd1fc7cf879f",
+      "experiment_id": "9e66e4b7-1927-5d34-b792-f05e626cbf92"
+    },
+    {
+      "status": "running",
+      "progress": 0.85,
+      "message": "Fitting PCA, 5 components",
+      "job_id": "db0b7b0e-d056-5498-a6be-dd1fc7cf879f",
+      "experiment_id": "9e66e4b7-1927-5d34-b792-f05e626cbf92"
+    },
+    {
+      "status": "failed",
+      "progress": 0.85,
+      "message": "5 components were asked of a matrix of rank 4. Reduce n_components, or add samples or variables.",
+      "job_id": "db0b7b0e-d056-5498-a6be-dd1fc7cf879f",
+      "experiment_id": "9e66e4b7-1927-5d34-b792-f05e626cbf92"
+    }
+  ],
+  "cancelled": [
+    {
+      "status": "queued",
+      "progress": 0.0,
+      "message": "Queued",
+      "job_id": "c8f0d342-02cc-5b97-b74c-716ac8445de2",
+      "experiment_id": "9e66e4b7-1927-5d34-b792-f05e626cbf92"
+    },
+    {
+      "status": "running",
+      "progress": 0.15,
+      "message": "Preprocessing: SNV",
+      "job_id": "c8f0d342-02cc-5b97-b74c-716ac8445de2",
+      "experiment_id": "9e66e4b7-1927-5d34-b792-f05e626cbf92"
+    },
+    {
+      "status": "running",
+      "progress": 0.4,
+      "message": "Preprocessing: Savitzky-Golay (window 11, poly 2, deriv 1)",
+      "job_id": "c8f0d342-02cc-5b97-b74c-716ac8445de2",
+      "experiment_id": "9e66e4b7-1927-5d34-b792-f05e626cbf92"
+    },
+    {
+      "status": "running",
+      "progress": 0.65,
+      "message": "Resolving split: 10-fold, seed 42",
+      "job_id": "c8f0d342-02cc-5b97-b74c-716ac8445de2",
+      "experiment_id": "9e66e4b7-1927-5d34-b792-f05e626cbf92"
+    },
+    {
+      "status": "cancelled",
+      "progress": 0.65,
+      "message": "Cancelled after 4.2 s",
+      "job_id": "c8f0d342-02cc-5b97-b74c-716ac8445de2",
+      "experiment_id": "9e66e4b7-1927-5d34-b792-f05e626cbf92"
+    }
+  ]
+}

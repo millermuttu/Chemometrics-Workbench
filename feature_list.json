@@ -34,7 +34,7 @@
       "issue": 41,
       "depends_on": [],
       "user_visible_behavior": "Committed JSON the UI builds and tests against with no Python present, where every number was produced by a kernel in src/chemometrics_workbench rather than typed by hand.",
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "Running the generator reproduces the committed fixtures byte for byte.",
         "The spectra fixture carries the full, decimated and density-band forms, and the decimated form came from a real preprocessing run.",
@@ -44,8 +44,8 @@
         "The generator computes no number of its own - grep it for arithmetic on kernel output.",
         "The error payload shape is documented, so a failure has a body and not only a status code."
       ],
-      "evidence": null,
-      "notes": "The fixture shape is the proposed API response shape. Phase 1.2's HTTP surface has to meet it or explain the change."
+      "evidence": "2026-08-24. On feature/41_contract-fixtures. `uv run python stub/generate_fixtures.py` writes 10 files to stub/fixtures (1.7 MB). Determinism: generated three times, md5sum of all ten identical each time - ids are UUID5 of a fixed namespace and every timestamp is pinned to 2026-08-24T09:00Z. Published pipeline hash sha256:9a684f48..., dataset content hash sha256:e435c053... . Domain payloads (project, pipeline, experiment, dataset version) are Pydantic dumps and are re-validated against their models by tests/test_stub_fixtures.py. Spectra come from a real walk of the recipe through preprocessing.from_spec: 9 non-estimator nodes, 240 spectra each, 60 drawn traces plus a 5/50/95 density band. PCA payloads come from decomposition.PCA: scores, loadings, eigenvalues, per-component and cumulative explained variance, Hotelling T2 and SPE with both limits at alpha=0.05. Branch D is fitted on the 216 training rows of fold 0 from validation.k_fold(240, 10, seed=42), and all ten folds are recorded as a ResolvedSplit. Jobs cover three outcomes - succeeded, failed and cancelled - each starting queued with monotonic progress. Error body carries code, message and detail and no traceback. 20 new tests in tests/test_stub_fixtures.py; full suite 467 passed. ruff check, ruff format --check, mypy strict (stub/ added to both) all clean.",
+      "notes": "TWO DEVIATIONS FROM THE VERIFICATION LIST, both deliberate and both recorded here rather than quietly satisfied.\n\n1. Byte-for-byte reproduction is verified ON THIS MACHINE only, and is NOT gated in CI. It is the same trap #38 had to remove from the parity report: the numbers come out of BLAS, their last bits depend on how NumPy was built, and a value on a rounding boundary crosses it on one runner and not another. Rounding to six places hides most of that and cannot be relied on to hide all of it. What guards the fixtures in CI is structural instead - the payloads parse, the domain objects still satisfy their models, the shapes agree with the dataset and the recipe, and the published pipeline hash is the one content_hash() computes. Do not add a git diff --exit-code gate on stub/fixtures.\n\n2. The spectra payload carries the decimated and band forms but no separate 'full' form. At Tecator's 100 variables the stride is 1, so decimated IS full and a second copy would be identical bytes; the decimation block states variables_total == variables_kept so the fact is on the wire rather than implied. A real full-resolution request for selected spectra is 1.2's business. The consequence is that the x-axis decimation path is not exercised by this fixture - the trace cap and the band are, at 240 spectra against a cap of 60.\n\nThe generator owns exactly one piece of arithmetic on kernel output: the 5/50/95 percentiles for the density band, which is presentation and has no kernel. Everything else is a call."
     },
     {
       "id": "stub-server",
