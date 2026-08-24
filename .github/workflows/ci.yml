@@ -72,3 +72,51 @@ jobs:
       # staleness.
       - name: Parity report regenerates
         run: uv run python -m tests.parity_report
+
+  # The frontend is checked on its own job rather than inside the Python
+  # matrix: nothing it does depends on the Python version, and running it twice
+  # would only double the minutes.
+  frontend:
+    name: frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The version comes from package.json's packageManager field, so CI and a
+      # developer's corepack shim install with the same pnpm.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      # --frozen-lockfile fails if pnpm-lock.yaml is out of date with
+      # package.json, the same gate uv sync --locked gives the Python side.
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      # Chromium only, and only the browser: the runner already carries the
+      # system libraries that --with-deps would install.
+      - name: Install Playwright chromium
+        run: pnpm exec playwright install chromium
+
+      - name: End-to-end
+        run: pnpm e2e

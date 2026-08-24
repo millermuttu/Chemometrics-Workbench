@@ -1,0 +1,16 @@
+import path from "node:path";
+
+import tailwindcss from "@tailwindcss/vite";
+import react from "@vitejs/plugin-react";
+import { defineConfig } from "vite";
+
+// The stub server (#53) binds an ephemeral port by default; STUB_PORT pins it
+// so this proxy has something to point at. Development and the packaged build
+// then differ in origin only - the client always calls /api on its own origin.
+const API_TARGET = process.env.VITE_API_TARGET ?? "http://127.0.0.1:8765";
+
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+  resolve: { alias: { "@": path.resolve(import.meta.dirname, "src") } },
+  server: { proxy: { "/api": { target: API_TARGET, changeOrigin: true } } },
+});

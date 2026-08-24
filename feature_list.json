@@ -81,7 +81,7 @@
         "stub-server"
       ],
       "user_visible_behavior": "pnpm build produces a static bundle and pnpm test passes. A token page renders the full palette, type scale and run-state colours in both light and dark, each designed rather than inverted.",
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "pnpm install && pnpm build succeeds from a clean checkout.",
         "pnpm test and pnpm typecheck pass.",
@@ -94,8 +94,8 @@
         "No fixture file is imported by the frontend - grep frontend/src for the fixture directory returns nothing.",
         "Pointing the client at a different backend is a base-URL change and nothing else."
       ],
-      "evidence": null,
-      "notes": "Tokens are ported from design/canvas/_base.css, not designed. Both palettes, the Okabe-Ito data series d1-d6 and the semantic run-state colours already exist there, and IBM Plex Sans/Mono is settled - which answers the brief's 'avoid Inter and Space Grotesk'. The one real difference from the artboards: they @import webfonts from Google, and a local-first application must bundle them."
+      "evidence": "2026-08-24. On feature/42_frontend-scaffold. `frontend/` holds Vite 6, React 19, TypeScript 5.9, Tailwind 4 and pnpm 11.23 (pinned in packageManager). `pnpm typecheck`, `pnpm lint`, `pnpm test` (7 tests) and `pnpm build` all pass; `pnpm e2e` passes 1 Playwright test against the built bundle. Python side still 481 passed. The palettes in src/styles/tokens.css are parsed against design/canvas/_base.css by src/__tests__/tokens.test.ts - both blocks, 24 variables each, compared value by value, plus a check that no data-series colour equals --accent, --fail or --stale. IBM Plex ships as 33 woff2 assets in dist and `grep -rl fonts.googleapis dist` is empty; the e2e test fails on any request that does not start with http://127.0.0.1, which is the offline check. Built bundle served by the stub server itself: `STUB_PORT=8765 STUB_TOKEN=dev uv run python stub/server.py` then http://127.0.0.1:8765/?token=dev returns the page (200), its JS and CSS assets (200) and same-origin /api/projects (200); the page header shows `GET /api/projects -> Tecator meat study` from a real TanStack Query call. Dev mode: `pnpm dev` on 5173 proxies /api to 127.0.0.1:8765 and returns the same project JSON. CI has a `frontend` job doing install --frozen-lockfile, typecheck, lint, unit tests, build, chromium install and e2e.",
+      "notes": "No fixture file is imported by the frontend - every payload arrives over HTTP from the stub server, which is the point of #53. The token is read once from ?token= in the launch URL, held in sessionStorage and stripped from the address bar; VITE_STUB_TOKEN covers a dev-server first load. shadcn/ui is configured (components.json, the @ alias, the cn helper) but no component has been pulled in: `pnpm dlx shadcn add <name>` is the way to add one when a screen needs it. Playwright needs `--disable-gpu` in this container or chromium takes itself down. STUB_PORT was added to stub/server.py so the Vite proxy has a fixed target; the default is still 0, an ephemeral port."
     },
     {
       "id": "app-shell",
