@@ -474,6 +474,16 @@ def node_states(pipeline: Pipeline) -> dict[str, Any]:
     states["autoscale_c"] = {"state": "stale", "reason": "upstream changed"}
     states["pca_c"] = {"state": "not_run"}
     states["centre_b"] = {"state": "not_run"}
+    # The fifth state. Its message is the one jobs.json's failing run ends on,
+    # because the node that failed and the run that failed are the same event
+    # seen from two places.
+    states["pca_d"] = {
+        "state": "failed",
+        "message": (
+            "5 components were asked of a matrix of rank 4. Reduce n_components, "
+            "or add samples or variables."
+        ),
+    }
     return {
         "pipeline_id": str(pipeline.pipeline_id),
         "nodes": states,

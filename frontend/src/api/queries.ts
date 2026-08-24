@@ -95,7 +95,10 @@ export interface Pipeline {
 
 export interface PipelineState {
   pipeline_id: string;
-  nodes: Record<string, { state: string; message?: string }>;
+  nodes: Record<string, { state: string; progress?: number; reason?: string; message?: string }>;
+  /** Presentation only, and deliberately outside Pipeline.content_hash():
+   * moving a node must not change the science (design/data-model.md). */
+  layout: Record<string, { x: number; y: number }>;
 }
 
 export interface Experiment {

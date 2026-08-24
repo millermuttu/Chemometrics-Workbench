@@ -48,7 +48,8 @@
       "state": "complete"
     },
     "pca_d": {
-      "state": "complete"
+      "state": "failed",
+      "message": "5 components were asked of a matrix of rank 4. Reduce n_components, or add samples or variables."
     }
   },
   "layout": {
