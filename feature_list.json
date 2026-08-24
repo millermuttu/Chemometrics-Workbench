@@ -298,6 +298,26 @@
       ],
       "evidence": "2026-08-24. On feature/50_e2e-walkthrough. `pnpm test:e2e` is 38 passed, run twice back to back with the same result; `pnpm test` 52 passed; Python 487 passed; typecheck, lint, build and mypy clean. e2e/walkthrough.spec.ts holds the exit criterion as three tests. The whole path: an empty project, an import whose preview reports delimiter whitespace, orientation samples_in_rows and the reconstructed axis, a dataset that appears only after the preview is confirmed (the tab is asserted absent first), SNV then SG d1 w11 then PCA added through the step list with Validate reporting `valid \u00b7 3 steps`, a run started with no results tab open, and the scores read back. The run is watched through its real lifecycle: the status bar's progress width is sampled every 150 ms, and the test asserts more than two distinct values, that they are non-decreasing, and that the last is 100 - a payload returned whole would fail all three. The drawn scores are compared against a fresh fetch of /api/results/pca_a: first sample id equal, x and y equal to 12 decimal places, and the header's variance matching the served ratio. Both palettes are exercised on the screen the walkthrough ends on. The cancel path freezes the progress width and clears the tab's indicator; the failure path names the rank-4 matrix with no traceback. CI runs it as `pnpm test:e2e` with the stub server started as the Playwright web server fixture.",
       "notes": "`?empty` moved from the server to the page: emptiness describes how this tab started, and once something is imported the flag is spent (sessionStorage). The first attempt put the state on the server and it made the suite order-dependent - the walkthrough's import left the project non-empty for every later test. Per-page state also let the workers stay parallel. The walkthrough deliberately asserts absence before presence - no results tab, no scores plot - so it cannot pass by finding a result that was there from the start."
+    },
+    {
+      "id": "shell-load-failure",
+      "priority": 13,
+      "area": "frontend",
+      "title": "The shell says why it cannot load, instead of spinning",
+      "issue": 69,
+      "depends_on": [
+        "app-shell"
+      ],
+      "user_visible_behavior": "Opening the application without a token, or against a server that is not answering, states the problem and what to do about it rather than showing Loading forever.",
+      "status": "passing",
+      "verification": [
+        "Loading without a token shows a message naming the 401 and how to reopen, not a spinner.",
+        "A server that is not answering is distinguished from one that refuses the token.",
+        "The message stays inside the application chrome.",
+        "An end-to-end test covers the tokenless load."
+      ],
+      "evidence": "2026-08-24. On fix/69_shell-load-failure. `pnpm test:e2e` is 40 passed, 2 of them new; `pnpm test` 52 passed; Python 487 passed; typecheck, lint and build clean. Loading http://127.0.0.1:8765/ with no token now shows `401 \u00b7 UNAUTHORIZED`, `Not authenticated`, what happened and how to reopen from the launch URL - asserted in the browser, along with `Loading\u2026` no longer appearing and the top bar reading `No project` rather than claiming to be loading one. Aborting every /api request shows `NO RESPONSE` and `not answering` instead, so a stopped server is told apart from a refused token. The application chrome stays around the message. Screenshot taken.",
+      "notes": "Found by opening the launch URL without its token, which a browser's autocomplete does readily. #49's failed state covered runs and imports; the shell's own load was a seventh case nobody listed, and every end-to-end test opened the application with a valid token, so nothing exercised it. There is no retry: a 401 is not transient, and retrying is what makes a refusal look like a slow load."
     }
   ]
 }

@@ -109,3 +109,30 @@ test("both themes are the artboard's palettes", async ({ page }) => {
   await page.getByRole("button", { name: "Dark", exact: true }).click();
   expect((await accent()).toUpperCase()).toBe("#54BFAB");
 });
+
+test("without a token the shell says so, rather than loading forever", async ({ page }) => {
+  // The launch URL carries the token once. Opening the bare address - which a
+  // browser's autocomplete does readily - has to say what happened.
+  await page.goto("/");
+
+  const notice = page.getByTestId("cannot-load");
+  await expect(notice).toBeVisible();
+  await expect(notice).toContainText("401 · UNAUTHORIZED");
+  await expect(notice).toContainText("Not authenticated");
+  await expect(notice).toContainText("?token=");
+  await expect(notice).not.toContainText("Traceback");
+
+  // The application chrome stays: this is a window, not a failed browser tab.
+  await expect(page.locator(".tbar")).toBeVisible();
+  await expect(page.getByText("Loading…")).toHaveCount(0);
+});
+
+test("a server that is not answering is told apart from one that refuses", async ({ page }) => {
+  await page.route("**/api/**", (route) => route.abort());
+  await page.goto("/?token=e2e-token");
+
+  const notice = page.getByTestId("cannot-load");
+  await expect(notice).toBeVisible();
+  await expect(notice).toContainText("NO RESPONSE");
+  await expect(notice).toContainText("not answering");
+});
