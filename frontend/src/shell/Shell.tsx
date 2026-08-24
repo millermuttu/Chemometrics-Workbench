@@ -15,6 +15,7 @@ import {
 } from "@/api/queries";
 import { DatasetView } from "@/screens/DatasetView";
 import { EmptyProject } from "@/screens/EmptyProject";
+import { CannotLoad } from "@/states/CannotLoad";
 import { Import } from "@/screens/Import";
 import { PipelineCanvas } from "@/canvas/PipelineCanvas";
 import { AnalysisResults } from "@/screens/analysis/AnalysisResults";
@@ -247,7 +248,9 @@ export function Shell() {
       <div className="tbar">
         <div className="tb-l">
           <FlaskIcon />
-          <span className="proj">{project?.name ?? "Loading…"}</span>
+          <span className="proj">
+            {project?.name ?? (projects.isError ? "No project" : "Loading…")}
+          </span>
           <span className="crumb mono">{project?.directory ?? ""}</span>
         </div>
         <div className="tb-r">
@@ -319,7 +322,13 @@ export function Shell() {
             onMove={(from, to) => dispatch({ type: "move", from, to })}
             onSplit={(id) => dispatch({ type: "split", id })}
           />
-          {job.data?.status === "failed" && !dismissedFailure ? (
+          {projects.isError ? (
+            // The shell's own load failed. Everything below depends on the
+            // project, so there is nothing to show but the reason.
+            <CannotLoad error={projects.error} />
+          ) : null}
+
+          {!projects.isError && job.data?.status === "failed" && !dismissedFailure ? (
             <div
               role="alert"
               data-testid="run-failed"
@@ -350,7 +359,7 @@ export function Shell() {
             </div>
           ) : null}
 
-          {noDatasets && !activeTab ? (
+          {projects.isError ? null : noDatasets && !activeTab ? (
             <EmptyProject onImport={openImport} />
           ) : state.splitId ? (
             <div className="split">
