@@ -13,7 +13,10 @@ export default defineConfig({
     launchOptions: { args: ["--disable-gpu"] },
   },
   webServer: {
-    command: "pnpm preview --port 4173 --strictPort",
+    // --host 127.0.0.1 is not decoration: without it vite preview binds
+    // whatever localhost resolves to, which on a CI runner is ::1, and the
+    // wait below polls 127.0.0.1 until it times out.
+    command: "pnpm preview --host 127.0.0.1 --port 4173 --strictPort",
     url: "http://127.0.0.1:4173",
     reuseExistingServer: !process.env.CI,
   },
