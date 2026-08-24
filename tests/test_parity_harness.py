@@ -217,8 +217,10 @@ def test_every_tier_is_reachable() -> None:
 
 
 def test_an_unsourced_entry_cannot_be_checked() -> None:
+    # The R mdatools entries used to stand here. #24 sourced them, so the
+    # example is now the corn loading vector, which is the one gap left.
     with pytest.raises(ValueError, match="holds no value"):
-        parity.check("corn.pca.spe_limit.r_mdatools", 1.0)
+        parity.check("corn.pca.loadings.literature", 1.0)
 
 
 def test_an_unknown_entry_is_a_key_error() -> None:
@@ -230,7 +232,7 @@ def test_comparable_entry_ids_excludes_gaps_and_context() -> None:
     ids = set(parity.comparable_entry_ids())
     assert "gasoline.pca.loadings.sklearn" in ids
     assert "tecator.pls.sep.thodberg" not in ids, "comparable=false"
-    assert "corn.pca.spe_limit.r_mdatools" not in ids, "unsourced"
+    assert "corn.pca.loadings.literature" not in ids, "unsourced"
 
 
 # --------------------------------------------------------------------------
@@ -288,4 +290,4 @@ def test_the_run_record_names_what_was_never_compared(tmp_path: Path) -> None:
     assert "corn.pls.coefficients.sklearn" in not_compared
     # Gaps and context are not coverage failures, so they are not listed here.
     assert "tecator.pls.sep.thodberg" not in not_compared
-    assert "corn.pca.spe_limit.r_mdatools" not in not_compared
+    assert "corn.pca.loadings.literature" not in not_compared

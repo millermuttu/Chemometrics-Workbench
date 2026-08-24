@@ -309,7 +309,7 @@
         "reference-values"
       ],
       "user_visible_behavior": "The T-squared and SPE limits, and the SIMPLS coefficients, are compared against an implementation that is not ours and not scikit-learn's, so the parity report can make a claim about them at all.",
-      "status": "blocked",
+      "status": "passing",
       "verification": [
         "Confirm R and mdatools are installed and their versions are recorded in the fixture.",
         "Confirm the six previously unsourced entries hold real values with full provenance.",
@@ -317,8 +317,8 @@
         "Run the parity suite and confirm parity-results.json shows each of them compared.",
         "Confirm issue #11's fourth verification step can now be run."
       ],
-      "evidence": "",
-      "notes": "Blocked on R not being installed on the development machine, which is an environment decision rather than a coding task: there is no sudo, but `conda install -c conda-forge r-base r-mdatools` installs both into the existing anaconda without root. The maintainer was asked during #11 and chose not to install it then. Raised out of #11, whose fourth verification step this is the only thing that unblocks. Note before recording any discrepancy as a defect: mdatools uses a chi-squared SPE limit in some configurations and Jackson-Mudholkar in others, and pca.md \u00a713 already lists that as a known divergence. Every matrix handed to mdatools must be pre-centred, as with scikit-learn, or R's own centring default applies twice."
+      "evidence": "2026-08-25. On feature/24_r-mdatools-references. R 4.3.3 and mdatools 0.14.1 installed with `conda create -n r-parity -c conda-forge r-base r-mdatools r-jsonlite`, which needs no root - the blocker was the environment, not the code. tests/fixtures/export_for_r.py writes the same centred matrices the fixture uses; tests/fixtures/r_mdatools_reference.R fits mdatools::pca(lim.type='jm', alpha=0.05) and mdatools::pls(method='simpls'), both with center=FALSE; the result is committed as tests/fixtures/r_mdatools_values.json so regeneration and CI never need R. All nine entries are sourced and compared - `uv run pytest` is 496 passed, 1 skipped, and parity-results.json shows: spe_limit identical within float for corn and tecator, a documented divergence for gasoline, hotelling_t2_limit a documented divergence for all three at exactly (n+1)/n, and pls coefficients agreeing within tolerance (worst delta below 1e-9 across 1201 values). docs/parity-report.md regenerates with 96 claims, up from 87, and one gap left.",
+      "notes": "Two findings the comparison produced. First, the T2 limits differ from mdatools by exactly (n+1)/n - the same factor chemotools differs by, from an unrelated implementation in another language, which is what turns 'our convention' into a demonstrated one. Second, gasoline's SPE limit differs because its residual spectrum decays slowly enough that Jackson-Mudholkar's h0 is negative (-0.0190) and mdatools clamps it to 0.001 while we use it as computed; applying their clamp to our formula reproduces their number to nine significant figures. What our kernel should do about a non-positive h0 is #71, opened rather than decided here. NIPALS and SIMPLS coinciding in coefficients is pls-regression.md section 2's claim, and this is the first test of it that scikit-learn could not give, being NIPALS too."
     },
     {
       "id": "reference-values-chemotools",

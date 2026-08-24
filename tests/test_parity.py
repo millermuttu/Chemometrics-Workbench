@@ -19,8 +19,11 @@ decide the tolerance, the sign handling and the claim tier.
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pytest
+from scipy.stats import norm
 
 from chemometrics_workbench.datasets import load_corn, load_gasoline, load_tecator
 from chemometrics_workbench.decomposition import PCA
@@ -458,6 +461,128 @@ def test_the_t2_limit_differs_from_the_reference_by_exactly_one_over_n(
 
 
 # --------------------------------------------------------------------------
+# the limits and SIMPLS coefficients, against R mdatools
+#
+# These were `unsourced` from #7 until #24 installed R. They matter more than
+# their number suggests: chemotools is another Python implementation on the
+# same NumPy, so agreeing with it says less than agreeing with a different
+# language, a different author, and - for PLS - a different algorithm.
+# --------------------------------------------------------------------------
+
+
+#: Gasoline's residual eigenvalue spectrum decays slowly enough that
+#: Jackson-Mudholkar's `h0` comes out negative. mdatools clamps it; we do not.
+#: See the divergence recorded below, and #71 for our own handling.
+_H0_CLAMPED_IN_MDATOOLS = "gasoline"
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_the_spe_limit_matches_r_mdatools(dataset: str, pca_models: dict[str, PCA]) -> None:
+    """An implementation in another language, on the formula pca.md §8 names.
+
+    For corn and tecator this is identical within float - two languages, two
+    authors, the same number - which is the strongest statement the SPE limit
+    has. Gasoline is a real difference and is recorded as one below rather than
+    hidden inside a tolerance.
+    """
+    if dataset == _H0_CLAMPED_IN_MDATOOLS:
+        pytest.skip("gasoline diverges by a documented convention; see the test below")
+
+    result = parity.check(
+        f"{dataset}.pca.spe_limit.r_mdatools", pca_models[dataset].spe_limit(LIMIT_ALPHA)
+    )
+    assert result.passed
+    assert result.tier is parity.Tier.IDENTICAL
+
+
+def test_the_gasoline_spe_limit_differs_because_mdatools_clamps_h0(
+    pca_models: dict[str, PCA], fixture_entries: dict[str, dict[str, object]]
+) -> None:
+    """A divergence with a cause, proven before it is recorded.
+
+    Jackson-Mudholkar assumes `h0 = 1 - 2θ₁θ₃/3θ₂²` is positive. Gasoline's
+    residual spectrum decays slowly enough that it is not: `h0 = -0.0190`, and
+    the limit is then a bracket raised to a large negative power. `mdatools`
+    guards this by clamping `h0` to 0.001; our kernel uses it as computed.
+
+    The test recomputes our own formula with their clamp and requires it to
+    reproduce their number, so this is recorded as a convention only for as
+    long as that is actually why the two differ. What our kernel *should* do
+    about a negative `h0` is a separate question - #71.
+    """
+    dataset = _H0_CLAMPED_IN_MDATOOLS
+    model = pca_models[dataset]
+    theirs = float(fixture_entries[f"{dataset}.pca.spe_limit.r_mdatools"]["value"])  # type: ignore[arg-type]
+    ours = model.spe_limit(LIMIT_ALPHA)
+
+    eigenvalues = np.asarray(model.eigenvalues_, dtype=float)
+    tail = eigenvalues[model.n_components :]
+    theta = [float((tail**m).sum()) for m in (1, 2, 3)]
+    h0 = 1.0 - (2.0 * theta[0] * theta[2]) / (3.0 * theta[1] ** 2)
+    assert h0 < 0.0, "the divergence only exists because h0 is negative here"
+
+    clamped = 0.001
+    bracket = (
+        float(norm.ppf(1.0 - LIMIT_ALPHA)) * math.sqrt(2.0 * theta[1] * clamped**2) / theta[0]
+        + 1.0
+        + theta[1] * clamped * (clamped - 1.0) / theta[0] ** 2
+    )
+    reconstructed = theta[0] * bracket ** (1.0 / clamped)
+    assert reconstructed == pytest.approx(theirs, rel=1e-9), (
+        "clamping h0 no longer reproduces mdatools, so the reason recorded below "
+        "is not the reason any more"
+    )
+    assert ours != pytest.approx(theirs, rel=1e-3)
+
+    result = parity.record_divergence(
+        f"{dataset}.pca.spe_limit.r_mdatools",
+        reason=(
+            "Both compute Jackson-Mudholkar on the same residual eigenvalues, and "
+            f"they differ because gasoline's h0 is negative ({h0:.4f}). mdatools "
+            "clamps h0 to 0.001 before raising the bracket to the 1/h0 power; our "
+            "kernel uses h0 as computed. Applying their clamp to our own formula "
+            "reproduces their number to nine significant figures, so this is a "
+            "guard against a degenerate spectrum rather than a different formula. "
+            "Corn and tecator, whose h0 is positive, are identical within float."
+        ),
+    )
+    assert result.tier is parity.Tier.DOCUMENTED_DIVERGENCE
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_the_t2_limit_differs_from_r_mdatools_by_exactly_one_over_n(
+    dataset: str, pca_models: dict[str, PCA], fixture_entries: dict[str, dict[str, object]]
+) -> None:
+    """The same `(n+1)/n` convention as chemotools, from a different lineage.
+
+    Two independent implementations differing from us by the identical factor
+    is worth more than either alone: it says the convention is theirs and ours
+    is deliberate, rather than one of them having a bug we happened to match.
+    """
+    model = pca_models[dataset]
+    n = model.n_samples_
+    assert n is not None
+    theirs = float(fixture_entries[f"{dataset}.pca.hotelling_t2_limit.r_mdatools"]["value"])  # type: ignore[arg-type]
+    ours = model.hotelling_t2_limit(LIMIT_ALPHA, "new")
+
+    assert ours / theirs == pytest.approx((n + 1) / n, rel=1e-9)
+    assert model.hotelling_t2_limit(LIMIT_ALPHA, "calibration") < theirs
+
+    result = parity.record_divergence(
+        f"{dataset}.pca.hotelling_t2_limit.r_mdatools",
+        reason=(
+            "mdatools computes the classic Hotelling limit a(n-1)/(n-a) F(a, n-a); "
+            "pca.md §7's new-sample form is a(n^2-1)/(n(n-a)) F(a, n-a), larger by "
+            f"exactly (n+1)/n - a factor of {(n + 1) / n:.4f} at n={n}. This is the "
+            "same factor chemotools differs by, from an unrelated implementation in "
+            "another language, which is what makes it a convention rather than "
+            "either side's mistake."
+        ),
+    )
+    assert result.tier is parity.Tier.DOCUMENTED_DIVERGENCE
+
+
+# --------------------------------------------------------------------------
 # PLS
 # --------------------------------------------------------------------------
 
@@ -509,6 +634,26 @@ def test_pls_coefficients_match_the_reference(dataset: str, pls_models: dict[str
     result = parity.check(f"{dataset}.pls.coefficients.sklearn", pls_models[dataset].coefficients_)
     assert result.passed
     assert not result.sign_aligned, "b = Rq is already sign-invariant (§5)"
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_pls_coefficients_match_simpls_in_r(dataset: str, pls_models: dict[str, PLS]) -> None:
+    """`pls-regression.md` §2's claim, checked against a different algorithm.
+
+    NIPALS and SIMPLS build different weights and different loadings, and the
+    document claims they nonetheless coincide in coefficients and predictions
+    for a single response. scikit-learn is NIPALS like ours, so it cannot test
+    that claim. mdatools is SIMPLS, and it can: agreement here is the claim
+    holding, not a tolerance being generous.
+
+    Weights and loadings are deliberately not compared - the same document says
+    they do not coincide, and comparing them would be asserting the opposite of
+    what it states.
+    """
+    result = parity.check(
+        f"{dataset}.pls.coefficients.r_mdatools", pls_models[dataset].coefficients_
+    )
+    assert result.passed
 
 
 @pytest.mark.parametrize("dataset", DATASETS)
