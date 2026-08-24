@@ -116,10 +116,11 @@ jobs:
       - name: Build
         run: pnpm build
 
-      # Chromium only, and only the browser: the runner already carries the
-      # system libraries that --with-deps would install.
+      # Chromium only, but with its system libraries: the runner does not carry
+      # all of them, and a browser that cannot start fails the run at the last
+      # step after everything else has already passed.
       - name: Install Playwright chromium
-        run: pnpm exec playwright install chromium
+        run: pnpm exec playwright install --with-deps chromium
 
       - name: End-to-end
         run: pnpm e2e
