@@ -8,13 +8,13 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 ## Where things stand
 
-**Phase 0 is released and tagged `v0.1.0`. Phase 1 is planned but not started — no line of it is written yet.**
+**Phase 0 is released and tagged `v0.1.0`. Phase 1.1 is under way: the contract fixtures (#41) and the stub server (#53) are merged into `dev`. The frontend has not been scaffolded yet — #42 is the next thing.**
 
 `feature_list.json` is now the **Phase 1.1** list. Phase 0's is archived at `docs/phase-0/feature_list.json` and must not be added to.
 
 **Phase 1 runs as three sub-phases**, decided this session and recorded in [`docs/decisions/0002-phase-1-shape.md`](docs/decisions/0002-phase-1-shape.md). Read that record before re-arguing the shape:
 
-- **1.1 — walking skeleton.** The React shell and the core screens over a **stub server**: FastAPI on `127.0.0.1`, token-authenticated, serving fixtures generated from the real kernels at the endpoint paths 1.2 will implement. No executor, no database, no persistence. Issues #40–#50 and #53.
+- **1.1 — walking skeleton.** The React shell and the core screens over a **stub server**: FastAPI on `127.0.0.1`, token-authenticated, serving fixtures generated from the real kernels at the endpoint paths 1.2 will implement. No executor, no database, no persistence. Issues #40–#50 and #53. **The server half is built** — #41 and #53 are `passing`; everything left is the frontend.
 - **1.2 — backend.** Readers, the executor, real jobs and the HTTP surface, replacing stub handlers behind unchanged URLs. **Issues not written yet.**
 - **1.3 — database and integration.** SQLite in each project directory. **Issues not written yet.**
 
@@ -63,15 +63,15 @@ The SPE limit matches exactly (1.6e-18, 2.2e-19, 5.6e-18); the T² limit matches
 
 | | |
 | --- | --- |
-| Current branch | `feature/40_phase-1-1-feature-list` |
-| Open pull requests | **#52**, base `dev` — the Phase 1.1 list, the artboard bindings and the walking-skeleton change. Not yet merged |
-| `dev` | clean, in sync with origin, no Phase 1 code |
-| `main` | identical to `dev` as of `v0.1.0`; receives a merge only at the end of a phase |
-| Open issues | 14 — #24 (Phase 0, blocked), #40–#50 and #53 (Phase 1.1), #51 (Phase 2) |
+| Current branch | `dev` |
+| Open pull requests | None. #55 (fixtures) and #56 (stub server) are merged and their branches deleted |
+| `dev` | clean, in sync with origin, at `83e3466` — carries `stub/` and its tests |
+| `main` | at `v0.1.0`; receives a merge only at the end of a phase |
+| Open issues | 12 — #24 (Phase 0, blocked), #42–#50 (Phase 1.1), #51 (Phase 2) |
 | Latest release | `v0.1.0` on `main`, tagged 2026-08-22 |
-| Feature statuses | Phase 1.1: 1 × `passing` (#40), 11 × `not_started`. Phase 0's record: 16 × `passing`, 1 × `blocked` |
-| Verification | `uv run ruff check`, `ruff format --check`, `mypy`, `pytest` — all green (432 tests), enforced by CI on 3.12 and 3.13. CI regenerates the parity report; **there is no byte diff on it, by design** |
-| Runtime dependencies | `pydantic`, `numpy`, `scipy`. **`scikit-learn` and `chemotools` are dev-only and must stay that way** (#13) |
+| Feature statuses | Phase 1.1: 3 × `passing` (#40, #41, #53), 9 × `not_started`. Phase 0's record: 16 × `passing`, 1 × `blocked` |
+| Verification | `uv run ruff check`, `ruff format --check`, `mypy`, `pytest` — all green (481 tests), enforced by CI on 3.12 and 3.13. CI regenerates the parity report; **there is no byte diff on it, by design** |
+| Runtime dependencies | `pydantic`, `numpy`, `scipy`, **`fastapi`, `uvicorn`**. `httpx` is dev-only, for the test client. **`scikit-learn` and `chemotools` are dev-only and must stay that way** (#13) |
 
 ## Active feature
 
@@ -81,10 +81,9 @@ None is `in_progress`. One is `blocked`:
 
 ## Next action
 
-1. **Merge #52.** It is the Phase 1.1 list itself; every other issue depends on it being the live file.
-2. **Then #41 — contract fixtures**, which has no dependencies and gates everything else. Then #53, then #42.
+**#42 — frontend scaffold, design tokens and both themes.** Its only dependency, #53, is `passing`, and nothing else is unblocked until it lands. Vite, React, TypeScript, Tailwind and pnpm, with `_base.css`'s tokens carried over as the source of the palettes rather than retyped — and the font bundled locally, not `@import`ed from Google Fonts (the scope line in #42).
 
-The dependency chain is `#41 → #53 → #42 → #43 → the screens → #49 → #50`. **#50 is the exit criterion**: a Playwright walkthrough against the stub server, including a cancelled run and a provoked failure. It passes or 1.1 is not done.
+After that the chain is `#43 → the screens (#44–#48) → #49 → #50`. **#50 is the exit criterion**: a Playwright walkthrough against the stub server, including a cancelled run and a provoked failure. It passes or 1.1 is not done.
 
 **Two things carried into Phase 1 from the kernels:**
 
@@ -104,6 +103,15 @@ The dependency chain is `#41 → #53 → #42 → #43 → the screens → #49 →
 ## Carried forward from the specifications
 
 Findings that change downstream work, recorded here because they are easy to miss inside long documents.
+
+From #41 and #53 (the fixtures and the stub server), which the frontend now builds against:
+
+- **The fixtures are the contract, and they are generated.** `stub/generate_fixtures.py` computes nothing of its own — it calls kernels and reshapes their output. Ten files, 1.7 MB, deterministic (UUID5 of a fixed namespace, every timestamp pinned to `2026-08-24T09:00Z`). A payload someone types by hand encodes an API shape nobody agreed to, and 1.2 then rewrites both sides. If a field is missing, add it to the generator, not to the JSON.
+- **The envelope shapes are marked GUESS and the numbers are not.** Every array, metric, confidence limit, content hash and fold index is real and 1.2 must reproduce it. Pagination, the error body, how a job reports progress and how run-state attaches to a pipeline are guesses 1.2 may change — each is marked at the point it is built.
+- **The endpoint paths are the ones 1.2 implements**, so the frontend never changes when the handlers do: `projects`, `projects/{id}/datasets`, `import/preview`, `import`, `pipelines/{id}`, `pipelines/{id}/state`, `pipelines/{id}/validate`, `experiments/{id}`, `experiments/{id}/run`, `jobs/{id}`, `jobs/{id}/cancel`, `spectra/{node_id}`, `results/{node_id}`. All under `/api`, all requiring `Authorization: Bearer <token>`.
+- **A job is elapsed time against a fixture sequence, not a task.** `jobs.json` holds the three sequences; the current step is `elapsed / STEP_SECONDS`, cancel freezes the index. There is no background task, no lock and no executor — **and the walking skeleton stops being one the moment somebody adds them here rather than in 1.2**.
+- **`spectra/{node_id}` is keyed on the pipeline's node ids**, not dataset ids — `source`, `snv`, `centre_a`, `msc`, `centre_b`, `savgol`, `autoscale_c`, `snv_savgol`, `split_d`, `centre_d`. `results/{node_id}` likewise takes `pca_a`–`pca_d`. Anything else is a 404 with a body.
+- **Tecator at 100 variables does not exercise x-axis decimation.** The trace cap and the density band are exercised (240 spectra against a cap of 60); `variables_kept` is populated but nothing is dropped along the wavelength axis. Real x-decimation is 1.2's, against a dataset big enough to need it (`PROPOSAL.md` §13).
 
 From #4 (PLS):
 
@@ -207,6 +215,10 @@ From #13 (chemotools evaluation):
 
 ## Gotchas that would otherwise waste time
 
+- **The stub server is `uv run python stub/server.py`.** It prints its launch URL — the port is ephemeral, so it is different every run and can only be read from that line. `STUB_TOKEN` pins the token across restarts while developing; without it a fresh one is generated at launch. `STUB_JOB_STEP_SECONDS` (default 1.2) is how a six-step run becomes milliseconds in a test. `STUB_BUNDLE` overrides where the built frontend is served from, which is how the production mount is exercised before #42 has produced a `frontend/dist`.
+- **Make a failure happen without editing code:** `?fail=true` on `experiments/{id}/run` for a run that fails at 0.85, `X-Stub-Fail: 1` on any request for a 422 carrying `error.json`. #49's failed state is built against these.
+- **`stub/server.py`'s handlers carry `Phase 1.2:` markers, not issue numbers**, because 1.2's issues are not cut yet. When they are, grep `Phase 1.2:` and put the numbers in.
+- **Regenerating the contract fixtures is `uv run python stub/generate_fixtures.py`.** `tests/test_stub_fixtures.py` guards them by *structure* — schema round-trips, shapes, the pipeline hash — and deliberately not by byte comparison, for the reason #38 removed the parity report's byte gate: the last bits depend on the BLAS NumPy was built against.
 - **Setup is `uv sync`.** Verification commands are in `CONTRIBUTING.md`; `clean-state-checklist.md` refers to them by role rather than by name.
 - **Corn and gasoline tests skip on a fresh machine.** Run `CHEMOMETRICS_DOWNLOAD_DATASETS=1 uv run pytest` once to fetch them. A skipped dataset test is not a failing one, but it is not evidence either.
 - **Regenerating the fixture is `uv run python tests/fixtures/generate_reference_values.py`.** Adding a kernel usually means adding reference entries there, then a tolerance class in `QUANTITY_CLASS`, then an entry in `ALGORITHMS` in `test_reference_values.py` if the algorithm name is new. Say in the commit message what moved and why — and check the diff is additive: #12's was 1264 insertions and zero deletions, which is what "no existing value moved" looks like.
