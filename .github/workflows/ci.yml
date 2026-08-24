@@ -86,9 +86,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The version comes from package.json's packageManager field, so CI and a
-      # developer's corepack shim install with the same pnpm.
+      # The version comes from packageManager, so CI and a developer's corepack
+      # shim install the same pnpm. The action reads the repository root by
+      # default and the field lives in frontend/, hence the path.
       - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
 
       - uses: actions/setup-node@v4
         with:
