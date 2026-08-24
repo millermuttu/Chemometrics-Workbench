@@ -1,0 +1,63 @@
+/* The two palettes, ported verbatim from design/canvas/_base.css.
+ *
+ * That file is the token source and the artboards are drawn from it. These
+ * values are not a design decision taken here - src/__tests__/tokens.test.ts
+ * parses both files and fails if one drifts from the other. Change _base.css
+ * first, then re-run the test.
+ *
+ * Ground, ink, rules and accent carry the interface. --stale and --fail are
+ * semantic and deliberately not drawn from the data palette, so a failing node
+ * can never be read as a red spectrum. --d1 to --d6 are Okabe-Ito.
+ */
+.t-light {
+  --ground:#E7EBEA;
+  --panel:#F3F6F5;
+  --surface:#FFFFFF;
+  --sunken:#EDF1F0;
+  --ink:#0F1A18;
+  --ink2:#44524E;
+  --ink3:#6E7D79;
+  --rule:#D2DAD8;
+  --rule2:#E5EAE8;
+  --accent:#0B6B62;
+  --accentSoft:#DCEDE9;
+  --accentInk:#075049;
+  --stale:#9A6206;
+  --staleSoft:#F7EEDD;
+  --fail:#A93226;
+  --failSoft:#F9E8E5;
+  --d1:#0072B2;
+  --d2:#E69F00;
+  --d3:#009E73;
+  --d4:#CC79A7;
+  --d5:#56B4E9;
+  --d6:#D55E00;
+  --grid:#EDF1F0;
+  --band:#CBD7D4;
+}
+.t-dark {
+  --ground:#080D0C;
+  --panel:#101816;
+  --surface:#0C1413;
+  --sunken:#141E1C;
+  --ink:#E3EAE8;
+  --ink2:#A6B5B1;
+  --ink3:#788985;
+  --rule:#22302D;
+  --rule2:#192523;
+  --accent:#54BFAB;
+  --accentSoft:#122A26;
+  --accentInk:#7FD3C2;
+  --stale:#DFA85A;
+  --staleSoft:#2A2216;
+  --fail:#E8887C;
+  --failSoft:#2C1A17;
+  --d1:#5AA9DE;
+  --d2:#F0B33C;
+  --d3:#3FC79E;
+  --d4:#DE9DC4;
+  --d5:#8FCCF0;
+  --d6:#F0855A;
+  --grid:#16211F;
+  --band:#263532;
+}

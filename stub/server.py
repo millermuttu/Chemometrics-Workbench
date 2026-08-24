@@ -65,6 +65,11 @@ STEP_SECONDS = float(os.environ.get("STUB_JOB_STEP_SECONDS", "1.2"))
 # port. In production mode the bundle is served from here and no origin is.
 DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
+# Zero means an ephemeral port, which is what PROPOSAL.md section 4.3 asks for
+# and what the packaged application will do. STUB_PORT pins it instead, because
+# Vite's dev proxy needs a target it can be told about in advance (#42).
+PORT = int(os.environ.get("STUB_PORT", "0"))
+
 
 def fixture(name: str) -> Any:
     return json.loads((FIXTURES / f"{name}.json").read_text())
@@ -241,7 +246,7 @@ if BUNDLE.is_dir():
 
 
 def main() -> None:
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=0, log_level="info"))
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=PORT, log_level="info"))
     # An ephemeral port is only knowable after the socket is bound, so the URL
     # is printed from the socket rather than from the config.
     original = server.startup
