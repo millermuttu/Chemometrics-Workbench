@@ -12,7 +12,7 @@ test("the built bundle renders both palettes in IBM Plex", async ({ page }) => {
     if (!request.url().startsWith("http://127.0.0.1")) external.push(request.url());
   });
 
-  await page.goto("/");
+  await page.goto("/tokens?token=e2e-token");
   await expect(page.getByRole("heading", { name: "Design tokens" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Light" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Dark" })).toBeVisible();

@@ -43,8 +43,7 @@ from uuid import uuid4
 import uvicorn
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 # Production mode serves the built frontend from here. STUB_BUNDLE overrides it,
@@ -242,7 +241,23 @@ def cancel_job(job_id: str) -> Any:
 app.include_router(api)
 
 if BUNDLE.is_dir():
-    app.mount("/", StaticFiles(directory=BUNDLE, html=True), name="bundle")
+
+    @app.get("/{path:path}")
+    def bundle(path: str) -> FileResponse:
+        """Serve the built file, or index.html so a deep link reaches the app.
+
+        The frontend routes on the path itself (#42), so /tokens has to arrive
+        as the application rather than as a 404. Anything under /api never
+        reaches here - those routes are registered above this one.
+        """
+        candidate = (BUNDLE / path).resolve()
+        # A path from the client never escapes the bundle: PROPOSAL.md section
+        # 4.3 confines filesystem access, and ../ in a URL is the cheapest way
+        # to test whether anyone meant it.
+        inside = candidate.is_relative_to(BUNDLE.resolve())
+        if path and inside and candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(BUNDLE / "index.html")
 
 
 def main() -> None:

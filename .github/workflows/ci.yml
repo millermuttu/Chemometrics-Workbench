@@ -122,5 +122,18 @@ jobs:
       - name: Install Playwright chromium
         run: pnpm exec playwright install --with-deps chromium
 
+      # The end-to-end tests run against the stub server serving the built
+      # bundle - the same origin and the same token the packaged application
+      # uses - so this job needs the Python environment too.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Sync the stub server's environment
+        working-directory: .
+        run: uv sync --locked
+
       - name: End-to-end
         run: pnpm e2e
