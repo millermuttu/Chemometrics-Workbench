@@ -188,3 +188,12 @@ def test_a_step_is_validated_against_the_model_that_will_enforce_it(client: Test
     bounded = client.post("/api/steps/validate", json={**good, "deriv": 5}, headers=AUTH).json()
     assert bounded["valid"] is False
     assert bounded["errors"][0]["field"] == "savgol.deriv"
+
+
+def test_a_project_can_be_asked_for_a_dataset_past_the_envelope(client: TestClient) -> None:
+    """The overloaded state needs a dataset too big to commit to git."""
+    entry = client.get("/api/projects/p/datasets?oversize=true", headers=AUTH).json()[0]
+    version = entry["versions"][0]
+    assert (version["n_samples"], version["n_variables"]) == (42_000, 6_200)
+    # Only the declared shape changes - the arrays and hashes are untouched.
+    assert version["content_hash"] == fixture("datasets")[0]["versions"][0]["content_hash"]

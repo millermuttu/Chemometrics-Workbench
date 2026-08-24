@@ -4,6 +4,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useSpectra, type SpectraPayload } from "@/api/queries";
 import { PLOT_CONFIG, axisLayout, baseLayout, readTheme } from "@/plot/theme";
 import { bandTraces, spectraTraces } from "@/plot/traces";
+import { Overloaded } from "@/states/Overloaded";
+import { checkEnvelope } from "@/states/envelope";
 
 /** The most-looked-at screen in the product.
  *
@@ -129,7 +131,32 @@ function Segmented({
   );
 }
 
-export function SpectraView({ nodeId, title }: { nodeId: string; title: string }) {
+/** The guard sits outside the view rather than inside it: past the envelope
+ * there is no plot to prepare, and preparing one anyway - hooks, queries, a
+ * megabyte of payload - is the freeze this state exists to avoid. */
+export function SpectraView({
+  nodeId,
+  title,
+  samples,
+  variables,
+}: {
+  nodeId: string;
+  title: string;
+  samples?: number;
+  variables?: number;
+}) {
+  if (samples && variables && !checkEnvelope(samples, variables).within) {
+    return (
+      <div className="pane">
+        <Overloaded samples={samples} variables={variables} what="The spectra plot" />
+      </div>
+    );
+  }
+  return <SpectraPlotView nodeId={nodeId} title={title} />;
+}
+
+function SpectraPlotView({ nodeId, title }: { nodeId: string; title: string }) {
+
   const [layer, setLayer] = useState<Layer>("both");
   const [selected, setSelected] = useState<number[]>([]);
 

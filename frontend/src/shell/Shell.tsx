@@ -81,7 +81,17 @@ function Pane({
   }
 
   if (tab?.kind === "pipeline") return <PipelineCanvas onOpenNode={onOpenNode} />;
-  if (tab?.kind === "spectra") return <SpectraView nodeId={tab.id} title={tab.title} />;
+  if (tab?.kind === "spectra") {
+    const shape = datasets?.[0]?.versions.at(-1);
+    return (
+      <SpectraView
+        nodeId={tab.id}
+        title={tab.title}
+        samples={shape?.n_samples}
+        variables={shape?.n_variables}
+      />
+    );
+  }
   if (tab?.kind === "results") return <AnalysisResults nodeId={tab.id} title={tab.title} />;
 
   const found = datasets
@@ -142,6 +152,12 @@ export function Shell() {
   const experiment = useExperiment();
 
   const [staleFrom, setStaleFrom] = useState<string | null>(null);
+  const [dismissedFailure, setDismissedFailure] = useState(false);
+  /** `?failrun` makes the next run take the stub server's failing sequence.
+   * Like `?empty` and `?oversize`, it exists because a state that can only be
+   * reached by editing code is a state nobody tests. All three go in 1.2,
+   * where a rank-deficient matrix fails on its own. */
+  const failNext = new URLSearchParams(window.location.search).has("failrun");
   const [jobId, setJobId] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const job = useJob(jobId);
@@ -261,7 +277,8 @@ export function Shell() {
           <button
             className="btn btn-p"
             onClick={async () => {
-              const started = await run.mutateAsync({});
+              setDismissedFailure(false);
+              const started = await run.mutateAsync({ fail: failNext });
               setJobId(started.job_id);
               setStartedAt(Date.now());
             }}
@@ -291,12 +308,48 @@ export function Shell() {
             tabs={state.tabs}
             activeId={state.activeId}
             splitId={state.splitId}
+            progress={
+              job.data && (job.data.status === "running" || job.data.status === "queued")
+                ? { tabId: "pipeline", value: job.data.progress }
+                : null
+            }
             onActivate={(id) => dispatch({ type: "activate", id })}
             onPin={(id) => dispatch({ type: "pin", id })}
             onClose={(id) => dispatch({ type: "close", id })}
             onMove={(from, to) => dispatch({ type: "move", from, to })}
             onSplit={(id) => dispatch({ type: "split", id })}
           />
+          {job.data?.status === "failed" && !dismissedFailure ? (
+            <div
+              role="alert"
+              data-testid="run-failed"
+              style={{
+                margin: 12,
+                padding: "10px 12px",
+                borderRadius: 3,
+                border: "1px solid var(--fail)",
+                background: "var(--failSoft)",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span className="mono" style={{ fontSize: 10, color: "var(--fail)" }}>
+                  RUN FAILED
+                </span>
+                <button
+                  className="tabx"
+                  aria-label="Dismiss failure"
+                  style={{ marginLeft: "auto" }}
+                  onClick={() => setDismissedFailure(true)}
+                >
+                  ×
+                </button>
+              </div>
+              {/* The message the server sent, which names the cause. There is
+                  no traceback to show and never should be. */}
+              <p style={{ margin: "4px 0 0", color: "var(--ink)" }}>{job.data.message}</p>
+            </div>
+          ) : null}
+
           {noDatasets && !activeTab ? (
             <EmptyProject onImport={openImport} />
           ) : state.splitId ? (

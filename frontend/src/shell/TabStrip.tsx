@@ -20,6 +20,10 @@ interface Props {
   tabs: Tab[];
   activeId: string | null;
   splitId: string | null;
+  /** A run in flight, shown on the tab it belongs to. The same number appears
+   * in the node and in the status bar: one job, three places, no guessing
+   * which is authoritative. */
+  progress?: { tabId: string; value: number } | null;
   onActivate: (id: string) => void;
   onPin: (id: string) => void;
   onClose: (id: string) => void;
@@ -31,6 +35,7 @@ export function TabStrip({
   tabs,
   activeId,
   splitId,
+  progress,
   onActivate,
   onPin,
   onClose,
@@ -97,6 +102,15 @@ export function TabStrip({
           >
             <KindIcon />
             <span>{tab.title}</span>
+            {progress && progress.tabId === tab.id ? (
+              <span
+                className="prog"
+                data-testid="tab-progress"
+                style={{ width: 34, height: 3, marginLeft: 2 }}
+              >
+                <i style={{ width: `${Math.round(progress.value * 100)}%` }} />
+              </span>
+            ) : null}
             <button
               className="tabx"
               aria-label={`Close ${tab.title}`}
