@@ -132,6 +132,33 @@ export interface SpectraPayload {
   band: { n_spectra: number; y_lower: number[]; y_median: number[]; y_upper: number[] };
 }
 
+/** One estimator node's results. Every number is the kernel's: scores,
+ * loadings, variances, T², SPE and both limits arrive as data. */
+export interface PcaPayload {
+  node_id: string;
+  task: string;
+  n_components: number;
+  n_samples: number;
+  n_variables: number;
+  rank: number;
+  samples: { index: number; sample_id: string }[];
+  scores: number[][];
+  loadings: {
+    axis: { kind: string; unit: string | null; values: number[] };
+    components: number[][];
+  };
+  eigenvalues: number[];
+  explained_variance_ratio: number[];
+  cumulative_explained_variance: number[];
+  diagnostics: {
+    hotelling_t2: number[];
+    hotelling_t2_limit: number;
+    spe: number[];
+    spe_limit: number;
+    alpha: number;
+  };
+}
+
 export interface Job {
   job_id: string;
   experiment_id: string;
@@ -215,6 +242,15 @@ export function useSpectra(nodeId: string | undefined) {
     enabled: Boolean(nodeId),
     // The decimated payload is the largest thing crossing the wire; holding it
     // means switching between two nodes does not refetch either.
+    staleTime: Infinity,
+  });
+}
+
+export function useResults(nodeId: string | undefined) {
+  return useQuery({
+    queryKey: ["results", nodeId],
+    queryFn: () => api<PcaPayload>(`/results/${nodeId}`),
+    enabled: Boolean(nodeId),
     staleTime: Infinity,
   });
 }

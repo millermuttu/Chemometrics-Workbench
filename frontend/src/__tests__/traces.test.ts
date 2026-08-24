@@ -24,6 +24,7 @@ const theme: PlotTheme = {
   surface: "#FFFFFF",
   grid: "#EDF1F0",
   band: "#CBD7D4",
+  stale: "#9A6206",
   series: ["#0072B2", "#E69F00", "#009E73", "#CC79A7", "#56B4E9", "#D55E00"],
   font: "sans",
   mono: "mono",

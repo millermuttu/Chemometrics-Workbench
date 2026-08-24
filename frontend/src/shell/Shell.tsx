@@ -17,6 +17,7 @@ import { DatasetView } from "@/screens/DatasetView";
 import { EmptyProject } from "@/screens/EmptyProject";
 import { Import } from "@/screens/Import";
 import { PipelineCanvas } from "@/canvas/PipelineCanvas";
+import { AnalysisResults } from "@/screens/analysis/AnalysisResults";
 import { SpectraView } from "@/screens/SpectraView";
 import { Inspector } from "@/shell/Inspector";
 import { Sidebar } from "@/shell/Sidebar";
@@ -81,6 +82,7 @@ function Pane({
 
   if (tab?.kind === "pipeline") return <PipelineCanvas onOpenNode={onOpenNode} />;
   if (tab?.kind === "spectra") return <SpectraView nodeId={tab.id} title={tab.title} />;
+  if (tab?.kind === "results") return <AnalysisResults nodeId={tab.id} title={tab.title} />;
 
   const found = datasets
     ?.flatMap((entry) => entry.versions.map((version) => ({ entry, version })))
