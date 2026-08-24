@@ -126,8 +126,12 @@ def get_project(project_id: str) -> Any:
 
 
 @api.get("/projects/{project_id}/datasets")
-def list_datasets(project_id: str) -> Any:
-    return fixture("datasets")
+def list_datasets(project_id: str, empty: Annotated[bool, Query()] = False) -> Any:
+    # `?empty=true` is the same kind of affordance as `?fail=true` on a run:
+    # the empty-project state (#44) has to be reachable without editing code,
+    # and a project with no datasets is otherwise unreachable from a fixture
+    # that always has one.
+    return [] if empty else fixture("datasets")
 
 
 @api.post("/import/preview")

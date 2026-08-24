@@ -6,7 +6,14 @@
  * through fifteen preprocessing variants from leaving fifteen tabs behind.
  */
 
-export type TabKind = "dataset" | "pipeline" | "spectra" | "results" | "experiment" | "model";
+export type TabKind =
+  | "dataset"
+  | "import"
+  | "pipeline"
+  | "spectra"
+  | "results"
+  | "experiment"
+  | "model";
 
 export interface Tab {
   /** Stable across opens: the node, dataset or experiment id it shows. */

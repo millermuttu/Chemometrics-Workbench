@@ -131,7 +131,7 @@
         "app-shell"
       ],
       "user_visible_behavior": "A new project states its next action plainly. Choosing a file shows what the reader detected - wavelength range, sample count, delimiter, decimal separator, orientation, metadata columns - and nothing is committed until that is confirmed.",
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "The empty state names the next action without a tour or a modal.",
         "The preview shows all six detected properties before any commit.",
@@ -142,8 +142,8 @@
         "The failure state names the offending file or setting and shows no stack trace.",
         "The screen uses only components the artboards already establish - table rules, .kv rows, .pill, .btn, sidebar section headers - and any new one was raised rather than introduced in passing."
       ],
-      "evidence": null,
-      "notes": "No artboard exists for this screen. DESIGN_BRIEF.md section 6 asked for the first four screens fully and the rest as needed; screens 6 and 7 and the importing state were never drawn. Default taken: build from the component vocabulary the artboards establish. If it should be drawn first, that is one more artboard and this feature waits."
+      "evidence": "2026-08-24. On feature/44_import-flow. `pnpm e2e` is 10 passed, 4 of them this feature: the empty project offers one action and opens the import tab; the preview shows tecator.txt with delimiter=whitespace and decimal=point, states the reconstructed axis and the 22 discarded principal components, and correcting the orientation to samples_in_columns flips the confirm button from `Import 240 x 100` to `Import 100 x 240` before anything is committed; confirming opens the dataset tab, closes the import tab and shows the sample table with the target columns; the broken file returns READER_FAILED with the row-87 message and no traceback, and Try again returns to the picker. `pnpm test` 17 passed, typecheck, lint and build clean, Python 484 passed (1 new: the empty-project knob). Screenshots taken of the empty state, the corrected preview and the imported dataset in the dark palette.",
+      "notes": "No artboard exists for these screens - DESIGN_BRIEF.md section 6 drew the first four and this was among the rest - so they are built from the established vocabulary: the table rules, the .kv rows, .pill and .btn. Nothing new was invented visually. `?empty` in the application's URL asks the stub server for a project with no datasets, which is how the empty state is reachable from a fixture that always has one; `Import a broken file` sends X-Stub-Fail. Both are 1.1 affordances that vanish in 1.2, where a new project is simply empty and a truncated file fails on its own. The dataset view shows the first 60 of 240 samples and says so; virtualisation belongs to #45, where the payload is large enough to need it."
     },
     {
       "id": "spectra-view",

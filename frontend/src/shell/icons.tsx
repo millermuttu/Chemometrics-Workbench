@@ -81,8 +81,17 @@ export const SplitIcon = () => (
   </Icon>
 );
 
+export const ImportIcon = () => (
+  <Icon>
+    <path d="M12 3v12" />
+    <path d="M7 10l5 5 5-5" />
+    <path d="M4 20h16" />
+  </Icon>
+);
+
 export const KIND_ICONS = {
   dataset: DatasetIcon,
+  import: ImportIcon,
   pipeline: NodeIcon,
   spectra: PlotIcon,
   results: PlotIcon,

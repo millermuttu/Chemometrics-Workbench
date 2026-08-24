@@ -1,5 +1,6 @@
 import { useCallback, useReducer, useRef, useState } from "react";
 
+import type { DatasetEntry } from "@/api/queries";
 import {
   useCancelJob,
   useDatasets,
@@ -10,6 +11,9 @@ import {
   useProjects,
   useRunExperiment,
 } from "@/api/queries";
+import { DatasetView } from "@/screens/DatasetView";
+import { EmptyProject } from "@/screens/EmptyProject";
+import { Import } from "@/screens/Import";
 import { Inspector } from "@/shell/Inspector";
 import { Sidebar } from "@/shell/Sidebar";
 import { StatusBar } from "@/shell/StatusBar";
@@ -53,7 +57,26 @@ function useResizable(initial: number, min: number, max: number, side: "left" | 
   return { width, onPointerDown };
 }
 
-function Pane({ tab }: { tab: Tab | undefined }) {
+function Pane({
+  tab,
+  datasets,
+  onImported,
+  onCloseImport,
+}: {
+  tab: Tab | undefined;
+  datasets: DatasetEntry[] | undefined;
+  onImported: (versionId: string, name: string) => void;
+  onCloseImport: () => void;
+}) {
+  if (tab?.kind === "import") {
+    return <Import onImported={onImported} onCancel={onCloseImport} />;
+  }
+
+  const found = datasets
+    ?.flatMap((entry) => entry.versions.map((version) => ({ entry, version })))
+    .find((pair) => pair.version.version_id === tab?.id);
+  if (found) return <DatasetView entry={found.entry} version={found.version} />;
+
   if (!tab) {
     return (
       <div className="pane">
@@ -117,9 +140,22 @@ export function Shell() {
     [],
   );
 
+  const openImport = useCallback(
+    () => open({ id: "import", kind: "import", title: "Import" }, false),
+    [open],
+  );
+  const imported = useCallback(
+    (versionId: string, name: string) => {
+      dispatch({ type: "close", id: "import" });
+      dispatch({ type: "open", tab: { id: versionId, kind: "dataset", title: name }, transient: false });
+    },
+    [],
+  );
+
   const activeTab = state.tabs.find((tab) => tab.id === state.activeId);
   const splitTab = state.tabs.find((tab) => tab.id === state.splitId);
   const samples = datasets.data?.[0]?.versions.at(-1);
+  const noDatasets = datasets.isSuccess && datasets.data.length === 0;
 
   return (
     <div className={`app ${theme}`}>
@@ -135,6 +171,9 @@ export function Shell() {
               {samples.n_samples} × {samples.n_variables}
             </span>
           ) : null}
+          <button className="btn" onClick={openImport}>
+            Import…
+          </button>
           <button className="btn" onClick={() => setTheme(theme === "t-light" ? "t-dark" : "t-light")}>
             {theme === "t-light" ? "Dark" : "Light"}
           </button>
@@ -183,13 +222,15 @@ export function Shell() {
             onMove={(from, to) => dispatch({ type: "move", from, to })}
             onSplit={(id) => dispatch({ type: "split", id })}
           />
-          {state.splitId ? (
+          {noDatasets && !activeTab ? (
+            <EmptyProject onImport={openImport} />
+          ) : state.splitId ? (
             <div className="split">
-              <Pane tab={activeTab} />
-              <Pane tab={splitTab} />
+              <Pane tab={activeTab} datasets={datasets.data} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} />
+              <Pane tab={splitTab} datasets={datasets.data} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} />
             </div>
           ) : (
-            <Pane tab={activeTab} />
+            <Pane tab={activeTab} datasets={datasets.data} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} />
           )}
         </main>
 
