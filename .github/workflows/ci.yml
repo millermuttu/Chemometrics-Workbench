@@ -135,5 +135,7 @@ jobs:
         working-directory: .
         run: uv sync --locked
 
+      # The walkthrough in e2e/walkthrough.spec.ts is Phase 1.1's exit
+      # criterion (#50): the sub-phase is done when it passes here.
       - name: End-to-end
-        run: pnpm e2e
+        run: pnpm test:e2e

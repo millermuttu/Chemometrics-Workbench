@@ -174,9 +174,15 @@ export function useProjects() {
 /** `?empty` in the application's own URL asks the stub server for a project
  * with no datasets, which is how the empty-project state (#44) is reached
  * without editing code. In 1.2 a new project is simply empty. */
+/** `?empty` describes how this page started, not a project that can never be
+ * filled: once something has been imported in this tab the flag is spent, and
+ * the project has a dataset like any other. In 1.2 a new project is simply
+ * empty and there is no flag at all. */
+export const IMPORTED_KEY = "stub:imported";
+
 export function useDatasets(projectId: string | undefined) {
   const flags = new URLSearchParams(window.location.search);
-  const empty = flags.has("empty");
+  const empty = flags.has("empty") && !sessionStorage.getItem(IMPORTED_KEY);
   const oversize = flags.has("oversize");
   const query = empty ? "?empty=true" : oversize ? "?oversize=true" : "";
   return useQuery({
@@ -208,7 +214,10 @@ export function useImportDataset() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ corrections }),
       }),
-    onSuccess: () => client.invalidateQueries({ queryKey: ["datasets"] }),
+    onSuccess: () => {
+      sessionStorage.setItem(IMPORTED_KEY, "1");
+      void client.invalidateQueries({ queryKey: ["datasets"] });
+    },
   });
 }
 

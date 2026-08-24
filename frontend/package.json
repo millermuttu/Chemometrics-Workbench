@@ -9,7 +9,8 @@
     "typecheck": "tsc -b --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@fontsource/ibm-plex-mono": "^5.1.0",
