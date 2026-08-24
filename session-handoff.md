@@ -8,13 +8,13 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 ## Where things stand
 
-**Phase 0 is released and tagged `v0.1.0`. Phase 1.1 is under way: the contract fixtures (#41) and the stub server (#53) are merged into `dev`. The frontend has not been scaffolded yet — #42 is the next thing.**
+**Phase 0 is released and tagged `v0.1.0`. Phase 1.1 is two thirds built: the contract fixtures (#41), the stub server (#53), the frontend scaffold (#42), the shell (#43), the import flow (#44), the spectra view (#45) and the pipeline canvas (#46) are merged into `dev`. What is left is the inspector (#47), analysis results (#48), the six application states (#49) and the walkthrough (#50) that is the exit criterion.**
 
 `feature_list.json` is now the **Phase 1.1** list. Phase 0's is archived at `docs/phase-0/feature_list.json` and must not be added to.
 
 **Phase 1 runs as three sub-phases**, decided this session and recorded in [`docs/decisions/0002-phase-1-shape.md`](docs/decisions/0002-phase-1-shape.md). Read that record before re-arguing the shape:
 
-- **1.1 — walking skeleton.** The React shell and the core screens over a **stub server**: FastAPI on `127.0.0.1`, token-authenticated, serving fixtures generated from the real kernels at the endpoint paths 1.2 will implement. No executor, no database, no persistence. Issues #40–#50 and #53. **The server half is built** — #41 and #53 are `passing`; everything left is the frontend.
+- **1.1 — walking skeleton.** The React shell and the core screens over a **stub server**: FastAPI on `127.0.0.1`, token-authenticated, serving fixtures generated from the real kernels at the endpoint paths 1.2 will implement. No executor, no database, no persistence. Issues #40–#50 and #53. **The skeleton walks**: the frontend talks HTTP to the stub server from its first commit, jobs advance and cancel, and failures render.
 - **1.2 — backend.** Readers, the executor, real jobs and the HTTP surface, replacing stub handlers behind unchanged URLs. **Issues not written yet.**
 - **1.3 — database and integration.** SQLite in each project directory. **Issues not written yet.**
 
@@ -64,14 +64,14 @@ The SPE limit matches exactly (1.6e-18, 2.2e-19, 5.6e-18); the T² limit matches
 | | |
 | --- | --- |
 | Current branch | `dev` |
-| Open pull requests | None. #55 (fixtures) and #56 (stub server) are merged and their branches deleted |
-| `dev` | clean, in sync with origin, at `83e3466` — carries `stub/` and its tests |
+| Open pull requests | None. #55, #56, #57, #59, #60, #61, #62 and #63 are merged and their branches deleted |
+| `dev` | clean, in sync with origin, at `3edf2f6` — carries `stub/`, `frontend/` and both test suites |
 | `main` | at `v0.1.0`; receives a merge only at the end of a phase |
-| Open issues | 12 — #24 (Phase 0, blocked), #42–#50 (Phase 1.1), #51 (Phase 2) |
+| Open issues | 8 — #24 (Phase 0, blocked), #47–#50 (Phase 1.1), #51 (Phase 2), plus whatever is opened next |
 | Latest release | `v0.1.0` on `main`, tagged 2026-08-22 |
-| Feature statuses | Phase 1.1: 3 × `passing` (#40, #41, #53), 9 × `not_started`. Phase 0's record: 16 × `passing`, 1 × `blocked` |
-| Verification | `uv run ruff check`, `ruff format --check`, `mypy`, `pytest` — all green (481 tests), enforced by CI on 3.12 and 3.13. CI regenerates the parity report; **there is no byte diff on it, by design** |
-| Runtime dependencies | `pydantic`, `numpy`, `scipy`, **`fastapi`, `uvicorn`**. `httpx` is dev-only, for the test client. **`scikit-learn` and `chemotools` are dev-only and must stay that way** (#13) |
+| Feature statuses | Phase 1.1: 8 × `passing` (#40, #41, #53, #42, #43, #44, #45, #46), 4 × `not_started` (#47–#50). Phase 0's record: 16 × `passing`, 1 × `blocked` |
+| Verification | Python: `ruff check`, `ruff format --check`, `mypy`, `pytest` — 484 tests. Frontend: `pnpm typecheck`, `pnpm lint`, `pnpm test` (33), `pnpm build`, `pnpm e2e` (20). CI runs both, the Python matrix on 3.12 and 3.13 plus one `frontend` job |
+| Runtime dependencies | Python: `pydantic`, `numpy`, `scipy`, `fastapi`, `uvicorn`. Frontend: `react`, `@tanstack/react-query`, `@xyflow/react`, `plotly.js-gl2d-dist-min`, `@fontsource/ibm-plex-*`, `clsx`, `tailwind-merge`. **`scikit-learn` and `chemotools` stay dev-only** (#13) |
 
 ## Active feature
 
@@ -81,14 +81,14 @@ None is `in_progress`. One is `blocked`:
 
 ## Next action
 
-**#42 — frontend scaffold, design tokens and both themes.** Its only dependency, #53, is `passing`, and nothing else is unblocked until it lands. Vite, React, TypeScript, Tailwind and pnpm, with `_base.css`'s tokens carried over as the source of the palettes rather than retyped — and the font bundled locally, not `@import`ed from Google Fonts (the scope line in #42).
+**#47 — the inspector: node parameters, metrics, provenance.** Its dependencies (#43 and #46) are `passing`. The frame exists and is context-sensitive already; what #47 adds is the parameter editors, the metrics table and the provenance record behind them.
 
-After that the chain is `#43 → the screens (#44–#48) → #49 → #50`. **#50 is the exit criterion**: a Playwright walkthrough against the stub server, including a cancelled run and a provoked failure. It passes or 1.1 is not done.
+Then `#48 → #49 → #50`. **#50 is the exit criterion**: a Playwright walkthrough against the stub server, including a cancelled run and a provoked failure. It passes or 1.1 is not done. Much of what it needs is already written — `frontend/e2e/` holds 20 tests across the shell, the import flow, the spectra view and the canvas, and #50 is the single journey through them rather than a fresh start.
 
 **Two things carried into Phase 1 from the kernels:**
 
 - **`preprocessing.from_spec` is the executor's seam.** It covers every step the schema can express, and needs two things from outside the schema: the axis for `RangeSelect`, which the executor reads off the `DatasetVersion`, and the spectrum for `MSC(reference="supplied")` — a schema gap and still an open question with the maintainer.
-- **The pipeline validator has warnings to emit that nothing emits yet**: a `MeanCentre` or `Autoscale` node upstream of a split leaks validation samples into the training statistics and makes RMSECV optimistic, and a PLS node with no centring upstream is legal and almost always wrong. `metrics-and-validation.md` §9 and `pls-regression.md` §3 specify both. They belong to 1.2's validator, not to Phase 2.
+- **The pipeline validator has warnings to emit that nothing emits yet**: a `MeanCentre` or `Autoscale` node upstream of a split leaks validation samples into the training statistics and makes RMSECV optimistic, and a PLS node with no centring upstream is legal and almost always wrong. `metrics-and-validation.md` §9 and `pls-regression.md` §3 specify both. They belong to 1.2's validator, not to Phase 2. **The 1.1 validate endpoint returns `valid: true` unconditionally** — it is a stub with a GUESS envelope, and this is what will fill it.
 
 **A known Phase 0 gap that 1.2 inherits:** SEC, SEP, Q² and `coefficients_original_units` are specified in `metrics-and-validation.md` §5–§6 but **not implemented**. Nothing verified them in #12.
 
@@ -103,6 +103,16 @@ After that the chain is `#43 → the screens (#44–#48) → #49 → #50`. **#50
 ## Carried forward from the specifications
 
 Findings that change downstream work, recorded here because they are easy to miss inside long documents.
+
+From #42 to #46 (the frontend), which the remaining screens build on:
+
+- **The tokens are ported, not retyped, and a test holds them in step.** `frontend/src/styles/tokens.css` carries both palettes from `design/canvas/_base.css`, and `src/__tests__/tokens.test.ts` parses both files and compares them value by value. Change `_base.css` first, then re-run. `shell.css` is the same idea for geometry.
+- **IBM Plex is bundled, never fetched.** The artboards `@import` from Google Fonts because they are previews. An end-to-end test fails on any request that does not go to `127.0.0.1`, which is the offline check.
+- **No fixture file is imported by the frontend.** Everything arrives over HTTP. That is the whole point of the stub server, and it is what lets 1.2 swap handlers behind unchanged URLs.
+- **The tab model is a pure reducer** in `src/shell/tabs.ts`: one transient tab, replaced by the next preview, pinned by a double click. Ten tests. New screens open through it and do not need their own routing.
+- **Plotly is driven from the tokens**, read off the DOM at draw time so a theme switch repaints. `src/plot/theme.ts` is the bridge; a plot that keeps Plotly's defaults is how this drifts from the artboards.
+- **The canvas is React Flow with a custom node**, and its layout coordinates come from `pipeline_state.json`, outside `Pipeline.content_hash()`. Moving a node must not change the science.
+- **Three affordances exist only in 1.1**, and all three go in 1.2: `?empty` in the application URL asks for a project with no datasets, `?fail=true` on a run walks the failing sequence, and `X-Stub-Fail: 1` fails any request with the documented error body. They exist because a fixture that always succeeds cannot reach the states #49 has to render.
 
 From #41 and #53 (the fixtures and the stub server), which the frontend now builds against:
 
@@ -215,6 +225,10 @@ From #13 (chemotools evaluation):
 
 ## Gotchas that would otherwise waste time
 
+- **The frontend is `pnpm --dir frontend <script>`:** `dev`, `build`, `test`, `e2e`, `typecheck`, `lint`. pnpm comes from corepack; `corepack enable --install-directory ~/.local/bin` is how it was installed here, because a plain `corepack enable` wants root.
+- **The end-to-end tests run against the stub server serving the built bundle**, not a Vite preview — same origin, same token as the packaged application. So `pnpm build` first, and `pnpm e2e` starts its own server on port 8765 and refuses to reuse one. Kill a development server before running it.
+- **Playwright needs `--disable-gpu` in this container**, and `--with-deps` in CI. Both are already set.
+- **`pnpm dev` needs the stub server on a fixed port**: `STUB_PORT=8765 STUB_TOKEN=dev uv run python stub/server.py`, then `VITE_STUB_TOKEN=dev pnpm --dir frontend dev`. Or just build and open `http://127.0.0.1:8765/?token=dev`, which is the production path.
 - **The stub server is `uv run python stub/server.py`.** It prints its launch URL — the port is ephemeral, so it is different every run and can only be read from that line. `STUB_TOKEN` pins the token across restarts while developing; without it a fresh one is generated at launch. `STUB_JOB_STEP_SECONDS` (default 1.2) is how a six-step run becomes milliseconds in a test. `STUB_BUNDLE` overrides where the built frontend is served from, which is how the production mount is exercised before #42 has produced a `frontend/dist`.
 - **Make a failure happen without editing code:** `?fail=true` on `experiments/{id}/run` for a run that fails at 0.85, `X-Stub-Fail: 1` on any request for a 422 carrying `error.json`. #49's failed state is built against these.
 - **`stub/server.py`'s handlers carry `Phase 1.2:` markers, not issue numbers**, because 1.2's issues are not cut yet. When they are, grep `Phase 1.2:` and put the numbers in.
