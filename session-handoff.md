@@ -2,20 +2,22 @@
 
 Compact state for the next session. **Overwrite this file at the end of every session** — it is a snapshot, not a log. Read it first, then `feature_list.json`, `git log` on `dev`, and the open issues.
 
-**Updated:** 2026-08-24
+**Updated:** 2026-08-25
 
 ---
 
 ## Where things stand
 
-**Phase 0 is released and tagged `v0.1.0`. Phase 1.1 is two thirds built: the contract fixtures (#41), the stub server (#53), the frontend scaffold (#42), the shell (#43), the import flow (#44), the spectra view (#45) and the pipeline canvas (#46) are merged into `dev`. What is left is the inspector (#47), analysis results (#48), the six application states (#49) and the walkthrough (#50) that is the exit criterion.**
+**Phase 0 is released and tagged `v0.1.0`. Phase 1.1 is complete — all thirteen features `passing`, #40–#50 and #53 closed, and #50's walkthrough green in CI. `dev` has not been merged to `main` and nothing is tagged for 1.1; that call was left to the maintainer.**
 
-`feature_list.json` is now the **Phase 1.1** list. Phase 0's is archived at `docs/phase-0/feature_list.json` and must not be added to.
+**Phase 0 has no blocked feature any more.** #24 was the last one, and it was blocked on the development environment rather than on code — R 4.3.3 and `mdatools` 0.14.1 are now installed and its nine entries are sourced.
+
+`feature_list.json` is still the **Phase 1.1** list, now entirely `passing`. Phase 0's is archived at `docs/phase-0/feature_list.json`. **Archiving 1.1's list and opening 1.2's is the first task of the next session** — the same move #40 made for 1.1.
 
 **Phase 1 runs as three sub-phases**, decided this session and recorded in [`docs/decisions/0002-phase-1-shape.md`](docs/decisions/0002-phase-1-shape.md). Read that record before re-arguing the shape:
 
 - **1.1 — walking skeleton.** The React shell and the core screens over a **stub server**: FastAPI on `127.0.0.1`, token-authenticated, serving fixtures generated from the real kernels at the endpoint paths 1.2 will implement. No executor, no database, no persistence. Issues #40–#50 and #53. **The skeleton walks**: the frontend talks HTTP to the stub server from its first commit, jobs advance and cancel, and failures render.
-- **1.2 — backend.** Readers, the executor, real jobs and the HTTP surface, replacing stub handlers behind unchanged URLs. **Issues not written yet.**
+- **1.2 — backend.** Readers, the executor, real jobs and the HTTP surface, replacing stub handlers behind unchanged URLs. **Planned but not written as issues** — the plan and the three decisions taken with the maintainer are under *Next action* below.
 - **1.3 — database and integration.** SQLite in each project directory. **Issues not written yet.**
 
 **1.1 is deliberately not "the frontend".** The first version of the plan was a horizontal layer over imported fixture files; it was rejected because static fixtures cannot exercise a job that takes time, a request that fails, or a response with real bulk — and because layer-first defers every integration defect to one moment. The stub server costs about one module and removes that. **Do not simplify it away, and do not let it grow an executor.**
@@ -64,45 +66,82 @@ The SPE limit matches exactly (1.6e-18, 2.2e-19, 5.6e-18); the T² limit matches
 | | |
 | --- | --- |
 | Current branch | `dev` |
-| Open pull requests | None. #55, #56, #57, #59, #60, #61, #62 and #63 are merged and their branches deleted |
-| `dev` | clean, in sync with origin, at `3edf2f6` — carries `stub/`, `frontend/` and both test suites |
-| `main` | at `v0.1.0`; receives a merge only at the end of a phase |
-| Open issues | 8 — #24 (Phase 0, blocked), #47–#50 (Phase 1.1), #51 (Phase 2), plus whatever is opened next |
+| Open pull requests | None |
+| `dev` | clean, in sync with origin, at `d34898f` |
+| `main` | at `v0.1.0`. **Phase 1.1 has not been merged into it and no 1.1 tag exists** — see *Waiting on the user* |
+| Open issues | 2 — #51 (Phase 2, direct canvas editing) and #71 (the Jackson-Mudholkar `h0` question). **No blocked issue** |
 | Latest release | `v0.1.0` on `main`, tagged 2026-08-22 |
-| Feature statuses | Phase 1.1: 8 × `passing` (#40, #41, #53, #42, #43, #44, #45, #46), 4 × `not_started` (#47–#50). Phase 0's record: 16 × `passing`, 1 × `blocked` |
-| Verification | Python: `ruff check`, `ruff format --check`, `mypy`, `pytest` — 484 tests. Frontend: `pnpm typecheck`, `pnpm lint`, `pnpm test` (33), `pnpm build`, `pnpm e2e` (20). CI runs both, the Python matrix on 3.12 and 3.13 plus one `frontend` job |
+| Feature statuses | Phase 1.1: 13 × `passing`, nothing else. Phase 0's record: 17 × `passing`, none blocked |
+| Verification | Python: `ruff check`, `ruff format --check`, `mypy`, `pytest` — 496 passed, 1 skipped. Frontend: `pnpm typecheck`, `pnpm lint`, `pnpm test` (52), `pnpm build`, `pnpm test:e2e` (40). CI runs both, the Python matrix on 3.12 and 3.13 plus one `frontend` job |
 | Runtime dependencies | Python: `pydantic`, `numpy`, `scipy`, `fastapi`, `uvicorn`. Frontend: `react`, `@tanstack/react-query`, `@xyflow/react`, `plotly.js-gl2d-dist-min`, `@fontsource/ibm-plex-*`, `clsx`, `tailwind-merge`. **`scikit-learn` and `chemotools` stay dev-only** (#13) |
+| R | `~/anaconda3/envs/r-parity` holds R 4.3.3, `mdatools` 0.14.1 and `jsonlite`. Needed only to re-derive `tests/fixtures/r_mdatools_values.json`; CI never runs it |
 
 ## Active feature
 
-None is `in_progress`. One is `blocked`:
-
-- **`reference-values-r-mdatools` (#24)** — blocked on R not being installed, which is an environment decision rather than a coding task. It blocks nothing: #28 sourced the limits from `chemotools` instead. It stays worth doing because R `mdatools` is SIMPLS and a different lineage, where `chemotools` is another Python implementation on the same NumPy.
+None is `in_progress`, and none is `blocked`. Every feature in both lists is `passing`.
 
 ## Next action
 
-**#47 — the inspector: node parameters, metrics, provenance.** Its dependencies (#43 and #46) are `passing`. The frame exists and is context-sensitive already; what #47 adds is the parameter editors, the metrics table and the provenance record behind them.
+**Open Phase 1.2's issues.** The plan below was agreed with the maintainer at the end of the 2026-08-25 session; it has not been written into GitHub or into a feature list yet.
 
-Then `#48 → #49 → #50`. **#50 is the exit criterion**: a Playwright walkthrough against the stub server, including a cancelled run and a provoked failure. It passes or 1.1 is not done. Much of what it needs is already written — `frontend/e2e/` holds 20 tests across the shell, the import flow, the spectra view and the canvas, and #50 is the single journey through them rather than a fresh start.
+**1.2's exit criterion:** #50's walkthrough passes against the real backend, on a file the user picks, with `stub/` deleted.
 
-**Two things carried into Phase 1 from the kernels:**
+| | Feature | Depends on |
+| --- | --- | --- |
+| A | Archive the 1.1 list, open the 1.2 list | — |
+| B | **Project directory and array store** — create/open, `arrays/` layout, float32 on disk, float64 at the kernel boundary, path registry JSON in the user's config directory | A |
+| C | **Reader interface and the CSV/TXT reader** — delimiter, decimal comma, orientation, wavelength headers, metadata columns, targets; emits the `import_preview` shape; corrections applied | B |
+| D | **XLSX reader**, same interface | C |
+| E | **JCAMP-DX reader**, same interface | C |
+| F | **Import endpoints** — preview and commit, writing a real `DatasetVersion` and array file | B, C |
+| G | **Drop `MSC(reference="supplied")`** from the enum | A |
+| H | **Pipeline executor** — DAG walk over `from_spec`, node outputs cached to disk, staleness, the `RangeSelect` axis read off the `DatasetVersion` | B, G |
+| I | **Pipeline validator** — the two warnings nothing emits yet | H |
+| J | **Real jobs** — background execution, per-node progress, cancel, failure | H |
+| K | **Server-side decimation and the density band** — §13's constraint, computed rather than fixtured | H |
+| L | **Results endpoint** — PCA outputs from the executor | H |
+| M | **The metrics gap** — SEC, SEP, Q², `coefficients_original_units` | — |
+| N | **HTTP surface complete, stub retired** — remaining handlers, error envelope, the pagination decision, `stub/` deleted | F, J, K, L |
+| O | **1.2's exit criterion as a test** — #50's walkthrough against the real backend | I, N |
 
-- **`preprocessing.from_spec` is the executor's seam.** It covers every step the schema can express, and needs two things from outside the schema: the axis for `RangeSelect`, which the executor reads off the `DatasetVersion`, and the spectrum for `MSC(reference="supplied")` — a schema gap and still an open question with the maintainer.
-- **The pipeline validator has warnings to emit that nothing emits yet**: a `MeanCentre` or `Autoscale` node upstream of a split leaks validation samples into the training statistics and makes RMSECV optimistic, and a PLS node with no centring upstream is legal and almost always wrong. `metrics-and-validation.md` §9 and `pls-regression.md` §3 specify both. They belong to 1.2's validator, not to Phase 2. **The 1.1 validate endpoint returns `valid: true` unconditionally** — it is a stub with a GUESS envelope, and this is what will fill it.
+Chain: `A → B → C → {D, E, F} → H → {I, J, K, L} → N → O`. M is independent.
 
-**A known Phase 0 gap that 1.2 inherits:** SEC, SEP, Q² and `coefficients_original_units` are specified in `metrics-and-validation.md` §5–§6 but **not implemented**. Nothing verified them in #12.
+### Three decisions taken with the maintainer, so they are not re-argued
+
+1. **The project directory and the array store land in 1.2; SQLite stays in 1.3.** Files are real from 1.2 — a restart loses the project *list*, not the data. This spreads the float32/float64 boundary and the §13 envelope across two sub-phases instead of landing them together in 1.3.
+2. **All three readers land in 1.2** — CSV/TXT, XLSX and JCAMP-DX, as `PROPOSAL.md` §6 puts them in Phase 1. The reader interface is therefore designed against three formats rather than proven on one; CSV/TXT is still the one carrying the detection problems and should be written first.
+3. **`MSC(reference="supplied")` is removed from the enum**, rather than given a field or left to raise. The schema stops advertising something no executor can do, and re-adding it later is additive and needs no migration. This closes the question that has been open since pull request #22.
+
+### What the next session should be careful about
+
+- **The frontend should need no changes at all.** If a screen has to be edited to work against the real backend, the 1.1 contract was wrong, and *that is the finding* — record it rather than quietly adjusting the screen.
+- **Four affordances die in N**: `?empty`, `?oversize`, `?failrun` and `X-Stub-Fail`. Grep for them; each has a comment saying it is 1.1-only.
+- **Seven handlers carry `Phase 1.2:` markers** in `stub/server.py` naming the work that replaces them. Grep `Phase 1.2:` and put issue numbers in once A–O exist.
+- **`preprocessing.from_spec` is the executor's seam.** It covers every step the schema can express and needs one thing from outside the schema: the axis for `RangeSelect`, which B provides off the `DatasetVersion`.
+- **The validator has two warnings specified and nothing emitting them**: a `MeanCentre` or `Autoscale` upstream of a split leaks validation samples into the training statistics and makes RMSECV optimistic; a PLS node with no centring upstream is legal and almost always wrong. `metrics-and-validation.md` §9 and `pls-regression.md` §3. **The 1.1 validate endpoint returns `valid: true` unconditionally** — a stub with a GUESS envelope, and this is what fills it.
+- **The metrics gap (M) is a Phase 0 inheritance**: SEC, SEP, Q² and `coefficients_original_units` are specified in `metrics-and-validation.md` §5–§6 and not implemented. Nothing verified them in #12.
 
 ## Waiting on the user
 
-- **`MSC(reference="supplied")` has no schema field for the reference spectrum** — raised on pull request #22 and still unanswered. Phase 1.1 does not expose it, so nothing is blocked yet; 1.2's executor is where it starts to matter.
-- **Whether the import flow, empty project and importing state should be drawn as artboards** before #44 is built. The default taken is no — build them from the established components.
+- **Whether Phase 1.1 is merged to `main` and tagged.** `dev` is at a taggable point — thirteen features passing, CI green — and `CLAUDE.md` says a phase ends with a `dev` → `main` pull request, a merge and a tag. It was left open whether 1.1 warrants a release of its own (`v0.2.0`) or whether the tag waits for 1.2 and 1.3. Nothing else depends on the answer.
+- **#71 — what a non-positive `h0` should do** in the Jackson-Mudholkar SPE limit. Found while sourcing the R references: gasoline's `h0` is −0.0190, our kernel uses it as computed, `mdatools` clamps it to 0.001. The divergence is recorded and proven; what the kernel *should* do is a specification decision, not a coding one.
 - **GitHub default branch is still `main`.** Any pull request opened without an explicit base targets the release line. Change it under Settings → Branches; it cannot be changed from here with the current tools.
 - **Parity against a commercial package** — `PROPOSAL.md` §19 Q4 is unresolved. The EULA is not public; a licence would have to be confirmed and written permission sought before publishing a comparison.
 - Remaining open questions are in `PROPOSAL.md` §19 — team and pace, funding intent, project name.
 
+**Answered this session, and recorded so they are not re-opened:** `MSC(reference="supplied")` (removed from the enum in 1.2), whether the import and empty-project screens needed artboards first (no — built from the established components, and #44 shipped that way), and where 1.2's persistence lands (project directory in 1.2, SQLite in 1.3).
+
 ## Carried forward from the specifications
 
 Findings that change downstream work, recorded here because they are easy to miss inside long documents.
+
+From #24 (the R references), which changed what the parity report can claim:
+
+- **Two of the three SPE limits are identical within float against R.** Corn and tecator agree with `mdatools` to the last bit — two languages, two authors, the same number. That is the strongest statement the SPE limit has, and it is stronger than the `chemotools` agreement because `chemotools` is another Python implementation on the same NumPy.
+- **The T² limits differ from `mdatools` by exactly `(n+1)/n`, which is the factor `chemotools` differs by too.** Two unrelated implementations landing on the identical factor is what turns "our convention" into a demonstrated one rather than an assertion. Both are recorded with `record_divergence()`, and both tests assert the factor before recording it.
+- **NIPALS and SIMPLS coincide in coefficients to about 1e-12.** `pls-regression.md` §2 claims this and scikit-learn could never test it, being NIPALS as well. `mdatools` is SIMPLS, so this is the first real check of the claim — and the reason weights and loadings are deliberately *not* compared: the same document says they do not coincide.
+- **Gasoline's SPE limit is a real divergence with a proven cause.** Its residual spectrum decays slowly enough that `h0` is negative (−0.0190); `mdatools` clamps `h0` to 0.001 and we do not. Applying their clamp to our formula reproduces their number to nine significant figures, and the test asserts that reconstruction *before* recording the divergence — so it stays a convention only for as long as that is really why the two differ. What our kernel should do is #71.
+- **R is not a dependency and CI never runs it.** The values live in `tests/fixtures/r_mdatools_values.json`, committed. Re-deriving them is a documented two-step pass in `CONTRIBUTING.md`.
 
 From #42 to #46 (the frontend), which the remaining screens build on:
 
@@ -225,6 +264,8 @@ From #13 (chemotools evaluation):
 
 ## Gotchas that would otherwise waste time
 
+- **Re-deriving the R reference values** needs the `r-parity` conda environment and two commands, both in `CONTRIBUTING.md` under *Regenerating the R reference values*. Only do it when a matrix, a component count or a confidence level changes — the committed JSON is the reference, and regenerating the rest of the fixture does not touch it.
+- **`tests/test_parity_harness.py` uses `corn.pca.loadings.literature` as its example of an unsourced entry.** It used to use an R entry; #24 sourced those. If that last gap is ever filled, three assertions there need a new example, and the harness will say so by failing.
 - **The frontend is `pnpm --dir frontend <script>`:** `dev`, `build`, `test`, `e2e`, `typecheck`, `lint`. pnpm comes from corepack; `corepack enable --install-directory ~/.local/bin` is how it was installed here, because a plain `corepack enable` wants root.
 - **The end-to-end tests run against the stub server serving the built bundle**, not a Vite preview — same origin, same token as the packaged application. So `pnpm build` first, and `pnpm e2e` starts its own server on port 8765 and refuses to reuse one. Kill a development server before running it.
 - **Playwright needs `--disable-gpu` in this container**, and `--with-deps` in CI. Both are already set.
