@@ -1,0 +1,8 @@
+node_modules/
+dist/
+test-results/
+playwright-report/
+# tsc -b writes these on every incremental build, and vite caches resolved
+# dependencies in .vite/. Both change constantly and belong to nobody's diff.
+*.tsbuildinfo
+.vite/

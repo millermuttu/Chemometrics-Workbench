@@ -4,14 +4,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-**Pre-implementation.** There is no source code and no build tooling yet — Phase 0 creates both. What exists is specification and design:
+**Phase 0 is released and tagged `v0.1.0`.** The algorithm kernels, the parity programme and the reproducibility schema exist and are green in CI. There is no application yet: no HTTP server, no database, no user interface. Phase 1 builds those.
 
 - `PROPOSAL.md` — the specification. Read it before proposing or writing anything.
-- `feature_list.json` — the Phase 0 task list, mirroring GitHub issues 1–14.
+- `feature_list.json` — the **live** task list. It currently covers Phase 1.1.
+- `docs/phase-0/feature_list.json` — Phase 0's completed list, kept as its record. Do not add to it.
 - `design/DESIGN_BRIEF.md` — screens, states and plot rules for the UI.
+- `src/chemometrics_workbench/` — the kernels: preprocessing, PCA, PLS, validation, reference datasets.
 - `src/chemometrics_workbench/models.py` — the Pydantic schema for the reproducibility model; its invariants are exercised by `tests/test_models.py`.
-- `design/data-model.md` — the same schema as mermaid diagrams.
+- `design/data-model.md` — the same schema as mermaid diagrams, plus what is deliberately not modelled yet.
 - `design/canvas/` — artboard sources for the five core screens.
+- `docs/parity-report.md` — generated, never hand-edited.
+
+**Phase 1 runs in three sub-phases**, because the interface and the backend are independently riskiest and a frontend built against invented JSON would encode an API contract nobody agreed to:
+
+- **1.1 — walking skeleton.** The React shell and the core screens over a **stub server**: FastAPI on `127.0.0.1`, token-authenticated, serving fixtures generated from the real kernels at the endpoint paths 1.2 will implement. Jobs advance and can be cancelled and made to fail; there is no executor, no database and no persistence behind them. The frontend talks HTTP from its first commit, so 1.2 replaces handlers behind unchanged URLs rather than integrating in one moment.
+- **1.2 — backend.** Readers, the pipeline executor, real jobs and the HTTP surface, replacing the stubs one at a time.
+- **1.3 — database and integration.** SQLite in each project directory, and the two halves joined.
 
 Everything below summarises decisions recorded in those documents that are easy to violate accidentally.
 

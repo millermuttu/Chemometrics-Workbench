@@ -1,0 +1,4 @@
+# esbuild is Vite's bundler and unpacks a native binary in its install script;
+# pnpm 11 refuses build scripts unless they are allowed here by name.
+allowBuilds:
+  esbuild: true

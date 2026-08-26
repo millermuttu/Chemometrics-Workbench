@@ -213,6 +213,7 @@ Recorded so the parity report can classify them as *differs by documented conven
 | Sign rule | Largest-magnitude **loading** | `sklearn` decides from $U$ by default |
 | SPE scale | Sum of squares | Some packages report the mean or its root |
 | SPE limit | Jackson–Mudholkar | Some packages use Box's $\chi^{2}$ |
+| SPE limit when $h_0 \le 0$ | Used as computed (see [#71](https://github.com/millermuttu/Chemometrics-Workbench/issues/71)) | R `mdatools` clamps $h_0$ to `0.001` |
 | $T^2$ limit | Beta for calibration, F for new samples | Some packages use the F form for both |
 | Rank overflow | Error | Some packages silently truncate |
 

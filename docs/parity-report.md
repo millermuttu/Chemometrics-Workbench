@@ -6,7 +6,7 @@ CI regenerates it and fails the build if the committed copy differs, which is wh
 `PROPOSAL.md` §16's exit criterion — *parity report green in CI against published
 reference values* — means in practice.
 
-Fixture schema 1, generated 2026-08-22.
+Fixture schema 1, generated 2026-08-24.
 
 ---
 
@@ -18,11 +18,11 @@ strong the agreement is** rather than a bare pass or fail:
 
 | Claim | Count | Meaning |
 | --- | --- | --- |
-| identical within floating point | 73 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
-| agrees within stated tolerance | 10 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
-| differs by documented convention | 4 | Not compared numerically at all. The two quantities are not the same thing, and the reason is given in full below. |
+| identical within floating point | 75 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
+| agrees within stated tolerance | 13 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
+| differs by documented convention | 8 | Not compared numerically at all. The two quantities are not the same thing, and the reason is given in full below. |
 
-**87 comparisons, 87 passed, 0 failed.**
+**96 comparisons, 96 passed, 0 failed.**
 
 Three things a reader should hold on to, because the agreement column cannot
 show them:
@@ -115,39 +115,47 @@ show them:
 | corn | `explained_variance_ratio` | scikit-learn 1.9.0 | identical | 5 values, worst Δ < 1e-15 |
 | corn | `hotelling_t2` † | scikit-learn 1.9.0 | identical | 80 values, worst Δ < 1e-12 |
 | corn | `hotelling_t2_limit` | chemotools 0.4.3 | documented divergence | not compared — see below |
+| corn | `hotelling_t2_limit` | R mdatools R 4.3.3 / mdatools 0.14.1 | documented divergence | not compared — see below |
 | corn | `loadings` ‡ | scikit-learn 1.9.0 | identical | 3500 values, worst Δ < 1e-14 |
 | corn | `scores` ‡ | scikit-learn 1.9.0 | identical | 400 values, worst Δ < 1e-15 |
 | corn | `spe` † | scikit-learn 1.9.0 | identical | 80 values, worst Δ < 1e-17 |
 | corn | `spe_limit` | chemotools 0.4.3 | identical | `0.000710673` vs `0.000710673` |
+| corn | `spe_limit` | R mdatools R 4.3.3 / mdatools 0.14.1 | identical | `0.000710673` vs `0.000710673` |
 | gasoline | `cumulative_explained_variance` † | scikit-learn 1.9.0 | identical | 5 values, worst Δ < 1e-15 |
 | gasoline | `eigenvalues` | scikit-learn 1.9.0 | identical | 5 values, worst Δ < 1e-17 |
 | gasoline | `explained_variance_ratio` | scikit-learn 1.9.0 | identical | 5 values, worst Δ < 1e-15 |
 | gasoline | `hotelling_t2` † | scikit-learn 1.9.0 | identical | 60 values, worst Δ < 1e-13 |
 | gasoline | `hotelling_t2_limit` | chemotools 0.4.3 | documented divergence | not compared — see below |
+| gasoline | `hotelling_t2_limit` | R mdatools R 4.3.3 / mdatools 0.14.1 | documented divergence | not compared — see below |
 | gasoline | `loadings` ‡ | scikit-learn 1.9.0 | identical | 2005 values, worst Δ < 1e-15 |
 | gasoline | `scores` ‡ | scikit-learn 1.9.0 | identical | 300 values, worst Δ < 1e-15 |
 | gasoline | `spe` † | scikit-learn 1.9.0 | identical | 60 values, worst Δ < 1e-17 |
 | gasoline | `spe_limit` | chemotools 0.4.3 | identical | `0.000726396` vs `0.000726396` |
+| gasoline | `spe_limit` | R mdatools R 4.3.3 / mdatools 0.14.1 | documented divergence | not compared — see below |
 | tecator | `cumulative_explained_variance` † | scikit-learn 1.9.0 | identical | 5 values, worst Δ 0, exactly |
 | tecator | `eigenvalues` | scikit-learn 1.9.0 | identical | 5 values, worst Δ < 1e-13 |
 | tecator | `explained_variance_ratio` | scikit-learn 1.9.0 | identical | 5 values, worst Δ < 1e-17 |
 | tecator | `hotelling_t2` † | scikit-learn 1.9.0 | within rtol 1.000e-08 | 240 values, worst Δ < 1e-12 |
 | tecator | `hotelling_t2_limit` | chemotools 0.4.3 | documented divergence | not compared — see below |
+| tecator | `hotelling_t2_limit` | R mdatools R 4.3.3 / mdatools 0.14.1 | documented divergence | not compared — see below |
 | tecator | `loadings` ‡ | scikit-learn 1.9.0 | identical | 500 values, worst Δ < 1e-14 |
 | tecator | `scores` ‡ | scikit-learn 1.9.0 | identical | 1200 values, worst Δ < 1e-14 |
 | tecator | `spe` † | scikit-learn 1.9.0 | identical | 240 values, worst Δ < 1e-16 |
 | tecator | `spe_limit` | chemotools 0.4.3 | identical | `0.00294202` vs `0.00294202` |
+| tecator | `spe_limit` | R mdatools R 4.3.3 / mdatools 0.14.1 | identical | `0.00294202` vs `0.00294202` |
 
 ### PLS regression
 
 | Dataset | Quantity | Reference | Claim | Ours vs reference |
 | --- | --- | --- | --- | --- |
+| corn | `coefficients` | R mdatools R 4.3.3 / mdatools 0.14.1 | within rtol 1.000e-06 | 700 values, worst Δ < 1e-11 |
 | corn | `coefficients` | scikit-learn 1.9.0 | identical | 700 values, worst Δ < 1e-14 |
 | corn | `predictions` | scikit-learn 1.9.0 | identical | 80 values, worst Δ < 1e-14 |
 | corn | `r2` | scikit-learn 1.9.0 | identical | `0.982797` vs `0.982797` |
 | corn | `rmsec` | scikit-learn 1.9.0 | identical | `0.0495755` vs `0.0495755` |
 | corn | `rmsecv_curve` | scikit-learn 1.9.0 | identical | 10 values, worst Δ < 1e-14 |
 | corn | `vip` † | scikit-learn 1.9.0 | identical | 700 values, worst Δ < 1e-14 |
+| gasoline | `coefficients` | R mdatools R 4.3.3 / mdatools 0.14.1 | within rtol 1.000e-06 | 401 values, worst Δ < 1e-12 |
 | gasoline | `coefficients` | scikit-learn 1.9.0 | identical | 401 values, worst Δ < 1e-14 |
 | gasoline | `cumulative_explained_variance_at_2_components` | R pls 2.8-5 | within rtol 0.005 | 2 values, worst Δ < 1e-4 |
 | gasoline | `predictions` | scikit-learn 1.9.0 | identical | 60 values, worst Δ < 1e-13 |
@@ -156,6 +164,7 @@ show them:
 | gasoline | `rmsecv_curve` | R pls 2.8-5 | within rtol 0.005 | 11 values, worst Δ < 1e-4 |
 | gasoline | `rmsecv_curve` | scikit-learn 1.9.0 | identical | 10 values, worst Δ < 1e-14 |
 | gasoline | `vip` † | scikit-learn 1.9.0 | identical | 401 values, worst Δ < 1e-14 |
+| tecator | `coefficients` | R mdatools R 4.3.3 / mdatools 0.14.1 | within rtol 1.000e-06 | 100 values, worst Δ < 1e-9 |
 | tecator | `coefficients` | scikit-learn 1.9.0 | identical | 100 values, worst Δ < 1e-13 |
 | tecator | `predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 240 values, worst Δ < 1e-12 |
 | tecator | `r2` | scikit-learn 1.9.0 | identical | `0.940354` vs `0.940354` |
@@ -177,13 +186,29 @@ two different things.
 
 Both are F-distribution limits on the same scores and they differ by a convention, not by an error. chemotools computes a(n-1)/(n-a) F(a, n-a); pca.md §7 gives the new-sample form a(n^2-1)/(n(n-a)) F(a, n-a), which is larger by exactly (n+1)/n - a factor of 1.0125 at n=80. The two answer different questions: theirs is the limit for the calibration samples under an F approximation, ours is the exact limit for a sample the model has not seen, and pca.md §7 draws the beta form for calibration samples instead of approximating it. Which limit is drawn belongs in the plot legend, which is why we report both and name them.
 
+**`corn.pca.hotelling_t2_limit.r_mdatools`** — R mdatools R 4.3.3 / mdatools 0.14.1
+
+mdatools computes the classic Hotelling limit a(n-1)/(n-a) F(a, n-a); pca.md §7's new-sample form is a(n^2-1)/(n(n-a)) F(a, n-a), larger by exactly (n+1)/n - a factor of 1.0125 at n=80. This is the same factor chemotools differs by, from an unrelated implementation in another language, which is what makes it a convention rather than either side's mistake.
+
 **`gasoline.pca.hotelling_t2_limit.chemotools`** — chemotools 0.4.3
 
 Both are F-distribution limits on the same scores and they differ by a convention, not by an error. chemotools computes a(n-1)/(n-a) F(a, n-a); pca.md §7 gives the new-sample form a(n^2-1)/(n(n-a)) F(a, n-a), which is larger by exactly (n+1)/n - a factor of 1.0167 at n=60. The two answer different questions: theirs is the limit for the calibration samples under an F approximation, ours is the exact limit for a sample the model has not seen, and pca.md §7 draws the beta form for calibration samples instead of approximating it. Which limit is drawn belongs in the plot legend, which is why we report both and name them.
 
+**`gasoline.pca.hotelling_t2_limit.r_mdatools`** — R mdatools R 4.3.3 / mdatools 0.14.1
+
+mdatools computes the classic Hotelling limit a(n-1)/(n-a) F(a, n-a); pca.md §7's new-sample form is a(n^2-1)/(n(n-a)) F(a, n-a), larger by exactly (n+1)/n - a factor of 1.0167 at n=60. This is the same factor chemotools differs by, from an unrelated implementation in another language, which is what makes it a convention rather than either side's mistake.
+
+**`gasoline.pca.spe_limit.r_mdatools`** — R mdatools R 4.3.3 / mdatools 0.14.1
+
+Both compute Jackson-Mudholkar on the same residual eigenvalues, and they differ because gasoline's h0 is negative (-0.0190). mdatools clamps h0 to 0.001 before raising the bracket to the 1/h0 power; our kernel uses h0 as computed. Applying their clamp to our own formula reproduces their number to nine significant figures, so this is a guard against a degenerate spectrum rather than a different formula. Corn and tecator, whose h0 is positive, are identical within float.
+
 **`tecator.pca.hotelling_t2_limit.chemotools`** — chemotools 0.4.3
 
 Both are F-distribution limits on the same scores and they differ by a convention, not by an error. chemotools computes a(n-1)/(n-a) F(a, n-a); pca.md §7 gives the new-sample form a(n^2-1)/(n(n-a)) F(a, n-a), which is larger by exactly (n+1)/n - a factor of 1.0042 at n=240. The two answer different questions: theirs is the limit for the calibration samples under an F approximation, ours is the exact limit for a sample the model has not seen, and pca.md §7 draws the beta form for calibration samples instead of approximating it. Which limit is drawn belongs in the plot legend, which is why we report both and name them.
+
+**`tecator.pca.hotelling_t2_limit.r_mdatools`** — R mdatools R 4.3.3 / mdatools 0.14.1
+
+mdatools computes the classic Hotelling limit a(n-1)/(n-a) F(a, n-a); pca.md §7's new-sample form is a(n^2-1)/(n(n-a)) F(a, n-a), larger by exactly (n+1)/n - a factor of 1.0042 at n=240. This is the same factor chemotools differs by, from an unrelated implementation in another language, which is what makes it a convention rather than either side's mistake.
 
 **`tecator.pls.sep.thodberg`** — unstated
 
@@ -236,30 +261,6 @@ a gap left out is a false impression.
 **`corn.pca.loadings.literature`** — unsourced
 
 The corn dataset is used widely in the calibration-transfer literature, but the papers report transfer performance rather than the decomposition itself, and none found states a preprocessing chain precisely enough to reproduce a loading vector. Recorded as a gap rather than filled with a number from a plot.
-
-**`corn.pca.spe_limit.r_mdatools`** — unsourced
-
-R is not installed on the development machine, so no mdatools value could be generated. Install R and the mdatools package, run the configuration named above, and replace this entry with the result.
-
-**`corn.pls.coefficients.r_mdatools`** — unsourced
-
-R is not installed on the development machine, so no mdatools value could be generated. Install R and the mdatools package, run the configuration named above, and replace this entry with the result.
-
-**`gasoline.pca.spe_limit.r_mdatools`** — unsourced
-
-R is not installed on the development machine, so no mdatools value could be generated. Install R and the mdatools package, run the configuration named above, and replace this entry with the result.
-
-**`gasoline.pls.coefficients.r_mdatools`** — unsourced
-
-R is not installed on the development machine, so no mdatools value could be generated. Install R and the mdatools package, run the configuration named above, and replace this entry with the result.
-
-**`tecator.pca.spe_limit.r_mdatools`** — unsourced
-
-R is not installed on the development machine, so no mdatools value could be generated. Install R and the mdatools package, run the configuration named above, and replace this entry with the result.
-
-**`tecator.pls.coefficients.r_mdatools`** — unsourced
-
-R is not installed on the development machine, so no mdatools value could be generated. Install R and the mdatools package, run the configuration named above, and replace this entry with the result.
 
 ---
 

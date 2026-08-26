@@ -1,0 +1,99 @@
+/* The shell's measurements, ported from design/canvas/_base.css.
+ *
+ * Every number here - the 40px top bar, the 248px sidebar, the 34px tab strip,
+ * the 292px inspector, the 28px status bar, the 118 x 4 progress bar - comes
+ * from the artboards, which are the design of record. They are not choices
+ * made in this file. The palette and the type live in tokens.css and app.css;
+ * this is geometry only.
+ *
+ * Rules that only the React shell needs (resize handles, the collapsed rail,
+ * the overflow menu, the split) are added at the end and marked.
+ */
+
+.app{width:1440px;height:900px;display:flex;flex-direction:column;background:var(--ground);color:var(--ink);font-size:12.5px;line-height:1.45}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.tbar{height:40px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 12px;gap:12px;background:var(--panel);border-bottom:1px solid var(--rule)}
+.tb-l,.tb-r{display:flex;align-items:center;gap:10px}
+.proj{font-weight:600;font-size:13px;letter-spacing:-.01em}
+.crumb{font-size:11px;color:var(--ink3)}
+.pill{display:flex;align-items:center;gap:6px;height:22px;padding:0 8px;border:1px solid var(--rule);border-radius:3px;font-size:11px;color:var(--ink2);background:var(--surface)}
+.btn{display:flex;align-items:center;gap:6px;height:26px;padding:0 10px;border:1px solid var(--rule);border-radius:3px;background:var(--surface);color:var(--ink);font-size:12px;font-weight:500}
+.btn-p{background:var(--accent);border-color:var(--accent);color:#fff}
+.body{flex:1;display:flex;min-height:0}
+.side{width:248px;flex:none;background:var(--panel);border-right:1px solid var(--rule);display:flex;flex-direction:column;overflow:hidden}
+.doc{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--surface)}
+.insp{width:292px;flex:none;background:var(--panel);border-left:1px solid var(--rule);display:flex;flex-direction:column;overflow:hidden}
+.shead{display:flex;align-items:center;justify-content:space-between;height:26px;padding:0 10px;font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink3);margin-top:6px}
+.srow{display:flex;align-items:center;gap:7px;height:24px;padding:0 10px 0 16px;font-size:12px;color:var(--ink2)}
+.srow.sel{background:var(--accentSoft);color:var(--accentInk);font-weight:500}
+.sdim{color:var(--ink3);font-size:11px;margin-left:auto}
+.tabs{height:34px;flex:none;display:flex;align-items:stretch;background:var(--panel);border-bottom:1px solid var(--rule)}
+.tab{display:flex;align-items:center;gap:7px;padding:0 11px;border-right:1px solid var(--rule);font-size:12px;color:var(--ink2);white-space:nowrap}
+.tab.act{background:var(--surface);color:var(--ink);font-weight:500}
+.tab.tr{font-style:italic;color:var(--ink3)}
+.tabx{color:var(--ink3);font-size:14px;line-height:1}
+.pane{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column}
+.status{height:28px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 12px;gap:12px;background:var(--panel);border-top:1px solid var(--rule);font-size:11px;color:var(--ink2)}
+.prog{width:118px;height:4px;border-radius:2px;background:var(--sunken);overflow:hidden}
+.prog i{display:block;height:100%;background:var(--accent)}
+.ihead{padding:9px 12px;border-bottom:1px solid var(--rule);display:flex;flex-direction:column;gap:2px}
+.ilabel{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink3)}
+.kv{display:flex;justify-content:space-between;gap:10px;padding:3px 12px;font-size:11.5px}
+.kv b{font-weight:400;color:var(--ink3)}
+.kv span{color:var(--ink);font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums}
+table{border-collapse:collapse;width:100%;font-size:12px}
+th{background:var(--panel);text-align:left;font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink3);font-weight:500;padding:7px 10px;border-bottom:1px solid var(--rule)}
+td{padding:5px 10px;border-bottom:1px solid var(--rule2);color:var(--ink2)}
+td.n,th.n{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;text-align:right}
+td.n{color:var(--ink)}
+
+/* --- Added here: what a static artboard has no need of ------------------- */
+
+/* The drag handle straddles the rule rather than sitting beside it, so the
+ * pointer target is 7px wide while the rule stays 1px. */
+.grip{width:7px;flex:none;margin:0 -3px;cursor:col-resize;position:relative;z-index:1}
+.grip:hover{background:var(--accentSoft)}
+
+/* Collapsed, a sidebar keeps only its icons. 44px is the row height plus the
+ * padding the artboard's rows carry. */
+.side.rail,.insp.rail{width:44px}
+.side.rail .srow{padding-left:0;justify-content:center}
+.side.rail .srow span,.side.rail .shead span{display:none}
+
+.tabs{overflow:hidden}
+.tab{background:none;border-top:none;border-bottom:none;border-left:none;cursor:pointer;font-family:inherit}
+.tab.act{font-weight:500}
+.tabx{background:none;border:none;cursor:pointer;padding:0 0 0 2px;font-family:inherit}
+
+/* The overflow menu the "+3" opens. Fifteen preprocessing variants is the
+ * normal case, so it is searchable rather than a plain list. */
+.omenu{position:absolute;top:34px;right:0;width:260px;max-height:320px;overflow:auto;background:var(--surface);border:1px solid var(--rule);border-radius:3px;z-index:5;box-shadow:0 6px 20px rgba(0,0,0,.12)}
+.omenu input{width:100%;height:28px;padding:0 9px;border:none;border-bottom:1px solid var(--rule);background:var(--surface);color:var(--ink);font:inherit;font-size:12px;outline:none}
+.omenu button{display:flex;align-items:center;gap:7px;width:100%;height:26px;padding:0 9px;border:none;background:none;color:var(--ink2);font:inherit;font-size:12px;text-align:left;cursor:pointer}
+.omenu button:hover{background:var(--accentSoft);color:var(--accentInk)}
+
+/* Side by side, for comparing two documents. The rule between them is the
+ * same one that separates every other region. */
+.split{display:flex;flex:1;min-height:0}
+.split>.pane+.pane{border-left:1px solid var(--rule)}
+
+.iconbtn{display:flex;align-items:center;justify-content:center;height:22px;width:22px;border:1px solid var(--rule);border-radius:3px;background:var(--surface);color:var(--ink2);cursor:pointer}
+.btn{cursor:pointer;font-family:inherit}
+.srow{width:100%;border:none;background:none;font-family:inherit;text-align:left;cursor:pointer}
+.srow:hover{background:var(--rule2)}
+.srow.sel:hover{background:var(--accentSoft)}
+.empty{padding:6px 16px;font-size:11px;color:var(--ink3)}
+
+/* The artboard is a fixed 1440 x 900 frame because it is a picture. The
+ * application fills its window and refuses to reflow below the design width -
+ * PROPOSAL.md and the brief both put the floor at 1440. */
+.app{width:100%;height:100%;min-width:1440px}
+
+/* A long node label truncates rather than wrapping: the row is 24px and the
+ * artboard's rows are one line each. */
+.srow span:not(.sdim){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sdim{flex:none;padding-left:6px}
+
+/* A pill is one line. At 1440 with both sidebars open the spectra header has
+ * little room, and a wrapped pill reads as two broken ones. */
+.pill{white-space:nowrap;flex:none}

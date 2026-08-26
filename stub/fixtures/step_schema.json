@@ -1,0 +1,262 @@
+{
+  "$defs": {
+    "Autoscale": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "autoscale",
+          "default": "autoscale",
+          "title": "Kind",
+          "type": "string"
+        },
+        "ddof": {
+          "default": 1,
+          "description": "Denominator convention for the standard deviation.",
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Ddof",
+          "type": "integer"
+        }
+      },
+      "title": "Autoscale",
+      "type": "object"
+    },
+    "BaselineCorrect": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "baseline",
+          "default": "baseline",
+          "title": "Kind",
+          "type": "string"
+        },
+        "method": {
+          "default": "asls",
+          "enum": [
+            "asls",
+            "rubberband",
+            "polynomial"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "order": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Polynomial order, when method is polynomial.",
+          "title": "Order"
+        },
+        "lam": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Smoothness, when method is asls.",
+          "title": "Lam"
+        },
+        "p": {
+          "anyOf": [
+            {
+              "exclusiveMaximum": 1,
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Asymmetry, when method is asls.",
+          "title": "P"
+        }
+      },
+      "title": "BaselineCorrect",
+      "type": "object"
+    },
+    "MSC": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "msc",
+          "default": "msc",
+          "title": "Kind",
+          "type": "string"
+        },
+        "reference": {
+          "default": "mean",
+          "enum": [
+            "mean",
+            "median",
+            "supplied"
+          ],
+          "title": "Reference",
+          "type": "string"
+        }
+      },
+      "title": "MSC",
+      "type": "object"
+    },
+    "MeanCentre": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "mean_centre",
+          "default": "mean_centre",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "title": "MeanCentre",
+      "type": "object"
+    },
+    "Normalise": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "normalise",
+          "default": "normalise",
+          "title": "Kind",
+          "type": "string"
+        },
+        "norm": {
+          "default": "l2",
+          "enum": [
+            "l1",
+            "l2",
+            "max",
+            "area"
+          ],
+          "title": "Norm",
+          "type": "string"
+        }
+      },
+      "title": "Normalise",
+      "type": "object"
+    },
+    "RangeSelect": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "range_select",
+          "default": "range_select",
+          "title": "Kind",
+          "type": "string"
+        },
+        "start": {
+          "title": "Start",
+          "type": "number"
+        },
+        "end": {
+          "title": "End",
+          "type": "number"
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ],
+      "title": "RangeSelect",
+      "type": "object"
+    },
+    "SNV": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "snv",
+          "default": "snv",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "title": "SNV",
+      "type": "object"
+    },
+    "SavitzkyGolay": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "savgol",
+          "default": "savgol",
+          "title": "Kind",
+          "type": "string"
+        },
+        "window_length": {
+          "exclusiveMinimum": 2,
+          "title": "Window Length",
+          "type": "integer"
+        },
+        "polyorder": {
+          "minimum": 0,
+          "title": "Polyorder",
+          "type": "integer"
+        },
+        "deriv": {
+          "default": 0,
+          "maximum": 2,
+          "minimum": 0,
+          "title": "Deriv",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "window_length",
+        "polyorder"
+      ],
+      "title": "SavitzkyGolay",
+      "type": "object"
+    }
+  },
+  "discriminator": {
+    "mapping": {
+      "autoscale": "#/$defs/Autoscale",
+      "baseline": "#/$defs/BaselineCorrect",
+      "mean_centre": "#/$defs/MeanCentre",
+      "msc": "#/$defs/MSC",
+      "normalise": "#/$defs/Normalise",
+      "range_select": "#/$defs/RangeSelect",
+      "savgol": "#/$defs/SavitzkyGolay",
+      "snv": "#/$defs/SNV"
+    },
+    "propertyName": "kind"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/SNV"
+    },
+    {
+      "$ref": "#/$defs/MSC"
+    },
+    {
+      "$ref": "#/$defs/SavitzkyGolay"
+    },
+    {
+      "$ref": "#/$defs/MeanCentre"
+    },
+    {
+      "$ref": "#/$defs/Autoscale"
+    },
+    {
+      "$ref": "#/$defs/Normalise"
+    },
+    {
+      "$ref": "#/$defs/BaselineCorrect"
+    },
+    {
+      "$ref": "#/$defs/RangeSelect"
+    }
+  ]
+}

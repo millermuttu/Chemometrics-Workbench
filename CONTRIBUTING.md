@@ -94,6 +94,20 @@ The order matters, and it is the order Phase 0 itself follows.
 4. **Add parity tests** through the shared harness in `tests/parity.py`, never with a bare `assert_allclose`. Call `parity.check(entry_id, ours)`; it picks the tolerance for the quantity's class, aligns signs where the quantity is sign-invariant, tags the claim tier and records the result for the report. Where a quantity differs from a reference by documented convention, call `parity.record_divergence(entry_id, reason)` instead of loosening a tolerance. **Tolerances are not knobs** — a comparison that fails is a finding, and widening the tolerance to make it pass converts a finding into a lie in the one artifact this project cannot afford to have lying in it.
 5. **Wire it into the schema** in `models.py` as a new member of the relevant discriminated union, so an invalid configuration fails at parse time.
 
+### Regenerating the R reference values
+
+Most of `tests/fixtures/reference_values.json` regenerates with one command. The nine `r_mdatools` entries do not, because R is not a dependency of this project and is not installed in CI: their values are read from `tests/fixtures/r_mdatools_values.json`, which is committed. Re-derive that file only when a matrix, a component count or a confidence level changes.
+
+```bash
+conda create -n r-parity -c conda-forge r-base r-mdatools r-jsonlite   # once; no root needed
+uv run python tests/fixtures/export_for_r.py build/r-reference
+~/anaconda3/envs/r-parity/bin/Rscript tests/fixtures/r_mdatools_reference.R \
+    build/r-reference tests/fixtures/r_mdatools_values.json
+uv run python tests/fixtures/generate_reference_values.py
+```
+
+The matrices are exported from Python rather than loaded in R on purpose: a reference value must differ from ours because the algorithm differs, never because two readers disagreed about a file. They are exported already centred, and every fit passes `center = FALSE` — `mdatools` centres by default and would otherwise centre twice.
+
 ## Conventions worth knowing before you write code
 
 - **Array shape is `n_samples × n_variables`**, always. Never silently transposed.

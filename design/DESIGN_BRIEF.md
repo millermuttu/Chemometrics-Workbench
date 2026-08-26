@@ -160,7 +160,11 @@ No mobile or tablet layouts · no marketing or landing page · no onboarding tou
 
 ## 11. Open design questions
 
-1. How do plots coexist within a single analysis tab — a fixed grid, a resizable split, or user-arranged panels?
+**§11.1 is settled.** *How do plots coexist within a single analysis tab?* **A titled panel grid, in one tab** — the answer `AnalysisResults.dc.html` drew and #48 built: scores, loadings, explained variance and diagnostics, each in a 24px-titled panel on `--surface`, two per row at 1440. Not a resizable split and not user-arranged panels: at the design width the grid fits without a scroll, and every panel keeps its title so a screenshot of one is self-describing. The row is laid out so Phase 2's predicted-vs-measured panel arrives beside the others rather than replacing them.
+
+Remaining:
+
+1. ~~How do plots coexist within a single analysis tab?~~ **Settled above.**
 2. When two models are compared, is that a third tab or a split of two existing tabs?
 3. Does the canvas need groups or subgraphs once a project has forty nodes, or is pan/zoom plus the sidebar outline enough?
 4. Where do dataset *versions* appear — as nodes on the canvas, or only in the sidebar tree?
