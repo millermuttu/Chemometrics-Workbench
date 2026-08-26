@@ -17,8 +17,8 @@ persistence and no executor — job state is a dict that dies with the process.
 Phase 1.2 replaces these handlers one at a time behind unchanged URLs; each
 one says below what replaces it.
 
-Phase 1.2's issues are not cut yet, so the handlers name the work rather than a
-number. When those issues exist, the marker to search for is `Phase 1.2:`.
+Phase 1.2's issues are #76-#90; the marker to search for is `Phase 1.2:`. This
+whole module is deleted in #89.
 
 ## Jobs advance because static fixtures cannot fail or take time
 
@@ -115,7 +115,8 @@ async def error_body(request: Request, exc: HTTPException) -> JSONResponse:
 
 
 # --- Projects, datasets, import ------------------------------------------
-# Phase 1.2: the project directory reader and the file readers replace these.
+# Phase 1.2: the project directory (#77), the readers (#78, #79, #80) and the
+# import endpoints (#81) replace these.
 
 
 @api.get("/projects")
@@ -167,8 +168,8 @@ def import_dataset() -> Any:
 def step_schema() -> Any:
     """The preprocessing steps' JSON Schema, generated from models.py (#41).
 
-    Phase 1.2: served from the live models rather than from a file, which is a
-    change of source and not of shape.
+    Phase 1.2 (#89): served from the live models rather than from a file, which
+    is a change of source and not of shape.
     """
     return fixture("step_schema")
 
@@ -184,7 +185,7 @@ def validate_step(step: dict[str, Any]) -> Any:
     restating `models.py` in TypeScript and drifting from it. Validating
     against the model means the message the user reads is the model's own.
 
-    Phase 1.2: the same call, with the step going on to be stored.
+    Phase 1.2 (#89): the same call, with the step going on to be stored.
     """
     try:
         TypeAdapter(PreprocessStep).validate_python(step)
@@ -205,7 +206,7 @@ def validate_step(step: dict[str, Any]) -> Any:
 
 
 # --- Pipelines -----------------------------------------------------------
-# Phase 1.2: the pipeline store and the validator replace these.
+# Phase 1.2: the pipeline store (#89) and the validator (#84) replace these.
 
 
 @api.get("/pipelines/{pipeline_id}")
@@ -226,7 +227,7 @@ def validate_pipeline(pipeline_id: str) -> Any:
 
 
 # --- Results -------------------------------------------------------------
-# Phase 1.2: the executor's stored outputs replace these.
+# Phase 1.2: the executor's stored outputs (#83, #86, #87) replace these.
 
 
 @api.get("/experiments/{experiment_id}")
@@ -251,7 +252,8 @@ def get_results(node_id: str) -> Any:
 
 
 # --- Jobs ----------------------------------------------------------------
-# Phase 1.2: the real executor and its job table replace these. In-memory only:
+# Phase 1.2: the real executor (#83) and its job table (#85) replace these.
+# In-memory only:
 # a job is its status sequence, when it started, and when it was cancelled.
 
 _jobs: dict[str, dict[str, Any]] = {}

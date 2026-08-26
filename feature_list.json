@@ -1,6 +1,6 @@
 {
-  "phase": "Phase 1.1 - Walking skeleton: frontend over a stub server",
-  "exit_criterion": "A Playwright walkthrough passes against the stub server: empty project, import with a detection preview, SNV then Savitzky-Golay added through the step list, PCA run and watched through a job whose progress advances, scores plot read - plus a cancelled run and a provoked failure (issue #50).",
+  "phase": "Phase 1.2 - Backend: readers, the executor, real jobs and the HTTP surface",
+  "exit_criterion": "Issue #50's Playwright walkthrough passes against the real backend, on a file the user picks, with stub/ deleted (issue #90).",
   "status_values": [
     "not_started",
     "in_progress",
@@ -9,315 +9,330 @@
   ],
   "features": [
     {
-      "id": "phase-1-1-feature-list",
+      "id": "phase-1-2-feature-list",
       "priority": 1,
       "area": "process",
-      "title": "Archive the Phase 0 feature list and open the Phase 1.1 list",
-      "issue": 40,
+      "issue": 76,
+      "title": "Archive the Phase 1.1 feature list and open the Phase 1.2 list",
       "depends_on": [],
-      "user_visible_behavior": "feature_list.json is the live Phase 1.1 list, Phase 0's is preserved at docs/phase-0/feature_list.json as its record, and CLAUDE.md describes the repository as it now stands rather than as pre-implementation.",
+      "user_visible_behavior": "feature_list.json is the live Phase 1.2 list, Phase 1.1's is preserved at docs/phase-1-1/feature_list.json as its record, and CLAUDE.md describes a repository whose walking skeleton is released and tagged v0.2.0.",
       "status": "passing",
       "verification": [
-        "docs/phase-0/feature_list.json exists and parses, with every Phase 0 status unchanged.",
-        "feature_list.json parses and its phase is Phase 1.1.",
-        "grep CLAUDE.md for 'Pre-implementation' returns nothing.",
-        "CLAUDE.md names the three Phase 1 sub-phases and which file is the live task list."
+        "docs/phase-1-1/feature_list.json exists and parses, with every Phase 1.1 status unchanged.",
+        "feature_list.json parses and its phase is Phase 1.2.",
+        "Every feature names an issue number, and every issue 76-90 is named by exactly one feature.",
+        "No depends_on entry names a feature id the list does not contain, and no more than one feature is in_progress.",
+        "CLAUDE.md names feature_list.json as the live Phase 1.2 list, docs/phase-1-1/ as 1.1's record, and v0.2.0 as the released tag."
       ],
-      "evidence": "2026-08-23. On feature/40_phase-1-1-feature-list. git mv feature_list.json docs/phase-0/feature_list.json - loads and reports 'Phase 0 - Numerical foundation', 17 features, statuses unchanged (16 passing, 1 blocked). New feature_list.json loads and reports 'Phase 1.1 - Frontend shell and core screens', 11 features, no dangling depends_on, exactly one in_progress. grep -c 'Pre-implementation' CLAUDE.md returns 0. CLAUDE.md:10 names feature_list.json as the live list and CLAUDE.md:19 names the three sub-phases.",
-      "notes": "This branch. The sub-phase split was decided in session on 2026-08-23: 1.1 frontend against generated fixtures, 1.2 backend, 1.3 database and integration."
+      "evidence": "2026-08-26. On feature/76_phase-1-2-feature-list. git mv feature_list.json docs/phase-1-1/feature_list.json - loads and reports 'Phase 1.1 - Walking skeleton: frontend over a stub server', 13 features, statuses unchanged (13 passing). The new feature_list.json loads and reports 'Phase 1.2 - Backend: readers, the executor, real jobs and the HTTP surface', 15 features (1 in_progress, 14 not_started), no dangling depends_on, and its issue numbers are exactly 76-90 with no repeats. Issues #76-#90 opened on GitHub. CLAUDE.md:7 names v0.2.0 as released, CLAUDE.md:10 names feature_list.json as the live Phase 1.2 list and CLAUDE.md:11 names docs/phase-1-1/ as 1.1's record. stub/server.py's seven 'Phase 1.2:' markers now carry the issue numbers that replace them. ruff check and ruff format --check clean; pytest 497 passed, 1 skipped.",
+      "notes": "Done. Phase 1.2's shape was decided with the maintainer on 2026-08-25 and is recorded in docs/decisions/0002-phase-1-shape.md. Next feature: project-directory (#77)."
     },
     {
-      "id": "contract-fixtures",
+      "id": "project-directory",
       "priority": 2,
-      "area": "contract",
-      "title": "Contract fixtures generated from the real kernels",
-      "issue": 41,
-      "depends_on": [],
-      "user_visible_behavior": "Committed JSON the UI builds and tests against with no Python present, where every number was produced by a kernel in src/chemometrics_workbench rather than typed by hand.",
-      "status": "passing",
-      "verification": [
-        "Running the generator reproduces the committed fixtures byte for byte.",
-        "The spectra fixture carries the full, decimated and density-band forms, and the decimated form came from a real preprocessing run.",
-        "The PCA fixture carries scores, loadings, per-component and cumulative explained variance, Hotelling T2 with its limit and SPE with its limit, all from decomposition.py.",
-        "Project, Dataset, DatasetVersion, Pipeline and Experiment payloads round-trip through their Pydantic models.",
-        "The job fixture covers queued, running with progress, complete and failed.",
-        "The generator computes no number of its own - grep it for arithmetic on kernel output.",
-        "The error payload shape is documented, so a failure has a body and not only a status code."
+      "area": "backend",
+      "issue": 77,
+      "title": "Project directory and the array store",
+      "depends_on": [
+        "phase-1-2-feature-list"
       ],
-      "evidence": "2026-08-24. On feature/41_contract-fixtures. `uv run python stub/generate_fixtures.py` writes 10 files to stub/fixtures (1.7 MB). Determinism: generated three times, md5sum of all ten identical each time - ids are UUID5 of a fixed namespace and every timestamp is pinned to 2026-08-24T09:00Z. Published pipeline hash sha256:9a684f48..., dataset content hash sha256:e435c053... . Domain payloads (project, pipeline, experiment, dataset version) are Pydantic dumps and are re-validated against their models by tests/test_stub_fixtures.py. Spectra come from a real walk of the recipe through preprocessing.from_spec: 9 non-estimator nodes, 240 spectra each, 60 drawn traces plus a 5/50/95 density band. PCA payloads come from decomposition.PCA: scores, loadings, eigenvalues, per-component and cumulative explained variance, Hotelling T2 and SPE with both limits at alpha=0.05. Branch D is fitted on the 216 training rows of fold 0 from validation.k_fold(240, 10, seed=42), and all ten folds are recorded as a ResolvedSplit. Jobs cover three outcomes - succeeded, failed and cancelled - each starting queued with monotonic progress. Error body carries code, message and detail and no traceback. 20 new tests in tests/test_stub_fixtures.py; full suite 467 passed. ruff check, ruff format --check, mypy strict (stub/ added to both) all clean.",
-      "notes": "TWO DEVIATIONS FROM THE VERIFICATION LIST, both deliberate and both recorded here rather than quietly satisfied.\n\n1. Byte-for-byte reproduction is verified ON THIS MACHINE only, and is NOT gated in CI. It is the same trap #38 had to remove from the parity report: the numbers come out of BLAS, their last bits depend on how NumPy was built, and a value on a rounding boundary crosses it on one runner and not another. Rounding to six places hides most of that and cannot be relied on to hide all of it. What guards the fixtures in CI is structural instead - the payloads parse, the domain objects still satisfy their models, the shapes agree with the dataset and the recipe, and the published pipeline hash is the one content_hash() computes. Do not add a git diff --exit-code gate on stub/fixtures.\n\n2. The spectra payload carries the decimated and band forms but no separate 'full' form. At Tecator's 100 variables the stride is 1, so decimated IS full and a second copy would be identical bytes; the decimation block states variables_total == variables_kept so the fact is on the wire rather than implied. A real full-resolution request for selected spectra is 1.2's business. The consequence is that the x-axis decimation path is not exercised by this fixture - the trace cap and the band are, at 240 spectra against a cap of 60.\n\nThe generator owns exactly one piece of arithmetic on kernel output: the 5/50/95 percentiles for the density band, which is presentation and has no kernel. Everything else is a call."
+      "user_visible_behavior": "A project is a directory on disk that can be created, closed, re-opened in a new process and zipped for a colleague; its arrays survive a restart even though the project list is not yet in a database.",
+      "status": "not_started",
+      "verification": [
+        "A project directory is created with the documented layout, including arrays/.",
+        "An array written and read back in a new process is bit-identical at float32.",
+        "The kernels receive float64 - the conversion happens at the store boundary and nowhere else.",
+        "The path registry in the user's config directory lists a project that was opened earlier.",
+        "Opening a directory that is not a project names what is wrong instead of raising.",
+        "No absolute path appears inside a project directory: it is zipped, unpacked elsewhere and opened."
+      ],
+      "evidence": "",
+      "notes": "SQLite is 1.3. A restart loses the project list, not the data - decided with the maintainer on 2026-08-25."
     },
     {
-      "id": "stub-server",
+      "id": "reader-csv",
       "priority": 3,
       "area": "backend",
-      "title": "Stub server: the real endpoints, serving the generated fixtures",
-      "issue": 53,
+      "issue": 78,
+      "title": "Reader interface and the CSV/TXT reader",
       "depends_on": [
-        "contract-fixtures"
+        "project-directory"
       ],
-      "user_visible_behavior": "A FastAPI application on 127.0.0.1 and an ephemeral port, token-authenticated, serving the generated fixtures at the endpoint paths Phase 1.2 will implement. A run started from the UI is a real job that advances, can be cancelled, and can be made to fail.",
-      "status": "passing",
+      "user_visible_behavior": "A CSV or TXT file imports through a preview that shows what was detected and offers alternatives for every guess, and the corrections the user makes are applied to the imported data.",
+      "status": "not_started",
       "verification": [
-        "The server binds 127.0.0.1 on an ephemeral port and refuses a request with no token or a wrong one.",
-        "Every endpoint the frontend calls returns its fixture body unmodified.",
-        "POST to the run endpoint returns a job that moves through queued, running with rising progress, and complete over several seconds - not a payload returned whole.",
-        "Cancelling a running job stops it and the status reflects it.",
-        "A failure can be provoked without editing code, and returns the documented error body.",
-        "The production mode serves the built static bundle; the development mode coexists with the Vite dev server.",
-        "No database, no persistence and no executor - state is in memory only.",
-        "Every handler names the Phase 1.2 issue that will replace it."
+        "A European-decimal-comma CSV imports with the right numbers.",
+        "A transposed file is detected as transposed, and the alternative orientation is offered.",
+        "Wavelength headers, metadata columns and targets are separated, and a correction to any of them changes the committed dataset.",
+        "The response validates against the import_preview shape the 1.1 fixture publishes.",
+        "The source file's content hash and the reader version are recorded on the DatasetVersion.",
+        "A malformed file returns a diagnostic naming what failed, with no traceback.",
+        "A real sample file is committed as a fixture."
       ],
-      "evidence": "2026-08-24. On feature/53_stub-server. `uv run pytest` is 481 passed; tests/test_stub_server.py adds 15 covering every verification step. Live run: `STUB_TOKEN=live-token uv run python stub/server.py` printed `Launch URL: http://127.0.0.1:45117/?token=live-token`; `ss -ltnp` showed the socket bound to 127.0.0.1:45117 only and the host's LAN address refused the same request (curl exit 000). No token and a wrong token both returned 401 with an `{\"error\": {...}}` body. GET /api/spectra/source returned 53,469 bytes of fixture, byte-identical to spectra.json's `source` entry. A run polled once a second reported queued 0.0, running 0.15, 0.4, 0.65, 0.85 and succeeded 1.0 with the fixture's messages; cancelling at 2.5s returned cancelled at progress 0.4 and it stayed 0.4 four seconds later; `?fail=true` ended failed at 0.85 with the rank message. `X-Stub-Fail: 1` returned 422 carrying error.json unmodified. The bundle mount is exercised through STUB_BUNDLE against a temporary dist, and the CORS preflight from http://localhost:5173 is allowed. `uv run ruff check .`, `ruff format --check` and `uv run mypy` (strict, 27 files) are clean.",
-      "notes": "In-memory only: a job is its status sequence from jobs.json, the monotonic time it started and the step it was cancelled at, so the current step is elapsed/STEP_SECONDS with no background task, no lock and no executor. STUB_JOB_STEP_SECONDS (default 1.2) turns a six-step run down to milliseconds for the tests. Handlers carry `Phase 1.2:` markers naming the work that replaces them rather than issue numbers, because 1.2's issues are not cut yet - grep `Phase 1.2:` when they are, and put the numbers in."
+      "evidence": "",
+      "notes": "CSV/TXT carries every detection problem, so the interface is designed here and proven by #79 and #80."
     },
     {
-      "id": "frontend-scaffold",
+      "id": "reader-xlsx",
       "priority": 4,
-      "area": "frontend",
-      "title": "Frontend scaffold, design tokens and both themes",
-      "issue": 42,
+      "area": "backend",
+      "issue": 79,
+      "title": "XLSX reader",
       "depends_on": [
-        "stub-server"
+        "reader-csv"
       ],
-      "user_visible_behavior": "pnpm build produces a static bundle and pnpm test passes. A token page renders the full palette, type scale and run-state colours in both light and dark, each designed rather than inverted.",
-      "status": "passing",
+      "user_visible_behavior": "An Excel workbook imports through the same preview as a CSV, including choosing which sheet to read.",
+      "status": "not_started",
       "verification": [
-        "pnpm install && pnpm build succeeds from a clean checkout.",
-        "pnpm test and pnpm typecheck pass.",
-        "CI runs a Node job alongside the Python matrix and it is green.",
-        "The token page shows the categorical data palette as distinct from both the accent and the semantic run-state colours.",
-        "Neither Inter nor Space Grotesk is the interface default, and numerals in a metrics table align.",
-        "No Zustand or comparable client-state library is in package.json.",
-        "The token page's values match design/canvas/_base.css exactly for both .t-light and .t-dark - no value was reinvented.",
-        "IBM Plex Sans and IBM Plex Mono load from a bundled asset with the network disabled, not from fonts.googleapis.com.",
-        "No fixture file is imported by the frontend - grep frontend/src for the fixture directory returns nothing.",
-        "Pointing the client at a different backend is a base-URL change and nothing else."
+        "A multi-sheet workbook imports, with the sheet chosen in the preview.",
+        "A title row above the header, blank leading rows and merged cells do not shift the data.",
+        "The same data exported to CSV and imported through #78 gives identical arrays.",
+        "The XLSX dependency is declared in [project.dependencies], not borrowed from a development extra.",
+        "A real sample workbook is committed as a fixture."
       ],
-      "evidence": "2026-08-24. On feature/42_frontend-scaffold. `frontend/` holds Vite 6, React 19, TypeScript 5.9, Tailwind 4 and pnpm 11.23 (pinned in packageManager). `pnpm typecheck`, `pnpm lint`, `pnpm test` (7 tests) and `pnpm build` all pass; `pnpm e2e` passes 1 Playwright test against the built bundle. Python side still 481 passed. The palettes in src/styles/tokens.css are parsed against design/canvas/_base.css by src/__tests__/tokens.test.ts - both blocks, 24 variables each, compared value by value, plus a check that no data-series colour equals --accent, --fail or --stale. IBM Plex ships as 33 woff2 assets in dist and `grep -rl fonts.googleapis dist` is empty; the e2e test fails on any request that does not start with http://127.0.0.1, which is the offline check. Built bundle served by the stub server itself: `STUB_PORT=8765 STUB_TOKEN=dev uv run python stub/server.py` then http://127.0.0.1:8765/?token=dev returns the page (200), its JS and CSS assets (200) and same-origin /api/projects (200); the page header shows `GET /api/projects -> Tecator meat study` from a real TanStack Query call. Dev mode: `pnpm dev` on 5173 proxies /api to 127.0.0.1:8765 and returns the same project JSON. CI has a `frontend` job doing install --frozen-lockfile, typecheck, lint, unit tests, build, chromium install and e2e.",
-      "notes": "No fixture file is imported by the frontend - every payload arrives over HTTP from the stub server, which is the point of #53. The token is read once from ?token= in the launch URL, held in sessionStorage and stripped from the address bar; VITE_STUB_TOKEN covers a dev-server first load. shadcn/ui is configured (components.json, the @ alias, the cn helper) but no component has been pulled in: `pnpm dlx shadcn add <name>` is the way to add one when a screen needs it. Playwright needs `--disable-gpu` in this container or chromium takes itself down. STUB_PORT was added to stub/server.py so the Vite proxy has a fixed target; the default is still 0, an ephemeral port."
+      "evidence": "",
+      "notes": "Second implementation of the reader interface - what turns it from a design into a proven one."
     },
     {
-      "id": "app-shell",
+      "id": "reader-jcamp",
       "priority": 5,
-      "area": "frontend",
-      "title": "Application shell: three regions, tabs and status bar",
-      "issue": 43,
+      "area": "backend",
+      "issue": 80,
+      "title": "JCAMP-DX reader",
       "depends_on": [
-        "frontend-scaffold"
+        "reader-csv"
       ],
-      "user_visible_behavior": "A single window with a resizable project tree, a tabbed document area and a collapsible inspector, over a status bar carrying job name, progress, elapsed time and cancel.",
-      "status": "passing",
+      "user_visible_behavior": "A .jdx or .dx file imports through the same preview, with the axis and metadata the file states rather than reconstructed.",
+      "status": "not_started",
       "verification": [
-        "Tabs open, close, reorder and split side by side.",
-        "A single click previews into the transient tab and replaces it; a double click or an edit pins it.",
-        "Exceeding the tab bar shows an overflow menu with working search.",
-        "Selecting a node in the sidebar outline focuses its tab, opening it if it was closed.",
-        "Both sidebars resize and collapse, the left one to icons.",
-        "The status bar reports a running job without blocking interaction anywhere else.",
-        "The shell matches design/canvas/Main.dc.html at 1440x900 in both themes: 40px top bar, 248px sidebar, 34px tab strip, 292px inspector, 28px status bar.",
-        "A transient tab renders italic in --ink3, as the artboard draws it."
+        "A multi-block file imports as multiple samples.",
+        "XFACTOR, YFACTOR, FIRSTX, LASTX and NPOINTS are applied - the axis is read, never reconstructed.",
+        "A compression form the reader does not support is named in a diagnostic rather than mis-parsed.",
+        "The file's own metadata is carried onto the dataset where the model has somewhere to put it.",
+        "A real sample file is committed as a fixture."
       ],
-      "evidence": "2026-08-24. On feature/43_app-shell. `pnpm test` is 17 passed (10 new, the tab rules); `pnpm e2e` is 6 passed, of which 5 are the shell; `pnpm typecheck`, `pnpm lint` and `pnpm build` are clean; the Python side is 483 passed (2 new: the deep link and the traversal guard). The measurements are asserted in the browser against the artboard, not eyeballed: top bar 40, sidebar 248, tab strip 34, inspector 292, status bar 28. Tab rules exercised end to end - a single click previews into one italic transient tab and a second preview replaces it; a double click pins; opening 16 outline rows overflows the strip and the +N menu finds pca_d by id; the split shows two panes; closing removes the tab. A run started from the top bar reports Queued then Preprocessing: SNV then advances, and Cancel stops it at the step it had reached - the progress width is unchanged 1.2s later. Both palettes checked through --accent: #0B6B62 light, #54BFAB dark. Screenshots of both themes were taken against the stub server at 127.0.0.1:8765.",
-      "notes": "The overflow measurement had a real bug the e2e caught: rendering only the tabs that fit means an unrendered tab has no width, so the measurement can only ever confirm what it already shows and the strip stuck at one tab. Every tab now stays in the DOM and the strip clips them; the +N button floats over the clipped ones. The stub server gained a catch-all that serves index.html so /tokens arrives as the application rather than a 404, with a traversal guard, and the e2e suite now runs against the stub server serving the built bundle rather than a Vite preview - the same origin and token the packaged application uses, so CI's frontend job needs uv. Models has an empty state: no fixture describes a model and they are Phase 2 (#51). Pane contents are placeholders naming the issue that fills them (#44-#48)."
+      "evidence": "",
+      "notes": "The third reader, and the one that shows whether the interface carries more than a table."
     },
     {
-      "id": "import-flow",
+      "id": "import-endpoints",
       "priority": 6,
-      "area": "frontend",
-      "title": "Empty project and the import flow with detection preview",
-      "issue": 44,
+      "area": "backend",
+      "issue": 81,
+      "title": "Import endpoints: preview and commit",
       "depends_on": [
-        "app-shell"
+        "project-directory",
+        "reader-csv"
       ],
-      "user_visible_behavior": "A new project states its next action plainly. Choosing a file shows what the reader detected - wavelength range, sample count, delimiter, decimal separator, orientation, metadata columns - and nothing is committed until that is confirmed.",
-      "status": "passing",
+      "user_visible_behavior": "Importing a file through the running frontend writes a real array into the project directory and a real DatasetVersion that references it; the dataset list is read back from disk after a restart.",
+      "status": "not_started",
       "verification": [
-        "The empty state names the next action without a tour or a modal.",
-        "The preview shows all six detected properties before any commit.",
-        "A wrongly detected orientation can be corrected in the preview and the preview updates.",
-        "A wrongly detected decimal separator can be corrected the same way.",
-        "Cancelling the preview leaves the project with no dataset.",
-        "The dataset view lists samples, variables, metadata columns and exclusions.",
-        "The failure state names the offending file or setting and shows no stack trace.",
-        "The screen uses only components the artboards already establish - table rules, .kv rows, .pill, .btn, sidebar section headers - and any new one was raised rather than introduced in passing."
+        "POST /api/import/preview returns detections from the reader rather than from a fixture.",
+        "POST /api/import commits with the user's corrections applied and writes the array through the store.",
+        "The committed dataset appears in projects/{id}/datasets after the server is restarted.",
+        "A file past the section 13 envelope is reported as oversize without the ?oversize affordance.",
+        "A file the reader rejects returns the documented error body, not a 500.",
+        "The frontend is unchanged. Any edit it needed is recorded as a finding about the 1.1 contract."
       ],
-      "evidence": "2026-08-24. On feature/44_import-flow. `pnpm e2e` is 10 passed, 4 of them this feature: the empty project offers one action and opens the import tab; the preview shows tecator.txt with delimiter=whitespace and decimal=point, states the reconstructed axis and the 22 discarded principal components, and correcting the orientation to samples_in_columns flips the confirm button from `Import 240 x 100` to `Import 100 x 240` before anything is committed; confirming opens the dataset tab, closes the import tab and shows the sample table with the target columns; the broken file returns READER_FAILED with the row-87 message and no traceback, and Try again returns to the picker. `pnpm test` 17 passed, typecheck, lint and build clean, Python 484 passed (1 new: the empty-project knob). Screenshots taken of the empty state, the corrected preview and the imported dataset in the dark palette.",
-      "notes": "No artboard exists for these screens - DESIGN_BRIEF.md section 6 drew the first four and this was among the rest - so they are built from the established vocabulary: the table rules, the .kv rows, .pill and .btn. Nothing new was invented visually. `?empty` in the application's URL asks the stub server for a project with no datasets, which is how the empty state is reachable from a fixture that always has one; `Import a broken file` sends X-Stub-Fail. Both are 1.1 affordances that vanish in 1.2, where a new project is simply empty and a truncated file fails on its own. The dataset view shows the first 60 of 240 samples and says so; virtualisation belongs to #45, where the payload is large enough to need it."
+      "evidence": "",
+      "notes": "First two stub handlers replaced behind unchanged URLs."
     },
     {
-      "id": "spectra-view",
+      "id": "drop-msc-supplied",
       "priority": 7,
-      "area": "frontend",
-      "title": "Spectra view with decimation and the density band",
-      "issue": 45,
+      "area": "schema",
+      "issue": 82,
+      "title": "Drop MSC(reference='supplied') from the schema",
       "depends_on": [
-        "app-shell"
+        "phase-1-2-feature-list"
       ],
-      "user_visible_behavior": "Raw and processed spectra overlaid on a labelled wavelength axis, with large sets shown as a shaded density envelope and selected spectra drawn over it at full resolution.",
-      "status": "passing",
+      "user_visible_behavior": "The inspector no longer offers an MSC reference the executor cannot run; the schema advertises only what a saved pipeline can express.",
+      "status": "not_started",
       "verification": [
-        "The largest fixture dataset renders as a density band rather than one trace per spectrum.",
-        "A selected spectrum draws at full resolution on top of the band.",
-        "The axis carries its unit - nm or cm-1 - and so does the ordinate.",
-        "Hovering a spectrum names the sample.",
-        "Rendering uses scattergl, confirmed in the Plotly trace type.",
-        "The spectrum count is visible.",
-        "The categorical palette passes a colourblind check and is not the accent colour.",
-        "The screen matches design/canvas/SpectraView.dc.html in both themes.",
-        "Plotly's fonts and palette are driven from the design tokens, not from its defaults."
+        "grep -rn '\"supplied\"' src/ names only the kernel's own parameter, not models.py.",
+        "from_spec no longer carries the branch that raises for it.",
+        "The regenerated step_schema.json offers two MSC references, and the inspector's form follows.",
+        "The suite is green, including the parity cases."
       ],
-      "evidence": "2026-08-24. On feature/45_spectra-view. `pnpm e2e` is 16 passed, 6 of them this feature; `pnpm test` is 24 passed (7 new, the trace rules); typecheck, lint and build clean; Python unchanged at 484. Asserted in the browser: the header reads `240 spectra \u00b7 0 highlighted \u00b7 100 variables` with pills `60 of 240 drawn` and `no x decimation`, and the note `shaded band = full set (240)`; the axes read `wavelength_nm (nm)` and `Absorbance`; highlighting a sample puts one trace at opacity 1 with more than 50 others below it and names it under the plot; the envelope's fillcolor equals the `--band` token read off the running application; the paper background follows the theme, rgb(255,255,255) light and rgb(12,20,19) dark. Every drawn trace is `scattergl` on the Okabe-Ito series, never the accent - checked in the unit tests against the committed fixture. Screenshots taken in both themes, with the hover readout naming sample E1005 at 967.2 nm.",
-      "notes": "Plotly is the gl2d dist bundle called directly - react-plotly.js would be a wrapper dependency for two function calls, and it lags React. The bundle ships no types, so src/plot/plotly.d.ts declares only `react` and `purge`. Every colour and font comes from the CSS variables read off the DOM, so a theme switch repaints the plot; a plot that ignored the theme is how this screen would drift from the artboards. Decimation is consumed, never computed: 240 spectra arrive as 60 traces plus a 5/50/95 band, and Tecator's 100 variables mean the x-axis decimation path is populated but not exercised - the screen says `no x decimation` rather than pretending otherwise. Clicking a trace selects it (plotly_click, bound once the plot exists); a `Highlight sample` list does the same thing deterministically, because sixty overlapping lines are a small target."
+      "evidence": "",
+      "notes": "Open since pull request #22; decided with the maintainer on 2026-08-25. Re-adding it later is additive and needs no migration. Lands before the executor is written against the enum."
     },
     {
-      "id": "pipeline-canvas",
+      "id": "pipeline-executor",
       "priority": 8,
-      "area": "frontend",
-      "title": "Pipeline canvas, read-only, with a step-list builder",
-      "issue": 46,
+      "area": "backend",
+      "issue": 83,
+      "title": "Pipeline executor",
       "depends_on": [
-        "app-shell"
+        "project-directory",
+        "drop-msc-supplied"
       ],
-      "user_visible_behavior": "The pipeline renders as a pan and zoom node graph with every node type and run state legible at a glance. Steps are added through a list rather than by dragging.",
-      "status": "passing",
+      "user_visible_behavior": "A pipeline runs from a real dataset: each node's output is computed once, cached on disk, and recomputed only when it or something upstream of it changes.",
+      "status": "not_started",
       "verification": [
-        "The fixture's four-branch pipeline renders with its branches distinct.",
-        "All six node states are visible simultaneously in the fixture and are distinguishable in greyscale as well as in colour.",
-        "A source node shows its dimensions, a split node shows its seed, a completed model node shows its headline metric.",
-        "Edges animate only while a run is in progress, and not at all under prefers-reduced-motion.",
-        "A linear SNV to Savitzky-Golay to PCA pipeline can be assembled through the step list.",
-        "Moving a node does not change Pipeline.content_hash - layout is stored beside the pipeline, not inside it.",
-        "Selecting a node focuses its tab.",
-        "Nodes match design/canvas/PipelineCanvas.dc.html: 132x70, 17px mono uppercase type header, parameters in mono 9.5px.",
-        "Stale renders as a dashed --stale border over a 135 degree --staleSoft hatch at 0.72 opacity with an 'edited - downstream stale' footer, as drawn.",
-        "Edges are 1.4px --rule at rest, 1.8px --accent on the active path, dashed 4 3 in --stale where stale, over a 22px --grid dot ground."
+        "The pipeline the 1.1 fixture publishes executes end to end and reproduces the fixture's arrays.",
+        "Editing one node recomputes it and its descendants, and nothing else.",
+        "RangeSelect reads its axis off the DatasetVersion, not off the recipe.",
+        "A split branch is fitted on its training rows and the other branches only transform.",
+        "A step that fails names the node it failed at.",
+        "Moving a node on the canvas does not invalidate a cached result."
       ],
-      "evidence": "2026-08-24. On feature/46_pipeline-canvas. `pnpm e2e` is 20 passed, 4 of them this feature; `pnpm test` is 33 passed (9 new, the node and edge encodings); typecheck, lint and build clean; Python 484 passed. Asserted in the browser: the fixture's branching pipeline renders as 14 nodes and 13 edges with their parameter lines (`window 11 \u00b7 poly 2 \u00b7 deriv 1`, `10 folds \u00b7 shuffle \u00b7 seed 42`); all five states are on screen at once and separable by form, not only colour - stale is dashed over a repeating-linear-gradient hatch, not_run is dashed, failed carries a 3px left stripe, complete is solid, and the running node shows its progress bar; the stale node says `edited - downstream stale` and the failed one names the rank-4 matrix. Clicking a node opens its tab. Adding SNV, SG d1 w11 and PCA through the step list adds three nodes to the canvas, Validate reports `valid \u00b7 3 steps`, and removing a step removes its node. Screenshots taken in both themes.",
-      "notes": "React Flow (@xyflow/react) as the issue asks, with a custom node type rather than its default: the artboard fixes 132x70, a 17px mono header, the parameter line and the footer. Edges take --accent at 1.8px into a running or queued node, dashed 4 3 in --stale wherever either end is stale, and --rule at 1.4px at rest; animation rides only on the accent path and is off entirely under prefers-reduced-motion. Layout coordinates come from pipeline_state.json, outside Pipeline.content_hash(), and a test asserts the pipeline itself carries no layout - moving a node must not change the science. The fixture generator gained the fifth state: pca_d now fails with the same rank-4 message jobs.json's failing run ends on, because the node that failed and the run that failed are one event seen twice. Only pipeline_state.json changed. The canvas is read-only: dragging nodes into place is #51."
+      "evidence": "",
+      "notes": "preprocessing.from_spec is the seam and already covers every step the schema can express. The kernels stay pure - no caching or job logic leaks into preprocessing.py."
     },
     {
-      "id": "inspector",
+      "id": "pipeline-validator",
       "priority": 9,
-      "area": "frontend",
-      "title": "Inspector: node parameters, metrics, provenance",
-      "issue": 47,
+      "area": "backend",
+      "issue": 84,
+      "title": "Pipeline validator: the two warnings nothing emits",
       "depends_on": [
-        "app-shell",
-        "pipeline-canvas"
+        "pipeline-executor"
       ],
-      "user_visible_behavior": "The right sidebar shows whatever is selected - node parameters, model metrics, dataset metadata, provenance - and is the only place a pipeline parameter is edited in this sub-phase.",
-      "status": "passing",
+      "user_visible_behavior": "A pipeline that will produce an optimistic RMSECV, or a PLS with no centring upstream, warns the user and points at the node - without blocking the run.",
+      "status": "not_started",
       "verification": [
-        "Every preprocessing step the schema can express has an editable form.",
-        "An even Savitzky-Golay window is refused by the form with a specific message, matching what models.py refuses.",
-        "Editing a parameter marks the downstream nodes stale and leaves the upstream ones alone.",
-        "Stale results dim and remain readable rather than disappearing.",
-        "A re-run affordance appears on a stale node.",
-        "The metrics block uses tabular numerals and the columns align.",
-        "The provenance section collapses and shows the environment record from the fixture.",
-        "The inspector matches the artboards in both themes: .ihead block, .ilabel in mono uppercase, .kv rows with the value in mono tabular numerals."
+        "A MeanCentre or Autoscale upstream of a split emits the leakage warning, naming the node.",
+        "A PLS node with no centring upstream emits its warning, naming the node.",
+        "Neither fires on the fixture pipeline.",
+        "The warnings do not block a run.",
+        "The validate response is computed - the unconditional valid: true is gone.",
+        "Each warning states the consequence, not only the rule."
       ],
-      "evidence": "2026-08-24. On feature/47_inspector. `pnpm e2e` is 24 passed, 4 of them this feature; `pnpm test` is 41 passed (8 new, the generated form and the staleness walk); Python is 486 passed (3 new: the served schema, model-backed step validation, and the fixture register). Asserted in the browser: selecting the Savitzky-Golay node fills a typed form with window_length 11, polyorder 2 and deriv 1; entering deriv 5 refuses with `Deriv must be at most 2` from the schema's own bounds and disables Apply; entering an even window is accepted by the form and refused by the model with its own sentence, `window_length must be odd`; changing MSC's reference to median and applying raises `Downstream results are stale.`, increases the count of stale nodes on the canvas and leaves all 14 nodes in place - a stale result dims, it does not vanish - and Re-run starts a job. Provenance is collapsed until asked for and truncates in the middle (`sha256:e435\u202690d7`). Screenshots taken in both themes.",
-      "notes": "The parameter form is generated from `models.py`'s JSON Schema, served at GET /api/schema/steps and committed as stub/fixtures/step_schema.json - so a field's type, bounds, enum and default come from the same place the backend enforces them. The cross-field rules (odd window, polyorder below window, deriv below polyorder, start below end) live in model_validator and have no JSON Schema form, so the stub server validates the step against PreprocessStep at POST /api/steps/validate and the message the user reads is the model's own. That is the one place the stub server computes anything, and it is on purpose: the alternative is restating models.py in TypeScript and drifting from it. Editing marks the node and everything downstream stale through a pure graph walk (src/inspector/stale.ts, tested against the fixture); the pipeline-state query holds its data so a tab switch does not refetch the optimistic update away."
+      "evidence": "",
+      "notes": "Both are specified in metrics-and-validation.md section 9 and pls-regression.md section 3 and have never been emitted. The 1.1 handler returns valid: true unconditionally."
     },
     {
-      "id": "analysis-results",
+      "id": "real-jobs",
       "priority": 10,
-      "area": "frontend",
-      "title": "Analysis results: scores, loadings, explained variance",
-      "issue": 48,
+      "area": "backend",
+      "issue": 85,
+      "title": "Real jobs: background execution, progress, cancel and failure",
       "depends_on": [
-        "app-shell"
+        "pipeline-executor"
       ],
-      "user_visible_behavior": "A PCA result opens as one tab holding a scores plot with its Hotelling T2 ellipse, a loadings plot and a scree plot, without becoming a cramped dashboard.",
-      "status": "passing",
+      "user_visible_behavior": "A run returns immediately and reports real progress as the pipeline advances; cancelling stops the work, and a genuine failure renders the failure screen with a cause and no traceback.",
+      "status": "not_started",
       "verification": [
-        "The scores plot draws the T2 ellipse from the limit in the fixture, not from a value computed in the browser.",
-        "Both score axes select their component.",
-        "Loadings plot against the variable axis in its real units.",
-        "Explained variance shows per component and cumulative.",
-        "Hovering a score point names its sample.",
-        "The three plots coexist legibly at 1440px, and the layout rule chosen is written into the design brief as the answer to open question 11.1.",
-        "Numbers align with tabular numerals.",
-        "The panel grid matches design/canvas/AnalysisResults.dc.html, which is drawn in the dark palette, and leaves room for the Phase 2 predicted-vs-measured panel rather than a layout that has to be torn up."
+        "A PCA run on a real dataset advances through per-node progress reported by the executor, not interpolated.",
+        "A cancelled run stops the work and leaves no partial array claimed as a node output.",
+        "A run that genuinely fails renders the failure screen; ?fail=true is not needed to reach it.",
+        "The failure body carries a cause and no traceback.",
+        "A 10-fold cross-validated PLS finishes inside 30 s with progress visible throughout."
       ],
-      "evidence": "2026-08-24. On feature/48_analysis-results. `pnpm e2e` is 29 passed, 5 of them this feature; `pnpm test` is 48 passed (7 new, the panel traces); Python unchanged at 486; typecheck, lint and build clean. Asserted in the browser: one tab holds Scores, Loadings, Explained variance and Diagnostics as titled panels, with the header reading `PCA 5 components \u00b7 240 \u00d7 100`, PC1 68.9% and cumulative 99.9%; the scores axes read `PC 1 (68.9%)` and `PC 2 (28.4%)` and changing the y axis to PC 3 relabels it `PC 3 (1.6%)`; the loadings axis reads `wavelength_nm (nm)`. The T2 ellipse's semi-axes were read back off the running plot and compared against sqrt(limit * eigenvalue) computed from a fresh fetch of /api/results/pca_a - equal to 9 decimal places, so the ellipse is the server's limit and not a browser statistic. The diagnostics block lists 28 of 240 samples beyond a limit, in cells that computed-style as tabular-nums. Hovering the scores cloud names a sample. DESIGN_BRIEF.md section 11 now records 11.1 as settled. Screenshots in both themes.",
-      "notes": "Nothing is computed here: scores, loadings, variances, T2, SPE and both limits arrive as data. The only arithmetic is the ellipse's points, which is drawing the limit that was sent - the unit test pins it to sqrt(limit * eigenvalue). The explained-variance bars are layout shapes rather than a `bar` trace, because the gl2d bundle carries scatter and scattergl only and a second Plotly bundle for five rectangles would cost about a megabyte; an invisible marker trace carries the hover. A sample beyond a limit is drawn in --stale, off the data palette, because an outlier is a warning rather than a series. The second row is laid out so Phase 2's predicted-vs-measured panel arrives beside Explained variance and Diagnostics rather than replacing them."
+      "evidence": "",
+      "notes": "The 1.1 job envelope is marked GUESS and may change here; a frontend change is the finding. No job survives a restart - persistence is 1.3."
     },
     {
-      "id": "application-states",
+      "id": "server-side-decimation",
       "priority": 11,
-      "area": "frontend",
-      "title": "The six application states",
-      "issue": 49,
+      "area": "backend",
+      "issue": 86,
+      "title": "Server-side decimation and the density band, computed",
       "depends_on": [
-        "import-flow",
-        "spectra-view",
-        "pipeline-canvas",
-        "analysis-results"
+        "pipeline-executor"
       ],
-      "user_visible_behavior": "Empty, importing, running, stale, failed and overloaded each have a designed state rather than a blank screen or a spinner.",
-      "status": "passing",
+      "user_visible_behavior": "Spectra plots stay responsive on a dataset far larger than Plotly can draw, because the server decides what is drawn and what goes into the density band.",
+      "status": "not_started",
       "verification": [
-        "A running job shows progress in the node, the tab and the status bar at the same time.",
-        "A running job can be cancelled and nothing else is blocked while it runs.",
-        "The stale state dims downstream results and keeps them readable.",
-        "The failed state names a cause and shows no stack trace.",
-        "The overloaded state states the envelope limit from PROPOSAL.md section 13 rather than freezing.",
-        "A failed node is not mistakable for a red spectrum - run-state colour is separate from the data palette.",
-        "Each of the six is reachable from the fixture harness and screenshotted.",
-        "Running and stale match the encodings drawn in PipelineCanvas.dc.html and stated in canvas.json's states annotation."
+        "spectra/{node_id} is served from the executor's stored arrays.",
+        "A dataset with enough variables to need it is really x-decimated - variables_kept is smaller than the axis.",
+        "Decimation preserves visible shape: a narrow peak survives, tested against a plain stride.",
+        "The trace cap and the band are computed from the real data.",
+        "A highlighted spectrum comes back at full resolution.",
+        "A preprocessing preview returns inside the 1 s budget on the target dataset."
       ],
-      "evidence": "2026-08-24. On feature/49_application-states. `pnpm e2e` is 35 passed, 6 of them one per state, each entered against the stub server rather than from a hard-coded flag; `pnpm test` is 52 passed (4 new, the envelope); Python 487 passed (1 new, the oversize knob). Twelve screenshots taken, each of the six states in both themes. Running: the status bar, the tab and the node carry the same job at once, and cancelling stops it and clears the tab's progress. Failed: `?failrun` takes the server's failing sequence and the banner reads RUN FAILED with the rank-4 message and no traceback; the test also reads --fail and --d1..--d6 off the running application and asserts they are disjoint, so a failing thing can never be a red spectrum. Stale: applying a parameter change dims downstream nodes - computed style is a dashed border over a 135deg hatch at opacity below 1 - and all 14 nodes remain. Overloaded: `?oversize` reports the dataset as 42,000 x 6,200 and the spectra tab states `BEYOND THE V1 ENVELOPE`, `42,000 \u00d7 6,200`, `about 320 MB`, draws no plot at all, and the rest of the application stays responsive. Empty and importing were re-checked against the others.",
-      "notes": "The envelope numbers come from PROPOSAL.md section 13 and live in src/states/envelope.ts: 20,000 x 4,000 float32 is 320 MB, and the message names which bound was crossed rather than saying 'too big'. Past it the spectra view returns before any hook or query runs - preparing a plot of eighty million points is the freeze the state exists to avoid. `?oversize` on the datasets endpoint rewrites only the declared shape, so no 320 MB fixture enters git and no array is fabricated. With `?empty`, `?fail=true` and `?failrun` that makes four 1.1-only affordances, all of which go in 1.2 where a truncated file, a rank-deficient matrix and a genuinely large dataset reach these states on their own."
+      "evidence": "",
+      "notes": "Tecator at 100 variables never exercised x-decimation in 1.1. This needs a dataset big enough to drop points. Node ids stay the pipeline's, not the dataset's."
     },
     {
-      "id": "e2e-walkthrough",
+      "id": "results-endpoint",
       "priority": 12,
-      "area": "frontend",
-      "title": "Playwright walkthrough: the sub-phase exit criterion as a test",
-      "issue": 50,
+      "area": "backend",
+      "issue": 87,
+      "title": "Results endpoint served from the executor",
       "depends_on": [
-        "import-flow",
-        "spectra-view",
-        "pipeline-canvas",
-        "inspector",
-        "analysis-results"
+        "pipeline-executor"
       ],
-      "user_visible_behavior": "The whole Phase 1.1 path runs as one automated test, so the sub-phase is finished by evidence rather than by eye.",
-      "status": "passing",
+      "user_visible_behavior": "The analysis panels show PCA computed from the user's own data rather than from a fixture.",
+      "status": "not_started",
       "verification": [
-        "pnpm test:e2e walks empty project, import preview, SNV, Savitzky-Golay, PCA, scores plot against the stub server.",
-        "The run is watched through its job lifecycle - the test does not pass by finding a result that was there from the start.",
-        "A second path cancels a running job.",
-        "A third provokes a failure and asserts the failed state names a cause.",
-        "The test asserts on rendered values, not only on elements existing.",
-        "It runs in both themes.",
-        "It is green in CI, with the stub server started as a fixture."
+        "Scores, loadings, explained variance, T-squared and SPE with both limits are read from the executor's stored node output.",
+        "The executor reproduces the fixture's pca.json values to floating point from the same dataset and recipe.",
+        "The split branch's diagnostics are fitted on training rows and applied to validation rows.",
+        "A node with no result, or a stale one, is reported as such rather than served out of date.",
+        "Every diagnostic carries its limit."
       ],
-      "evidence": "2026-08-24. On feature/50_e2e-walkthrough. `pnpm test:e2e` is 38 passed, run twice back to back with the same result; `pnpm test` 52 passed; Python 487 passed; typecheck, lint, build and mypy clean. e2e/walkthrough.spec.ts holds the exit criterion as three tests. The whole path: an empty project, an import whose preview reports delimiter whitespace, orientation samples_in_rows and the reconstructed axis, a dataset that appears only after the preview is confirmed (the tab is asserted absent first), SNV then SG d1 w11 then PCA added through the step list with Validate reporting `valid \u00b7 3 steps`, a run started with no results tab open, and the scores read back. The run is watched through its real lifecycle: the status bar's progress width is sampled every 150 ms, and the test asserts more than two distinct values, that they are non-decreasing, and that the last is 100 - a payload returned whole would fail all three. The drawn scores are compared against a fresh fetch of /api/results/pca_a: first sample id equal, x and y equal to 12 decimal places, and the header's variance matching the served ratio. Both palettes are exercised on the screen the walkthrough ends on. The cancel path freezes the progress width and clears the tab's indicator; the failure path names the rank-4 matrix with no traceback. CI runs it as `pnpm test:e2e` with the stub server started as the Playwright web server fixture.",
-      "notes": "`?empty` moved from the server to the page: emptiness describes how this tab started, and once something is imported the flag is spent (sessionStorage). The first attempt put the state on the server and it made the suite order-dependent - the walkthrough's import left the project non-empty for every later test. Per-page state also let the workers stay parallel. The walkthrough deliberately asserts absence before presence - no results tab, no scores plot - so it cannot pass by finding a result that was there from the start."
+      "evidence": "",
+      "notes": "The fixture's numbers were always real - they were generated by the kernels. Here the fixture becomes a regression test rather than a source."
     },
     {
-      "id": "shell-load-failure",
+      "id": "metrics-gap",
       "priority": 13,
-      "area": "frontend",
-      "title": "The shell says why it cannot load, instead of spinning",
-      "issue": 69,
-      "depends_on": [
-        "app-shell"
-      ],
-      "user_visible_behavior": "Opening the application without a token, or against a server that is not answering, states the problem and what to do about it rather than showing Loading forever.",
-      "status": "passing",
+      "area": "kernel",
+      "issue": 88,
+      "title": "The metrics gap: SEC, SEP, Q-squared and coefficients in original units",
+      "depends_on": [],
+      "user_visible_behavior": "The four quantities metrics-and-validation.md specifies and Phase 0 never implemented are available and covered by parity.",
+      "status": "not_started",
       "verification": [
-        "Loading without a token shows a message naming the 401 and how to reopen, not a spinner.",
-        "A server that is not answering is distinguished from one that refuses the token.",
-        "The message stays inside the application chrome.",
-        "An end-to-end test covers the tokenless load."
+        "SEC, SEP and Q-squared are implemented, with RMSEC still dividing by n and the corrections living in SEC and SEP.",
+        "Fold aggregation is pooled residuals, not the mean of per-fold RMSEs.",
+        "coefficients_original_units back-transforms the foldable chain, and says so when the chain is not foldable.",
+        "Each has a parity case against a reference whose aggregation rule is established.",
+        "docs/parity-report.md is regenerated."
       ],
-      "evidence": "2026-08-24. On fix/69_shell-load-failure. `pnpm test:e2e` is 40 passed, 2 of them new; `pnpm test` 52 passed; Python 487 passed; typecheck, lint and build clean. Loading http://127.0.0.1:8765/ with no token now shows `401 \u00b7 UNAUTHORIZED`, `Not authenticated`, what happened and how to reopen from the launch URL - asserted in the browser, along with `Loading\u2026` no longer appearing and the top bar reading `No project` rather than claiming to be loading one. Aborting every /api request shows `NO RESPONSE` and `not answering` instead, so a stopped server is told apart from a refused token. The application chrome stays around the message. Screenshot taken.",
-      "notes": "Found by opening the launch URL without its token, which a browser's autocomplete does readily. #49's failed state covered runs and imports; the shell's own load was a seventh case nobody listed, and every end-to-end test opened the application with a valid token, so nothing exercised it. There is no retry: a 401 is not transient, and retrying is what makes a refusal look like a slow load."
+      "evidence": "",
+      "notes": "A Phase 0 inheritance - nothing in #12 verified these. Depends on nothing in 1.2, so it can be picked up whenever the chain is blocked. SNV, MSC and baselines cannot be folded into coefficients; Savitzky-Golay can."
+    },
+    {
+      "id": "http-surface-complete",
+      "priority": 14,
+      "area": "backend",
+      "issue": 89,
+      "title": "The HTTP surface complete, the stub retired",
+      "depends_on": [
+        "import-endpoints",
+        "real-jobs",
+        "server-side-decimation",
+        "results-endpoint"
+      ],
+      "user_visible_behavior": "There is one server. The frontend has never known the difference, and no query parameter can put the application into a state it could not reach honestly.",
+      "status": "not_started",
+      "verification": [
+        "projects, projects/{id}/datasets, pipelines/{id}, pipelines/{id}/state, experiments/{id} and experiments/{id}/run are served from the real store.",
+        "The error envelope is settled and every screen still renders it.",
+        "The pagination decision is taken and implemented, or deferred with its reason recorded.",
+        "grep -rn 'X-Stub-Fail|[?]empty|oversize|failrun' returns nothing outside history.",
+        "stub/ is deleted; fixtures still worth having as regression inputs have moved to tests/fixtures/.",
+        "Token authentication on 127.0.0.1 is unchanged.",
+        "Every state #49 renders is still reachable, now by real means.",
+        "Not one URL changed."
+      ],
+      "evidence": "",
+      "notes": "Four 1.1-only affordances die here: ?empty, ?oversize, ?failrun and X-Stub-Fail. Each carries a comment saying it is 1.1-only."
+    },
+    {
+      "id": "e2e-real-backend",
+      "priority": 15,
+      "area": "test",
+      "issue": 90,
+      "title": "The sub-phase exit criterion as a test",
+      "depends_on": [
+        "pipeline-validator",
+        "http-surface-complete"
+      ],
+      "user_visible_behavior": "The Phase 1.1 walkthrough passes against the real backend, on a file the user picks, with no stub in the repository.",
+      "status": "not_started",
+      "verification": [
+        "#50's walkthrough runs green against the real server, in CI, on the three-platform matrix.",
+        "The import step uses a real file chosen through the file dialog, not a fixture path.",
+        "The provoked failure is provoked by real means, X-Stub-Fail having gone in #89.",
+        "Every diff to the 1.1 walkthrough is recorded, with what it says about the contract.",
+        "No new fixture was introduced to make it pass."
+      ],
+      "evidence": "",
+      "notes": "If it passes unedited, the 1.1 contract held. Every edit it needs is a finding about that contract."
     }
   ]
 }
