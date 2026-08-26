@@ -59,7 +59,7 @@
         "project-directory"
       ],
       "user_visible_behavior": "A CSV or TXT file imports through a preview that shows what was detected and offers alternatives for every guess, and the corrections the user makes are applied to the imported data.",
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "A European-decimal-comma CSV imports with the right numbers.",
         "A transposed file is detected as transposed, and the alternative orientation is offered.",
@@ -69,8 +69,8 @@
         "A malformed file returns a diagnostic naming what failed, with no traceback.",
         "A real sample file is committed as a fixture."
       ],
-      "evidence": "",
-      "notes": "CSV/TXT carries every detection problem, so the interface is designed here and proven by #79 and #80."
+      "evidence": "2026-08-26. On feature/78_reader-csv. New package src/chemometrics_workbench/readers/ (__init__.py: the interface; delimited.py: CSV/TXT), 34 tests in tests/test_readers_delimited.py, and four real sample files in tests/fixtures/readers/ cut from the committed Tecator dataset with their provenance in a README beside them. uv run pytest is 561 passed, 1 skipped (528 before); ruff check, ruff format --check and mypy over 33 source files all clean. The interface is two functions, sniff and read, plus head: sniff reports a Detection with a Choice for every guess, and read parses the whole file according to a Detection - the one sniff returned or that one with the user's corrections folded in, which is why a correction cannot be displayed and then ignored. Detection, proven against the fixtures: tecator_subset.csv is comma/decimal point/samples in rows with a wavelength_nm axis read off the header; tecator_subset_eu.csv is semicolon/decimal comma with batch as a metadata column and fat and moisture as targets; tecator_transposed.csv is detected as samples_in_columns; spectra_whitespace.txt is whitespace-delimited, headerless, and gets an index axis with a note rather than an invented wavelength range. A descending header reads as wavenumber_cm-1, an unordered header is refused as an axis, and an empty column is discarded with its reason. Corrections are real: read(EUROPEAN) and read(PLAIN) return the same numbers to 1e-4 against load_tecator().spectra[:8, :12], and correcting the decimal separator to '.' on a decimal-comma file fails with a diagnostic instead of silently importing nothing. A correction outside the offered alternatives, and a correction to a field the reader does not offer, are both refused rather than dropped. Diagnostics, never a stack trace: an empty file, a one-column file, a ragged line named by number, a non-numeric cell in a wavelength column named by line, a file of only text, and an unknown suffix each raise ReaderError with a sentence naming what is wrong. Provenance: every Imported carries a SourceFile with sha256: hash, reader name and reader version. The preview payload's keys, and its source, detected, axis and head sub-keys, are asserted field for field against stub/fixtures/import_preview.json, which is the Phase 1.1 contract.",
+      "notes": "Done. Two findings recorded rather than acted on here. (1) A numeric header name settles a column as a variable whatever its cells hold, so one 'n/a' in a wavelength column fails at the parse naming its line instead of quietly reclassifying the column as metadata - the alternative silently imports a dataset one variable short. (2) The axis kind is detected but cannot be corrected: the Phase 1.1 preview shape has no alternatives for it, and adding one is a contract change that belongs to #81 with the frontend finding. Next: #79, or #81 once #79 and #80 land."
     },
     {
       "id": "reader-xlsx",
