@@ -103,7 +103,7 @@
         "reader-csv"
       ],
       "user_visible_behavior": "A .jdx or .dx file imports through the same preview, with the axis and metadata the file states rather than reconstructed.",
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "A multi-block file imports as multiple samples.",
         "XFACTOR, YFACTOR, FIRSTX, LASTX and NPOINTS are applied - the axis is read, never reconstructed.",
@@ -111,8 +111,8 @@
         "The file's own metadata is carried onto the dataset where the model has somewhere to put it.",
         "A real sample file is committed as a fixture."
       ],
-      "evidence": "",
-      "notes": "The third reader, and the one that shows whether the interface carries more than a table."
+      "evidence": "2026-08-26. On feature/80_reader-jcamp. New src/chemometrics_workbench/readers/jcamp.py, 25 tests in tests/test_readers_jcamp.py, and two fixtures: tecator_subset.jdx, a LINK block of eight spectra carrying the same eight Tecator samples and twelve channels as the CSV and the workbook, and compressed_forms.jdx, hand-written so SQZ, DIF and DUP can each be asserted against a stated number. uv run pytest is 604 passed, 1 skipped (579 before); ruff and mypy clean over 38 source files. No new dependency: the ASDF decoder is written here. Multi-block: eight blocks become eight samples, each block's ##TITLE becomes its sample id, and the LINK block's own header - ORIGIN, OWNER - is carried onto every spectrum inside it. Blocks whose point counts or axes disagree are refused as two datasets rather than merged. The axis is read: ##FIRSTX, ##LASTX and ##NPOINTS give the values, ##XFACTOR and ##YFACTOR scale them (asserted separately on a file with XFACTOR=2.0 and YFACTOR=0.001), and axis_reconstructed is False. ##XUNITS of 1/CM and NANOMETERS name the axis; MICROMETERS leaves it numbered with a note rather than converted, and a file with no ##FIRSTX is refused with 'does not invent one'. The compressed forms decode: A00 J K then A03 J T gives 100, 101, 103, 104, 104; +10-20+30-40 gives the four PAC values; a0 j J % gives -10, -11, -10, -10. A DIF line's restatement of the previous line's last ordinate is checked, and a file where it disagrees is refused with 'difference form has been misread' - the case that would otherwise yield a plausible spectrum. Refused by name rather than guessed at: a data form this build does not read, a ##PEAK TABLE (a reduction of a spectrum, not a spectrum), an ##NPOINTS that disagrees with the decoded data, a file with no ##LDR entries, a file with headers and no data, an empty file, and a token in no form the reader knows. Nothing in a JCAMP file is a guess, so Detection.correctable is empty and every correction is refused. read(tecator_subset.jdx) and read(tecator_subset.csv) agree within 1e-4, which is three formats and one dataset.",
+      "notes": "Done. The ASDF decoder covers PAC, SQZ, DIF and DUP under (XY..XY) and (X++(Y..Y)). NTUPLES, peak tables and the forms this build does not read are refused by name rather than partially parsed, because a guessed form produces a spectrum that looks right and is not. Two conversions were declined rather than written: MICROMETERS to nanometres, and transmittance to absorbance - both are science the import step should not do silently, and both belong in a pipeline step if they are wanted. Next: #81, which now has all three readers and the array store behind it."
     },
     {
       "id": "import-endpoints",
