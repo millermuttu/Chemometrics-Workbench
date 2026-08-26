@@ -82,7 +82,7 @@
         "reader-csv"
       ],
       "user_visible_behavior": "An Excel workbook imports through the same preview as a CSV, including choosing which sheet to read.",
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "A multi-sheet workbook imports, with the sheet chosen in the preview.",
         "A title row above the header, blank leading rows and merged cells do not shift the data.",
@@ -90,8 +90,8 @@
         "The XLSX dependency is declared in [project.dependencies], not borrowed from a development extra.",
         "A real sample workbook is committed as a fixture."
       ],
-      "evidence": "",
-      "notes": "Second implementation of the reader interface - what turns it from a design into a proven one."
+      "evidence": "2026-08-26. On feature/79_reader-xlsx. New src/chemometrics_workbench/readers/xlsx.py and readers/grid.py, 18 tests in tests/test_readers_xlsx.py, and tests/fixtures/readers/tecator_subset.xlsx - the same eight Tecator samples and twelve channels as the CSV fixtures, under a merged title row over a blank row, with a second sheet. uv run pytest is 579 passed, 1 skipped (561 before); ruff and mypy clean over 36 source files. openpyxl is declared in [project.dependencies] and mypy is told it ships no stubs. The interface held, and moved: everything a spreadsheet and a text file share - header detection, orientation, column classification, the axis rules, the read and the preview head - is now readers/grid.py, and delimited.py keeps only what text has (decode, delimiter, splitting, line counting). #78's 34 tests pass unchanged against the refactor, which is the evidence that the move preserved behaviour. Agreement is the sharpest test: read(tecator_subset.xlsx) and read(tecator_subset.csv) give the same values within float, the same sample_ids, the same fat targets, and the same axis to 0.05 nm - the CSV fixture prints its headers to six significant digits where the workbook holds full floats. What only a workbook has: a sheet Choice with the others as alternatives and 'sheet' in correctable; a merged title row and a blank row skipped without shifting the columns; trailing empty rows and columns dropped rather than imported as blank samples; dates rendered as ISO text so a date column is metadata rather than a plausible absorbance; numbers stored as text still put through decimal detection, so '1,5' in a cell is 1.5. Diagnostics: a sheet with no table, an empty sheet, a non-zip file with an .xlsx suffix, and a sheet name that is not there each raise ReaderError naming the workbook and the sheet. A delimiter correction is refused for a workbook, because offering a correction that cannot be applied is the same lie as ignoring one.",
+      "notes": "Done. One interface change landed here and CSV moved with it, as the issue anticipated. Two additions to the shape: Detection.sheet, and Detection.correctable, which is per-reader because a delimiter means nothing to a spreadsheet. A correction that changes which table is read - a sheet, and one day a JCAMP block - triggers a re-detection through the optional resniff hook, because the sample count, the axis and every column classification go stale when the sheet changes. The 1.1 preview screen does not render a sheet chooser, so the correction is reachable through the API and not yet through the UI: that is a contract finding for #81 alongside the file-upload one. Next: #80."
     },
     {
       "id": "reader-jcamp",
