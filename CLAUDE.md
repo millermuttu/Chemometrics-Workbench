@@ -4,22 +4,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-**Phase 0 is released and tagged `v0.1.0`.** The algorithm kernels, the parity programme and the reproducibility schema exist and are green in CI. There is no application yet: no HTTP server, no database, no user interface. Phase 1 builds those.
+**Phase 0 is released and tagged `v0.1.0`; Phase 1.1 is released and tagged `v0.2.0`.** The algorithm kernels, the parity programme and the reproducibility schema are green in CI, and the React shell now walks its five core screens over a stub FastAPI server. What does not exist yet is the thing behind the stub: no readers, no executor, no database, no persistence. Phase 1.2 builds the backend.
 
 - `PROPOSAL.md` — the specification. Read it before proposing or writing anything.
-- `feature_list.json` — the **live** task list. It currently covers Phase 1.1.
-- `docs/phase-0/feature_list.json` — Phase 0's completed list, kept as its record. Do not add to it.
+- `feature_list.json` — the **live** task list. It currently covers Phase 1.2.
+- `docs/phase-0/feature_list.json`, `docs/phase-1-1/feature_list.json` — the completed lists, kept as their record. Do not add to them.
 - `design/DESIGN_BRIEF.md` — screens, states and plot rules for the UI.
 - `src/chemometrics_workbench/` — the kernels: preprocessing, PCA, PLS, validation, reference datasets.
 - `src/chemometrics_workbench/models.py` — the Pydantic schema for the reproducibility model; its invariants are exercised by `tests/test_models.py`.
 - `design/data-model.md` — the same schema as mermaid diagrams, plus what is deliberately not modelled yet.
 - `design/canvas/` — artboard sources for the five core screens.
+- `frontend/` — the React application: the shell, the five screens, the Plotly theme bridge and the Playwright walkthrough.
+- `stub/` — the Phase 1.1 stub server and its generated fixtures. **Deleted in Phase 1.2 (#89).** Nothing new belongs in it.
 - `docs/parity-report.md` — generated, never hand-edited.
 
 **Phase 1 runs in three sub-phases**, because the interface and the backend are independently riskiest and a frontend built against invented JSON would encode an API contract nobody agreed to:
 
-- **1.1 — walking skeleton.** The React shell and the core screens over a **stub server**: FastAPI on `127.0.0.1`, token-authenticated, serving fixtures generated from the real kernels at the endpoint paths 1.2 will implement. Jobs advance and can be cancelled and made to fail; there is no executor, no database and no persistence behind them. The frontend talks HTTP from its first commit, so 1.2 replaces handlers behind unchanged URLs rather than integrating in one moment.
-- **1.2 — backend.** Readers, the pipeline executor, real jobs and the HTTP surface, replacing the stubs one at a time.
+- **1.1 — walking skeleton, done and tagged `v0.2.0`.** The React shell and the core screens over a **stub server**: FastAPI on `127.0.0.1`, token-authenticated, serving fixtures generated from the real kernels at the endpoint paths 1.2 will implement. Jobs advance and can be cancelled and made to fail; there is no executor, no database and no persistence behind them. The frontend talks HTTP from its first commit, so 1.2 replaces handlers behind unchanged URLs rather than integrating in one moment.
+- **1.2 — backend, in progress.** The project directory and the array store, the CSV/TXT, XLSX and JCAMP-DX readers, the pipeline executor, real jobs and the HTTP surface, replacing the stub's handlers one at a time behind unchanged URLs. It ends when #50's walkthrough passes against the real backend with `stub/` deleted. **SQLite is not part of it** — a restart loses the project list, not the data.
 - **1.3 — database and integration.** SQLite in each project directory, and the two halves joined.
 
 Everything below summarises decisions recorded in those documents that are easy to violate accidentally.
