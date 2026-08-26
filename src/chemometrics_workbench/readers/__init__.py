@@ -103,6 +103,14 @@ class Detection:
     metadata_columns: tuple[str, ...] = ()
     targets: tuple[str, ...] = ()
     discarded: tuple[dict[str, str], ...] = ()
+    #: Which sheet a workbook is being read from, and the others it could be.
+    #: `None` for formats that hold one table and have nothing to choose.
+    sheet: Choice | None = None
+    #: The fields this reader will accept a correction to. Per-reader because a
+    #: delimiter means nothing to a spreadsheet and a sheet means nothing to a
+    #: text file, and offering a correction that cannot be applied is the same
+    #: lie as applying one that was never offered.
+    correctable: tuple[str, ...] = ("delimiter", "decimal", "orientation")
     #: Whatever the reader needs to remember between `sniff` and `read` and has
     #: no place for in the published shape — the header row's index, a sheet
     #: name, a block offset. Never rendered, never corrected.
@@ -119,7 +127,7 @@ class Detection:
         }
         if self.axis_note:
             axis["note"] = self.axis_note
-        return {
+        payload: dict[str, Any] = {
             "delimiter": self.delimiter.payload(),
             "decimal": self.decimal.payload(),
             "orientation": self.orientation.payload(),
@@ -130,6 +138,9 @@ class Detection:
             "targets": list(self.targets),
             "discarded": [dict(entry) for entry in self.discarded],
         }
+        if self.sheet is not None:
+            payload["sheet"] = self.sheet.payload()
+        return payload
 
 
 @dataclass(eq=False)
@@ -174,9 +185,9 @@ def reader_for(path: str | Path) -> Any:
     suffix is a reader that will one day parse a spreadsheet as text and
     produce a diagnostic about line 1.
     """
-    from chemometrics_workbench.readers import delimited
+    from chemometrics_workbench.readers import delimited, xlsx
 
-    modules = [delimited]
+    modules = [delimited, xlsx]
     suffix = Path(path).suffix.lower()
     for module in modules:
         if suffix in module.SUFFIXES:
@@ -191,14 +202,14 @@ def reader_for(path: str | Path) -> Any:
 def apply_corrections(detection: Detection, corrections: dict[str, str]) -> Detection:
     """Fold the user's corrections into a detection.
 
-    Only the three fields the import screen offers can be corrected, and a
-    correction to something else is refused rather than dropped: a correction
-    silently ignored is worse than one that never existed, because the user
-    watched themselves make it.
+    Only the fields this reader offers can be corrected, and a correction to
+    anything else is refused rather than dropped: a correction silently ignored
+    is worse than one that never existed, because the user watched themselves
+    make it.
     """
     from dataclasses import replace
 
-    correctable = {"delimiter", "decimal", "orientation"}
+    correctable = set(detection.correctable)
     unknown = sorted(set(corrections) - correctable)
     if unknown:
         raise ReaderError(
@@ -230,9 +241,7 @@ def preview(path: str | Path, corrections: dict[str, str] | None = None) -> dict
     """
     file = Path(path)
     module = reader_for(file)
-    detection = module.sniff(file)
-    if corrections:
-        detection = apply_corrections(detection, corrections)
+    detection = _detect_with(module, file, corrections)
 
     return {
         "source": {
@@ -251,11 +260,28 @@ def read(path: str | Path, corrections: dict[str, str] | None = None) -> Importe
     """Read a file whole, with the user's corrections applied."""
     file = Path(path)
     module = reader_for(file)
-    detection = module.sniff(file)
-    if corrections:
-        detection = apply_corrections(detection, corrections)
+    detection = _detect_with(module, file, corrections)
     imported: Imported = module.read(file, detection)
     return imported
+
+
+def _detect_with(module: Any, file: Path, corrections: dict[str, str] | None) -> Detection:
+    """Sniff, apply the corrections, and let the reader look again if it needs to.
+
+    Most corrections re-read the same table differently. A few — a sheet in a
+    workbook, one day a block in a JCAMP file — change which table is being read,
+    and everything derived from it goes stale. A reader that has such a
+    correction offers `resniff`, and the second `apply_corrections` puts the
+    user's other choices back on top of the fresh detection.
+    """
+    detection: Detection = module.sniff(file)
+    if not corrections:
+        return detection
+    detection = apply_corrections(detection, corrections)
+    resniff = getattr(module, "resniff", None)
+    if resniff is not None:
+        detection = apply_corrections(resniff(file, detection), corrections)
+    return detection
 
 
 def file_hash(path: Path) -> str:
