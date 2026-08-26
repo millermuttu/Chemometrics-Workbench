@@ -166,7 +166,7 @@ export function Inspector({
           ["Content hash", version?.v.content_hash ?? datasets?.[0]?.versions[0]?.content_hash ?? "—"],
           ["Pipeline", pipeline?.pipeline_id ?? "—"],
           ["Project", project?.project_id ?? "—"],
-          ["App version", "0.1.0"],
+          ["App version", "0.2.0"],
         ]}
       />
       {version ? (
