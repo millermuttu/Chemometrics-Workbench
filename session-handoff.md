@@ -37,13 +37,13 @@ Chain: `A → B → C → {D, E, F} → H → {I, J, K, L} → N → O`. **M dep
 
 ## Current work
 
-**Nothing is `in_progress`.** #82 merged into `dev` as pull request #96 on 2026-08-27, its branch deleted locally and on origin. The tree is clean and `dev` is pushed.
+**Nothing is `in_progress`.** #82 and #83 both merged into `dev` on 2026-08-27, as pull requests #96 and #98, and their branches are deleted locally and on origin. The tree is clean and `dev` is pushed.
 
 ## Next action
 
-**#83 — the pipeline executor.** Both its dependencies (#77 and #82) are now `passing`, and it is the widest fan-out left: #84, #85, #86 and #87 all wait on it. **#81, the import endpoints, is equally unblocked** and does not gate the executor, so it is the alternative if the executor wants a longer run at it.
+Five features are unblocked at once now that the executor is `passing`: **#84 (validator), #85 (jobs), #86 (decimation), #87 (results)** below it, and **#81 (import endpoints)**, which never depended on it. **#97** is open too and blocks nothing.
 
-`preprocessing.from_spec` is the executor's seam, and after #82 it needs exactly one thing from outside the schema: the axis for `RangeSelect`, which #77 provides off the `DatasetVersion`.
+**Take #81 next.** It is the only remaining dependency of #89 that is not downstream of the executor, so starting it now means #89 waits on one chain rather than two. #87 is the natural second: it is what turns `Run.pending_estimators` into fitted estimators, and it is the feature that will have to answer #97.
 
 ### Decisions taken with the maintainer, so they are not re-argued
 
