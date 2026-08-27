@@ -17,6 +17,7 @@ import json
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import numpy as np
 import pytest
@@ -25,8 +26,19 @@ from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 from starlette.exceptions import HTTPException
 
-from chemometrics_workbench.api import MAX_UPLOAD_BYTES, router
-from chemometrics_workbench.project import DATASETS_FILE, open_project, read_array, read_datasets
+from chemometrics_workbench.api import MAX_UPLOAD_BYTES, results_payload, router
+from chemometrics_workbench.datasets import load_tecator
+from chemometrics_workbench.executor import Run, execute
+from chemometrics_workbench.models import DatasetVersion
+from chemometrics_workbench.project import (
+    DATASETS_FILE,
+    create_project,
+    open_project,
+    read_array,
+    read_datasets,
+    write_array,
+)
+from tests.test_executor import fixture_pipeline
 
 FIXTURES = Path(__file__).resolve().parents[1] / "stub" / "fixtures"
 READER_FILES = Path(__file__).resolve().parent / "fixtures" / "readers"
@@ -355,3 +367,80 @@ def test_nothing_is_left_in_the_temporary_directory_after_a_failed_read(
     client.post("/api/import/preview", files=upload("tecator_subset.csv"))
 
     assert list(staging.iterdir()) == []
+
+
+# --------------------------------------------------------------------------
+# results (#87): the payload the analysis screen draws
+# --------------------------------------------------------------------------
+
+
+def executed(project: Path) -> tuple[Run, DatasetVersion]:
+    """A project holding Tecator, with the fixture pipeline run over it."""
+    tecator = load_tecator()
+    create_project(project, "results tests")
+    array_path, _ = write_array(project, tecator.spectra)
+    version = DatasetVersion(
+        dataset_id=uuid4(),
+        version=1,
+        content_hash=tecator.source.file_hash,
+        n_samples=tecator.n_samples,
+        n_variables=tecator.n_variables,
+        axis=tecator.axis,
+        sample_ids=list(tecator.sample_ids),
+        array_path=array_path,
+    )
+    return execute(project, fixture_pipeline(version.version_id), version), version
+
+
+def test_the_results_payload_is_the_shape_the_fixture_publishes(tmp_path: Path) -> None:
+    run, version = executed(tmp_path / "results")
+    payload = results_payload(run.results["pca_a"], version)
+    published = fixture("pca")["pca_a"]
+
+    assert set(payload) == set(published)
+    assert set(payload["loadings"]) == set(published["loadings"])
+    assert set(payload["diagnostics"]) == set(published["diagnostics"])
+    assert payload["samples"][:2] == published["samples"][:2]
+    assert len(payload["scores"]) == len(published["scores"]) == 240
+    assert len(payload["loadings"]["components"]) == 5
+    assert payload["loadings"]["axis"]["unit"] == published["loadings"]["axis"]["unit"]
+    np.testing.assert_allclose(
+        payload["loadings"]["axis"]["values"], published["loadings"]["axis"]["values"], atol=1e-4
+    )
+
+
+def test_a_split_branch_adds_its_validation_rows_without_changing_the_rest(
+    tmp_path: Path,
+) -> None:
+    """§9's held-out rows, pushed through the model that never saw them."""
+    run, version = executed(tmp_path / "results")
+    payload = results_payload(run.results["pca_d"], version)
+    published = fixture("pca")["pca_d"]
+
+    # The keys the 1.1 screen reads are unchanged, and so are their lengths.
+    assert set(payload) - set(published) == {"validation"}
+    assert len(payload["samples"]) == len(published["samples"]) == 216
+    assert len(payload["diagnostics"]["hotelling_t2"]) == 216
+
+    validation = payload["validation"]
+    assert validation["fold"] == 0
+    assert len(validation["samples"]) == len(validation["scores"]) == 24
+    assert len(validation["hotelling_t2"]) == len(validation["spe"]) == 24
+    assert {row["index"] for row in validation["samples"]}.isdisjoint(
+        {row["index"] for row in payload["samples"]}
+    )
+
+
+def test_a_branch_with_no_split_carries_no_validation_key(tmp_path: Path) -> None:
+    run, version = executed(tmp_path / "results")
+    assert "validation" not in results_payload(run.results["pca_b"], version)
+
+
+def test_the_sample_ids_come_from_the_dataset_not_the_model(tmp_path: Path) -> None:
+    """A model does not know what its rows were called."""
+    run, version = executed(tmp_path / "results")
+    anonymous = version.model_copy(update={"sample_ids": []})
+    payload = results_payload(run.results["pca_a"], anonymous)
+
+    assert payload["samples"][0] == {"index": 0, "sample_id": "row 0"}
+    assert results_payload(run.results["pca_a"], version)["samples"][0]["sample_id"] == "C001"

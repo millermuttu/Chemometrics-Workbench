@@ -22,11 +22,13 @@ import pytest
 
 from chemometrics_workbench import preprocessing, validation
 from chemometrics_workbench.datasets import load_tecator
+from chemometrics_workbench.decomposition import PCA
 from chemometrics_workbench.executor import (
     CACHE_FILE,
     ExecutorError,
     execute,
     node_keys,
+    result_path,
 )
 from chemometrics_workbench.models import (
     MSC,
@@ -39,6 +41,7 @@ from chemometrics_workbench.models import (
     MeanCentre,
     PCASpec,
     Pipeline,
+    PLSRegressionSpec,
     PreprocessNode,
     RangeSelect,
     SavitzkyGolay,
@@ -188,7 +191,9 @@ def test_the_fixture_pipeline_executes_and_reproduces_the_fixture_arrays(
         "split_d",
         "centre_d",
     }
-    assert run.pending_estimators == ["pca_a", "pca_b", "pca_c", "pca_d"]
+    # Every estimator in this pipeline is a PCA, so none of them is pending.
+    assert run.pending_estimators == []
+    assert sorted(run.results) == ["pca_a", "pca_b", "pca_c", "pca_d"]
 
     for node_id in ("source", "snv", "centre_a", "msc", "centre_b", "savgol", "autoscale_c"):
         computed = run.displays[node_id]
@@ -576,3 +581,233 @@ def test_leave_one_out_is_the_other_splitter_that_does_work(
         others = np.delete(np.arange(8), i)
         expected = stored[i] - stored[others].mean(axis=0)
         np.testing.assert_array_equal(run.displays["centre"][i], _as_stored(expected))
+
+
+# --------------------------------------------------------------------------
+# estimators (#87)
+# --------------------------------------------------------------------------
+
+
+def _fixture_pca(node_id: str) -> dict[str, Any]:
+    published: dict[str, Any] = json.loads((FIXTURES / "pca.json").read_text(encoding="utf-8"))
+    return published[node_id]  # type: ignore[no-any-return]
+
+
+def test_the_pca_branches_reproduce_the_fixtures_numbers(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    """The three branches with no split above them, to the fixture's rounding.
+
+    `explained_variance_ratio` and the eigenvalues are written to eight
+    decimals; the diagnostics are vectors over 240 samples and carry the
+    float32 of the store through the whole chain, so they are compared
+    relatively. The limits are not rounded at all in the fixture - a limit the
+    interface shows should be the limit the kernel produced - and are asserted
+    tightly.
+    """
+    directory, version = project
+    run = execute(directory, fixture_pipeline(version.version_id), version)
+
+    for node_id in ("pca_a", "pca_b", "pca_c"):
+        result = run.results[node_id]
+        expected = _fixture_pca(node_id)
+
+        assert (result.n_samples, result.n_variables) == (
+            expected["n_samples"],
+            expected["n_variables"],
+        )
+        assert result.fold is None and result.held_out == []
+
+        np.testing.assert_allclose(
+            result.explained_variance_ratio,
+            expected["explained_variance_ratio"],
+            rtol=1e-4,
+            err_msg=f"{node_id} explained variance",
+        )
+        np.testing.assert_allclose(
+            result.hotelling_t2_limit, expected["diagnostics"]["hotelling_t2_limit"], rtol=1e-12
+        )
+        np.testing.assert_allclose(
+            result.spe_limit, expected["diagnostics"]["spe_limit"], rtol=1e-3
+        )
+        np.testing.assert_allclose(
+            result.hotelling_t2, expected["diagnostics"]["hotelling_t2"], rtol=1e-3
+        )
+
+
+def test_a_pca_below_a_split_is_fitted_on_fold_zeros_training_rows(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    directory, version = project
+    run = execute(directory, fixture_pipeline(version.version_id), version)
+    result = run.results["pca_d"]
+
+    folds = validation.k_fold(version.n_samples, 10, seed=42)
+    assert result.fold == 0
+    assert result.rows == folds[0].train.tolist()
+    assert result.held_out == folds[0].test.tolist()
+    assert result.n_samples == len(folds[0].train) == 216
+    assert len(result.scores) == 216
+    assert len(result.held_out_scores) == len(folds[0].test) == 24
+    assert len(result.held_out_hotelling_t2) == len(result.held_out_spe) == 24
+
+
+def test_pca_d_diverges_from_the_fixture_for_the_reason_centre_d_does(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """The second casualty of #97, measured rather than asserted away.
+
+    `pca_d` is fitted on `centre_d`, and `centre_d` is the array the fixture
+    fits on all 240 samples where §9 requires the training fold alone. The
+    model below inherits the difference. The fixture's own convention is
+    reconstructed here and shown to match it, so what diverges is the input and
+    not the kernel.
+    """
+    directory, version = project
+    run = execute(directory, fixture_pipeline(version.version_id), version)
+    expected = _fixture_pca("pca_d")
+    folds = validation.k_fold(version.n_samples, 10, seed=42)
+
+    savgol = run.displays["snv_savgol"]
+    fitted_on_everything = preprocessing.MeanCentreTransformer().fit_transform(savgol)
+    theirs = PCA(5).fit(fitted_on_everything[folds[0].train])
+
+    # Their convention reproduces their number...
+    np.testing.assert_allclose(
+        theirs.explained_variance_ratio(), expected["explained_variance_ratio"], rtol=1e-4
+    )
+    # ...and ours does not, by far more than the store's float32.
+    ours = np.asarray(run.results["pca_d"].explained_variance_ratio)
+    assert np.abs(ours - np.asarray(expected["explained_variance_ratio"])).max() > 1e-6
+
+    # The limits depend only on n and a, so they agree whatever the input was.
+    np.testing.assert_allclose(
+        run.results["pca_d"].hotelling_t2_limit,
+        expected["diagnostics"]["hotelling_t2_limit"],
+        rtol=1e-12,
+    )
+
+
+def test_a_result_is_stored_keyed_the_way_its_node_is(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    directory, version = project
+    pipeline = fixture_pipeline(version.version_id)
+    run = execute(directory, pipeline, version)
+
+    keys = node_keys(pipeline, version)
+    stored = result_path(directory, keys["pca_a"])
+    assert stored.exists()
+    assert json.loads(stored.read_text(encoding="utf-8"))["node_id"] == "pca_a"
+    assert run.results["pca_a"].key == keys["pca_a"]
+
+
+def test_editing_a_node_above_an_estimator_gives_the_estimator_a_new_result(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    """Staleness reaches the results too: a result is keyed like the node it is."""
+    directory, version = project
+    first = execute(directory, fixture_pipeline(version.version_id), version)
+
+    edited = fixture_pipeline(version.version_id)
+    nodes = [
+        node.model_copy(update={"spec": PCASpec(n_components=3)}) if node.id == "pca_a" else node
+        for node in edited.nodes
+    ]
+    run = execute(directory, edited.model_copy(update={"nodes": nodes}), version)
+
+    assert run.results["pca_a"].key != first.results["pca_a"].key
+    assert run.results["pca_a"].n_components == 3
+    assert run.results["pca_b"].key == first.results["pca_b"].key
+    # The arrays below the untouched branches were not recomputed either.
+    assert "centre_a" in run.reused
+
+
+def test_a_stored_result_is_read_back_rather_than_refitted(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    directory, version = project
+    pipeline = fixture_pipeline(version.version_id)
+    first = execute(directory, pipeline, version)
+
+    stored = result_path(directory, first.results["pca_a"].key)
+    stored.write_text(
+        json.dumps({**json.loads(stored.read_text(encoding="utf-8")), "rank": 4}), encoding="utf-8"
+    )
+    again = execute(directory, pipeline, version)
+
+    assert again.results["pca_a"].rank == 4, "the stored result was refitted instead of read"
+
+
+def test_an_unreadable_result_is_refitted_rather_than_refused(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    directory, version = project
+    pipeline = fixture_pipeline(version.version_id)
+    first = execute(directory, pipeline, version)
+
+    result_path(directory, first.results["pca_a"].key).write_text("{ not json", encoding="utf-8")
+    again = execute(directory, pipeline, version)
+
+    assert again.results["pca_a"].rank == first.results["pca_a"].rank
+
+
+def test_pls_has_no_kernel_here_and_is_named_rather_than_skipped(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(id="centre", inputs=("source",), step=MeanCentre()),
+        EstimatorNode(
+            id="pls", inputs=("centre",), spec=PLSRegressionSpec(n_components=4, target="fat")
+        ),
+    )
+    run = execute(directory, pipeline, version)
+
+    assert run.pending_estimators == ["pls"]
+    assert "pls" not in run.results
+
+
+def test_a_pca_that_cannot_be_fitted_names_its_node(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(id="window", inputs=("source",), step=RangeSelect(start=850.0, end=850.1)),
+        EstimatorNode(id="pca", inputs=("window",), spec=PCASpec(n_components=5)),
+    )
+    with pytest.raises(ExecutorError, match=r"node 'pca' \(pca\) failed"):
+        execute(directory, pipeline, version)
+
+
+def test_the_reported_rank_is_one_higher_than_the_fixtures_and_the_store_is_why(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """A finding, measured here and raised as #101.
+
+    Mean centring removes a degree of freedom, so a centred 240x100 matrix has
+    rank 99 and the fixture says so. Reading the centred array back out of the
+    store rounds it to float32, its columns no longer sum to exactly zero, and
+    the SVD finds a hundredth singular value that clears the rank tolerance.
+    The eigenvalue behind it is 3.1e-16 against a leading 2.64 - sixteen orders
+    down, and it moves the SPE limit in the ninth decimal - but `rank` is a
+    displayed integer and 100 is the wrong one.
+    """
+    directory, version = project
+    run = execute(directory, fixture_pipeline(version.version_id), version)
+    expected = _fixture_pca("pca_a")
+
+    assert expected["rank"] == 99
+    assert run.results["pca_a"].rank == 100
+
+    # In float64, with no store in the way, the same chain gives the fixture's.
+    snv = preprocessing.SNVTransformer().fit_transform(tecator.spectra)
+    centred = preprocessing.MeanCentreTransformer().fit_transform(snv)
+    assert PCA(5).fit(centred).rank_ == 99
+
+    # And the numbers that are not integers are unmoved by it.
+    np.testing.assert_allclose(
+        run.results["pca_a"].spe_limit, expected["diagnostics"]["spe_limit"], rtol=1e-6
+    )
