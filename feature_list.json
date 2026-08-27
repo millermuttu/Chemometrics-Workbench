@@ -168,7 +168,7 @@
         "drop-msc-supplied"
       ],
       "user_visible_behavior": "A pipeline runs from a real dataset: each node's output is computed once, cached on disk, and recomputed only when it or something upstream of it changes.",
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "The pipeline the 1.1 fixture publishes executes end to end and reproduces the fixture's arrays.",
         "Editing one node recomputes it and its descendants, and nothing else.",
@@ -177,8 +177,26 @@
         "A step that fails names the node it failed at.",
         "Moving a node on the canvas does not invalidate a cached result."
       ],
+      "evidence": "2026-08-27. On feature/83_pipeline-executor. New module src/chemometrics_workbench/executor.py and 22 tests in tests/test_executor.py; uv run pytest is 625 passed, 1 skipped (603 before), ruff check, ruff format --check and mypy over 40 source files all clean. End to end: the pipeline the 1.1 fixture publishes - rebuilt in the test and asserted node for node against pipeline.json, because stub/ is deleted in #89 - runs against Tecator in a real project directory and reproduces every array spectra.json serves except centre_d. The agreement is to 2e-6 on eight nodes and 5e-5 on autoscale_c, and both numbers are measured rather than chosen: the same chain computed in float64 agrees with the fixture to 5.0e-07, which is its 6-decimal rounding, and going through the array store's float32 moves the worst node to 1.3e-06 - except autoscale_c, where a first derivative cancels most of the signal and autoscaling then divides by a small standard deviation, measured at 2.8e-05. centre_d is a deliberate divergence, raised as #97: the fixture fits it on all 240 samples and metrics-and-validation.md §9 requires refitting on the training fold alone. The test computes both, asserts the fixture holds the fit-on-everything number (4.9e-07) and that the executor differs from it by more than 1e-4 (1.2e-03), and then reproduces the executor's own value from fold arithmetic done by hand. Every sample's displayed row comes from the fold that held it out, checked over all 240 rather than on one row. Caching: keys are a merkle chain - a node's own JSON, the source keyed on the dataset version, chained through its inputs' keys - so a second run recomputes nothing, editing branch C's Savitzky-Golay recomputes exactly savgol and autoscale_c, and editing centre_d below the split recomputes only centre_d. A pipeline with a different pipeline_id and name hashes every node identically and reruns nothing, which is what makes moving a node on the canvas safe: layout coordinates live in pipeline_state.json, outside the model the key is taken from. A different dataset version reruns everything. A pruned array file and a corrupt cache.json each cost a recomputation rather than an error. Every node's output is read back out of the store before its successors see it, so a run that hit the cache and a run that recomputed agree bit for bit - checked with assert_array_equal, not allclose. RangeSelect takes its axis off the DatasetVersion: start=900 end=1000 keeps the 51 channels the axis says and nothing about the recipe knows what a nanometre is. Failures name the node: a one-variable window then SNV is \"node 'scatter' (snv) failed: SNV with ddof=1 needs more than 1 variables\", the same below a split adds \"on a training fold of 216 samples\", a split below a split, a train_test split with no splitter yet, a version whose array is not the shape it records, and a missing array file are each refused by name. Leave-one-out is the other splitter that works, checked on 8 samples against 8 hand-computed leave-one-out means. Estimator nodes are walked and reported in Run.pending_estimators, not fitted - what a fitted estimator stores is #87's subject.",
+      "notes": "preprocessing.from_spec is the seam and already covers every step the schema can express. The kernels stay pure - no caching or job logic leaks into preprocessing.py. Estimator fitting is deliberately not here: it is #87's subject, and the executor reports estimator nodes in Run.pending_estimators rather than guessing at what a fitted one should store. The fixture's centre_d array cannot be reproduced under metrics-and-validation.md §9 and the divergence is raised as #97."
+    },
+    {
+      "id": "fixture-centre-d-fold-fit",
+      "priority": 9,
+      "area": "backend",
+      "issue": 97,
+      "title": "The fixture's centre_d array is fitted on all samples, and the executor differs",
+      "depends_on": [
+        "pipeline-executor"
+      ],
+      "user_visible_behavior": "The spectra view of a node below a split shows what actually happened to each sample - the fold that held it out - rather than a mean taken over the samples it is being validated against.",
+      "status": "not_started",
+      "verification": [
+        "The decision is recorded: either spectra.json is regenerated with the out-of-fold array, or the exception is written where the fixture rule is stated.",
+        "#87 asserts whichever was chosen, and does not assert the other."
+      ],
       "evidence": "",
-      "notes": "preprocessing.from_spec is the seam and already covers every step the schema can express. The kernels stay pure - no caching or job logic leaks into preprocessing.py."
+      "notes": "Found in #83 and measured there: fit-on-everything agrees with the fixture to 4.9e-07, out of fold differs by 1.2e-03. metrics-and-validation.md §9 requires the fold fit; the fixture's run_preprocessing says in its own docstring that it does no fold handling. Blocks nothing - #86 and #87 both need to know which array centre_d holds."
     },
     {
       "id": "pipeline-validator",

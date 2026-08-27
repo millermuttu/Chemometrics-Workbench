@@ -59,6 +59,7 @@ __all__ = [
     "open_project",
     "read_array",
     "write_array",
+    "write_json",
 ]
 
 PROJECT_FILE = "project.json"
@@ -173,14 +174,16 @@ def _write_project_file(path: Path, project: Project) -> None:
     """
     record = project.model_dump(mode="json", exclude={"directory"})
     document = {"layout_version": LAYOUT_VERSION, "project": record}
-    _write_json(path / PROJECT_FILE, document)
+    write_json(path / PROJECT_FILE, document)
 
 
-def _write_json(path: Path, document: Any) -> None:
+def write_json(path: Path, document: Any) -> None:
     """Write JSON through a temporary file, so an interrupted write loses nothing.
 
     A half-written `project.json` is a project the user can no longer open. The
-    rename is atomic on every platform we ship to.
+    rename is atomic on every platform we ship to. Public because every small
+    document written inside a project directory wants the same guarantee - the
+    executor's cache index is the second.
     """
     temporary = path.with_name(path.name + ".tmp")
     try:
@@ -347,4 +350,4 @@ def _write_registry(entries: list[dict[str, str]]) -> None:
         directory.mkdir(parents=True, exist_ok=True)
     except OSError as error:
         raise ProjectError(f"cannot write the project registry: {error.strerror}") from error
-    _write_json(directory / REGISTRY_FILE, entries)
+    write_json(directory / REGISTRY_FILE, entries)
