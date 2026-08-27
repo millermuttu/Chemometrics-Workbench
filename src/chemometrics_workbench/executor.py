@@ -71,14 +71,16 @@ the training fold's parameters rather than left out of the picture.
 
 ## What is not here
 
-**Jobs.** `execute` runs to completion in the calling thread. Progress,
-cancellation and failure reporting are #85, which wraps this.
+**Jobs.** `execute` runs to completion in the calling thread. It reports
+progress and asks whether it has been cancelled, but it owns no thread and no
+job table — `jobs.py` (#85) wraps it.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
@@ -108,9 +110,12 @@ __all__ = [
     "EstimatorResult",
     "ExecutorError",
     "NodeOutput",
+    "Progress",
     "Run",
+    "RunCancelled",
     "execute",
     "node_keys",
+    "node_label",
     "result_path",
 ]
 
@@ -121,6 +126,35 @@ RESULTS_DIR = "results"
 #: T-squared limit at 0.05 next to an SPE limit at 0.01 is two pictures of the
 #: same model that cannot be read together.
 ALPHA = 0.05
+
+
+class RunCancelled(Exception):
+    """The caller asked for the run to stop, and it did.
+
+    Deliberately not an `ExecutorError`: a cancelled run is not a failed one.
+    Nothing went wrong, there is no cause to report to the user, and a job
+    table that turned this into a failure would put a red screen in front of
+    someone who pressed Cancel.
+    """
+
+
+@dataclass(frozen=True)
+class Progress:
+    """Where a run has got to, reported as the walk advances.
+
+    `completed` counts nodes actually finished, so the fraction moves when work
+    finishes rather than on a timer. `node_id` and `label` say what has just
+    been done, which is what the job's message carries.
+    """
+
+    completed: int
+    total: int
+    node_id: NodeId
+    label: str
+
+    @property
+    def fraction(self) -> float:
+        return self.completed / self.total if self.total else 1.0
 
 
 class ExecutorError(Exception):
@@ -261,6 +295,8 @@ def execute(
     version: DatasetVersion,
     *,
     use_cache: bool = True,
+    on_progress: Callable[[Progress], None] | None = None,
+    is_cancelled: Callable[[], bool] | None = None,
 ) -> Run:
     """Run every preprocessing node in `pipeline` against `version`'s array.
 
@@ -268,6 +304,18 @@ def execute(
     store is the only place a dataset's values live, and a caller handing in
     its own matrix could quietly execute a recipe against something other than
     the version the experiment records.
+
+    `on_progress` is called after each node with what has just finished, and
+    `is_cancelled` is asked before each one. Both are optional and neither
+    brings a thread with it: this still runs to completion in the calling
+    thread, and #85's job table is what puts it on another one.
+
+    A cancelled run raises `RunCancelled` after saving the index for the nodes
+    that did finish. Those arrays are complete and correct — the store writes
+    through a temporary file and renames, and a node's key is a function of its
+    recipe and its data, not of what ran after it — so keeping them means a
+    resumed run does not repeat work, and discarding them would be throwing
+    away valid results to look tidy.
     """
     path = Path(directory)
     axis = np.asarray(version.axis.values, dtype=np.float64)
@@ -281,14 +329,32 @@ def execute(
     pending: list[NodeId] = []
     index_changed = False
 
-    for node in _topological(pipeline):
+    ordered = _topological(pipeline)
+    completed = 0
+
+    def announce(node: PipelineNode) -> None:
+        nonlocal completed
+        completed += 1
+        if on_progress is not None:
+            on_progress(Progress(completed, len(ordered), node.id, node_label(node)))
+
+    def check_cancelled() -> None:
+        if is_cancelled is not None and is_cancelled():
+            if index_changed:
+                _save_index(path, index)
+            raise RunCancelled(f"the run was cancelled before node {node.id!r}")
+
+    for node in ordered:
+        check_cancelled()
         if node.type == "estimator":
             if not isinstance(node.spec, PCASpec):
                 pending.append(node.id)
+                announce(node)
                 continue
             results[node.id] = _estimator(
                 node, states[node.inputs[0]], keys[node.id], path, use_cache
             )
+            announce(node)
             continue
 
         key = keys[node.id]
@@ -331,6 +397,7 @@ def execute(
             n_variables=int(state.arrays[0].shape[1]),
             from_cache=cached is not None,
         )
+        announce(node)
 
     if index_changed:
         _save_index(path, index)
@@ -378,6 +445,22 @@ def node_keys(pipeline: Pipeline, version: DatasetVersion) -> dict[NodeId, str]:
 
 
 # --- the walk -------------------------------------------------------------
+
+
+def node_label(node: PipelineNode) -> str:
+    """What a node is, in words, for a progress message.
+
+    Short and derived from the recipe rather than from a table of pretty names:
+    a table drifts from the schema the moment a step is added, and a progress
+    message that names the wrong step is worse than one that names the kind.
+    """
+    if node.type == "source":
+        return "Reading the dataset"
+    if node.type == "preprocess":
+        return f"Preprocessing: {node.step.kind}"
+    if node.type == "split":
+        return f"Splitting: {node.spec.kind}"
+    return f"Fitting: {node.spec.kind}"
 
 
 def _topological(pipeline: Pipeline) -> list[PipelineNode]:

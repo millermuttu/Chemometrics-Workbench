@@ -10,7 +10,7 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 **Phase 0 is released and tagged `v0.1.0`. Phase 1.1 is released and tagged `v0.2.0`.** The walking skeleton walks: the React shell and its five core screens, over a token-authenticated stub FastAPI server on `127.0.0.1`, with a Playwright walkthrough green in CI.
 
-**Phase 1.2 is ten features in, of nineteen.** The project directory and the array store are real, all three readers are written, the schema no longer advertises a step the executor could not run, the executor runs a pipeline from a real dataset and now fits its PCA nodes too, the import endpoints read a real file into a real `DatasetVersion`, and the validator emits the two warnings nothing has ever emitted. Four new issues came out of that work — #97, #99, #101 and #103, all listed below.
+**Phase 1.2 is twelve features in, of nineteen.** The project directory and the array store are real, all three readers are written, the schema no longer advertises a step the executor could not run, the executor runs a pipeline from a real dataset and now fits its PCA nodes too, the import endpoints read a real file into a real `DatasetVersion`, the validator emits the two warnings nothing has ever emitted, the Phase 0 metrics gap is closed, and a run is a real background job with counted progress. Four new issues came out of that work — #97, #99, #101 and #103, all listed below.
 
 **Two features have landed with their HTTP half deferred.** #81's handlers and #87's results payload are written and tested; neither is served, because the swap from the stub is one cut rather than a handler at a time. That is #99, and it lands in #89.
 
@@ -29,26 +29,28 @@ Compact state for the next session. **Overwrite this file at the end of every se
 | H′ | The fixture's `centre_d` array | #97 | H | not started |
 | I | Pipeline validator | #84 | H | passing |
 | I′ | MSC above a split | #103 | I | not started |
-| J | Real jobs | #85 | H | not started |
+| J | Real jobs | #85 | H | passing |
 | K | Server-side decimation and the density band | #86 | H | not started |
 | L | Results endpoint | #87 | H | passing |
-| M | The metrics gap | #88 | — | not started |
+| M | The metrics gap | #88 | — | passing |
 | M′ | The import contract findings | #99 | F, L | not started |
 | M″ | Rank through the store | #101 | L | not started |
 | N | HTTP surface complete, stub retired | #89 | F, J, K, L | not started |
 | O | 1.2's exit criterion as a test | #90 | I, N | not started |
 
-Chain: `A → B → C → {D, E, F} → H → {I, J, K, L} → N → O`. **M depends on nothing in 1.2**, so it is what to pick up if the chain is ever blocked. **H′ (#97) blocks nothing**, but #86 and #87 both need its answer before they assert anything about `centre_d`. **M′ (#99) is folded into N and O** rather than done on its own, and now covers #87's endpoint as well as #81's. **M″ (#101) blocks nothing** and is a specification decision, like #71. **I′ (#103) blocks nothing** — it is #84's own convention working: a third warning becomes an issue rather than a widened branch.
+Chain: `A → B → C → {D, E, F} → H → {I, J, K, L} → N → O`. **H′ (#97) blocks nothing**, but #86 and #87 both need its answer before they assert anything about `centre_d`. **M′ (#99) is folded into N and O** rather than done on its own, and now covers #87's endpoint as well as #81's. **M″ (#101) blocks nothing** and is a specification decision, like #71. **I′ (#103) blocks nothing** — it is #84's own convention working: a third warning becomes an issue rather than a widened branch.
 
 ## Current work
 
-**Nothing is `in_progress`.** #81, #82, #83, #84, #87 and #88 all merged into `dev` on 2026-08-27, as pull requests #100, #96, #98, #104, #102 and #105, and their branches are deleted locally and on origin. The tree is clean and `dev` is pushed.
+**#85 — real jobs — is done on `feature/85_real-jobs`**, pull request open against `dev`. #81, #82, #83, #84, #87 and #88 merged earlier the same day as pull requests #100, #96, #98, #104, #102 and #105.
 
 ## Next action
 
-**Two features are left before the cut: #85 (jobs) and #86 (decimation)**, then #89 and #90. Four findings are open — **#97**, **#99**, **#101** and **#103** — of which #97 and #101 are specification decisions waiting on the maintainer.
+**#86 (decimation) is the last feature before the cut**, then #89 and #90. Four findings are open — **#97**, **#99**, **#101** and **#103** — of which #97 and #101 are specification decisions waiting on the maintainer.
 
-**Take #85 next.** Its job envelope is marked GUESS and may change, which makes it the item most likely to move the frontend, and moving the frontend before #89's cut is cheaper than after. #86 needs a dataset big enough to drop points along the wavelength axis — Tecator at 100 variables never has — so it starts with sourcing data rather than with code.
+**#86 starts with sourcing data, not with code.** Tecator at 100 variables has never exercised x-axis decimation and corn at 700 is the widest committed alternative, so the first question is what dataset the case is built on. A synthetic one generated to a stated shape is a legitimate answer and should be recorded as a decision if taken.
+
+**#89 is now the biggest item left in 1.2 by some margin.** It carries the import handlers, the results endpoint, the run endpoint, the pipeline store, the frontend's file-picker change and a 17-test end-to-end rewrite. Three features have deferred their HTTP half into it — #81, #87 and #85 — which is #99, and a plan finding rather than a surprise.
 
 ### Decisions taken with the maintainer, so they are not re-argued
 
@@ -78,6 +80,15 @@ Chain: `A → B → C → {D, E, F} → H → {I, J, K, L} → N → O`. **M dep
 ## Carried forward from the specifications
 
 Findings that change downstream work, recorded here because they are easy to miss inside long documents.
+
+From #85 (real jobs), which #89's run endpoint wires up:
+
+- **Cancellation is cooperative and bounded by one node.** The executor is asked between nodes and stops there; a node already running finishes. A user cancelling a ten-fold cross-validation waits for one fold's fit, not for ten. Pre-emptive cancellation would mean a process pool and a copy of every matrix across a pipe.
+- **A cancelled run keeps what finished.** Those arrays are complete — the store renames through a temporary file — and a node's key is its recipe and its data, never what ran after it, so resuming does not repeat the work. Asserted equal to a cache-off run.
+- **Progress is counted, never interpolated.** Nodes completed over nodes total, reported as each finishes. The 1.1 stub moved a number against the wall clock, which looks identical until a run is slower than the clock expected and the bar sits at 100% while the work continues.
+- **The job envelope kept all five 1.1 fields and gained `node_id`**, so the frontend is unchanged after all — the GUESS did not have to change, only grow.
+- **A thread, not a process.** Every kernel operation is NumPy and releases the GIL.
+- **The job tests are driven by `threading.Event`, never by sleeps**, and were run three times over to confirm it. A concurrency test that sleeps is a flaky test waiting to happen.
 
 From #88 (the metrics gap), which #14's export and #85's metrics both need:
 
