@@ -29,9 +29,12 @@ nowhere to appear.
 - `POST /api/import/preview` — the reader's detection, nothing committed
 - `POST /api/import` — commits with the user's corrections applied
 
-`results_payload` (#87) renders an estimator result for `results/{node_id}`.
-The endpoint itself waits for the pipeline store, because a result is a node in
-a pipeline and there is nowhere yet to keep one — #89 again.
+`results_payload` (#87) renders an estimator result for `results/{node_id}`,
+and `validation_payload` (#84) renders `pipelines/{id}/validate`. Neither
+endpoint is served here yet: both take a pipeline, and there is nowhere to keep
+one until #89's pipeline store — the same cut #99 describes. The stub calls
+`validation_payload` for the one pipeline it has, so that response is computed
+rather than constant.
 
 ## The open project
 
@@ -77,8 +80,9 @@ from typing import Annotated, Any
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from chemometrics_workbench import readers
+from chemometrics_workbench.checks import check_pipeline
 from chemometrics_workbench.executor import EstimatorResult
-from chemometrics_workbench.models import Dataset, DatasetVersion, Project
+from chemometrics_workbench.models import Dataset, DatasetVersion, Pipeline, Project
 from chemometrics_workbench.project import (
     DatasetEntry,
     ProjectError,
@@ -95,6 +99,7 @@ __all__ = [
     "open_project_directory",
     "results_payload",
     "router",
+    "validation_payload",
 ]
 
 #: An upload past this is refused before it is written. Above §13's envelope —
@@ -380,3 +385,38 @@ def _samples(rows: list[int], version: DatasetVersion) -> list[dict[str, Any]]:
     return [
         {"index": row, "sample_id": ids[row] if row < len(ids) else f"row {row}"} for row in rows
     ]
+
+
+# --- Validation -----------------------------------------------------------
+
+
+def validation_payload(pipeline: Pipeline) -> dict[str, Any]:
+    """What `pipelines/{id}/validate` answers, computed rather than constant.
+
+    The Phase 1.1 envelope was published as a GUESS — `{"valid", "problems"}`,
+    with `problems` a list of sentences — and the screen renders `problems`
+    joined together when `valid` is false. Both are kept exactly, so no screen
+    changes, and the structured form is added alongside under `warnings`, where
+    a canvas that wants to point at the node can find its id.
+
+    `valid` therefore means "there is nothing to tell you" rather than "this
+    will run". Everything here runs: `checks.py` warns and never blocks, and
+    reporting `valid: true` while holding a warning would mean the screen said
+    "valid" and dropped the sentence.
+    """
+    warnings = check_pipeline(pipeline)
+    return {
+        "pipeline_id": str(pipeline.pipeline_id),
+        "valid": not warnings,
+        "problems": [warning.message for warning in warnings],
+        "warnings": [
+            {
+                "code": warning.code,
+                "node_id": warning.node_id,
+                "related": list(warning.related),
+                "severity": warning.severity,
+                "message": warning.message,
+            }
+            for warning in warnings
+        ],
+    }

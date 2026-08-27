@@ -208,7 +208,7 @@
         "pipeline-executor"
       ],
       "user_visible_behavior": "A pipeline that will produce an optimistic RMSECV, or a PLS with no centring upstream, warns the user and points at the node - without blocking the run.",
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "A MeanCentre or Autoscale upstream of a split emits the leakage warning, naming the node.",
         "A PLS node with no centring upstream emits its warning, naming the node.",
@@ -217,8 +217,27 @@
         "The validate response is computed - the unconditional valid: true is gone.",
         "Each warning states the consequence, not only the rule."
       ],
+      "evidence": "2026-08-27. On feature/84_pipeline-validator. New module src/chemometrics_workbench/checks.py (check_pipeline, PipelineWarning, two codes), validation_payload in api.py, the stub's validate handler replaced by a call to it, and 21 tests in tests/test_checks.py. uv run pytest is 679 passed, 1 skipped (658 before); ruff check, ruff format --check and mypy over 44 source files all clean; pnpm e2e is 40 passed with the frontend untouched. Warning one, the leak: a MeanCentre or an Autoscale with a split anywhere below it names both nodes and says RMSECV comes out optimistic and that moving the node below the split fits it per fold - the consequence and the remedy, not the rule. Found through intervening nodes, and both splits named when one centring feeds two. Silent when the centring is below the split, when it is on a branch that never reaches one (the fixture's shape - centre_a and split_d are in one pipeline and have nothing to do with each other), and for SNV, Normalise, Savitzky-Golay and the baselines above a split, which estimate nothing across samples. Autoscale counts as centring for both rules because it subtracts the column means before it divides. Warning two: a PLS or PLS-DA node with no MeanCentre or Autoscale anywhere above it says the first component spends itself on the offset and the model carries no intercept to absorb it. Silenced by either kind of centring at any distance above. A PCA with no centring is deliberately not warned about - only pls-regression.md section 3 says 'almost always wrong', and extending it to PCA would be a preference with no document behind it. A PLS fed by a leaky centring is warned about once, not twice: the centring is there, and where it sits is the other warning's subject. Both fire at once on a pipeline that earns both, and neither hides the other. Envelope: the GUESS shape is kept exactly - valid and problems, which the canvas renders by joining the sentences - and warnings is added alongside carrying code, node_id, related and severity, so a canvas can point at the node without parsing a sentence. valid is false whenever there is anything to say, because the 1.1 screen shows the problems only then and reporting valid while holding a warning would drop it. Nothing blocks: check_pipeline is advisory, and a test executes a leaky pipeline to completion after asserting it warns. The stub's handler is computed rather than constant - it parses stub/fixtures/pipeline.json and calls validation_payload - and the fixture pipeline earns neither warning, so the response is byte-identical to the constant it replaced, now for a reason. A third case, MSC above a split, is #103 rather than a widened branch.",
+      "notes": "Both are specified in metrics-and-validation.md section 9 and pls-regression.md section 3 and have never been emitted. The 1.1 handler returns valid: true unconditionally. The envelope keeps valid and problems and adds warnings alongside, so the frontend is unchanged. MSC above a split leaks by the same rule and is raised as #103."
+    },
+    {
+      "id": "msc-above-a-split",
+      "priority": 16,
+      "area": "backend",
+      "issue": 103,
+      "title": "MSC above a split leaks too, and nothing warns about it",
+      "depends_on": [
+        "pipeline-validator"
+      ],
+      "user_visible_behavior": "A pipeline whose MSC reference is estimated from the held-out spectra as well as the training ones says so, as centring above a split already does.",
+      "status": "not_started",
+      "verification": [
+        "MSC above a split emits the leakage warning, naming the node and the split.",
+        "Its message is in MSC's own terms - the reference spectrum, not the mean.",
+        "metrics-and-validation.md section 9's legitimate list says why MSC is not on it."
+      ],
       "evidence": "",
-      "notes": "Both are specified in metrics-and-validation.md section 9 and pls-regression.md section 3 and have never been emitted. The 1.1 handler returns valid: true unconditionally."
+      "notes": "Raised from #84 under its own convention: a third warning becomes an issue rather than a widened branch. MSC estimates a reference from the fit set, so a sample's output depends on which other samples were present - the property that makes centring a leak. SNV, Normalise, Savitzky-Golay, the baselines and RangeSelect were checked and are legitimate above a split; MSC is the only step in the schema that leaks and is not warned about. Open question in the issue: one warning code for all three steps, or a second code, since the sentence differs."
     },
     {
       "id": "real-jobs",

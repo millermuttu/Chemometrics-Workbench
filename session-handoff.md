@@ -10,7 +10,7 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 **Phase 0 is released and tagged `v0.1.0`. Phase 1.1 is released and tagged `v0.2.0`.** The walking skeleton walks: the React shell and its five core screens, over a token-authenticated stub FastAPI server on `127.0.0.1`, with a Playwright walkthrough green in CI.
 
-**Phase 1.2 is nine features in, of eighteen.** The project directory and the array store are real, all three readers are written, the schema no longer advertises a step the executor could not run, the executor runs a pipeline from a real dataset and now fits its PCA nodes too, and the import endpoints read a real file into a real `DatasetVersion`. Three new issues came out of that work — #97, #99 and #101, all listed below.
+**Phase 1.2 is ten features in, of nineteen.** The project directory and the array store are real, all three readers are written, the schema no longer advertises a step the executor could not run, the executor runs a pipeline from a real dataset and now fits its PCA nodes too, the import endpoints read a real file into a real `DatasetVersion`, and the validator emits the two warnings nothing has ever emitted. Four new issues came out of that work — #97, #99, #101 and #103, all listed below.
 
 **Two features have landed with their HTTP half deferred.** #81's handlers and #87's results payload are written and tested; neither is served, because the swap from the stub is one cut rather than a handler at a time. That is #99, and it lands in #89.
 
@@ -27,7 +27,8 @@ Compact state for the next session. **Overwrite this file at the end of every se
 | G | Drop `MSC(reference="supplied")` | #82 | A | passing |
 | H | Pipeline executor | #83 | B, G | passing |
 | H′ | The fixture's `centre_d` array | #97 | H | not started |
-| I | Pipeline validator | #84 | H | not started |
+| I | Pipeline validator | #84 | H | passing |
+| I′ | MSC above a split | #103 | I | not started |
 | J | Real jobs | #85 | H | not started |
 | K | Server-side decimation and the density band | #86 | H | not started |
 | L | Results endpoint | #87 | H | passing |
@@ -37,17 +38,17 @@ Compact state for the next session. **Overwrite this file at the end of every se
 | N | HTTP surface complete, stub retired | #89 | F, J, K, L | not started |
 | O | 1.2's exit criterion as a test | #90 | I, N | not started |
 
-Chain: `A → B → C → {D, E, F} → H → {I, J, K, L} → N → O`. **M depends on nothing in 1.2**, so it is what to pick up if the chain is ever blocked. **H′ (#97) blocks nothing**, but #86 and #87 both need its answer before they assert anything about `centre_d`. **M′ (#99) is folded into N and O** rather than done on its own, and now covers #87's endpoint as well as #81's. **M″ (#101) blocks nothing** and is a specification decision, like #71.
+Chain: `A → B → C → {D, E, F} → H → {I, J, K, L} → N → O`. **M depends on nothing in 1.2**, so it is what to pick up if the chain is ever blocked. **H′ (#97) blocks nothing**, but #86 and #87 both need its answer before they assert anything about `centre_d`. **M′ (#99) is folded into N and O** rather than done on its own, and now covers #87's endpoint as well as #81's. **M″ (#101) blocks nothing** and is a specification decision, like #71. **I′ (#103) blocks nothing** — it is #84's own convention working: a third warning becomes an issue rather than a widened branch.
 
 ## Current work
 
-**Nothing is `in_progress`.** #81, #82, #83 and #87 all merged into `dev` on 2026-08-27, as pull requests #100, #96, #98 and #102, and their branches are deleted locally and on origin. The tree is clean and `dev` is pushed.
+**#84 — the pipeline validator — is done on `feature/84_pipeline-validator`**, pull request open against `dev`. #81, #82, #83 and #87 merged earlier the same day as pull requests #100, #96, #98 and #102.
 
 ## Next action
 
-Three features are left in 1.2 before the cut: **#84 (validator), #85 (jobs), #86 (decimation)**, plus **#88 (metrics)**, which depends on nothing, and three findings — **#97**, **#99** and **#101**.
+Two features are left in 1.2 before the cut: **#85 (jobs)** and **#86 (decimation)**, plus **#88 (metrics)**, which depends on nothing, and four findings — **#97**, **#99**, **#101** and **#103**.
 
-**Take #84 next.** It is the only one whose whole subject is logic rather than transport: a function over a `Pipeline` emitting the two warnings nothing emits, with no HTTP half to defer. #86 is the natural second — it needs a dataset big enough to exercise x-axis decimation, which Tecator at 100 variables is not. **#85 is the alternative** if a background-job shape is wanted first.
+**Take #88 next.** Like #84 it is all logic and no transport, so it finishes rather than deferring a half to #89: SEC, SEP, Q² and `coefficients_original_units` are specified in `metrics-and-validation.md` §5–§6, were never implemented, and nothing verified them in #12. **#85 is the alternative** — its job envelope is marked GUESS and may change, which makes it the item most likely to move the frontend, and doing that before #89 rather than after is cheaper.
 
 ### Decisions taken with the maintainer, so they are not re-argued
 
@@ -77,6 +78,14 @@ Three features are left in 1.2 before the cut: **#84 (validator), #85 (jobs), #8
 ## Carried forward from the specifications
 
 Findings that change downstream work, recorded here because they are easy to miss inside long documents.
+
+From #84 (the validator), which #89 and #103 build on:
+
+- **The validation envelope keeps `valid` and `problems` and adds `warnings` beside them.** The GUESS shape is untouched, so the canvas renders unchanged; the structured list carries `code`, `node_id`, `related` and `severity` for a screen that wants to point at the node instead of parsing a sentence.
+- **`valid` means "there is nothing to tell you", not "this will run".** Everything runs — `checks.py` is advisory and a test executes a leaky pipeline to completion. Reporting `valid: true` while holding a warning would mean the 1.1 screen said "valid" and dropped the sentence.
+- **`Autoscale` counts as centring for both rules**, because it subtracts the column means before it divides.
+- **A PCA with no centring is deliberately not warned about.** Only `pls-regression.md` §3 says "almost always wrong", and extending that to PCA would be a preference with no document behind it.
+- **`MSC` above a split leaks by the same rule and is #103.** `SNV`, `Normalise`, Savitzky-Golay, the baselines and `RangeSelect` were all checked and are legitimate above a split — none estimates anything across samples — so MSC is the only step in the schema that leaks and is not warned about.
 
 From #87 (the estimators), which #86 and #90 draw on:
 
