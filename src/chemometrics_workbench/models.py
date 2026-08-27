@@ -196,7 +196,11 @@ class SNV(Frozen):
 
 class MSC(Frozen):
     kind: Literal["msc"] = "msc"
-    reference: Literal["mean", "median", "supplied"] = "mean"
+    # No "supplied": the kernel's MSCTransformer takes a reference spectrum,
+    # but a step has no field to carry one, so a saved pipeline could never
+    # express it and the executor could only raise. Re-adding it means adding
+    # the spectrum's field too, which is additive and needs no migration.
+    reference: Literal["mean", "median"] = "mean"
 
 
 class SavitzkyGolay(Frozen):

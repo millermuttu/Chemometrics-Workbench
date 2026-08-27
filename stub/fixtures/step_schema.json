@@ -100,8 +100,7 @@
           "default": "mean",
           "enum": [
             "mean",
-            "median",
-            "supplied"
+            "median"
           ],
           "title": "Reference",
           "type": "string"
