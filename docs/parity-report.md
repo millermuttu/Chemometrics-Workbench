@@ -6,7 +6,7 @@ CI regenerates it and fails the build if the committed copy differs, which is wh
 `PROPOSAL.md` §16's exit criterion — *parity report green in CI against published
 reference values* — means in practice.
 
-Fixture schema 1, generated 2026-08-24.
+Fixture schema 1, generated 2026-08-27.
 
 ---
 
@@ -18,11 +18,11 @@ strong the agreement is** rather than a bare pass or fail:
 
 | Claim | Count | Meaning |
 | --- | --- | --- |
-| identical within floating point | 75 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
-| agrees within stated tolerance | 13 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
+| identical within floating point | 83 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
+| agrees within stated tolerance | 14 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
 | differs by documented convention | 8 | Not compared numerically at all. The two quantities are not the same thing, and the reason is given in full below. |
 
-**96 comparisons, 96 passed, 0 failed.**
+**105 comparisons, 105 passed, 0 failed.**
 
 Three things a reader should hold on to, because the agreement column cannot
 show them:
@@ -150,15 +150,21 @@ show them:
 | --- | --- | --- | --- | --- |
 | corn | `coefficients` | R mdatools R 4.3.3 / mdatools 0.14.1 | within rtol 1.000e-06 | 700 values, worst Δ < 1e-11 |
 | corn | `coefficients` | scikit-learn 1.9.0 | identical | 700 values, worst Δ < 1e-14 |
+| corn | `coefficients_original_units` | scikit-learn 1.9.0 | identical | 700 values, worst Δ < 1e-14 |
+| corn | `intercept_original_units` | scikit-learn 1.9.0 | identical | `18.7875` vs `18.7875` |
 | corn | `predictions` | scikit-learn 1.9.0 | identical | 80 values, worst Δ < 1e-14 |
+| corn | `q2` | scikit-learn 1.9.0 | identical | `0.977604` vs `0.977604` |
 | corn | `r2` | scikit-learn 1.9.0 | identical | `0.982797` vs `0.982797` |
 | corn | `rmsec` | scikit-learn 1.9.0 | identical | `0.0495755` vs `0.0495755` |
 | corn | `rmsecv_curve` | scikit-learn 1.9.0 | identical | 10 values, worst Δ < 1e-14 |
 | corn | `vip` † | scikit-learn 1.9.0 | identical | 700 values, worst Δ < 1e-14 |
 | gasoline | `coefficients` | R mdatools R 4.3.3 / mdatools 0.14.1 | within rtol 1.000e-06 | 401 values, worst Δ < 1e-12 |
 | gasoline | `coefficients` | scikit-learn 1.9.0 | identical | 401 values, worst Δ < 1e-14 |
+| gasoline | `coefficients_original_units` | scikit-learn 1.9.0 | identical | 401 values, worst Δ < 1e-14 |
 | gasoline | `cumulative_explained_variance_at_2_components` | R pls 2.8-5 | within rtol 0.005 | 2 values, worst Δ < 1e-4 |
+| gasoline | `intercept_original_units` | scikit-learn 1.9.0 | identical | `99.8874` vs `99.8874` |
 | gasoline | `predictions` | scikit-learn 1.9.0 | identical | 60 values, worst Δ < 1e-13 |
+| gasoline | `q2` | scikit-learn 1.9.0 | identical | `0.975053` vs `0.975053` |
 | gasoline | `r2` | scikit-learn 1.9.0 | identical | `0.986801` vs `0.986801` |
 | gasoline | `rmsec` | scikit-learn 1.9.0 | identical | `0.174317` vs `0.174317` |
 | gasoline | `rmsecv_curve` | R pls 2.8-5 | within rtol 0.005 | 11 values, worst Δ < 1e-4 |
@@ -166,7 +172,10 @@ show them:
 | gasoline | `vip` † | scikit-learn 1.9.0 | identical | 401 values, worst Δ < 1e-14 |
 | tecator | `coefficients` | R mdatools R 4.3.3 / mdatools 0.14.1 | within rtol 1.000e-06 | 100 values, worst Δ < 1e-9 |
 | tecator | `coefficients` | scikit-learn 1.9.0 | identical | 100 values, worst Δ < 1e-13 |
+| tecator | `coefficients_original_units` | scikit-learn 1.9.0 | identical | 100 values, worst Δ < 1e-13 |
+| tecator | `intercept_original_units` | scikit-learn 1.9.0 | within rtol 1.000e-06 | `13.7161` vs `13.7161` |
 | tecator | `predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 240 values, worst Δ < 1e-12 |
+| tecator | `q2` | scikit-learn 1.9.0 | identical | `0.934118` vs `0.934118` |
 | tecator | `r2` | scikit-learn 1.9.0 | identical | `0.940354` vs `0.940354` |
 | tecator | `rmsec` | scikit-learn 1.9.0 | identical | `3.50037` vs `3.50037` |
 | tecator | `rmsecv_curve` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 10 values, worst Δ < 1e-12 |
@@ -261,6 +270,14 @@ a gap left out is a false impression.
 **`corn.pca.loadings.literature`** — unsourced
 
 The corn dataset is used widely in the calibration-transfer literature, but the papers report transfer performance rather than the decomposition itself, and none found states a preprocessing chain precisely enough to reproduce a loading vector. Recorded as a gap rather than filled with a number from a plot.
+
+**`tecator.pls.sec.unsourced`** — unsourced
+
+SEC = sqrt(sum((e_i - bias)^2) / (n - A - 1)), denominator n - A - 1 (metrics-and-validation.md §5). Neither scikit-learn nor chemotools computes it, and R mdatools reports RMSE and bias rather than the bias-corrected standard errors, so there is no independent implementation available here to compare against. Computing it ourselves from another package's predictions would be our formula on their numbers, which tests their model and not our metric. Checked instead against the identity §5 states - RMSEP^2 = bias^2 + (n-1)/n * SEP^2 - and against hand arithmetic on a six-sample case, both in tests/test_validation.py. This is the same standing SNV and MSC had before #13, recorded as a gap rather than filled with a plausible number.
+
+**`tecator.pls.sep.unsourced`** — unsourced
+
+SEP = sqrt(sum((e_i - bias)^2) / (n - 1)), denominator n - 1 (metrics-and-validation.md §5). Neither scikit-learn nor chemotools computes it, and R mdatools reports RMSE and bias rather than the bias-corrected standard errors, so there is no independent implementation available here to compare against. Computing it ourselves from another package's predictions would be our formula on their numbers, which tests their model and not our metric. Checked instead against the identity §5 states - RMSEP^2 = bias^2 + (n-1)/n * SEP^2 - and against hand arithmetic on a six-sample case, both in tests/test_validation.py. This is the same standing SNV and MSC had before #13, recorded as a gap rather than filled with a plausible number.
 
 ---
 

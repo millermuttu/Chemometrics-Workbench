@@ -55,6 +55,7 @@ The `T^2` limit, by contrast, transfers unchanged, and is imported from
 from __future__ import annotations
 
 import warnings
+from collections.abc import Sequence
 from typing import Literal, Self
 
 import numpy as np
@@ -63,9 +64,41 @@ from scipy.stats import chi2
 
 from chemometrics_workbench.arrays import as_float64, as_float64_vector
 from chemometrics_workbench.decomposition import LimitFor, check_alpha, hotelling_t2_limit
+from chemometrics_workbench.preprocessing import (
+    AutoscaleTransformer,
+    MeanCentreTransformer,
+    RangeSelectTransformer,
+    SavitzkyGolayTransformer,
+    Transformer,
+)
 from chemometrics_workbench.validation import Fold, rmse, validate_partition
 
-__all__ = ["PLS", "cross_validated_predictions", "rmsecv_curve"]
+__all__ = [
+    "FOLDABLE",
+    "PLS",
+    "coefficients_original_units",
+    "cross_validated_predictions",
+    "rmsecv_curve",
+]
+
+#: The preprocessing steps that fold into a coefficient vector, per
+#: `pls-regression.md` §7. Each is an affine map on the variables whose
+#: parameters were fixed at calibration time, so applying it and then taking a
+#: dot product is the same as taking a dot product with transformed
+#: coefficients.
+#:
+#: SNV, MSC and the baselines are absent on purpose and not by oversight: all
+#: three depend on the sample being predicted — SNV divides each spectrum by
+#: *its own* standard deviation, MSC regresses each against a stored reference
+#: — so neither is a fixed linear map on X and both must be re-executed at
+#: prediction time. An exported model therefore carries a residual
+#: preprocessing chain plus coefficients, not always a bare coefficient vector.
+FOLDABLE = (
+    MeanCentreTransformer,
+    AutoscaleTransformer,
+    RangeSelectTransformer,
+    SavitzkyGolayTransformer,
+)
 
 Block = Literal["x", "y"]
 
@@ -452,6 +485,82 @@ class PLS:
                 "deliberately."
             )
         return values
+
+
+# --------------------------------------------------------------------------
+# export to original units, pls-regression.md §7
+# --------------------------------------------------------------------------
+
+
+def coefficients_original_units(
+    coefficients: object,
+    transformers: Sequence[Transformer],
+    *,
+    n_variables: int,
+    y_mean: float = 0.0,
+    y_scale: float = 1.0,
+) -> tuple[NDArray[np.float64], float]:
+    """Coefficients readable against the raw axis, and the intercept they need.
+
+    `PROPOSAL.md` §9 promises a portable model: a coefficient vector and a
+    snippet that depends only on NumPy. That requires the preprocessing to be
+    folded into `b`, and §7 of `pls-regression.md` says which steps can be —
+    centring shifts the intercept, autoscaling divides each coefficient by its
+    scale, range selection drops coefficients, and Savitzky-Golay folds as the
+    banded matrix of its own convolution.
+
+    Rather than writing those four rules out and keeping them in step with the
+    kernels, the chain is **measured**. Every foldable step is affine, so
+    passing the identity matrix through the fitted chain recovers the map it
+    applies: `f(0)` is the offset and `f(e_j) - f(0)` is what variable `j`
+    contributes. Savitzky-Golay's edge handling comes out exactly right without
+    anyone re-deriving `mode="interp"`, and a change to a kernel's arithmetic
+    cannot leave a stale copy of it here.
+
+    Returns `(b, intercept)` such that `y_hat = intercept + X_raw @ b`, in the
+    response's original units. `y_mean` and `y_scale` are the centring and
+    scaling applied to the response before fitting, which are not pipeline
+    nodes — `cross_validated_predictions` centres `y` by the training fold's
+    mean, and this puts that back.
+
+    Raises `ValueError` naming the step when the chain is not foldable, which
+    is the "says so when it is not available" §7 asks for. A caller building an
+    export catches it and ships the residual chain instead.
+    """
+    if n_variables < 1:
+        raise ValueError(f"n_variables must be at least 1, got {n_variables}")
+    for transformer in transformers:
+        if not isinstance(transformer, FOLDABLE):
+            raise ValueError(
+                f"{type(transformer).__name__} cannot be folded into a coefficient "
+                "vector: it depends on the sample being predicted, so it is not a fixed "
+                "linear map on X and has to be re-executed at prediction time "
+                "(pls-regression.md §7). Export it as part of a residual preprocessing "
+                "chain instead."
+            )
+
+    # ponytail: an n_variables x n_variables probe, which is 128 MB of float64
+    # at §13's envelope of 4,000 variables. Passing it in column blocks would
+    # bound that if it ever bites; the arithmetic is unchanged either way.
+    probe = np.eye(n_variables, dtype=np.float64)
+    zero = np.zeros((1, n_variables), dtype=np.float64)
+    for transformer in transformers:
+        probe = transformer.transform(probe)
+        zero = transformer.transform(zero)
+    offset = zero[0]
+    linear = probe - offset
+
+    weights = as_float64_vector(coefficients, "coefficients")
+    if linear.shape[1] != weights.size:
+        raise ValueError(
+            f"the chain maps {n_variables} variables to {linear.shape[1]}, and the "
+            f"coefficient vector has {weights.size}. They are the same number or one of "
+            "them is from a different model."
+        )
+
+    folded: NDArray[np.float64] = y_scale * (linear @ weights)
+    intercept = float(y_mean + y_scale * float(offset @ weights))
+    return folded, intercept
 
 
 # --------------------------------------------------------------------------
