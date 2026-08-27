@@ -42,13 +42,13 @@ Chain: `A → B → C → {D, E, F} → H → {I, J, K, L} → N → O`. **M dep
 
 ## Current work
 
-**Nothing is `in_progress`.** #81, #82, #83, #84 and #87 all merged into `dev` on 2026-08-27, as pull requests #100, #96, #98, #104 and #102, and their branches are deleted locally and on origin. The tree is clean and `dev` is pushed.
+**#88 — the metrics gap — is done on `feature/88_metrics-gap`**, pull request open against `dev`. #81, #82, #83, #84 and #87 merged earlier the same day as pull requests #100, #96, #98, #104 and #102.
 
 ## Next action
 
-Two features are left in 1.2 before the cut: **#85 (jobs)** and **#86 (decimation)**, plus **#88 (metrics)**, which depends on nothing, and four findings — **#97**, **#99**, **#101** and **#103**.
+**Two features are left before the cut: #85 (jobs) and #86 (decimation)**, then #89 and #90. Four findings are open — **#97**, **#99**, **#101** and **#103** — of which #97 and #101 are specification decisions waiting on the maintainer.
 
-**Take #88 next.** Like #84 it is all logic and no transport, so it finishes rather than deferring a half to #89: SEC, SEP, Q² and `coefficients_original_units` are specified in `metrics-and-validation.md` §5–§6, were never implemented, and nothing verified them in #12. **#85 is the alternative** — its job envelope is marked GUESS and may change, which makes it the item most likely to move the frontend, and doing that before #89 rather than after is cheaper.
+**Take #85 next.** Its job envelope is marked GUESS and may change, which makes it the item most likely to move the frontend, and moving the frontend before #89's cut is cheaper than after. #86 needs a dataset big enough to drop points along the wavelength axis — Tecator at 100 variables never has — so it starts with sourcing data rather than with code.
 
 ### Decisions taken with the maintainer, so they are not re-argued
 
@@ -78,6 +78,14 @@ Two features are left in 1.2 before the cut: **#85 (jobs)** and **#86 (decimatio
 ## Carried forward from the specifications
 
 Findings that change downstream work, recorded here because they are easy to miss inside long documents.
+
+From #88 (the metrics gap), which #14's export and #85's metrics both need:
+
+- **A preprocessing chain is folded into coefficients by measuring it, not by restating §7's table.** Every foldable step is affine, so passing the identity through the fitted chain recovers `f(e_j) - f(0)`, and `f(0)` is the offset. Savitzky-Golay's `interp` edge handling comes out exactly right without anyone re-deriving it, and a kernel change cannot leave a stale copy of the rule behind.
+- **SNV, MSC and the baselines are refused by type, never by probing.** SNV will not even accept a row of zeros, and treating its identity image as a linear map gives predictions more than 1.0 away from the model's own — a plausible, wrong number, which is the failure the guard exists to prevent.
+- **`scikit-learn`'s `PLSRegression.intercept_` is `ȳ`** and does *not* reproduce its own `predict()` — out by `x̄·b`, which is 4.79 on tecator against a response range of 0.9 to 58.5. A parity claim built on that attribute would have failed against a correct kernel. `pls-regression.md` §14 records it; the generator recovers the intercept from `predict()` and asserts it.
+- **SEC and SEP are recorded as `unsourced`.** No installed package computes them, and computing them from another package's predictions would test their model rather than our metric. They are checked against §5's identity and hand arithmetic instead — the standing SNV and MSC had before #13.
+- **The parity report is 105 comparisons, up from 96**, and `Metrics.extra` carries SEC and SEP, so the schema needed no change.
 
 From #84 (the validator), which #89 and #103 build on:
 

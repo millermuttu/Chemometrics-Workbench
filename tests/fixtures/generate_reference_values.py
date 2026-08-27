@@ -49,6 +49,7 @@ from numpy.typing import NDArray
 from scipy.signal import savgol_filter
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.decomposition import PCA
+from sklearn.metrics import r2_score as sklearn_r2_score
 from sklearn.preprocessing import StandardScaler, normalize
 
 from chemometrics_workbench.datasets import (
@@ -307,6 +308,7 @@ def sklearn_entries(name: str, dataset: ReferenceDataset) -> list[dict[str, Any]
     # RMSECV as a function of A, from one fold assignment for every component
     # count, pooled over folds (metrics-and-validation.md §7 and §9).
     rmsecv_curve: dict[str, float] = {}
+    cross_validated = np.empty_like(y)
     for n_components in range(1, MAX_PLS_COMPONENTS + 1):
         held_out = np.empty_like(y)
         for fold in folds:
@@ -323,6 +325,35 @@ def sklearn_entries(name: str, dataset: ReferenceDataset) -> list[dict[str, Any]
                 np.asarray(fold_model.predict(spectra[test] - train_mean)).ravel() + train_y_mean
             )
         rmsecv_curve[str(n_components)] = rmse(y, held_out)
+        if n_components == N_COMPONENTS:
+            cross_validated = held_out.copy()
+
+    # Q^2 by scikit-learn's own metric over its own held-out predictions
+    # (metrics-and-validation.md §6). `r2_score` uses the mean of the vector it
+    # is given, which is the full calibration mean here, so this is §6's
+    # denominator and not a per-fold one - the number packages differ on.
+    q2_value = float(sklearn_r2_score(y, cross_validated))
+
+    # Coefficients in the response's original units, from a model fitted on the
+    # raw matrix. scikit-learn centres internally and reports `coef_` and
+    # `intercept_` applicable to raw X, which is exactly what
+    # `regression.coefficients_original_units` produces by folding a centring
+    # step into a model fitted on the centred matrix. An independent route to
+    # the same vector, rather than our formula on someone else's numbers.
+    raw_pls = PLSRegression(n_components=N_COMPONENTS, scale=False).fit(spectra, y)
+    assert raw_pls.coef_.shape == (1, spectra.shape[1]), raw_pls.coef_.shape
+    raw_coefficients = raw_pls.coef_.ravel()
+
+    # NOT `raw_pls.intercept_`. That attribute holds ybar, and `X @ coef_ +
+    # intercept_` does not reproduce `raw_pls.predict(X)` - it is out by
+    # xbar . coef_, which is 4.79 on tecator, a quarter of the response's range.
+    # The intercept the model actually predicts with is recovered from its own
+    # prediction, so the reference stays scikit-learn's number rather than
+    # becoming our formula, and the assertion below is what would catch this
+    # changing in a future release (pls-regression.md §14).
+    raw_predictions = np.asarray(raw_pls.predict(spectra)).ravel()
+    raw_intercept = float(np.mean(raw_predictions - spectra @ raw_coefficients))
+    assert np.allclose(spectra @ raw_coefficients + raw_intercept, raw_predictions, atol=1e-9)
 
     common = {
         "dataset": name,
@@ -343,6 +374,11 @@ def sklearn_entries(name: str, dataset: ReferenceDataset) -> list[dict[str, Any]
         "algorithm": "pls",
         "preprocessing": ["mean_centre_x", "mean_centre_y"],
         "algorithm_variant": PLS_VARIANT,
+    }
+    # The original-units entries are fitted on the raw matrix, so they carry no
+    # preprocessing and their own variant string.
+    raw_common = {
+        k: v for k, v in pls_common.items() if k not in ("preprocessing", "algorithm_variant")
     }
 
     return [
@@ -532,6 +568,69 @@ def sklearn_entries(name: str, dataset: ReferenceDataset) -> list[dict[str, Any]
                 "this one is the standard Wold form."
             ),
             **pls_common,
+        ),
+        entry(
+            entry_id=f"{name}.pls.q2.sklearn",
+            quantity="q2",
+            value=q2_value,
+            split=split,
+            notes=(
+                f"Target '{target}', A={N_COMPONENTS}. sklearn.metrics.r2_score over "
+                "scikit-learn's own held-out predictions on the fold assignment above. "
+                "The denominator is the total sum of squares about the **full "
+                "calibration mean** (§6), which is what r2_score computes from the "
+                "vector it is given; recomputing the mean inside each fold changes the "
+                "number and packages differ on it. Not clipped: a negative Q^2 is a "
+                "real finding and this dataset simply does not produce one."
+            ),
+            **pls_common,
+        ),
+        entry(
+            entry_id=f"{name}.pls.coefficients_original_units.sklearn",
+            quantity="coefficients_original_units",
+            value=raw_coefficients.tolist(),
+            split=None,
+            # "none" rather than an empty list: the chain is stated, and what it
+            # states is that there is not one. An empty list reads as a field
+            # nobody filled in.
+            preprocessing=["none"],
+            algorithm_variant=(
+                "sklearn.cross_decomposition.PLSRegression(scale=False) on the RAW "
+                "matrix and raw response. scikit-learn centres internally and reports "
+                "coef_ against raw X, which is the vector pls-regression.md §7 calls "
+                "the original-units form. Ours reaches it by folding a mean-centring "
+                "node into a model fitted on the centred matrix, so the two routes are "
+                "independent."
+            ),
+            notes=(
+                f"Target '{target}', A={N_COMPONENTS}. Sign-invariant (§5). Pairs with "
+                f"'{name}.pls.intercept_original_units.sklearn', which is the other "
+                "half of the same claim: coefficients alone do not predict anything."
+            ),
+            **raw_common,
+        ),
+        entry(
+            entry_id=f"{name}.pls.intercept_original_units.sklearn",
+            quantity="intercept_original_units",
+            value=raw_intercept,
+            split=None,
+            preprocessing=["none"],
+            algorithm_variant=(
+                "sklearn.cross_decomposition.PLSRegression(scale=False) on the raw "
+                "matrix and raw response, with the intercept recovered as "
+                "mean(predict(X) - X @ coef_) rather than from `intercept_`."
+            ),
+            notes=(
+                f"Target '{target}', A={N_COMPONENTS}. b_0 = ybar - sum_j xbar_j b_j "
+                "(pls-regression.md §7). Not sign-invariant and not expected to be: an "
+                "intercept is an offset in the response's units. **Recovered from "
+                "predict() rather than read off `intercept_`**: that attribute holds "
+                "ybar, and X @ coef_ + intercept_ does not reproduce predict() - it is "
+                "out by xbar . coef_, which is 4.79 on tecator against a response range "
+                "of 0.9 to 58.5. Recorded here because a parity claim built on the "
+                "attribute would have failed against a correct kernel."
+            ),
+            **raw_common,
         ),
         entry(
             entry_id=f"{name}.pls.rmsecv_curve.sklearn",
@@ -1090,14 +1189,53 @@ def unsourced_entries() -> list[dict[str, Any]]:
     Recorded rather than omitted, because a gap that is written down is a task
     and a gap that is not is a false impression of coverage.
 
-    This list has shrunk twice. SNV, MSC and the three baselines left it when
-    #13 evaluated `chemotools` and #27 wired it in. The R `mdatools` limits and
-    SIMPLS coefficients left it when #24 installed R - see
-    `r_mdatools_entries()`. What remains is one corn PCA loading vector, which
-    needs a paper that states its preprocessing chain precisely enough to
-    reproduce, and no such paper has been found.
+    This list has shrunk twice and grown once. SNV, MSC and the three baselines
+    left it when #13 evaluated `chemotools` and #27 wired it in. The R
+    `mdatools` limits and SIMPLS coefficients left it when #24 installed R -
+    see `r_mdatools_entries()`. It grew in #88 by SEC and SEP, which no
+    installed package computes.
+
+    What remains: one corn PCA loading vector, which needs a paper that states
+    its preprocessing chain precisely enough to reproduce and no such paper has
+    been found, and the two standard errors below.
     """
     entries: list[dict[str, Any]] = []
+    for quantity, formula, denominator in (
+        ("sec", "sqrt(sum((e_i - bias)^2) / (n - A - 1))", "n - A - 1"),
+        ("sep", "sqrt(sum((e_i - bias)^2) / (n - 1))", "n - 1"),
+    ):
+        entries.append(
+            entry(
+                entry_id=f"tecator.pls.{quantity}.unsourced",
+                dataset="tecator",
+                dataset_content_hash=None,
+                algorithm="pls",
+                quantity=quantity,
+                value=None,
+                status="unsourced",
+                comparable=False,
+                preprocessing=["mean_centre_x", "mean_centre_y"],
+                algorithm_variant="n/a",
+                split=None,
+                software="none found",
+                software_version="n/a",
+                citation="none - not sourced",
+                notes=(
+                    f"{quantity.upper()} = {formula}, denominator {denominator} "
+                    "(metrics-and-validation.md §5). Neither scikit-learn nor chemotools "
+                    "computes it, and R mdatools reports RMSE and bias rather than the "
+                    "bias-corrected standard errors, so there is no independent "
+                    "implementation available here to compare against. Computing it "
+                    "ourselves from another package's predictions would be our formula "
+                    "on their numbers, which tests their model and not our metric. "
+                    "Checked instead against the identity §5 states - RMSEP^2 = bias^2 + "
+                    "(n-1)/n * SEP^2 - and against hand arithmetic on a six-sample case, "
+                    "both in tests/test_validation.py. This is the same standing SNV and "
+                    "MSC had before #13, recorded as a gap rather than filled with a "
+                    "plausible number."
+                ),
+            )
+        )
     entries.append(
         entry(
             entry_id="corn.pca.loadings.literature",

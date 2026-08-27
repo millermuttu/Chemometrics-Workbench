@@ -261,6 +261,8 @@ Regression metrics (RMSEC, RMSECV, RMSEP, $R^2$, bias) are defined in `metrics-a
 
 `scikit-learn`'s `coef_` orientation and scaling have changed across releases. Parity must pin the version and assert the orientation rather than assume it.
 
+**`PLSRegression.intercept_` is not the intercept its own predictions use.** Measured against scikit-learn 1.9.0: fitted on a raw matrix, `intercept_` holds $\bar{y}$, and $X b + \texttt{intercept\_}$ does not reproduce `predict(X)` — it is out by $\bar{x}^{\top} b$, which is 4.79 on tecator against a response range of 0.9 to 58.5. The intercept the model predicts with is §7's $b_0 = \bar{y} - \sum_j \bar{x}_j b_j$. A parity claim built on the attribute would fail against a correct kernel, so `tests/fixtures/generate_reference_values.py` recovers the intercept from `predict()` and asserts that it reproduces those predictions.
+
 ---
 
 ## 15. Deliberately not specified here

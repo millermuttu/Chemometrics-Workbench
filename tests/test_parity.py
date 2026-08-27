@@ -36,12 +36,18 @@ from chemometrics_workbench.preprocessing import (
     SavitzkyGolayTransformer,
     SNVTransformer,
 )
-from chemometrics_workbench.regression import PLS, rmsecv_curve
+from chemometrics_workbench.regression import (
+    PLS,
+    coefficients_original_units,
+    cross_validated_predictions,
+    rmsecv_curve,
+)
 from chemometrics_workbench.validation import (
     Fold,
     folds_from_indices,
     k_fold,
     leave_one_out,
+    q2,
     r2,
     rmse,
 )
@@ -727,6 +733,80 @@ def test_rmsecv_curve_matches_the_reference(dataset: str) -> None:
 
     curve = rmsecv_curve(dataset_object.spectra, _target(dataset), folds, MAX_PLS_COMPONENTS)
     assert parity.check(f"{dataset}.pls.rmsecv_curve.sklearn", curve).passed
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_q2_matches_scikit_learns_own_metric_over_held_out_predictions(dataset: str) -> None:
+    """`metrics-and-validation.md` §6, and the denominator packages differ on.
+
+    The reference is `sklearn.metrics.r2_score` over scikit-learn's own held-out
+    predictions on the recorded folds — an independent metric implementation on
+    an independent model, not our formula on someone else's numbers. Both sides
+    take the total sum of squares about the **full calibration mean**; a package
+    recomputing the mean inside each fold would land somewhere else entirely,
+    and this case would catch it.
+    """
+    entry = parity.entries_by_id()[f"{dataset}.pls.q2.sklearn"]
+    folds = _folds_from_entry(entry)
+    dataset_object = LOADERS[dataset]()
+    y = _target(dataset)
+
+    held_out = cross_validated_predictions(dataset_object.spectra, y, folds, N_COMPONENTS)
+    assert parity.check(f"{dataset}.pls.q2.sklearn", q2(y, held_out)).passed
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_folded_coefficients_match_a_model_fitted_on_the_raw_matrix(
+    dataset: str, pls_models: dict[str, PLS]
+) -> None:
+    """`pls-regression.md` §7: centring folds into the intercept.
+
+    Two routes to one vector. scikit-learn is fitted on the raw matrix and
+    centres internally, reporting `coef_` against raw X. Ours is fitted on the
+    centred matrix and folds the centring node back in afterwards. They agree
+    or one of the two has the arithmetic wrong — which is the claim `PROPOSAL.md`
+    §9 needs before it can promise a portable model.
+    """
+    spectra = LOADERS[dataset]().spectra
+    y = _target(dataset)
+    centre = MeanCentreTransformer().fit(spectra)
+
+    folded, intercept = coefficients_original_units(
+        pls_models[dataset].coefficients_,
+        [centre],
+        n_variables=spectra.shape[1],
+        y_mean=float(y.mean()),
+    )
+
+    coefficients = parity.check(f"{dataset}.pls.coefficients_original_units.sklearn", folded)
+    assert coefficients.passed
+    assert parity.check(f"{dataset}.pls.intercept_original_units.sklearn", intercept).passed
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_the_folded_model_predicts_what_the_pipeline_predicts(
+    dataset: str, pls_models: dict[str, PLS]
+) -> None:
+    """The constraint `PROPOSAL.md` §9 places on the codebase, as a test.
+
+    "Exported predictions must match in-application predictions to within a
+    stated numerical tolerance, verified in CI." Here the export is the folded
+    coefficient vector and the application is the fitted chain, on the real
+    datasets rather than on synthetic data.
+    """
+    spectra = LOADERS[dataset]().spectra
+    y = _target(dataset)
+    centre = MeanCentreTransformer().fit(spectra)
+
+    folded, intercept = coefficients_original_units(
+        pls_models[dataset].coefficients_,
+        [centre],
+        n_variables=spectra.shape[1],
+        y_mean=float(y.mean()),
+    )
+    np.testing.assert_allclose(
+        intercept + spectra @ folded, _predictions(dataset, pls_models), atol=1e-9
+    )
 
 
 @pytest.mark.parametrize("dataset", DATASETS)

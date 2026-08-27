@@ -14,11 +14,28 @@ needs a downloaded dataset is a kernel test that skips on a fresh machine.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import numpy as np
 import pytest
 
 from chemometrics_workbench.models import ResolvedSplit
-from chemometrics_workbench.regression import PLS, cross_validated_predictions, rmsecv_curve
+from chemometrics_workbench.preprocessing import (
+    AutoscaleTransformer,
+    BaselineCorrectTransformer,
+    MeanCentreTransformer,
+    MSCTransformer,
+    RangeSelectTransformer,
+    SavitzkyGolayTransformer,
+    SNVTransformer,
+    Transformer,
+)
+from chemometrics_workbench.regression import (
+    PLS,
+    coefficients_original_units,
+    cross_validated_predictions,
+    rmsecv_curve,
+)
 from chemometrics_workbench.validation import (
     folds_from_indices,
     k_fold,
@@ -563,3 +580,176 @@ def test_a_curve_with_no_components_is_refused() -> None:
     X, y = _spectra_and_response(n=20)
     with pytest.raises(ValueError, match="at least one component"):
         rmsecv_curve(X, y, k_fold(20, 4), 0)
+
+
+# --------------------------------------------------------------------------
+# export to original units, pls-regression.md §7
+# --------------------------------------------------------------------------
+
+
+def _fitted_through(
+    chain: Sequence[Transformer], X: np.ndarray, y: np.ndarray, n_components: int = 4
+) -> tuple[PLS, np.ndarray, float]:
+    """Fit the chain, then a PLS on what comes out of it, y centred."""
+    values = X
+    for transformer in chain:
+        values = transformer.fit(values).transform(values)
+    y_mean = float(y.mean())
+    return PLS(n_components).fit(values, y - y_mean), values, y_mean
+
+
+def test_a_foldable_chain_reproduces_its_own_predictions_from_the_raw_matrix() -> None:
+    """The claim `PROPOSAL.md` §9 makes, and the one CI has to keep: an exported
+    coefficient vector predicts what the application predicts."""
+    X, y = _spectra_and_response()
+    axis = np.arange(X.shape[1], dtype=float)
+    chain = [
+        SavitzkyGolayTransformer(7, 2, deriv=1),
+        RangeSelectTransformer(2.0, 12.0, axis),
+        AutoscaleTransformer(),
+    ]
+    model, processed, y_mean = _fitted_through(chain, X, y)
+
+    folded, intercept = coefficients_original_units(
+        model.coefficients_, chain, n_variables=X.shape[1], y_mean=y_mean
+    )
+    np.testing.assert_allclose(
+        intercept + X @ folded, model.predict(processed) + y_mean, atol=1e-10
+    )
+
+
+def test_each_foldable_step_folds_on_its_own() -> None:
+    X, y = _spectra_and_response()
+    axis = np.arange(X.shape[1], dtype=float)
+    for chain in (
+        [MeanCentreTransformer()],
+        [AutoscaleTransformer()],
+        [AutoscaleTransformer(ddof=0)],
+        [RangeSelectTransformer(3.0, 11.0, axis)],
+        [SavitzkyGolayTransformer(5, 2)],
+        [SavitzkyGolayTransformer(9, 3, deriv=2)],
+    ):
+        model, processed, y_mean = _fitted_through(chain, X, y)
+        folded, intercept = coefficients_original_units(
+            model.coefficients_, chain, n_variables=X.shape[1], y_mean=y_mean
+        )
+        np.testing.assert_allclose(
+            intercept + X @ folded,
+            model.predict(processed) + y_mean,
+            atol=1e-10,
+            err_msg=f"{type(chain[0]).__name__} did not fold",
+        )
+
+
+def test_centring_moves_the_intercept_and_leaves_the_coefficients_alone() -> None:
+    """§7's table, checked rather than restated."""
+    X, y = _spectra_and_response()
+    centre = MeanCentreTransformer().fit(X)
+    model = PLS(4).fit(centre.transform(X), y - y.mean())
+
+    folded, intercept = coefficients_original_units(
+        model.coefficients_, [centre], n_variables=X.shape[1], y_mean=float(y.mean())
+    )
+    np.testing.assert_allclose(folded, np.asarray(model.coefficients_), atol=1e-12)
+    assert intercept == pytest.approx(
+        float(y.mean()) - float(np.asarray(centre.mean_) @ np.asarray(model.coefficients_))
+    )
+
+
+def test_autoscaling_divides_each_coefficient_by_its_scale() -> None:
+    X, y = _spectra_and_response()
+    scale = AutoscaleTransformer().fit(X)
+    model = PLS(4).fit(scale.transform(X), y - y.mean())
+
+    folded, _ = coefficients_original_units(
+        model.coefficients_, [scale], n_variables=X.shape[1], y_mean=float(y.mean())
+    )
+    expected = np.asarray(model.coefficients_) / np.asarray(scale.scale_)
+    np.testing.assert_allclose(folded, expected, rtol=1e-10)
+
+
+def test_range_selection_drops_coefficients_and_leaves_zeros_behind() -> None:
+    """A variable the recipe threw away cannot influence a prediction from raw data."""
+    X, y = _spectra_and_response()
+    axis = np.arange(X.shape[1], dtype=float)
+    window = RangeSelectTransformer(4.0, 9.0, axis)
+    model, _, y_mean = _fitted_through([window], X, y)
+
+    folded, _ = coefficients_original_units(
+        model.coefficients_, [window], n_variables=X.shape[1], y_mean=y_mean
+    )
+    kept = (axis >= 4.0) & (axis <= 9.0)
+    assert folded.size == X.shape[1]
+    np.testing.assert_array_equal(folded[~kept], 0.0)
+    np.testing.assert_allclose(folded[kept], np.asarray(model.coefficients_), atol=1e-12)
+
+
+def test_the_response_scaling_is_put_back() -> None:
+    X, y = _spectra_and_response()
+    centre = MeanCentreTransformer().fit(X)
+    y_mean, y_scale = float(y.mean()), float(y.std(ddof=1))
+    model = PLS(4).fit(centre.transform(X), (y - y_mean) / y_scale)
+
+    folded, intercept = coefficients_original_units(
+        model.coefficients_, [centre], n_variables=X.shape[1], y_mean=y_mean, y_scale=y_scale
+    )
+    np.testing.assert_allclose(
+        intercept + X @ folded,
+        model.predict(centre.transform(X)) * y_scale + y_mean,
+        atol=1e-10,
+    )
+
+
+@pytest.mark.parametrize(
+    "transformer",
+    [SNVTransformer(), MSCTransformer("mean"), BaselineCorrectTransformer("asls")],
+)
+def test_a_step_that_depends_on_the_sample_is_refused_by_name(transformer: Transformer) -> None:
+    """§7: not a fixed linear map on X, so it is re-executed rather than folded."""
+    X, _ = _spectra_and_response()
+    transformer.fit(X)
+    with pytest.raises(ValueError, match=f"{type(transformer).__name__} cannot be folded"):
+        coefficients_original_units(np.ones(X.shape[1]), [transformer], n_variables=X.shape[1])
+
+
+def test_refusing_snv_is_not_pedantry_the_folded_answer_would_be_wrong() -> None:
+    """Why the guard is by type and not by probing: the probe would succeed quietly.
+
+    SNV divides each spectrum by its own standard deviation, so passing the
+    identity through it produces a matrix that is not the map SNV applies to
+    real data - and using it would give a plausible, wrong prediction.
+    """
+    X, y = _spectra_and_response()
+    snv = SNVTransformer().fit(X)
+    processed = snv.transform(X)
+    model = PLS(4).fit(processed, y - y.mean())
+
+    # It will not even be probed: a row of zeros has no standard deviation, and
+    # the kernel says so rather than substituting a scale of 1.
+    with pytest.raises(ValueError, match="standard deviation of the spectrum is zero"):
+        snv.transform(np.zeros((1, X.shape[1])))
+
+    # And treating the identity rows as if they were a linear map gives an
+    # answer that is not close to the model's own.
+    pretend = snv.transform(np.eye(X.shape[1])) @ np.asarray(model.coefficients_)
+    honest = model.predict(processed) + y.mean()
+    folded = float(y.mean()) + X @ pretend
+    assert np.abs(folded - honest).max() > 1.0, "the wrong answer is not even close"
+
+
+def test_a_coefficient_vector_from_another_model_is_refused() -> None:
+    X, _ = _spectra_and_response()
+    axis = np.arange(X.shape[1], dtype=float)
+    window = RangeSelectTransformer(4.0, 9.0, axis).fit(X)
+
+    with pytest.raises(ValueError, match="maps 15 variables to"):
+        coefficients_original_units(np.ones(X.shape[1]), [window], n_variables=X.shape[1])
+
+
+def test_an_empty_chain_is_the_identity_and_folds_to_itself() -> None:
+    X, y = _spectra_and_response()
+    model = PLS(4).fit(X, y)
+
+    folded, intercept = coefficients_original_units(model.coefficients_, [], n_variables=X.shape[1])
+    np.testing.assert_allclose(folded, np.asarray(model.coefficients_), atol=1e-12)
+    assert intercept == pytest.approx(0.0)

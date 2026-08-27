@@ -220,8 +220,12 @@ QUANTITY_CLASS: dict[str, str] = {
     "rmsecv": "metrics",
     "rmsep": "metrics",
     "r2": "metrics",
+    "q2": "metrics",
+    "sec": "metrics",
     "sep": "metrics",
     "rmsecv_curve": "metrics",
+    "coefficients_original_units": "coefficients",
+    "intercept_original_units": "predictions",
 }
 
 # Quantities whose sign is arbitrary per component and must be aligned before
