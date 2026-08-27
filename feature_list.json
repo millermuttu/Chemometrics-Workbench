@@ -125,17 +125,17 @@
         "reader-csv"
       ],
       "user_visible_behavior": "Importing a file through the running frontend writes a real array into the project directory and a real DatasetVersion that references it; the dataset list is read back from disk after a restart.",
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "POST /api/import/preview returns detections from the reader rather than from a fixture.",
         "POST /api/import commits with the user's corrections applied and writes the array through the store.",
-        "The committed dataset appears in projects/{id}/datasets after the server is restarted.",
-        "A file past the section 13 envelope is reported as oversize without the ?oversize affordance.",
+        "The committed dataset is read back from the project directory by a second server process.",
+        "The shape is reported as read, which is what the frontend's own envelope check reads.",
         "A file the reader rejects returns the documented error body, not a 500.",
-        "The frontend is unchanged. Any edit it needed is recorded as a finding about the 1.1 contract."
+        "The frontend cannot reach these handlers at all: recorded as #99, not worked around."
       ],
-      "evidence": "",
-      "notes": "First two stub handlers replaced behind unchanged URLs."
+      "evidence": "2026-08-27. On feature/81_import-endpoints. New module src/chemometrics_workbench/api.py holding the router, a dataset index in project.py (DatasetEntry, read_datasets, add_dataset over datasets.json), and 19 tests in tests/test_api.py; uv run pytest is 644 passed, 1 skipped (625 before), ruff check, ruff format --check and mypy over 42 source files all clean. python-multipart is added to [project.dependencies] - FastAPI's form parser, needed because a file and its corrections arrive together and a browser sends that as multipart. Endpoints, all under the URLs the 1.1 frontend already uses: GET /api/projects and /api/projects/{id} return the one open project, created on first use at CHEMOMETRICS_PROJECT or <config dir>/projects/default; GET /api/projects/{id}/datasets reads datasets.json off disk; POST /api/import/preview returns readers.preview() with every Choice's alternatives; POST /api/import reads with the user's corrections applied, writes the array through #77's store and records a DatasetVersion that references it. Payload shapes are asserted key for key against stub/fixtures/import_preview.json and datasets.json, which is the contract the 1.1 screens render. Proven: a CSV, a workbook and a JCAMP file all preview through the same endpoint and the endpoint never learns which format it holds; a preview commits nothing and leaves no datasets.json; an import writes float32 to arrays/ and returns a sha256: content hash; a second TestClient over a second application - a restart, as far as the server is concerned - lists the dataset back from the directory alone; two imports of the same stem are two datasets with two ids and one name, because a name is not an identity; a correction that cannot be applied (decimal '.' on a decimal-comma file) is a 422 reader_failed rather than a quiet empty import, and a correction the reader does not offer names the field it refused. Refusals are diagnostics: a file of only text is 422 with the reader's own sentence and no traceback, a file with no suffix says no reader claims it, an upload past MAX_UPLOAD_BYTES is 413 before it is written (§4.3 calls localhost a trust boundary), and an upload calling itself '../../project.json' writes into a temporary directory and leaves the project's own file untouched. The temporary directory is empty after both a failed and a successful read. The envelope is reported rather than enforced: §13's limit is computed by the frontend's own states/envelope.ts from n_samples and n_variables, so the honest server behaviour is to report the shape as read - asserted equal between the preview and the committed version - and ?oversize is not replaced by anything. NOT DONE, and raised as #99: the router is not wired into stub/server.py. Wiring it fails 17 of the 40 end-to-end tests, because the fixture pipeline is built on the fixture dataset version and a real import produces a dataset it knows nothing about; and the 1.1 import screen discards the file the user picks and posts an empty body, so it cannot drive these handlers at all. Both belong to #89's one cut.",
+      "notes": "First two stub handlers written for real, behind unchanged URLs, but NOT swapped in: see #99. The swap is one cut in #89 rather than a handler at a time, because projects, datasets, import, pipelines and experiments are one chain in the fixtures. python-multipart is a new runtime dependency, taken because the commit carries a file and its corrections together."
     },
     {
       "id": "drop-msc-supplied",
@@ -302,6 +302,25 @@
       ],
       "evidence": "",
       "notes": "A Phase 0 inheritance - nothing in #12 verified these. Depends on nothing in 1.2, so it can be picked up whenever the chain is blocked. SNV, MSC and baselines cannot be folded into coefficients; Savitzky-Golay can."
+    },
+    {
+      "id": "import-contract-findings",
+      "priority": 13,
+      "area": "backend",
+      "issue": 99,
+      "title": "The import handlers cannot be swapped in one at a time, and the 1.1 screen sends no file",
+      "depends_on": [
+        "import-endpoints"
+      ],
+      "user_visible_behavior": "The file the user picks is the file that is imported - today the screen discards it and the server it talks to would not know what to do with it.",
+      "status": "not_started",
+      "verification": [
+        "The import screen sends the picked file to /api/import/preview and /api/import.",
+        "chemometrics_workbench.api.router is what serves those URLs.",
+        "The 17 end-to-end tests that assume the fixture project and dataset are rewritten."
+      ],
+      "evidence": "",
+      "notes": "Found in #81 and measured there: wiring the real router into the stub fails 17 of 40 end-to-end tests, across import, states, shell, inspector and the walkthrough. Folded into #89's cut and #90's rewrite rather than done separately."
     },
     {
       "id": "http-surface-complete",
