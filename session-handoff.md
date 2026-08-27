@@ -36,7 +36,7 @@ Chain: `A → B → C → {D, E, F} → H → {I, J, K, L} → N → O`. **M dep
 
 ## Current work
 
-**#82 — drop `MSC(reference="supplied")` — is done on `feature/82_drop-msc-supplied`**, pull request open against `dev`. Nothing else is `in_progress`.
+**Nothing is `in_progress`.** #82 merged into `dev` as pull request #96 on 2026-08-27, its branch deleted locally and on origin. The tree is clean and `dev` is pushed.
 
 ## Next action
 
