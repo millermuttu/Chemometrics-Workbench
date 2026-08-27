@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from pydantic import ValidationError
 
 from chemometrics_workbench.models import (
     MSC,
@@ -462,10 +463,20 @@ def test_from_spec_needs_the_axis_for_range_selection() -> None:
         from_spec(RangeSelect(start=1.0, end=2.0))
 
 
-def test_from_spec_needs_the_spectrum_for_a_supplied_msc_reference() -> None:
-    """A real schema gap: MSC carries the choice but not the spectrum."""
-    with pytest.raises(ValueError, match="needs a reference_spectrum"):
-        from_spec(MSC(reference="supplied"))
+def test_the_schema_does_not_offer_an_msc_reference_from_spec_cannot_build() -> None:
+    """The gap closed by narrowing the enum rather than by raising in the seam.
+
+    The kernel still takes a supplied reference - it is a legitimate library
+    call - but a step has no field for the spectrum, so the schema no longer
+    claims a saved pipeline can express one.
+    """
+    with pytest.raises(ValidationError):
+        MSC(reference="supplied")
+
+    reference = _spectra().mean(axis=0)
+    kernel = MSCTransformer("supplied", reference_spectrum=reference).fit(_spectra())
+    assert kernel.reference_ is not None
+    np.testing.assert_allclose(kernel.reference_, reference)
 
 
 def test_baseline_parameters_left_unset_in_the_schema_take_the_kernel_defaults() -> None:

@@ -278,9 +278,9 @@ class MSCTransformer(Transformer):
         if reference == "supplied":
             if reference_spectrum is None:
                 raise ValueError(
-                    "reference='supplied' needs a reference_spectrum. The schema's "
-                    "MSC step carries the choice but not the spectrum itself, so the "
-                    "caller must pass it."
+                    "reference='supplied' needs a reference_spectrum. This is a "
+                    "library call only: the schema's MSC step offers 'mean' and "
+                    "'median', so a saved pipeline never reaches here."
                 )
             supplied = np.asarray(reference_spectrum, dtype=np.float64).ravel()
             if not np.isfinite(supplied).all():
@@ -491,7 +491,6 @@ def from_spec(
     step: PreprocessStep,
     *,
     axis: object | None = None,
-    reference_spectrum: object | None = None,
 ) -> Transformer:
     """Build the transformer a `PreprocessStep` describes.
 
@@ -499,17 +498,17 @@ def from_spec(
     discriminated union is worth having: an unsupported step fails here with
     its name, rather than halfway through a ten-minute cross-validation.
 
-    Two steps need something the schema does not carry. `RangeSelect` needs
+    One step needs something the schema does not carry: `RangeSelect` needs
     the variable axis, which belongs to the dataset rather than to the recipe.
-    `MSC(reference="supplied")` needs the reference spectrum, which the schema
-    has no field for — a real gap, and a schema change rather than something
-    to paper over here.
+    Everything else is built from the step alone. `MSC(reference="supplied")`
+    used to be the second such case; the schema no longer offers it, so there
+    is nothing here to raise about.
     """
     match step:
         case SNV():
             return SNVTransformer()
         case MSC():
-            return MSCTransformer(step.reference, reference_spectrum)
+            return MSCTransformer(step.reference)
         case MeanCentre():
             return MeanCentreTransformer()
         case Autoscale():

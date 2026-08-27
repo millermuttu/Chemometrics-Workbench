@@ -147,14 +147,14 @@
         "phase-1-2-feature-list"
       ],
       "user_visible_behavior": "The inspector no longer offers an MSC reference the executor cannot run; the schema advertises only what a saved pipeline can express.",
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "grep -rn '\"supplied\"' src/ names only the kernel's own parameter, not models.py.",
         "from_spec no longer carries the branch that raises for it.",
         "The regenerated step_schema.json offers two MSC references, and the inspector's form follows.",
         "The suite is green, including the parity cases."
       ],
-      "evidence": "",
+      "evidence": "2026-08-27. On feature/82_drop-msc-supplied. `MSCStep.reference` is `Literal[\"mean\", \"median\"]`; the comment above it records why the third option went and what re-adding it would need, so the next person to want it finds the reason at the field rather than in a closed issue. `grep -rn '\"supplied\"' src/` returns five lines: the kernel's own `MSCReference` literal and its two branches in `MSCTransformer`, plus the models.py comment and the from_spec docstring that both explain the absence - no schema field. `from_spec` lost its `reference_spectrum` parameter entirely rather than keeping a dead argument: the schema can no longer express the case, so there is nothing to pass and nothing to raise about. The kernel call `MSCTransformer(\"supplied\", reference_spectrum=...)` still works and a test asserts it alongside the ValidationError the step now raises - what went is the schema's claim, not the capability. `MSCTransformer`'s error message no longer says the schema carries the choice, because it no longer does. `uv run python stub/generate_fixtures.py` regenerated the fixtures and the only diff is `step_schema.json`'s MSC enum losing `\"supplied\"`; the pipeline and dataset content hashes are unchanged (sha256:9a684f48..., sha256:e435c053...), which is the check that this narrowed a form and not a number. Green: `uv run pytest` is 603 passed, 1 skipped, including the parity cases; `uv run ruff check .` and `ruff format --check .` clean over 58 files; `uv run mypy` clean over 38 source files; `pnpm test` 52 passed with the inspector test now expecting two MSC references; `pnpm e2e` 40 passed, so the inspector's generated form follows the schema without the screen being touched.",
       "notes": "Open since pull request #22; decided with the maintainer on 2026-08-25. Re-adding it later is additive and needs no migration. Lands before the executor is written against the enum."
     },
     {

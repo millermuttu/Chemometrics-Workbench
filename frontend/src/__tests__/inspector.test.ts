@@ -49,7 +49,7 @@ describe("the form is generated, not restated", () => {
 
   it("reads an enum as a choice and an optional field as optional", () => {
     const msc = specFor(schema, "msc")!;
-    expect(msc.fields[0].options).toEqual(["mean", "median", "supplied"]);
+    expect(msc.fields[0].options).toEqual(["mean", "median"]);
 
     const baseline = specFor(schema, "baseline")!;
     expect(baseline.fields.find((field) => field.name === "lam")!.optional).toBe(true);

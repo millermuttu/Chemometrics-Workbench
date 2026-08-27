@@ -2,58 +2,59 @@
 
 Compact state for the next session. **Overwrite this file at the end of every session** — it is a snapshot, not a log. Read it first, then `feature_list.json`, `git log` on `dev`, and the open issues.
 
-**Updated:** 2026-08-26
+**Updated:** 2026-08-27
 
 ---
 
 ## Where things stand
 
-**Phase 0 is released and tagged `v0.1.0`. Phase 1.1 is released and tagged `v0.2.0`.** The walking skeleton walks: the React shell and its five core screens, over a token-authenticated stub FastAPI server on `127.0.0.1`, with a Playwright walkthrough green in CI. `dev` was merged to `main` and tagged on 2026-08-26, which closes the question the previous handoff left open.
+**Phase 0 is released and tagged `v0.1.0`. Phase 1.1 is released and tagged `v0.2.0`.** The walking skeleton walks: the React shell and its five core screens, over a token-authenticated stub FastAPI server on `127.0.0.1`, with a Playwright walkthrough green in CI.
 
-**Phase 1.2 is open.** `feature_list.json` is now the 1.2 list — fifteen features against issues #76–#90 — and Phase 1.1's list is archived at `docs/phase-1-1/feature_list.json` next to Phase 0's. #76 opened the list and is `passing`.
+**Phase 1.2 is six features in, of fifteen.** The project directory and the array store are real, all three readers are written, and the schema no longer advertises a step the executor could not run.
 
 **1.2's exit criterion:** #50's walkthrough passes against the real backend, on a file the user picks, with `stub/` deleted (#90).
 
-| | Feature | Issue | Depends on |
-| --- | --- | --- | --- |
-| A | Archive the 1.1 list, open the 1.2 list | #76 | — |
-| B | Project directory and array store | #77 | A |
-| C | Reader interface and the CSV/TXT reader | #78 | B |
-| D | XLSX reader | #79 | C |
-| E | JCAMP-DX reader | #80 | C |
-| F | Import endpoints | #81 | B, C |
-| G | Drop `MSC(reference="supplied")` | #82 | A |
-| H | Pipeline executor | #83 | B, G |
-| I | Pipeline validator | #84 | H |
-| J | Real jobs | #85 | H |
-| K | Server-side decimation and the density band | #86 | H |
-| L | Results endpoint | #87 | H |
-| M | The metrics gap | #88 | — |
-| N | HTTP surface complete, stub retired | #89 | F, J, K, L |
-| O | 1.2's exit criterion as a test | #90 | I, N |
+| | Feature | Issue | Depends on | Status |
+| --- | --- | --- | --- | --- |
+| A | Archive the 1.1 list, open the 1.2 list | #76 | — | passing |
+| B | Project directory and array store | #77 | A | passing |
+| C | Reader interface and the CSV/TXT reader | #78 | B | passing |
+| D | XLSX reader | #79 | C | passing |
+| E | JCAMP-DX reader | #80 | C | passing |
+| F | Import endpoints | #81 | B, C | not started |
+| G | Drop `MSC(reference="supplied")` | #82 | A | passing |
+| H | Pipeline executor | #83 | B, G | not started |
+| I | Pipeline validator | #84 | H | not started |
+| J | Real jobs | #85 | H | not started |
+| K | Server-side decimation and the density band | #86 | H | not started |
+| L | Results endpoint | #87 | H | not started |
+| M | The metrics gap | #88 | — | not started |
+| N | HTTP surface complete, stub retired | #89 | F, J, K, L | not started |
+| O | 1.2's exit criterion as a test | #90 | I, N | not started |
 
 Chain: `A → B → C → {D, E, F} → H → {I, J, K, L} → N → O`. **M depends on nothing in 1.2**, so it is what to pick up if the chain is ever blocked.
 
 ## Current work
 
-**#77 — project directory and the array store — is `in_progress` on `feature/77_project-directory`.** It is the feature everything except #88 waits on: a project is a directory on disk, the arrays are files in it, float32 on disk and float64 at the kernel boundary, and a path registry in the user's config directory stands in for the project list until SQLite arrives in 1.3.
+**#82 — drop `MSC(reference="supplied")` — is done on `feature/82_drop-msc-supplied`**, pull request open against `dev`. Nothing else is `in_progress`.
 
 ## Next action
 
-Finish #77, then **#78 — the reader interface and the CSV/TXT reader**. CSV/TXT is the format carrying every detection problem — decimal commas, orientation, wavelength headers, metadata columns — so the reader interface is designed against it and then proven by #79 and #80 rather than the other way round.
+**#83 — the pipeline executor.** Both its dependencies (#77 and #82) are now `passing`, and it is the widest fan-out left: #84, #85, #86 and #87 all wait on it. **#81, the import endpoints, is equally unblocked** and does not gate the executor, so it is the alternative if the executor wants a longer run at it.
 
-### Three decisions taken with the maintainer, so they are not re-argued
+`preprocessing.from_spec` is the executor's seam, and after #82 it needs exactly one thing from outside the schema: the axis for `RangeSelect`, which #77 provides off the `DatasetVersion`.
 
-1. **The project directory and the array store land in 1.2; SQLite stays in 1.3.** Files are real from 1.2 — a restart loses the project *list*, not the data. This spreads the float32/float64 boundary and the §13 envelope across two sub-phases instead of landing them together in 1.3.
-2. **All three readers land in 1.2** — CSV/TXT, XLSX and JCAMP-DX, as `PROPOSAL.md` §6 puts them in Phase 1. The reader interface is therefore designed against three formats rather than proven on one; CSV/TXT is still the one carrying the detection problems and should be written first.
-3. **`MSC(reference="supplied")` is removed from the enum** (#82), rather than given a field or left to raise. The schema stops advertising something no executor can do, and re-adding it later is additive and needs no migration. This closes the question that has been open since pull request #22.
+### Decisions taken with the maintainer, so they are not re-argued
+
+1. **The project directory and the array store land in 1.2; SQLite stays in 1.3.** Files are real from 1.2 — a restart loses the project *list*, not the data.
+2. **All three readers land in 1.2** — done, and #78's interface survived being generalised by #79 and re-proven by #80.
+3. **`MSC(reference="supplied")` is removed from the enum** (#82) — done. The kernel keeps the capability; the schema stops claiming a saved pipeline can express it. Re-adding it means adding the spectrum's field too, which is additive and needs no migration. This closes the question open since pull request #22.
 
 ### What to be careful about in 1.2
 
-- **The frontend should need no changes at all.** If a screen has to be edited to work against the real backend, the 1.1 contract was wrong, and *that is the finding* — record it rather than quietly adjusting the screen.
+- **The frontend should need no changes at all.** If a screen has to be edited to work against the real backend, the 1.1 contract was wrong, and *that is the finding* — record it rather than quietly adjusting the screen. #82 is the shape to copy: the schema narrowed, the fixture regenerated, and the inspector's generated form followed with no screen touched.
 - **Four affordances die in #89**: `?empty`, `?oversize`, `?failrun` and `X-Stub-Fail`. Grep for them; each has a comment saying it is 1.1-only.
 - **Seven handlers in `stub/server.py` carry `Phase 1.2:` markers** naming the issue that replaces each. Grep `Phase 1.2:`.
-- **`preprocessing.from_spec` is the executor's seam.** It covers every step the schema can express and needs one thing from outside the schema: the axis for `RangeSelect`, which #77 provides off the `DatasetVersion`.
 - **The validator has two warnings specified and nothing emitting them** (#84): a `MeanCentre` or `Autoscale` upstream of a split leaks validation samples into the training statistics and makes RMSECV optimistic; a PLS node with no centring upstream is legal and almost always wrong. `metrics-and-validation.md` §9 and `pls-regression.md` §3. **The 1.1 validate endpoint returns `valid: true` unconditionally** — a stub with a GUESS envelope, and this is what fills it.
 - **The metrics gap (#88) is a Phase 0 inheritance**: SEC, SEP, Q² and `coefficients_original_units` are specified in `metrics-and-validation.md` §5–§6 and not implemented. Nothing verified them in #12.
 - **Tecator at 100 variables never exercised x-axis decimation.** #86 needs a dataset big enough to actually drop points along the wavelength axis.
@@ -65,11 +66,19 @@ Finish #77, then **#78 — the reader interface and the CSV/TXT reader**. CSV/TX
 - **Parity against a commercial package** — `PROPOSAL.md` §19 Q4 is unresolved. The EULA is not public; a licence would have to be confirmed and written permission sought before publishing a comparison.
 - Remaining open questions are in `PROPOSAL.md` §19 — team and pace, funding intent, project name.
 
-**Answered and recorded, so they are not re-opened:** whether Phase 1.1 warranted its own release (yes — `v0.2.0`, 2026-08-26), `MSC(reference="supplied")` (removed from the enum in #82), whether the import and empty-project screens needed artboards first (no), and where 1.2's persistence lands (project directory in 1.2, SQLite in 1.3).
+**Answered and recorded, so they are not re-opened:** whether Phase 1.1 warranted its own release (yes — `v0.2.0`, 2026-08-26), `MSC(reference="supplied")` (removed from the enum in #82, 2026-08-27), whether the import and empty-project screens needed artboards first (no), and where 1.2's persistence lands (project directory in 1.2, SQLite in 1.3).
 
 ## Carried forward from the specifications
 
 Findings that change downstream work, recorded here because they are easy to miss inside long documents.
+
+From #78–#80 (the readers), which #81 builds on:
+
+- **The reader interface is `sniff`, `read` and `head`.** `sniff` returns a `Detection` with a `Choice` for every guess; `read` takes a `Detection` — the one `sniff` returned, or that one with the user's corrections folded in. That is what stops a correction being displayed and then ignored, and it is the shape #81's preview and commit endpoints have to expose.
+- **Everything three formats share lives in `readers/grid.py`.** #79 moved header detection, orientation, column classification, the axis rules and the preview head out of `delimited.py`; `delimited.py` keeps only what text has. #78's 34 tests passing unchanged against that move is the evidence it preserved behaviour.
+- **A correction that cannot be applied is refused, not dropped.** A delimiter correction on a workbook fails; JCAMP's `correctable` is empty because nothing in the file is a guess. Silently ignoring one is the same lie as never offering it.
+- **Three formats, one dataset, agreeing within 1e-4.** `tecator_subset.csv`, `.xlsx` and `.jdx` carry the same eight samples and twelve channels, and a test asserts the three readers agree. Any new reader should join that comparison rather than get its own private fixture.
+- **An axis is read or numbered, never invented.** A headerless text file gets an index axis with a note; JCAMP reads `##FIRSTX`/`##LASTX`/`##NPOINTS` and refuses a file lacking them; `MICROMETERS` is left numbered rather than converted.
 
 From #24 (the R references), which changed what the parity report can claim:
 
