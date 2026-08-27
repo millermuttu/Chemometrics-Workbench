@@ -42,7 +42,7 @@ Chain: `A → B → C → {D, E, F} → H → {I, J, K, L} → N → O`. **H′ 
 
 ## Current work
 
-**#85 — real jobs — is done on `feature/85_real-jobs`**, pull request open against `dev`. #81, #82, #83, #84, #87 and #88 merged earlier the same day as pull requests #100, #96, #98, #104, #102 and #105.
+**Nothing is `in_progress`.** #81, #82, #83, #84, #85, #87 and #88 all merged into `dev` on 2026-08-27, as pull requests #100, #96, #98, #104, #106, #102 and #105, and their branches are deleted locally and on origin. The tree is clean and `dev` is pushed.
 
 ## Next action
 
