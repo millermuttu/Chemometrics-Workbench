@@ -46,7 +46,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import TypeAdapter, ValidationError
 
-from chemometrics_workbench.models import PreprocessStep
+from chemometrics_workbench.api import validation_payload
+from chemometrics_workbench.models import Pipeline, PreprocessStep
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 # Production mode serves the built frontend from here. STUB_BUNDLE overrides it,
@@ -221,9 +222,20 @@ def get_pipeline_state(pipeline_id: str) -> Any:
 
 @api.post("/pipelines/{pipeline_id}/validate")
 def validate_pipeline(pipeline_id: str) -> Any:
-    # GUESS, like the envelope shapes in generate_fixtures.py: models.py does
-    # not cover a validation response, so 1.2 is free to change this.
-    return {"pipeline_id": fixture("pipeline")["pipeline_id"], "valid": True, "problems": []}
+    """The real validator (#84), over the one pipeline this server has.
+
+    Computed rather than constant: `checks.check_pipeline` decides, and the
+    fixture pipeline happens to have nothing wrong with it - its centring sits
+    below the split, and its estimators are PCA rather than PLS - so the answer
+    is the same `valid: true` the constant used to return, for a reason now.
+
+    The envelope keeps `valid` and `problems`, which were published as a GUESS
+    and which the canvas renders, and gains `warnings` alongside them. Which
+    pipeline is being validated is still the fixture's, because there is
+    nowhere to keep a second one until #89.
+    """
+    published = Pipeline.model_validate(fixture("pipeline"))
+    return validation_payload(published)
 
 
 # --- Results -------------------------------------------------------------
