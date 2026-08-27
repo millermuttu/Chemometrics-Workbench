@@ -10,7 +10,7 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 **Phase 0 is released and tagged `v0.1.0`. Phase 1.1 is released and tagged `v0.2.0`.** The walking skeleton walks: the React shell and its five core screens, over a token-authenticated stub FastAPI server on `127.0.0.1`, with a Playwright walkthrough green in CI.
 
-**Phase 1.2 is six features in, of fifteen.** The project directory and the array store are real, all three readers are written, and the schema no longer advertises a step the executor could not run.
+**Phase 1.2 is seven features in, of sixteen.** The project directory and the array store are real, all three readers are written, the schema no longer advertises a step the executor could not run, and the executor itself runs a pipeline from a real dataset with a cache that recomputes only what changed. One new issue came out of the executor — #97, listed below.
 
 **1.2's exit criterion:** #50's walkthrough passes against the real backend, on a file the user picks, with `stub/` deleted (#90).
 
@@ -23,7 +23,8 @@ Compact state for the next session. **Overwrite this file at the end of every se
 | E | JCAMP-DX reader | #80 | C | passing |
 | F | Import endpoints | #81 | B, C | not started |
 | G | Drop `MSC(reference="supplied")` | #82 | A | passing |
-| H | Pipeline executor | #83 | B, G | not started |
+| H | Pipeline executor | #83 | B, G | passing |
+| H′ | The fixture's `centre_d` array | #97 | H | not started |
 | I | Pipeline validator | #84 | H | not started |
 | J | Real jobs | #85 | H | not started |
 | K | Server-side decimation and the density band | #86 | H | not started |
@@ -32,7 +33,7 @@ Compact state for the next session. **Overwrite this file at the end of every se
 | N | HTTP surface complete, stub retired | #89 | F, J, K, L | not started |
 | O | 1.2's exit criterion as a test | #90 | I, N | not started |
 
-Chain: `A → B → C → {D, E, F} → H → {I, J, K, L} → N → O`. **M depends on nothing in 1.2**, so it is what to pick up if the chain is ever blocked.
+Chain: `A → B → C → {D, E, F} → H → {I, J, K, L} → N → O`. **M depends on nothing in 1.2**, so it is what to pick up if the chain is ever blocked. **H′ (#97) blocks nothing**, but #86 and #87 both need its answer before they assert anything about `centre_d`.
 
 ## Current work
 
@@ -49,6 +50,7 @@ Chain: `A → B → C → {D, E, F} → H → {I, J, K, L} → N → O`. **M dep
 1. **The project directory and the array store land in 1.2; SQLite stays in 1.3.** Files are real from 1.2 — a restart loses the project *list*, not the data.
 2. **All three readers land in 1.2** — done, and #78's interface survived being generalised by #79 and re-proven by #80.
 3. **`MSC(reference="supplied")` is removed from the enum** (#82) — done. The kernel keeps the capability; the schema stops claiming a saved pipeline can express it. Re-adding it means adding the spectrum's field too, which is additive and needs no migration. This closes the question open since pull request #22.
+4. **Estimator fitting is #87's, not the executor's** (taken in #83). `execute` walks estimator nodes and reports them in `Run.pending_estimators` rather than fitting them, because what a fitted estimator stores — with which diagnostics and which limits — is exactly what #87 specifies. Guessing at it in #83 would have been the invented contract Phase 1.1 existed to avoid.
 
 ### What to be careful about in 1.2
 
@@ -71,6 +73,14 @@ Chain: `A → B → C → {D, E, F} → H → {I, J, K, L} → N → O`. **M dep
 ## Carried forward from the specifications
 
 Findings that change downstream work, recorded here because they are easy to miss inside long documents.
+
+From #83 (the executor), which #84 to #87 all build on:
+
+- **A node below a split has one array per fold, and displays them assembled out of fold.** `metrics-and-validation.md` §9 refits every node downstream of a split on the training fold alone; the array such a node shows takes each sample's row from the fold that held it out. This is why the fixture's `centre_d` is not reproduced — **#97**, measured there rather than argued.
+- **Cache keys are a merkle chain, not a flag.** A node's key is its own JSON plus its inputs' keys, with the source keyed on the dataset version. Editing a node changes its key and its descendants' and nothing else's, so staleness is arithmetic. Layout coordinates are not in the model at all, so a node cannot be moved into a cache miss.
+- **Every node's output is read back out of the store before its successors see it.** Otherwise a run that hit the cache and a run that recomputed would disagree in the last digits — a cache that changes an answer. The cost is that all numbers carry float32 truncation from the first node on; the fixture comparison measures it at 1.3e-06 worst case, and at 2.8e-05 for `autoscale_c`, where a derivative cancels the signal and autoscaling divides by what is left.
+- **`Run.pending_estimators` is the seam #87 picks up.** The executor names the estimator nodes it did not fit rather than skipping them silently.
+- **A second `RangeSelect` below a first one fails, by design.** The axis comes from the `DatasetVersion`, and the first selection has already dropped variables, so the second is refused on the shape with its node named. Threading a per-node axis through the walk would make a recipe's meaning depend on where its node sits — a schema question, not an executor one.
 
 From #78–#80 (the readers), which #81 builds on:
 
