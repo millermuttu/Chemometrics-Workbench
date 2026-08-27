@@ -30,7 +30,8 @@ nowhere to appear.
 - `POST /api/import` — commits with the user's corrections applied
 
 `results_payload` (#87) renders an estimator result for `results/{node_id}`,
-and `validation_payload` (#84) renders `pipelines/{id}/validate`. Neither
+`spectra_payload` (#86) renders `spectra/{node_id}`, and `validation_payload`
+(#84) renders `pipelines/{id}/validate`. Neither
 endpoint is served here yet: both take a pipeline, and there is nowhere to keep
 one until #89's pipeline store — the same cut #99 describes. The stub calls
 `validation_payload` for the one pipeline it has, so that response is computed
@@ -74,10 +75,13 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated, Any
 
+import numpy as np
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from numpy.typing import NDArray
 
 from chemometrics_workbench import readers
 from chemometrics_workbench.checks import check_pipeline
@@ -95,12 +99,26 @@ from chemometrics_workbench.project import (
 )
 
 __all__ = [
+    "MAX_POINTS",
+    "MAX_TRACES",
     "MAX_UPLOAD_BYTES",
     "open_project_directory",
     "results_payload",
     "router",
+    "spectra_payload",
     "validation_payload",
 ]
+
+#: How many individually drawn traces a plot carries before the remainder
+#: becomes a density band. §13: 20,000 spectra is far past what Plotly draws,
+#: and 60 is what the artboards were designed against.
+MAX_TRACES = 60
+
+#: How many x positions a decimated trace carries. §13 again: 4,000 points per
+#: trace times 20,000 traces is 80 million, so the axis is bucketed before
+#: anything is drawn. Kept even, because min/max decimation emits two points
+#: per bucket.
+MAX_POINTS = 1000
 
 #: An upload past this is refused before it is written. Above §13's envelope —
 #: 20,000 x 4,000 float32 is about 320 MB — because a text file holding that
@@ -419,4 +437,151 @@ def validation_payload(pipeline: Pipeline) -> dict[str, Any]:
             }
             for warning in warnings
         ],
+    }
+
+
+# --- Spectra --------------------------------------------------------------
+
+
+def decimate(
+    values: NDArray[np.float64], axis: NDArray[np.float64], *, max_points: int = MAX_POINTS
+) -> tuple[NDArray[np.intp], NDArray[np.float64]]:
+    """Which variable indices survive, per bucket, preserving peaks.
+
+    **Min and max per bucket, never a plain stride.** A stride keeps every
+    `k`-th point and drops whatever falls between, so a peak one or two
+    channels wide appears at one zoom level and vanishes at the next — which is
+    the flicker §13's "preserves the visible shape" is about. Taking each
+    bucket's extremes keeps the envelope of the signal at every zoom, so a
+    peak's *height* survives even when its exact position is rounded to the
+    bucket.
+
+    Two indices come out of each bucket, in the order they occur in the data,
+    so the drawn line goes up and down as the real one does. A bucket whose
+    extremes are the same sample yields that sample twice, which keeps every
+    trace the same length as the axis and costs one duplicated point.
+
+    Returns the indices and the axis values at them. Below the budget the axis
+    is returned whole and nothing is decided about it.
+    """
+    n_variables = values.shape[1]
+    if n_variables <= max_points:
+        kept = np.arange(n_variables, dtype=np.intp)
+        return kept, axis[kept]
+
+    # Two points per bucket, so the bucket count is half the budget.
+    buckets = np.array_split(np.arange(n_variables, dtype=np.intp), max_points // 2)
+    # The extremes are taken over the mean spectrum rather than per trace: the
+    # axis is shared by every trace in the payload, and a per-trace axis would
+    # mean the payload carried one x array per spectrum.
+    profile = values.mean(axis=0)
+
+    kept_list: list[int] = []
+    for bucket in buckets:
+        if bucket.size == 0:
+            continue
+        window = profile[bucket]
+        low, high = int(bucket[int(window.argmin())]), int(bucket[int(window.argmax())])
+        kept_list.extend(sorted((low, high)))
+    kept = np.asarray(kept_list, dtype=np.intp)
+    return kept, axis[kept]
+
+
+def spectra_payload(
+    node_id: str,
+    values: NDArray[np.float64],
+    version: DatasetVersion,
+    *,
+    label: str | None = None,
+    ordinate: str = "Absorbance",
+    highlight: Sequence[int] = (),
+    max_traces: int = MAX_TRACES,
+    max_points: int = MAX_POINTS,
+) -> dict[str, Any]:
+    """One spectra plot's worth of data, decimated for the wire.
+
+    The shape is the one `stub/fixtures/spectra.json` publishes and the plot
+    screen already renders: a shared axis, individually drawn traces, and a
+    band when there are more spectra than the cap. `highlighted` is added
+    beside them for §13's "selected or highlighted spectra are drawn at full
+    resolution", and carries its own full axis because that is what full
+    resolution means. A screen that ignores the key renders what it rendered
+    before.
+
+    The band is taken over **every** spectrum rather than over the undrawn
+    remainder: it describes the distribution, and leaving out the drawn ones
+    would make it describe a subset nobody asked about.
+    """
+    axis = np.asarray(version.axis.values, dtype=np.float64)
+    n_spectra, n_variables = values.shape
+    if axis.size != n_variables:
+        raise _fail(
+            500,
+            "shape_mismatch",
+            f"node {node_id!r} produced {n_variables} variables and the dataset's axis has "
+            f"{axis.size}. A range selection changes the axis and the payload cannot guess it.",
+            node_id=node_id,
+        )
+
+    kept, kept_axis = decimate(values, axis, max_points=max_points)
+    banded = n_spectra > max_traces
+    # An evenly spaced subset, so the drawn traces span the set rather than
+    # showing its first sixty samples.
+    drawn = (
+        np.linspace(0, n_spectra - 1, max_traces).round().astype(int)
+        if banded
+        else np.arange(n_spectra)
+    )
+
+    payload: dict[str, Any] = {
+        "node_id": node_id,
+        "label": label or node_id,
+        "axis": {
+            "kind": version.axis.kind,
+            "unit": version.axis.unit,
+            "values": [float(value) for value in kept_axis],
+        },
+        "ordinate": {"label": ordinate},
+        "n_spectra": int(n_spectra),
+        "decimation": {
+            "variables_total": int(n_variables),
+            "variables_kept": int(kept.size),
+            "traces_total": int(n_spectra),
+            "traces_drawn": int(drawn.size),
+            "banded": banded,
+        },
+        "traces": [_trace(int(i), values[i, kept], version) for i in drawn],
+    }
+    if banded:
+        window = values[:, kept]
+        lower, median, upper = np.percentile(window, (5, 50, 95), axis=0)
+        payload["band"] = {
+            "n_spectra": int(n_spectra),
+            "y_lower": [float(value) for value in lower],
+            "y_median": [float(value) for value in median],
+            "y_upper": [float(value) for value in upper],
+        }
+    if highlight:
+        rows = sorted({int(row) for row in highlight})
+        unknown = [row for row in rows if not 0 <= row < n_spectra]
+        if unknown:
+            raise _fail(
+                404,
+                "not_found",
+                f"node {node_id!r} has {n_spectra} spectra and was asked for {unknown}.",
+                node_id=node_id,
+            )
+        payload["highlighted"] = {
+            "axis": {"values": [float(value) for value in axis]},
+            "traces": [_trace(row, values[row], version) for row in rows],
+        }
+    return payload
+
+
+def _trace(index: int, y: NDArray[np.float64], version: DatasetVersion) -> dict[str, Any]:
+    ids = version.sample_ids
+    return {
+        "index": index,
+        "sample_id": ids[index] if index < len(ids) else f"row {index}",
+        "y": [float(value) for value in y],
     }

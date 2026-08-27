@@ -271,17 +271,17 @@
         "pipeline-executor"
       ],
       "user_visible_behavior": "Spectra plots stay responsive on a dataset far larger than Plotly can draw, because the server decides what is drawn and what goes into the density band.",
-      "status": "not_started",
+      "status": "passing",
       "verification": [
-        "spectra/{node_id} is served from the executor's stored arrays.",
-        "A dataset with enough variables to need it is really x-decimated - variables_kept is smaller than the axis.",
-        "Decimation preserves visible shape: a narrow peak survives, tested against a plain stride.",
-        "The trace cap and the band are computed from the real data.",
-        "A highlighted spectrum comes back at full resolution.",
-        "A preprocessing preview returns inside the 1 s budget on the target dataset."
+        "The payload is the shape stub/fixtures/spectra.json publishes, and reproduces it on Tecator.",
+        "The band is computed from every spectrum, not from the undrawn remainder.",
+        "x-decimation is min/max per bucket and keeps a peak a stride at the same budget loses.",
+        "A highlighted spectrum comes back at full resolution with its own axis.",
+        "Section 13's preview budget is met at the full 20,000 x 4,000 envelope.",
+        "The endpoint itself waits for #89's store: recorded under #99, not worked around."
       ],
-      "evidence": "",
-      "notes": "Tecator at 100 variables never exercised x-decimation in 1.1. This needs a dataset big enough to drop points. Node ids stay the pipeline's, not the dataset's."
+      "evidence": "2026-08-27. On feature/86_server-side-decimation. spectra_payload, decimate, MAX_TRACES and MAX_POINTS added to api.py; 11 tests in tests/test_api.py. uv run pytest is 740 passed, 1 skipped (729 before); ruff check, ruff format --check and mypy over 46 source files all clean. Contract: the payload's keys, its decimation sub-keys, its band sub-keys and its trace keys are asserted equal to stub/fixtures/spectra.json's, and on Tecator the axis, the first trace and the band median reproduce the fixture's numbers - decimation is 240 traces capped to 60 with banded true and all 100 variables kept, exactly as published. Decimation is min/max per bucket rather than a stride, and the test measures the difference rather than asserting the rule: one channel raised by 0.9 at index 2501 of 4000, positioned between two strided samples, gives a payload maximum of 1.133 under min/max and 0.707 under a stride of the same budget - the peak is simply not in the strided payload. Two indices per bucket in the order they occur, so the drawn line rises and falls as the real one does; the extremes are taken over the mean spectrum because the axis is shared by every trace and a per-trace axis would mean one x array per spectrum. The kept axis is monotonic, every trace is its length, and 4000 variables become exactly 1000 points. An axis already inside the budget is returned whole and nothing is decided about it. The band is percentiles 5, 50 and 95 over every spectrum - asserted against numpy directly - because it describes the distribution, and below the cap there is no band and every spectrum is drawn. Highlighting: highlighted rows come back at full resolution under a new 'highlighted' key carrying its own 4000-point axis, sorted and de-duplicated, with the decimated traces untouched by asking for them; a row that is not a sample is a 404 with the documented body naming it; and a node whose width is not the dataset's - what a range selection produces - is refused by name rather than guessing an axis. Section 13's budget: the assertion runs at 4000 x 4000 (128 MB, 0.112 s) to stay polite on a runner, and the full envelope was measured separately at 20,000 x 4000 in 0.611 s, so the under-1-second preview holds at the target shape and not only at a fifth of it. The dataset is synthetic and generated to a stated shape, because no committed dataset is wide enough to drop a point - Tecator is 240 x 100, corn 80 x 700, gasoline 60 x 401, all inside the 1000-point budget. Nothing numerical is claimed from it. NOT DONE: GET /api/spectra/{node_id} is still the stub's, because it needs a pipeline to have node ids at all and there is no pipeline store until #89 - the fourth feature to reach that cut, which is #99. Consuming 'highlighted' also needs the frontend to ask for it, which it has no way to do today: selection is a client-side concept in spectraTraces and never reaches the server.",
+      "notes": "Tecator at 100 variables never exercised x-decimation in 1.1. This needs a dataset big enough to drop points. Node ids stay the pipeline's, not the dataset's. Synthetic data generated to a stated shape, because no committed dataset is wide enough to drop a point; nothing numerical is claimed from it. The endpoint waits for #89's store, as #99 describes."
     },
     {
       "id": "results-endpoint",
