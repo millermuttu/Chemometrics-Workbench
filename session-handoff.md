@@ -42,7 +42,7 @@ Chain: `A → B → C → {D, E, F} → H → {I, J, K, L} → N → O`. **H′ 
 
 ## Current work
 
-**#86 — server-side decimation — is done on `feature/86_server-side-decimation`**, pull request open against `dev`. #81, #82, #83, #84, #85, #87 and #88 merged earlier the same day as pull requests #100, #96, #98, #104, #106, #102 and #105.
+**Nothing is `in_progress`.** Every Phase 1.2 feature except #89 and #90 merged into `dev` on 2026-08-27 — #81, #82, #83, #84, #85, #86, #87 and #88, as pull requests #100, #96, #98, #104, #106, #107, #102 and #105. All branches are deleted locally and on origin, the tree is clean and `dev` is pushed.
 
 ## Next action
 
