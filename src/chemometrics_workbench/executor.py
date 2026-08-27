@@ -48,12 +48,28 @@ The index from key to stored path is `cache.json` in the project directory.
 The arrays themselves are content-addressed by the store, so two nodes that
 compute the same values share one file.
 
-## What is not here
+## Estimators
 
-**Estimators.** An `EstimatorNode` is walked and reported in
-`Run.pending_estimators`, not fitted: what a fitted estimator stores, and with
-which diagnostics and limits, is #87's subject, and guessing at it here would
-be the invented contract Phase 1.1 existed to avoid.
+A `PCASpec` node is fitted and its result stored as JSON at
+`results/<key>.json` — the same key the arrays use, so a result goes stale
+exactly when the node above it does. The file is not content-addressed the way
+arrays are: a key names one result, and the path is derived from it rather than
+looked up in an index.
+
+A node below a split is fitted on the training rows of **fold zero**, which is
+what the Phase 1.1 fixture does and is deliberately not an aggregation. There
+is no single model over ten folds, and inventing one — an average of loadings,
+say — would be arithmetic no document specifies. The fold is recorded in the
+result, and the held-out rows are projected through the fitted model and stored
+beside the calibration ones, because §9's rule is that they are pushed through
+the training fold's parameters rather than left out of the picture.
+
+`PLSRegressionSpec` and `PLSDASpec` have no result here. They are reported in
+`Run.pending_estimators` rather than fitted, because what a PLS result carries
+— RMSECV over a fold assignment, SEC, SEP, `coefficients_original_units` — is
+#88's subject and is not in the 1.1 fixture to be checked against.
+
+## What is not here
 
 **Jobs.** `execute` runs to completion in the calling thread. Progress,
 cancellation and failure reporting are #85, which wraps this.
@@ -63,18 +79,21 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
 
 from chemometrics_workbench import preprocessing
+from chemometrics_workbench.decomposition import PCA
 from chemometrics_workbench.models import (
     DatasetVersion,
     KFoldSplit,
     LeaveOneOut,
     NodeId,
+    PCASpec,
     Pipeline,
     PipelineNode,
     ResolvedSplit,
@@ -83,15 +102,25 @@ from chemometrics_workbench.project import ProjectError, read_array, write_array
 from chemometrics_workbench.validation import Fold, k_fold, leave_one_out, validate_partition
 
 __all__ = [
+    "ALPHA",
     "CACHE_FILE",
+    "RESULTS_DIR",
+    "EstimatorResult",
     "ExecutorError",
     "NodeOutput",
     "Run",
     "execute",
     "node_keys",
+    "result_path",
 ]
 
 CACHE_FILE = "cache.json"
+RESULTS_DIR = "results"
+
+#: The confidence level every limit is quoted at. One number, in one place: a
+#: T-squared limit at 0.05 next to an SPE limit at 0.01 is two pictures of the
+#: same model that cannot be read together.
+ALPHA = 0.05
 
 
 class ExecutorError(Exception):
@@ -132,6 +161,53 @@ class NodeOutput:
 
 
 @dataclass(frozen=True)
+class EstimatorResult:
+    """One fitted estimator, as `results/<key>.json` holds it.
+
+    Every number here is the kernel's own, unrounded. Turning it into the
+    payload the analysis screen draws — adding the sample ids, the variable
+    axis and the node's label — is the HTTP layer's job, because those come
+    from the `DatasetVersion` rather than from the model.
+
+    `rows` are the samples the model was fitted on. Below a split those are one
+    fold's training rows, and `held_out` are the rows it is validated against,
+    projected through the same fitted model.
+    """
+
+    node_id: NodeId
+    key: str
+    task: str
+    n_components: int
+    n_samples: int
+    n_variables: int
+    rank: int
+    fold: int | None
+    rows: list[int]
+    scores: list[list[float]]
+    loadings: list[list[float]]
+    eigenvalues: list[float]
+    explained_variance_ratio: list[float]
+    cumulative_explained_variance: list[float]
+    hotelling_t2: list[float]
+    hotelling_t2_limit: float
+    spe: list[float]
+    spe_limit: float
+    alpha: float = ALPHA
+    held_out: list[int] = field(default_factory=list)
+    held_out_scores: list[list[float]] = field(default_factory=list)
+    held_out_hotelling_t2: list[float] = field(default_factory=list)
+    held_out_spe: list[float] = field(default_factory=list)
+
+    def as_json(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_json(cls, document: dict[str, Any]) -> EstimatorResult:
+        known = {f.name for f in fields(cls)}
+        return cls(**{key: value for key, value in document.items() if key in known})
+
+
+@dataclass(frozen=True)
 class Run:
     """What one execution produced.
 
@@ -144,7 +220,9 @@ class Run:
     outputs: dict[NodeId, NodeOutput]
     displays: dict[NodeId, NDArray[np.float64]]
     resolved_splits: list[ResolvedSplit]
+    results: dict[NodeId, EstimatorResult]
     pending_estimators: list[NodeId]
+    """Estimator nodes this build has no kernel for: PLS and PLS-DA, in #88."""
 
     @property
     def computed(self) -> list[NodeId]:
@@ -199,12 +277,18 @@ def execute(
     states: dict[NodeId, _State] = {}
     outputs: dict[NodeId, NodeOutput] = {}
     splits: list[ResolvedSplit] = []
+    results: dict[NodeId, EstimatorResult] = {}
     pending: list[NodeId] = []
     index_changed = False
 
     for node in _topological(pipeline):
         if node.type == "estimator":
-            pending.append(node.id)
+            if not isinstance(node.spec, PCASpec):
+                pending.append(node.id)
+                continue
+            results[node.id] = _estimator(
+                node, states[node.inputs[0]], keys[node.id], path, use_cache
+            )
             continue
 
         key = keys[node.id]
@@ -256,6 +340,7 @@ def execute(
         outputs=outputs,
         displays={nid: state.display for nid, state in states.items()},
         resolved_splits=splits,
+        results=results,
         pending_estimators=pending,
     )
 
@@ -414,6 +499,95 @@ def _transform(
         raise ExecutorError(
             f"node {node.id!r} ({node.step.kind}) failed{where}: {error}"
         ) from error
+
+
+def result_path(directory: str | Path, key: str) -> Path:
+    """Where one estimator's result is stored.
+
+    Derived from the key rather than looked up, because a key names exactly one
+    result. Arrays need an index because they are content-addressed and two
+    nodes can share a file; a result belongs to its node.
+    """
+    return Path(directory) / RESULTS_DIR / f"{key}.json"
+
+
+def _estimator(
+    node: PipelineNode, parent: _State, key: str, directory: Path, use_cache: bool
+) -> EstimatorResult:
+    """Fit one estimator node, or read back the result of having done so."""
+    assert node.type == "estimator"
+    stored = result_path(directory, key)
+    if use_cache and stored.exists():
+        try:
+            return EstimatorResult.from_json(json.loads(stored.read_text(encoding="utf-8")))
+        except (OSError, ValueError, TypeError):
+            # A result that cannot be read is recomputed, for the reason a
+            # pruned array is: the cache is a saving, never an authority.
+            pass
+
+    fold = None if parent.folds is None else 0
+    if parent.folds is None:
+        matrix = parent.arrays[0]
+        rows = np.arange(matrix.shape[0], dtype=np.intp)
+        held_out = np.array([], dtype=np.intp)
+    else:
+        # Fold zero, as the Phase 1.1 fixture fits it. Not an aggregation:
+        # there is no single model over ten folds, and averaging loadings
+        # across them is arithmetic no document specifies.
+        matrix = parent.arrays[0]
+        rows = parent.folds[0].train
+        held_out = parent.folds[0].test
+
+    assert isinstance(node.spec, PCASpec)
+    try:
+        model = PCA(node.spec.n_components).fit(matrix[rows])
+    except (ValueError, RuntimeError) as error:
+        raise ExecutorError(f"node {node.id!r} (pca) failed: {error}") from error
+
+    calibration = matrix[rows]
+    result = EstimatorResult(
+        node_id=node.id,
+        key=key,
+        task="decomposition",
+        n_components=model.n_components,
+        n_samples=int(model.n_samples_ or 0),
+        n_variables=int(model.n_variables_ or 0),
+        rank=int(model.rank_ or 0),
+        fold=fold,
+        rows=[int(row) for row in rows],
+        scores=_rows(model.scores_),
+        loadings=_rows(np.asarray(model.loadings_).T),
+        eigenvalues=_values(np.asarray(model.eigenvalues_)[: model.n_components]),
+        explained_variance_ratio=_values(model.explained_variance_ratio()),
+        cumulative_explained_variance=_values(model.cumulative_explained_variance()),
+        hotelling_t2=_values(model.hotelling_t2()),
+        hotelling_t2_limit=float(model.hotelling_t2_limit(ALPHA)),
+        spe=_values(model.spe(calibration)),
+        spe_limit=float(model.spe_limit(ALPHA)),
+        held_out=[int(row) for row in held_out],
+        # §9: the held-out rows are pushed through the training fold's
+        # parameters, exactly as new samples are at prediction time. They are
+        # kept beside the calibration rows rather than mixed into them - a
+        # diagnostic on a row the model was fitted on and one on a row it was
+        # not are different claims.
+        held_out_scores=_rows(model.transform(matrix[held_out])) if held_out.size else [],
+        held_out_hotelling_t2=(
+            _values(model.hotelling_t2(matrix[held_out])) if held_out.size else []
+        ),
+        held_out_spe=_values(model.spe(matrix[held_out])) if held_out.size else [],
+    )
+
+    stored.parent.mkdir(parents=True, exist_ok=True)
+    write_json(stored, result.as_json())
+    return result
+
+
+def _values(array: object) -> list[float]:
+    return [float(value) for value in np.asarray(array, dtype=np.float64).ravel()]
+
+
+def _rows(array: object) -> list[list[float]]:
+    return [[float(value) for value in row] for row in np.asarray(array, dtype=np.float64)]
 
 
 def _resolved(node_id: NodeId, folds: list[Fold] | None) -> ResolvedSplit:

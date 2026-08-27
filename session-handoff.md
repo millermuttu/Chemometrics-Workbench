@@ -10,7 +10,9 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 **Phase 0 is released and tagged `v0.1.0`. Phase 1.1 is released and tagged `v0.2.0`.** The walking skeleton walks: the React shell and its five core screens, over a token-authenticated stub FastAPI server on `127.0.0.1`, with a Playwright walkthrough green in CI.
 
-**Phase 1.2 is eight features in, of seventeen.** The project directory and the array store are real, all three readers are written, the schema no longer advertises a step the executor could not run, the executor runs a pipeline from a real dataset with a cache that recomputes only what changed, and the import endpoints read a real file into a real `DatasetVersion`. Two new issues came out of that work — #97 and #99, both listed below.
+**Phase 1.2 is nine features in, of eighteen.** The project directory and the array store are real, all three readers are written, the schema no longer advertises a step the executor could not run, the executor runs a pipeline from a real dataset and now fits its PCA nodes too, and the import endpoints read a real file into a real `DatasetVersion`. Three new issues came out of that work — #97, #99 and #101, all listed below.
+
+**Two features have landed with their HTTP half deferred.** #81's handlers and #87's results payload are written and tested; neither is served, because the swap from the stub is one cut rather than a handler at a time. That is #99, and it lands in #89.
 
 **1.2's exit criterion:** #50's walkthrough passes against the real backend, on a file the user picks, with `stub/` deleted (#90).
 
@@ -28,23 +30,24 @@ Compact state for the next session. **Overwrite this file at the end of every se
 | I | Pipeline validator | #84 | H | not started |
 | J | Real jobs | #85 | H | not started |
 | K | Server-side decimation and the density band | #86 | H | not started |
-| L | Results endpoint | #87 | H | not started |
+| L | Results endpoint | #87 | H | passing |
 | M | The metrics gap | #88 | — | not started |
-| M′ | The import contract findings | #99 | F | not started |
+| M′ | The import contract findings | #99 | F, L | not started |
+| M″ | Rank through the store | #101 | L | not started |
 | N | HTTP surface complete, stub retired | #89 | F, J, K, L | not started |
 | O | 1.2's exit criterion as a test | #90 | I, N | not started |
 
-Chain: `A → B → C → {D, E, F} → H → {I, J, K, L} → N → O`. **M depends on nothing in 1.2**, so it is what to pick up if the chain is ever blocked. **H′ (#97) blocks nothing**, but #86 and #87 both need its answer before they assert anything about `centre_d`. **M′ (#99) is folded into N and O** rather than done on its own.
+Chain: `A → B → C → {D, E, F} → H → {I, J, K, L} → N → O`. **M depends on nothing in 1.2**, so it is what to pick up if the chain is ever blocked. **H′ (#97) blocks nothing**, but #86 and #87 both need its answer before they assert anything about `centre_d`. **M′ (#99) is folded into N and O** rather than done on its own, and now covers #87's endpoint as well as #81's. **M″ (#101) blocks nothing** and is a specification decision, like #71.
 
 ## Current work
 
-**Nothing is `in_progress`.** #81, #82 and #83 all merged into `dev` on 2026-08-27, as pull requests #100, #96 and #98, and their branches are deleted locally and on origin. The tree is clean and `dev` is pushed.
+**#87 — the results endpoint — is done on `feature/87_results-endpoint`**, pull request open against `dev`. #81, #82 and #83 merged earlier the same day as pull requests #100, #96 and #98.
 
 ## Next action
 
-Everything left in 1.2 is downstream of the executor: **#84 (validator), #85 (jobs), #86 (decimation), #87 (results)**, plus **#88 (metrics)**, which depends on nothing, and the two findings **#97** and **#99**.
+Three features are left in 1.2 before the cut: **#84 (validator), #85 (jobs), #86 (decimation)**, plus **#88 (metrics)**, which depends on nothing, and three findings — **#97**, **#99** and **#101**.
 
-**Take #87 next.** It turns `Run.pending_estimators` into fitted estimators, which is what #86 and #90 both need in front of them, and it is the feature that has to answer #97. **#85 is the alternative** if a background-job shape is wanted before more numbers land.
+**Take #84 next.** It is the only one whose whole subject is logic rather than transport: a function over a `Pipeline` emitting the two warnings nothing emits, with no HTTP half to defer. #86 is the natural second — it needs a dataset big enough to exercise x-axis decimation, which Tecator at 100 variables is not. **#85 is the alternative** if a background-job shape is wanted first.
 
 ### Decisions taken with the maintainer, so they are not re-argued
 
@@ -74,6 +77,15 @@ Everything left in 1.2 is downstream of the executor: **#84 (validator), #85 (jo
 ## Carried forward from the specifications
 
 Findings that change downstream work, recorded here because they are easy to miss inside long documents.
+
+From #87 (the estimators), which #86 and #90 draw on:
+
+- **An estimator result is JSON at `results/<key>.json`, keyed the way arrays are.** Not content-addressed: a key names exactly one result, so the path is derived rather than looked up. Editing a node gives its estimator a new key and a new result while untouched branches keep both.
+- **A PCA below a split is fitted on fold zero's training rows.** The fixture's choice, and deliberately not an aggregation — there is no single model over ten folds, and averaging loadings across them is arithmetic no document specifies. The 24 held-out rows are projected through that model and stored beside the calibration ones.
+- **`validation` is an additive payload key**, so every array the 1.1 screen reads keeps the length the fixture has. A screen that ignores it renders exactly what it rendered before.
+- **`pca_d` is the second casualty of #97** — 3.8e-05 on explained variance, 1.8e-01 on T². Regenerating the fixtures means regenerating `spectra.json` **and** `pca.json`.
+- **The reported rank is one too high for any centred matrix** — #101. A centred array read back as float32 has columns that no longer sum to zero, and the SVD finds a hundredth singular value. Only the displayed integer moves; the limits move in the ninth decimal.
+- **PLS and PLS-DA have no kernel in the executor** and are reported in `Run.pending_estimators`. What a PLS result carries is #88's subject.
 
 From #81 (the import endpoints), which #89 has to finish:
 

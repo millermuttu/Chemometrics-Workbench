@@ -29,6 +29,10 @@ nowhere to appear.
 - `POST /api/import/preview` — the reader's detection, nothing committed
 - `POST /api/import` — commits with the user's corrections applied
 
+`results_payload` (#87) renders an estimator result for `results/{node_id}`.
+The endpoint itself waits for the pipeline store, because a result is a node in
+a pipeline and there is nowhere yet to keep one — #89 again.
+
 ## The open project
 
 There is no project browser yet and no database to list projects from, so the
@@ -73,6 +77,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from chemometrics_workbench import readers
+from chemometrics_workbench.executor import EstimatorResult
 from chemometrics_workbench.models import Dataset, DatasetVersion, Project
 from chemometrics_workbench.project import (
     DatasetEntry,
@@ -88,6 +93,7 @@ from chemometrics_workbench.project import (
 __all__ = [
     "MAX_UPLOAD_BYTES",
     "open_project_directory",
+    "results_payload",
     "router",
 ]
 
@@ -311,3 +317,66 @@ class _uploaded:
         if self._directory is not None:
             self._directory.cleanup()
             self._directory = None
+
+
+# --- Results --------------------------------------------------------------
+
+
+def results_payload(result: EstimatorResult, version: DatasetVersion) -> dict[str, Any]:
+    """What `results/{node_id}` serves: a fitted estimator, ready to draw.
+
+    The kernel's numbers come from the executor unrounded; the sample ids and
+    the variable axis come from the `DatasetVersion`, because a model does not
+    know what its rows and columns were called. The shape is the one
+    `stub/fixtures/pca.json` publishes and the analysis screen already renders.
+
+    A split branch adds `validation`: the held-out rows of the fitted fold,
+    projected through the model that never saw them. It is an addition rather
+    than a change — the calibration arrays keep the lengths the fixture has, so
+    a screen that ignores the new key renders exactly what it rendered before.
+    """
+    payload: dict[str, Any] = {
+        "node_id": result.node_id,
+        "task": result.task,
+        "n_components": result.n_components,
+        "n_samples": result.n_samples,
+        "n_variables": result.n_variables,
+        "rank": result.rank,
+        "samples": _samples(result.rows, version),
+        "scores": result.scores,
+        "loadings": {
+            "axis": {
+                "kind": version.axis.kind,
+                "unit": version.axis.unit,
+                "values": list(version.axis.values),
+            },
+            "components": result.loadings,
+        },
+        "eigenvalues": result.eigenvalues,
+        "explained_variance_ratio": result.explained_variance_ratio,
+        "cumulative_explained_variance": result.cumulative_explained_variance,
+        "diagnostics": {
+            "hotelling_t2": result.hotelling_t2,
+            "hotelling_t2_limit": result.hotelling_t2_limit,
+            "spe": result.spe,
+            "spe_limit": result.spe_limit,
+            "alpha": result.alpha,
+        },
+    }
+    if result.fold is not None:
+        payload["validation"] = {
+            "fold": result.fold,
+            "samples": _samples(result.held_out, version),
+            "scores": result.held_out_scores,
+            "hotelling_t2": result.held_out_hotelling_t2,
+            "spe": result.held_out_spe,
+        }
+    return payload
+
+
+def _samples(rows: list[int], version: DatasetVersion) -> list[dict[str, Any]]:
+    """Row indices with the ids the dataset gave them, or none if it gave none."""
+    ids = version.sample_ids
+    return [
+        {"index": row, "sample_id": ids[row] if row < len(ids) else f"row {row}"} for row in rows
+    ]
