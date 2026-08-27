@@ -10,7 +10,7 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 **Phase 0 is released and tagged `v0.1.0`. Phase 1.1 is released and tagged `v0.2.0`.** The walking skeleton walks: the React shell and its five core screens, over a token-authenticated stub FastAPI server on `127.0.0.1`, with a Playwright walkthrough green in CI.
 
-**Phase 1.2 is twelve features in, of nineteen.** The project directory and the array store are real, all three readers are written, the schema no longer advertises a step the executor could not run, the executor runs a pipeline from a real dataset and now fits its PCA nodes too, the import endpoints read a real file into a real `DatasetVersion`, the validator emits the two warnings nothing has ever emitted, the Phase 0 metrics gap is closed, and a run is a real background job with counted progress. Four new issues came out of that work — #97, #99, #101 and #103, all listed below.
+**Phase 1.2 is thirteen features in, of nineteen.** The project directory and the array store are real, all three readers are written, the schema no longer advertises a step the executor could not run, the executor runs a pipeline from a real dataset and now fits its PCA nodes too, the import endpoints read a real file into a real `DatasetVersion`, the validator emits the two warnings nothing has ever emitted, the Phase 0 metrics gap is closed, a run is a real background job with counted progress, and the spectra payload is decimated by the server. **Every feature in 1.2 is now done except the two that close it: #89 and #90.** Four new issues came out of that work — #97, #99, #101 and #103, all listed below.
 
 **Two features have landed with their HTTP half deferred.** #81's handlers and #87's results payload are written and tested; neither is served, because the swap from the stub is one cut rather than a handler at a time. That is #99, and it lands in #89.
 
@@ -30,7 +30,7 @@ Compact state for the next session. **Overwrite this file at the end of every se
 | I | Pipeline validator | #84 | H | passing |
 | I′ | MSC above a split | #103 | I | not started |
 | J | Real jobs | #85 | H | passing |
-| K | Server-side decimation and the density band | #86 | H | not started |
+| K | Server-side decimation and the density band | #86 | H | passing |
 | L | Results endpoint | #87 | H | passing |
 | M | The metrics gap | #88 | — | passing |
 | M′ | The import contract findings | #99 | F, L | not started |
@@ -42,15 +42,21 @@ Chain: `A → B → C → {D, E, F} → H → {I, J, K, L} → N → O`. **H′ 
 
 ## Current work
 
-**Nothing is `in_progress`.** #81, #82, #83, #84, #85, #87 and #88 all merged into `dev` on 2026-08-27, as pull requests #100, #96, #98, #104, #106, #102 and #105, and their branches are deleted locally and on origin. The tree is clean and `dev` is pushed.
+**#86 — server-side decimation — is done on `feature/86_server-side-decimation`**, pull request open against `dev`. #81, #82, #83, #84, #85, #87 and #88 merged earlier the same day as pull requests #100, #96, #98, #104, #106, #102 and #105.
 
 ## Next action
 
-**#86 (decimation) is the last feature before the cut**, then #89 and #90. Four findings are open — **#97**, **#99**, **#101** and **#103** — of which #97 and #101 are specification decisions waiting on the maintainer.
+**#89 is what is left**, and then #90. Four findings are open — **#97**, **#99**, **#101** and **#103** — of which #97 and #101 are specification decisions waiting on the maintainer, and #103 is small.
 
-**#86 starts with sourcing data, not with code.** Tecator at 100 variables has never exercised x-axis decimation and corn at 700 is the widest committed alternative, so the first question is what dataset the case is built on. A synthetic one generated to a stated shape is a legitimate answer and should be recorded as a decision if taken.
+**#89 is much bigger than its issue text suggests, and that is the single most important thing to know before starting it.** It now carries:
 
-**#89 is now the biggest item left in 1.2 by some margin.** It carries the import handlers, the results endpoint, the run endpoint, the pipeline store, the frontend's file-picker change and a 17-test end-to-end rewrite. Three features have deferred their HTTP half into it — #81, #87 and #85 — which is #99, and a plan finding rather than a surprise.
+- the pipeline store, which nothing else has built and which four deferred endpoints all need;
+- the import handlers (#81), the results endpoint (#87), the run endpoint (#85) and the spectra endpoint (#86), all written and tested but not served;
+- the frontend's file-picker change — the 1.1 import screen discards the file the user picks (#99);
+- the four 1.1-only affordances (`?empty`, `?oversize`, `?failrun`, `X-Stub-Fail`);
+- a rewrite of the 17 end-to-end tests that assume the fixture project and dataset.
+
+**Consider splitting it before starting.** The pipeline store is a feature on its own and everything else waits on it; doing it as one branch means one pull request that cannot be reviewed in pieces and cannot land half-done. **#97 should be answered before #86's and #87's numbers are asserted end to end in #90.**
 
 ### Decisions taken with the maintainer, so they are not re-argued
 
@@ -80,6 +86,14 @@ Chain: `A → B → C → {D, E, F} → H → {I, J, K, L} → N → O`. **H′ 
 ## Carried forward from the specifications
 
 Findings that change downstream work, recorded here because they are easy to miss inside long documents.
+
+From #86 (decimation), which #89's spectra endpoint wires up:
+
+- **Min and max per bucket, never a stride**, and the difference is measured rather than asserted: one channel raised between two strided samples reads 1.133 under min/max and **0.707 under a stride at the same budget** — the peak is simply absent from the strided payload. That flicker is what §13's "preserves the visible shape" is about.
+- **The bucket extremes are taken over the mean spectrum**, because the axis is shared by every trace. A per-trace axis would mean one x array per spectrum.
+- **§13's budget holds at the full envelope**: 20,000 × 4,000 builds its payload in 0.611 s. The committed test runs at 4,000 × 4,000 (0.112 s) to stay polite on a runner.
+- **The data is synthetic and generated to a stated shape**, because no committed dataset is wide enough to drop a point — Tecator 240 × 100, corn 80 × 700, gasoline 60 × 401 are all inside the 1,000-point budget. Nothing numerical is claimed from it.
+- **`highlighted` is an additive key** carrying its own full-resolution axis. Consuming it needs a frontend change: selection today is a client-side concept in `spectraTraces` and never reaches the server.
 
 From #85 (real jobs), which #89's run endpoint wires up:
 

@@ -14,7 +14,9 @@ frontend already renders.
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Iterator
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -26,10 +28,17 @@ from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 from starlette.exceptions import HTTPException
 
-from chemometrics_workbench.api import MAX_UPLOAD_BYTES, results_payload, router
+from chemometrics_workbench.api import (
+    MAX_POINTS,
+    MAX_TRACES,
+    MAX_UPLOAD_BYTES,
+    results_payload,
+    router,
+    spectra_payload,
+)
 from chemometrics_workbench.datasets import load_tecator
 from chemometrics_workbench.executor import Run, execute
-from chemometrics_workbench.models import DatasetVersion
+from chemometrics_workbench.models import AxisKind, DatasetVersion, VariableAxis
 from chemometrics_workbench.project import (
     DATASETS_FILE,
     create_project,
@@ -444,3 +453,200 @@ def test_the_sample_ids_come_from_the_dataset_not_the_model(tmp_path: Path) -> N
 
     assert payload["samples"][0] == {"index": 0, "sample_id": "row 0"}
     assert results_payload(run.results["pca_a"], version)["samples"][0]["sample_id"] == "C001"
+
+
+# --------------------------------------------------------------------------
+# spectra (#86): decimation, the density band, and the budget
+# --------------------------------------------------------------------------
+
+
+def error_detail(exc: HTTPException) -> dict[str, Any]:
+    """The documented body out of a raised HTTPException, typed."""
+    assert isinstance(exc.detail, dict)
+    return exc.detail
+
+
+def _wide(n_spectra: int = 200, n_variables: int = 4000) -> tuple[np.ndarray, DatasetVersion]:
+    """A dataset wide enough to need x-decimation, which none of ours is.
+
+    Tecator is 240 x 100, corn 80 x 700, gasoline 60 x 401 — all inside the
+    1,000-point budget, so no committed dataset drops a single point. §13's
+    target is 20,000 x 4,000. Synthetic data generated to a stated shape is the
+    honest way to exercise the path; what it must not be used for is a
+    numerical claim, and nothing here makes one.
+    """
+    rng = np.random.default_rng(7)
+    axis = np.linspace(900.0, 1700.0, n_variables)
+    base = 0.4 + 0.3 * np.sin(np.linspace(0.0, 6.0, n_variables))
+    values = base + rng.normal(scale=0.002, size=(n_spectra, n_variables))
+    version = DatasetVersion(
+        dataset_id=uuid4(),
+        version=1,
+        content_hash="sha256:" + "0" * 64,
+        n_samples=n_spectra,
+        n_variables=n_variables,
+        axis=VariableAxis(kind=AxisKind.WAVELENGTH_NM, values=axis.tolist(), unit="nm"),
+        sample_ids=[f"S{i:04d}" for i in range(n_spectra)],
+        array_path="arrays/synthetic.npy",
+    )
+    return values, version
+
+
+def _tecator_version(tecator: Any) -> DatasetVersion:
+    return DatasetVersion(
+        dataset_id=uuid4(),
+        version=1,
+        content_hash=tecator.source.file_hash,
+        n_samples=tecator.n_samples,
+        n_variables=tecator.n_variables,
+        axis=tecator.axis,
+        sample_ids=list(tecator.sample_ids),
+        array_path="arrays/tecator.npy",
+    )
+
+
+def test_the_spectra_payload_is_the_shape_the_fixture_publishes() -> None:
+    tecator = load_tecator()
+    payload = spectra_payload(
+        "source", tecator.spectra, _tecator_version(tecator), label="tecator_raw"
+    )
+    published = fixture("spectra")["source"]
+
+    assert set(payload) == set(published)
+    assert set(payload["decimation"]) == set(published["decimation"])
+    assert set(payload["band"]) == set(published["band"])
+    assert set(payload["traces"][0]) == set(published["traces"][0])
+    assert payload["decimation"] == published["decimation"]
+    assert payload["n_spectra"] == published["n_spectra"] == 240
+
+    # Nothing is dropped at 100 variables, so the axis is the dataset's own.
+    np.testing.assert_allclose(payload["axis"]["values"], published["axis"]["values"], atol=1e-4)
+    np.testing.assert_allclose(payload["traces"][0]["y"], published["traces"][0]["y"], atol=1e-6)
+    np.testing.assert_allclose(
+        payload["band"]["y_median"], published["band"]["y_median"], atol=1e-6
+    )
+
+
+def test_the_band_is_taken_over_every_spectrum_not_the_undrawn_remainder() -> None:
+    """It describes the distribution; leaving out the drawn ones describes a subset."""
+    values, version = _wide(n_spectra=200, n_variables=64)
+    payload = spectra_payload("source", values, version)
+
+    lower, median, upper = np.percentile(values, (5, 50, 95), axis=0)
+    np.testing.assert_allclose(payload["band"]["y_lower"], lower)
+    np.testing.assert_allclose(payload["band"]["y_median"], median)
+    np.testing.assert_allclose(payload["band"]["y_upper"], upper)
+    assert payload["band"]["n_spectra"] == 200
+
+
+def test_below_the_trace_cap_every_spectrum_is_drawn_and_there_is_no_band() -> None:
+    values, version = _wide(n_spectra=40, n_variables=64)
+    payload = spectra_payload("source", values, version)
+
+    assert payload["decimation"]["banded"] is False
+    assert payload["decimation"]["traces_drawn"] == 40
+    assert "band" not in payload
+    assert [trace["index"] for trace in payload["traces"]] == list(range(40))
+
+
+def test_x_decimation_keeps_a_narrow_peak_that_a_stride_would_lose() -> None:
+    """The whole reason for min/max per bucket, measured against the alternative.
+
+    One channel raised, positioned between two strided samples. At the same
+    budget the stride reports a maximum of about 0.71 — the peak is simply not
+    in the payload — and min/max reports the peak's real height.
+    """
+    values, version = _wide(n_spectra=200, n_variables=4000)
+    values[:, 2501] += 0.9
+    true_peak = float(values.max())
+
+    payload = spectra_payload("source", values, version)
+    drawn = np.asarray([trace["y"] for trace in payload["traces"]])
+
+    stride = np.arange(0, 4000, int(np.ceil(4000 / MAX_POINTS)))
+    rows = [trace["index"] for trace in payload["traces"]]
+    strided = values[rows][:, stride]
+
+    assert float(drawn.max()) == pytest.approx(true_peak)
+    assert float(strided.max()) < true_peak - 0.4, "the stride loses it, which is the point"
+    assert stride.size == payload["decimation"]["variables_kept"], "same budget, both ways"
+
+
+def test_decimation_stays_inside_its_budget_and_keeps_the_axis_ordered() -> None:
+    values, version = _wide(n_spectra=80, n_variables=4000)
+    payload = spectra_payload("source", values, version)
+
+    axis = payload["axis"]["values"]
+    assert payload["decimation"]["variables_total"] == 4000
+    assert payload["decimation"]["variables_kept"] == len(axis) == MAX_POINTS
+    assert all(later >= earlier for earlier, later in pairwise(axis))
+    assert all(len(trace["y"]) == len(axis) for trace in payload["traces"])
+
+
+def test_an_axis_inside_the_budget_is_returned_whole() -> None:
+    values, version = _wide(n_spectra=10, n_variables=MAX_POINTS)
+    payload = spectra_payload("source", values, version)
+
+    assert payload["decimation"]["variables_kept"] == MAX_POINTS
+    np.testing.assert_allclose(payload["axis"]["values"], version.axis.values)
+
+
+def test_highlighted_spectra_come_back_at_full_resolution() -> None:
+    """§13: selected or highlighted spectra are drawn at full resolution."""
+    values, version = _wide(n_spectra=200, n_variables=4000)
+    payload = spectra_payload("source", values, version, highlight=[7, 3, 3])
+
+    highlighted = payload["highlighted"]
+    assert [trace["index"] for trace in highlighted["traces"]] == [3, 7], "sorted, and once each"
+    assert len(highlighted["axis"]["values"]) == 4000
+    for trace in highlighted["traces"]:
+        assert len(trace["y"]) == 4000
+        np.testing.assert_allclose(trace["y"], values[trace["index"]])
+
+    # And the decimated traces are untouched by asking for them.
+    assert payload["decimation"]["variables_kept"] == MAX_POINTS
+
+
+def test_no_highlight_means_no_highlighted_key() -> None:
+    values, version = _wide(n_spectra=10, n_variables=64)
+    assert "highlighted" not in spectra_payload("source", values, version)
+
+
+def test_a_highlight_that_is_not_a_sample_is_a_404_with_a_body() -> None:
+    values, version = _wide(n_spectra=10, n_variables=64)
+    with pytest.raises(HTTPException) as raised:
+        spectra_payload("source", values, version, highlight=[3, 99])
+
+    assert raised.value.status_code == 404
+    assert error_detail(raised.value)["code"] == "not_found"
+    assert "[99]" in error_detail(raised.value)["message"]
+
+
+def test_a_node_whose_width_is_not_the_datasets_says_so_rather_than_guessing() -> None:
+    """A range selection changes the axis, and the payload cannot invent one."""
+    values, version = _wide(n_spectra=10, n_variables=64)
+    with pytest.raises(HTTPException) as raised:
+        spectra_payload("window", values[:, :20], version)
+
+    assert error_detail(raised.value)["code"] == "shape_mismatch"
+    assert "node 'window'" in error_detail(raised.value)["message"]
+
+
+def test_the_payload_is_built_inside_the_interaction_budget() -> None:
+    """§13: a preprocessing preview under 1 s, as a test rather than an aspiration.
+
+    Asserted at 4,000 x 4,000, which is 128 MB of float64 and stays polite on a
+    CI runner. **§13's full target shape was measured separately and also fits:
+    20,000 x 4,000 builds its payload in 0.611 s against 0.112 s here**, so the
+    budget holds at the envelope and not only at a fifth of it. That larger run
+    allocates 640 MB and is not something to do on every commit.
+    """
+    values, version = _wide(n_spectra=4000, n_variables=4000)
+
+    started = time.perf_counter()
+    payload = spectra_payload("source", values, version)
+    elapsed = time.perf_counter() - started
+
+    assert payload["decimation"]["variables_kept"] == MAX_POINTS
+    assert payload["decimation"]["traces_drawn"] == MAX_TRACES
+    assert elapsed < 1.0, f"took {elapsed:.3f}s"
