@@ -42,27 +42,32 @@ from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
-from pydantic import ValidationError
+from pydantic import Field, ValidationError
 
 from chemometrics_workbench.arrays import as_float64
-from chemometrics_workbench.models import Project
+from chemometrics_workbench.models import Dataset, DatasetVersion, Frozen, Project
 
 __all__ = [
     "ARRAYS_DIR",
+    "DATASETS_FILE",
     "LAYOUT_VERSION",
     "PROJECT_FILE",
+    "DatasetEntry",
     "ProjectError",
+    "add_dataset",
     "config_dir",
     "create_project",
     "forget_project",
     "known_projects",
     "open_project",
     "read_array",
+    "read_datasets",
     "write_array",
     "write_json",
 ]
 
 PROJECT_FILE = "project.json"
+DATASETS_FILE = "datasets.json"
 ARRAYS_DIR = "arrays"
 REGISTRY_FILE = "projects.json"
 
@@ -192,6 +197,84 @@ def write_json(path: Path, document: Any) -> None:
     except OSError as error:
         temporary.unlink(missing_ok=True)
         raise ProjectError(f"cannot write {path}: {error.strerror}") from error
+
+
+# --- The dataset index ----------------------------------------------------
+
+
+class DatasetEntry(Frozen):
+    """One dataset and its versions, as `datasets.json` holds them.
+
+    The file is the project's index of what has been imported: SQLite arrives
+    in Phase 1.3 and takes this over, and until then a restart must not lose
+    the dataset list the way it currently loses the project list. The shape is
+    the one the Phase 1.1 frontend already reads, so #81 serves it unchanged.
+
+    Contents still live in files. This holds a `DatasetVersion`, which holds an
+    `array_path` - never an array.
+    """
+
+    dataset: Dataset
+    versions: list[DatasetVersion] = Field(min_length=1)
+
+
+def read_datasets(directory: str | os.PathLike[str]) -> list[DatasetEntry]:
+    """Every dataset imported into this project, oldest first.
+
+    A project with nothing imported has no `datasets.json` and returns an empty
+    list, which is the empty-project state arrived at honestly rather than by a
+    query parameter.
+    """
+    path = Path(directory)
+    _require_project(path)
+    index = path / DATASETS_FILE
+    if not index.exists():
+        return []
+
+    try:
+        document = json.loads(index.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise ProjectError(f"the dataset index at {index} is not readable JSON: {error}") from error
+    if not isinstance(document, list):
+        raise ProjectError(f"the dataset index at {index} is not a list of datasets.")
+
+    try:
+        return [DatasetEntry.model_validate(entry) for entry in document]
+    except ValidationError as error:
+        raise ProjectError(f"the dataset index at {index} is not valid: {error}") from error
+
+
+def add_dataset(
+    directory: str | os.PathLike[str], dataset: Dataset, version: DatasetVersion
+) -> DatasetEntry:
+    """Record an imported dataset, or a new version of one already recorded.
+
+    A version is appended to its dataset rather than replacing it, because a
+    `DatasetVersion` is an immutable snapshot and lineage is the whole point of
+    keeping them. Which dataset it belongs to is `version.dataset_id`, not the
+    name: two files can be given the same name and remain two datasets.
+    """
+    path = Path(directory)
+    entries = read_datasets(path)
+
+    if version.dataset_id != dataset.dataset_id:
+        raise ProjectError(
+            f"version {version.version_id} says it belongs to dataset "
+            f"{version.dataset_id}, which is not {dataset.dataset_id}."
+        )
+
+    updated: DatasetEntry | None = None
+    for position, entry in enumerate(entries):
+        if entry.dataset.dataset_id == dataset.dataset_id:
+            updated = DatasetEntry(dataset=entry.dataset, versions=[*entry.versions, version])
+            entries[position] = updated
+            break
+    if updated is None:
+        updated = DatasetEntry(dataset=dataset, versions=[version])
+        entries.append(updated)
+
+    write_json(path / DATASETS_FILE, [json.loads(entry.model_dump_json()) for entry in entries])
+    return updated
 
 
 # --- The array store ------------------------------------------------------

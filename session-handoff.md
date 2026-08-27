@@ -10,7 +10,7 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 **Phase 0 is released and tagged `v0.1.0`. Phase 1.1 is released and tagged `v0.2.0`.** The walking skeleton walks: the React shell and its five core screens, over a token-authenticated stub FastAPI server on `127.0.0.1`, with a Playwright walkthrough green in CI.
 
-**Phase 1.2 is seven features in, of sixteen.** The project directory and the array store are real, all three readers are written, the schema no longer advertises a step the executor could not run, and the executor itself runs a pipeline from a real dataset with a cache that recomputes only what changed. One new issue came out of the executor — #97, listed below.
+**Phase 1.2 is eight features in, of seventeen.** The project directory and the array store are real, all three readers are written, the schema no longer advertises a step the executor could not run, the executor runs a pipeline from a real dataset with a cache that recomputes only what changed, and the import endpoints read a real file into a real `DatasetVersion`. Two new issues came out of that work — #97 and #99, both listed below.
 
 **1.2's exit criterion:** #50's walkthrough passes against the real backend, on a file the user picks, with `stub/` deleted (#90).
 
@@ -21,7 +21,7 @@ Compact state for the next session. **Overwrite this file at the end of every se
 | C | Reader interface and the CSV/TXT reader | #78 | B | passing |
 | D | XLSX reader | #79 | C | passing |
 | E | JCAMP-DX reader | #80 | C | passing |
-| F | Import endpoints | #81 | B, C | not started |
+| F | Import endpoints | #81 | B, C | passing |
 | G | Drop `MSC(reference="supplied")` | #82 | A | passing |
 | H | Pipeline executor | #83 | B, G | passing |
 | H′ | The fixture's `centre_d` array | #97 | H | not started |
@@ -30,20 +30,21 @@ Compact state for the next session. **Overwrite this file at the end of every se
 | K | Server-side decimation and the density band | #86 | H | not started |
 | L | Results endpoint | #87 | H | not started |
 | M | The metrics gap | #88 | — | not started |
+| M′ | The import contract findings | #99 | F | not started |
 | N | HTTP surface complete, stub retired | #89 | F, J, K, L | not started |
 | O | 1.2's exit criterion as a test | #90 | I, N | not started |
 
-Chain: `A → B → C → {D, E, F} → H → {I, J, K, L} → N → O`. **M depends on nothing in 1.2**, so it is what to pick up if the chain is ever blocked. **H′ (#97) blocks nothing**, but #86 and #87 both need its answer before they assert anything about `centre_d`.
+Chain: `A → B → C → {D, E, F} → H → {I, J, K, L} → N → O`. **M depends on nothing in 1.2**, so it is what to pick up if the chain is ever blocked. **H′ (#97) blocks nothing**, but #86 and #87 both need its answer before they assert anything about `centre_d`. **M′ (#99) is folded into N and O** rather than done on its own.
 
 ## Current work
 
-**Nothing is `in_progress`.** #82 and #83 both merged into `dev` on 2026-08-27, as pull requests #96 and #98, and their branches are deleted locally and on origin. The tree is clean and `dev` is pushed.
+**#81 — the import endpoints — is done on `feature/81_import-endpoints`**, pull request open against `dev`. #82 and #83 merged earlier the same day as pull requests #96 and #98.
 
 ## Next action
 
-Five features are unblocked at once now that the executor is `passing`: **#84 (validator), #85 (jobs), #86 (decimation), #87 (results)** below it, and **#81 (import endpoints)**, which never depended on it. **#97** is open too and blocks nothing.
+Everything left in 1.2 is downstream of the executor: **#84 (validator), #85 (jobs), #86 (decimation), #87 (results)**, plus **#88 (metrics)**, which depends on nothing, and the two findings **#97** and **#99**.
 
-**Take #81 next.** It is the only remaining dependency of #89 that is not downstream of the executor, so starting it now means #89 waits on one chain rather than two. #87 is the natural second: it is what turns `Run.pending_estimators` into fitted estimators, and it is the feature that will have to answer #97.
+**Take #87 next.** It turns `Run.pending_estimators` into fitted estimators, which is what #86 and #90 both need in front of them, and it is the feature that has to answer #97. **#85 is the alternative** if a background-job shape is wanted before more numbers land.
 
 ### Decisions taken with the maintainer, so they are not re-argued
 
@@ -73,6 +74,15 @@ Five features are unblocked at once now that the executor is `passing`: **#84 (v
 ## Carried forward from the specifications
 
 Findings that change downstream work, recorded here because they are easy to miss inside long documents.
+
+From #81 (the import endpoints), which #89 has to finish:
+
+- **The router lives in `chemometrics_workbench.api` and the stub does not include it.** Wiring it in fails 17 of the 40 end-to-end tests, because the fixture pipeline is built on the fixture dataset version and a real import produces a dataset it knows nothing about. **The swap is one cut in #89, not a handler at a time** — #99.
+- **The 1.1 import screen discards the file the user picks.** `onChange={() => preview.mutate({})}`, and the request body is empty. The published contract has no way to say which file to import, so the real endpoints take a multipart upload — `file`, plus `corrections` and an optional `name`. The URLs did not change; the bodies 1.1 left empty did. Also #99.
+- **`datasets.json` in the project directory is the dataset index** until SQLite arrives in 1.3, holding `DatasetEntry` — one `Dataset` and its `DatasetVersion`s. It records paths, never values, and a restart reads the dataset list back from it.
+- **§13's envelope is reported, not enforced.** `frontend/src/states/envelope.ts` computes it from `n_samples` and `n_variables`, so the server's honest behaviour is to report the shape as read. What `?oversize` did — fabricate a shape — is what breaks that, and nothing replaces it.
+- **An upload keeps the user's own filename inside a temporary directory**, because that name is what `SourceFile` records and what the import screen shows. Only the final path component is used, so an upload calling itself `../../project.json` writes into the temporary directory and nothing else.
+- **`python-multipart` is a new runtime dependency**, taken because a commit carries a file and its corrections together and that is what a browser sends.
 
 From #83 (the executor), which #84 to #87 all build on:
 
