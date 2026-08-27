@@ -42,7 +42,7 @@ Chain: `A → B → C → {D, E, F} → H → {I, J, K, L} → N → O`. **M dep
 
 ## Current work
 
-**#84 — the pipeline validator — is done on `feature/84_pipeline-validator`**, pull request open against `dev`. #81, #82, #83 and #87 merged earlier the same day as pull requests #100, #96, #98 and #102.
+**Nothing is `in_progress`.** #81, #82, #83, #84 and #87 all merged into `dev` on 2026-08-27, as pull requests #100, #96, #98, #104 and #102, and their branches are deleted locally and on origin. The tree is clean and `dev` is pushed.
 
 ## Next action
 
