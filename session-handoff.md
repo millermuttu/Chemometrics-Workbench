@@ -41,7 +41,7 @@ Chain: `A → B → C → {D, E, F} → H → {I, J, K, L} → N → O`. **M dep
 
 ## Current work
 
-**#87 — the results endpoint — is done on `feature/87_results-endpoint`**, pull request open against `dev`. #81, #82 and #83 merged earlier the same day as pull requests #100, #96 and #98.
+**Nothing is `in_progress`.** #81, #82, #83 and #87 all merged into `dev` on 2026-08-27, as pull requests #100, #96, #98 and #102, and their branches are deleted locally and on origin. The tree is clean and `dev` is pushed.
 
 ## Next action
 
