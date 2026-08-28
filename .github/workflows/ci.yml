@@ -149,6 +149,24 @@ jobs:
         working-directory: .
         run: uv sync --locked
 
+      # Playwright reports a webServer that will not start as "exit code: 1"
+      # and nothing else, and its stdout is in a log that needs credentials to
+      # read. The seed is the first thing that command runs, so running it once
+      # on its own turns that into a traceback - and into an annotation, which
+      # is readable without signing in to Actions.
+      - name: Seed smoke test
+        shell: bash
+        working-directory: .
+        run: |
+          set +e
+          out=$(uv run python tests/seed_e2e.py --fresh --empty "${RUNNER_TEMP}/seed-smoke" 2>&1)
+          code=$?
+          echo "$out"
+          if [ $code -ne 0 ]; then
+            printf '::error title=Seed failed on %s::%s\n' "$RUNNER_OS" "$(echo "$out" | tr '\n' ' ' | tail -c 900)"
+            exit $code
+          fi
+
       # e2e/walkthrough.spec.ts is #50's exit criterion and Phase 1.2's (#90):
       # an empty project, a file the user picks, a pipeline built and saved,
       # a run, and a scores plot equal to what the server served. It runs on
