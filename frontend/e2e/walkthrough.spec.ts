@@ -106,7 +106,8 @@ test("the whole path: empty project to a scores plot the kernel produced", async
   await expect(page.getByTestId("scores-plot")).toHaveCount(0);
   await expect(page.getByTestId("node-not_run").first()).toBeVisible();
 
-  const status = page.getByRole("status").first();
+  // `.status` is the run status bar, not the stale banner that shares its role.
+  const status = page.locator(".status");
   await page.getByRole("button", { name: "Run pipeline" }).click();
 
   // The end state, not a frame of the middle. Thirty samples by twelve

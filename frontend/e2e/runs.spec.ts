@@ -22,7 +22,9 @@ test("a run advances through real work, in all three places at once", async ({ p
   await page.goto("/?token=e2e-token");
   await page.getByRole("button", { name: "Pipeline", exact: true }).click();
 
-  const status = page.getByRole("status").first();
+  // `.status` is the run status bar; a second role="status" carries the stale
+  // banner, and DOM order puts that one first.
+  const status = page.locator(".status");
   await page.getByRole("button", { name: "Run pipeline" }).click();
   await expect(status).toContainText(/Queued|Preprocessing/);
 
@@ -70,7 +72,7 @@ test("the failure names its cause, marks the node, and shows no trace", async ({
   // matrix read back as float32 reports one more than it has (#101).
   await expect(failure).toContainText(/components were asked of a matrix of rank \d+/);
   await expect(failure).not.toContainText("Traceback");
-  await expect(page.getByRole("status").first()).toContainText(/rank \d+/);
+  await expect(page.locator(".status")).toContainText(/rank \d+/);
 
   // --fail is semantic and separate from the data palette on purpose: a
   // failing thing must never read as a red spectrum.

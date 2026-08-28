@@ -40,15 +40,19 @@ import { defineConfig } from "@playwright/test";
  */
 const ROOT = path.join(os.tmpdir(), "chemometrics-e2e");
 
-/** The seed for one project, quoted: a temp path can contain spaces. */
-const seedCommand = (name: string, mode: string) =>
-  ["uv run python tests/seed_e2e.py --fresh", mode, `"${path.join(ROOT, name)}"`]
-    .filter(Boolean)
-    .join(" ");
-
-const serve = (name: string, port: string, seed: string) => ({
+/** Seed the project, then serve it - in one process, with no shell operator.
+ *
+ * This used to be `<seed> && uv run python -m ...server`. Playwright hands the
+ * `webServer` command to the platform's shell, which on Windows is `cmd.exe`,
+ * and the chain did not survive the trip: seed and server each ran perfectly
+ * there on their own - two smoke steps in CI proved it - while the two joined
+ * by `&&` would not start at all. So nothing is joined any more, and the
+ * directory is not on the command line either: it comes from
+ * `CHEMOMETRICS_PROJECT` below, which is the variable the server reads anyway.
+ */
+const serve = (name: string, port: string, mode: string) => ({
   // From the repository root, because that is where uv's environment is.
-  command: `${seed} && uv run python -m chemometrics_workbench.server`,
+  command: ["uv run python tests/seed_e2e.py --serve --fresh", mode].filter(Boolean).join(" "),
   cwd: "..",
   url: `http://127.0.0.1:${port}/`,
   env: {
@@ -108,9 +112,9 @@ export default defineConfig({
     },
   ],
   webServer: [
-    serve("seeded", "8765", seedCommand("seeded", "")),
-    serve("empty", "8766", seedCommand("empty", "--empty")),
-    serve("runs", "8767", seedCommand("runs", "--unrun")),
-    serve("walkthrough", "8768", seedCommand("walkthrough", "--empty")),
+    serve("seeded", "8765", ""),
+    serve("empty", "8766", "--empty"),
+    serve("runs", "8767", "--unrun"),
+    serve("walkthrough", "8768", "--empty"),
   ],
 });
