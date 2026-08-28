@@ -46,6 +46,7 @@ from typing import Annotated, Any
 
 import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
@@ -100,6 +101,32 @@ async def error_body(request: Request, exc: HTTPException) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
         content={"error": {"code": code, "message": str(detail), "detail": {}}},
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def malformed_body(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """A body FastAPI could not parse gets the same envelope as everything else.
+
+    FastAPI answers its own validation failures with `{"detail": [...]}`, which
+    is a second error shape - exactly what the envelope exists to prevent, and
+    invisible until a client sends a malformed body rather than a wrong one.
+    The first error is reported because a list of twenty is not a sentence
+    anyone reads; the rest are in `detail.errors` for whoever wants them.
+    """
+    errors = exc.errors()
+    first = errors[0] if errors else {}
+    # `loc` starts with "body"; the field is the rest of the path.
+    field = ".".join(str(part) for part in first.get("loc", ())[1:])
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": {
+                "code": "bad_request",
+                "message": str(first.get("msg", "the request body is not valid")),
+                "detail": {"field": field, "errors": len(errors)},
+            }
+        },
     )
 
 

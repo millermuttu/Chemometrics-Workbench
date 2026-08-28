@@ -396,6 +396,240 @@ def test_concurrent_reads_on_one_project_never_fail(client: TestClient) -> None:
 
 
 # --------------------------------------------------------------------------
+# saving a pipeline
+# --------------------------------------------------------------------------
+
+
+def _nodes(client: TestClient) -> Any:
+    return client.get("/api/pipelines/current", headers=AUTH).json()["nodes"]
+
+
+def _recipe(source: Any) -> list[dict[str, Any]]:
+    """The source the import left, plus SNV, mean centre and a PCA on top."""
+    return [
+        source,
+        {"id": "snv", "type": "preprocess", "inputs": ["source"], "step": {"kind": "snv"}},
+        {
+            "id": "centre",
+            "type": "preprocess",
+            "inputs": ["snv"],
+            "step": {"kind": "mean_centre"},
+        },
+        {
+            "id": "pca",
+            "type": "estimator",
+            "inputs": ["centre"],
+            "spec": {"kind": "pca", "n_components": 3},
+        },
+    ]
+
+
+def test_a_saved_pipeline_is_the_one_that_comes_back(client: TestClient) -> None:
+    """The canvas can save what it builds, which is the whole of #108."""
+    imported(client)
+    source = _nodes(client)[0]
+    assert len(_nodes(client)) == 1, "an import starts a pipeline with one source node"
+
+    response = client.put("/api/pipelines/current", json={"nodes": _recipe(source)}, headers=AUTH)
+    assert response.status_code == 200, response.text
+    assert [node["id"] for node in response.json()["nodes"]] == [
+        "source",
+        "snv",
+        "centre",
+        "pca",
+    ]
+
+    # Read back through a second application over the same directory - a
+    # restart, as far as the server is concerned.
+    assert [node["id"] for node in _nodes(client)] == ["source", "snv", "centre", "pca"]
+
+
+def test_saving_keeps_the_pipeline_s_identity(client: TestClient) -> None:
+    """Identity is the server's; the body carries only what the canvas edits."""
+    imported(client)
+    before = client.get("/api/pipelines/current", headers=AUTH).json()
+    source = before["nodes"][0]
+
+    after = client.put(
+        "/api/pipelines/current",
+        json={"nodes": _recipe(source), "name": "Renamed"},
+        headers=AUTH,
+    ).json()
+
+    assert after["pipeline_id"] == before["pipeline_id"]
+    assert after["project_id"] == before["project_id"]
+    assert after["created_at"] == before["created_at"]
+    assert after["name"] == "Renamed"
+
+
+def test_a_saved_pipeline_is_the_one_that_runs(client: TestClient) -> None:
+    """Before #108 a run had only the source node to execute."""
+    imported(client)
+    client.put("/api/pipelines/current", json={"nodes": _recipe(_nodes(client)[0])}, headers=AUTH)
+
+    job = client.post("/api/experiments/current/run", headers=AUTH).json()
+    assert wait_for(client, job["job_id"])["status"] == "succeeded"
+
+    state = client.get("/api/pipelines/current/state", headers=AUTH).json()["nodes"]
+    assert {node: entry["state"] for node, entry in state.items()} == {
+        "source": "complete",
+        "snv": "complete",
+        "centre": "complete",
+        "pca": "complete",
+    }
+    assert client.get("/api/results/pca", headers=AUTH).status_code == 200
+    assert client.get("/api/spectra/snv", headers=AUTH).status_code == 200
+
+
+def test_editing_a_node_leaves_staleness_derived_from_the_store(client: TestClient) -> None:
+    """No stale flag is written. The arrays simply stop matching (#83).
+
+    A node's key is its own JSON chained through its inputs' keys, so editing
+    one changes its key and its descendants' and nothing else's. What the
+    canvas shows as no-longer-current is the store being asked, not a second
+    record of the same fact that could disagree with it.
+    """
+    imported(client)
+    source = _nodes(client)[0]
+    client.put("/api/pipelines/current", json={"nodes": _recipe(source)}, headers=AUTH)
+    job = client.post("/api/experiments/current/run", headers=AUTH).json()
+    assert wait_for(client, job["job_id"])["status"] == "succeeded"
+
+    # Edit the PCA: three components become two. Everything above it is
+    # untouched, so only the estimator loses its result.
+    edited = _recipe(source)
+    edited[-1]["spec"]["n_components"] = 2
+    client.put("/api/pipelines/current", json={"nodes": edited}, headers=AUTH)
+
+    state = client.get("/api/pipelines/current/state", headers=AUTH).json()["nodes"]
+    assert state["source"]["state"] == "complete"
+    assert state["snv"]["state"] == "complete", "an untouched branch keeps its arrays"
+    assert state["centre"]["state"] == "complete"
+    assert state["pca"]["state"] == "not_run", "the edited node's key changed"
+
+    # And no flag was written anywhere: the state has the keys it always had.
+    assert set(state["pca"]) == {"state"}
+
+    # Editing further up invalidates everything below it, and only below it.
+    upstream = _recipe(source)
+    upstream[1]["step"] = {"kind": "msc", "reference": "mean"}
+    client.put("/api/pipelines/current", json={"nodes": upstream}, headers=AUTH)
+    state = client.get("/api/pipelines/current/state", headers=AUTH).json()["nodes"]
+    assert state["source"]["state"] == "complete"
+    assert [state[node]["state"] for node in ("snv", "centre", "pca")] == [
+        "not_run",
+        "not_run",
+        "not_run",
+    ]
+
+
+def test_moving_a_node_cannot_invalidate_a_cache_entry(client: TestClient) -> None:
+    """Layout is not in the body, and not in the hash. #83 depends on it."""
+    imported(client)
+    source = _nodes(client)[0]
+    client.put("/api/pipelines/current", json={"nodes": _recipe(source)}, headers=AUTH)
+    job = client.post("/api/experiments/current/run", headers=AUTH).json()
+    assert wait_for(client, job["job_id"])["status"] == "succeeded"
+
+    before = client.get("/api/pipelines/current/state", headers=AUTH).json()
+
+    # Saving the same recipe again is what a canvas does after a node is
+    # dragged: the graph is unchanged and only coordinates moved.
+    client.put("/api/pipelines/current", json={"nodes": _recipe(source)}, headers=AUTH)
+    after = client.get("/api/pipelines/current/state", headers=AUTH).json()
+
+    assert {n: e["state"] for n, e in after["nodes"].items()} == {
+        n: e["state"] for n, e in before["nodes"].items()
+    }
+    assert all(entry["state"] == "complete" for entry in after["nodes"].values())
+
+
+def test_a_pipeline_that_is_not_a_dag_is_refused_with_a_body(client: TestClient) -> None:
+    """A refusal is a diagnostic, never a 500 and never a stack trace."""
+    imported(client)
+    source = _nodes(client)[0]
+
+    cycle = _recipe(source)
+    cycle[1]["inputs"] = ["centre"]  # snv <- centre <- snv
+    response = client.put("/api/pipelines/current", json={"nodes": cycle}, headers=AUTH)
+    assert response.status_code == 422
+    body = response.json()["error"]
+    assert body["code"] == "invalid_pipeline"
+    assert "cycle" in body["message"]
+    assert "Traceback" not in body["message"]
+
+    unknown = _recipe(source)
+    unknown[1]["inputs"] = ["nowhere"]
+    assert "unknown input" in _put_error(client, unknown)["message"]
+
+    duplicate = [*_recipe(source), _recipe(source)[1]]
+    assert "unique" in _put_error(client, duplicate)["message"]
+
+    # The stored pipeline is untouched by any of them.
+    assert [node["id"] for node in _nodes(client)] == ["source"]
+
+
+def _put_error(client: TestClient, nodes: Any) -> Any:
+    response = client.put("/api/pipelines/current", json={"nodes": nodes}, headers=AUTH)
+    assert response.status_code == 422, response.text
+    return response.json()["error"]
+
+
+def test_a_body_the_schema_cannot_parse_gets_the_same_envelope(client: TestClient) -> None:
+    """FastAPI answers its own validation failures with a second error shape.
+
+    `{"detail": [...]}` rather than `{"error": {...}}`, which is exactly what
+    the envelope exists to prevent - and it is invisible until a client sends a
+    body that is malformed rather than merely wrong.
+    """
+    imported(client)
+
+    # `inputs` is a one-tuple on every non-source node, so an empty one is a
+    # shape the schema refuses before any pipeline rule is reached.
+    response = client.put(
+        "/api/pipelines/current",
+        json={
+            "nodes": [{"id": "snv", "type": "preprocess", "inputs": [], "step": {"kind": "snv"}}]
+        },
+        headers=AUTH,
+    )
+    assert response.status_code == 422
+    body = response.json()
+    assert set(body) == {"error"}, body
+    assert set(body["error"]) == {"code", "message", "detail"}
+    assert body["error"]["code"] == "bad_request"
+    assert "Traceback" not in body["error"]["message"]
+
+    # An unknown step kind is the other way a body is malformed.
+    bad_kind = client.put(
+        "/api/pipelines/current",
+        json={
+            "nodes": [{"id": "x", "type": "preprocess", "inputs": ["y"], "step": {"kind": "nope"}}]
+        },
+        headers=AUTH,
+    )
+    assert bad_kind.status_code == 422
+    assert bad_kind.json()["error"]["code"] == "bad_request"
+
+
+def test_a_source_naming_a_dataset_the_project_does_not_hold_is_refused(
+    client: TestClient,
+) -> None:
+    """The schema would accept it and the run would fail with nothing to point at."""
+    imported(client)
+    stranger = dict(_nodes(client)[0])
+    stranger["version_id"] = "00000000-0000-0000-0000-000000000000"
+
+    error = _put_error(client, [stranger])
+    assert "does not hold" in error["message"]
+
+
+def test_saving_needs_the_token_like_everything_else(client: TestClient) -> None:
+    imported(client)
+    assert client.put("/api/pipelines/current", json={"nodes": []}).status_code == 401
+
+
+# --------------------------------------------------------------------------
 # the affordances are gone
 # --------------------------------------------------------------------------
 

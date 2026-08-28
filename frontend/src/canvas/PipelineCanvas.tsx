@@ -1,8 +1,9 @@
 import { Background, BackgroundVariant, ReactFlow, type Node } from "@xyflow/react";
 import { useMemo, useState } from "react";
 
-import { api } from "@/api/client";
-import { usePipeline, usePipelineState } from "@/api/queries";
+import { ApiError, api } from "@/api/client";
+import type { PipelineNode } from "@/api/queries";
+import { usePipeline, usePipelineState, useSavePipeline } from "@/api/queries";
 import { NodeCard } from "@/canvas/NodeCard";
 import { StepList } from "@/canvas/StepList";
 import { draftGraph, toEdges, toNodes, type DraftStep } from "@/canvas/graph";
@@ -24,9 +25,43 @@ function usesMotion(): boolean {
   return !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 }
 
+/** The saved nodes with the drafts chained onto the end of the graph.
+ *
+ * Drafts attach to a **terminal node** - one nothing else consumes - because
+ * that is the only end a list can be appended to. A freshly imported project
+ * has exactly one, its source, which is the shape the step list exists for. A
+ * pipeline with several branches has several ends, and this takes the first;
+ * choosing which branch to extend needs somewhere to say so, and that is #51's
+ * direct manipulation rather than a guess made here.
+ *
+ * Ids are derived from the step and the position so that adding a second SNV
+ * does not collide with the first. The server refuses duplicates anyway - the
+ * point is to not send it something it has to refuse.
+ */
+export function withDrafts(saved: PipelineNode[], drafts: DraftStep[]): PipelineNode[] {
+  if (drafts.length === 0) return saved;
+  const consumed = new Set(saved.flatMap((node) => node.inputs));
+  const taken = new Set(saved.map((node) => node.id));
+  let parent = (saved.find((node) => !consumed.has(node.id)) ?? saved[saved.length - 1]).id;
+
+  const added = drafts.map((draft) => {
+    const stem = draft.kind.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+    let id = stem;
+    for (let suffix = 2; taken.has(id); suffix += 1) id = `${stem}_${suffix}`;
+    taken.add(id);
+
+    const node: PipelineNode = { id, type: draft.type, inputs: [parent], ...draft.payload };
+    parent = id;
+    return node;
+  });
+  return [...saved, ...added];
+}
+
+
 export function PipelineCanvas({ onOpenNode }: { onOpenNode: (id: string, label: string) => void }) {
   const pipeline = usePipeline();
   const state = usePipelineState();
+  const save = useSavePipeline();
   const [steps, setSteps] = useState<DraftStep[]>([]);
   const [validation, setValidation] = useState<string | null>(null);
 
@@ -73,6 +108,18 @@ export function PipelineCanvas({ onOpenNode }: { onOpenNode: (id: string, label:
 
       <StepList
         steps={steps}
+        saving={save.isPending}
+        onSave={async () => {
+          if (!pipeline.data) return;
+          try {
+            await save.mutateAsync(withDrafts(pipeline.data.nodes, steps));
+            // The drafts are nodes now; keeping them would draw each one twice.
+            setSteps([]);
+            setValidation(null);
+          } catch (error) {
+            setValidation(error instanceof ApiError ? error.message : "Could not save.");
+          }
+        }}
         onChange={(next) => {
           setSteps(next);
           setValidation(null);

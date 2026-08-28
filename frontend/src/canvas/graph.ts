@@ -147,6 +147,16 @@ export interface DraftStep {
   kind: string;
   parameters: string;
   type: "preprocess" | "estimator";
+  /** What the node actually is, in the shape `PUT /pipelines/{id}` takes.
+   *
+   * Until #108 a draft carried only the two display strings above, because
+   * nothing was ever sent anywhere - the step list drew a picture. Saving one
+   * means the draft has to *be* the node, so the payload travels with it and
+   * the server's schema is what decides whether it is legal. */
+  payload: {
+    step?: { kind: string; [key: string]: unknown };
+    spec?: { kind: string; [key: string]: unknown };
+  };
 }
 
 export function draftGraph(
