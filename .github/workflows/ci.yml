@@ -172,6 +172,39 @@ jobs:
       # environment, same module - and reports what it said either way. A
       # notice on success is worth as much as an error on failure here: it
       # says the server is not the problem.
+      # The exact command playwright.config.ts hands to webServer, run here so
+      # its output is capturable. Seed and server each pass on their own above;
+      # this is the combination, which is the only thing left untested.
+      - name: Seed-and-serve smoke test
+        shell: bash
+        working-directory: .
+        env:
+          CHEMOMETRICS_PROJECT: ${{ runner.temp }}/serve-project
+          CHEMOMETRICS_CONFIG_HOME: ${{ runner.temp }}/serve-config
+          WORKBENCH_PORT: "8798"
+          WORKBENCH_TOKEN: serve-token
+          WORKBENCH_BUNDLE: frontend/dist
+        run: |
+          set +e
+          uv run python tests/seed_e2e.py --serve --fresh --empty > serve.log 2>&1 &
+          pid=$!
+          for _ in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -m 5 \
+              -H "Authorization: Bearer serve-token" http://127.0.0.1:8798/api/projects)
+            [ "$code" = "200" ] && break
+            kill -0 $pid 2>/dev/null || break
+            sleep 2
+          done
+          kill $pid 2>/dev/null
+          cat serve.log
+          if [ "$code" = "200" ]; then
+            printf '::notice title=Seed-and-serve worked on %s::answered 200\n' "$RUNNER_OS"
+          else
+            printf '::error title=Seed-and-serve failed on %s::status %s; %s\n' \
+              "$RUNNER_OS" "$code" "$(tr '\n' ' ' < serve.log | tail -c 800)"
+            exit 1
+          fi
+
       - name: Server smoke test
         shell: bash
         working-directory: .
