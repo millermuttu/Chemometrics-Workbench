@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
-/** The shell against the stub server: the artboard's measurements, the tab
- * rules, and a run that really advances and can really be cancelled. */
+/** The shell against the real server: the artboard's measurements and the tab
+ * rules, over a project whose pipeline has been run. */
 
 async function open(page: Page) {
   await page.goto("/?token=e2e-token");
@@ -82,23 +82,10 @@ test("tabs close, split and overflow into a searchable menu", async ({ page }) =
   await expect(page.getByRole("tab")).toHaveCount(before - 1);
 });
 
-test("a run advances, then cancels where it stood", async ({ page }) => {
-  await open(page);
-  await page.getByRole("button", { name: "Run pipeline" }).click();
-
-  const status = page.getByRole("status");
-  await expect(status).toContainText("Queued");
-  await expect(status).toContainText("Preprocessing: SNV", { timeout: 5000 });
-
-  await status.getByRole("button", { name: "Cancel" }).click();
-  await expect(status).toContainText("Cancelled");
-
-  // Cancelled means stopped: the message does not move on afterwards.
-  const width = await page.locator(".prog i").getAttribute("style");
-  await page.waitForTimeout(1200);
-  await expect(status).toContainText("Cancelled");
-  expect(await page.locator(".prog i").getAttribute("style")).toBe(width);
-});
+/* A run that advances and cancels needs work to do, and every array in this
+ * project is already on disk - a run here hits the cache and is over before a
+ * second frame renders. That test lives in `runs.spec.ts`, against the project
+ * seeded with nothing computed. */
 
 test("both themes are the artboard's palettes", async ({ page }) => {
   await open(page);

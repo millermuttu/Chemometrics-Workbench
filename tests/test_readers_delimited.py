@@ -331,10 +331,11 @@ def test_the_preview_has_the_shape_the_frontend_already_renders() -> None:
 
 
 def test_the_preview_matches_the_fixture_the_frontend_was_built_against() -> None:
-    """Field for field against `stub/fixtures/import_preview.json`, which is the contract."""
+    """Field for field against the Phase 1.1 contract in `tests/fixtures/contract/`."""
     import json
 
-    fixture = json.loads(Path("stub/fixtures/import_preview.json").read_text(encoding="utf-8"))
+    contract = Path(__file__).resolve().parent / "fixtures" / "contract" / "import_preview.json"
+    fixture = json.loads(contract.read_text(encoding="utf-8"))
     payload = preview(PLAIN)
 
     assert set(payload) == set(fixture)

@@ -122,20 +122,23 @@ jobs:
       - name: Install Playwright chromium
         run: pnpm exec playwright install --with-deps chromium
 
-      # The end-to-end tests run against the stub server serving the built
+      # The end-to-end tests run against the real server serving the built
       # bundle - the same origin and the same token the packaged application
-      # uses - so this job needs the Python environment too.
+      # uses - so this job needs the Python environment too. It also seeds
+      # three project directories through the kernels first; see
+      # frontend/playwright.config.ts and tests/seed_e2e.py.
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
 
-      - name: Sync the stub server's environment
+      - name: Sync the server's environment
         working-directory: .
         run: uv sync --locked
 
-      # The walkthrough in e2e/walkthrough.spec.ts is Phase 1.1's exit
-      # criterion (#50): the sub-phase is done when it passes here.
+      # e2e/walkthrough.spec.ts is #50's exit criterion. Its three tests are
+      # test.fixme until #108 gives the canvas a way to save a pipeline; what
+      # they assert is covered meanwhile by empty, runs and analysis specs.
       - name: End-to-end
         run: pnpm test:e2e

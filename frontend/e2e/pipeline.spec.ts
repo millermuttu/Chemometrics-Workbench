@@ -1,7 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
 
-/** The pipeline canvas against the stub server: the branching graph, the five
- * states side by side, and a pipeline assembled through the step list. */
+/** The pipeline canvas against the real server: the branching graph the
+ * executor really ran, and a pipeline assembled through the step list.
+ *
+ * The stub could show all five node states at once because its fixture said
+ * so. A real state is a fact about the project: every node here has its arrays
+ * on disk, so every node is `complete`. `running`, `failed` and `not_run` are
+ * asserted in `runs.spec.ts`, where a run really runs, and `stale` in
+ * `inspector.spec.ts`, where an edit really invalidates one. */
 
 async function openCanvas(page: Page) {
   await page.goto("/?token=e2e-token");
@@ -10,7 +16,7 @@ async function openCanvas(page: Page) {
   await expect(page.locator(".react-flow__node").first()).toBeVisible();
 }
 
-test("the branching pipeline renders with every node the fixture describes", async ({ page }) => {
+test("the branching pipeline renders with every node the executor ran", async ({ page }) => {
   await openCanvas(page);
   await expect(page.locator(".react-flow__node")).toHaveCount(14);
   await expect(page.locator(".react-flow__edge")).toHaveCount(13);
@@ -21,37 +27,22 @@ test("the branching pipeline renders with every node the fixture describes", asy
   await expect(page.getByText("10 folds · shuffle · seed 42")).toBeVisible();
 });
 
-test("all five states are on screen at once and distinguishable by form", async ({ page }) => {
+test("a node that has been run is complete, and says so by form", async ({ page }) => {
   await openCanvas(page);
-  for (const state of ["complete", "running", "stale", "failed", "not_run"]) {
-    await expect(page.getByTestId(`node-${state}`).first()).toBeVisible();
-  }
+  await expect(page.getByTestId("node-complete").first()).toBeVisible();
+  await expect(page.getByTestId("node-complete")).toHaveCount(14);
 
-  // Form, not only colour: dashed for stale and not-run, a left stripe for
-  // failed, an accent border and progress for running.
-  const border = (state: string) =>
-    page
-      .getByTestId(`node-${state}`)
-      .first()
-      .evaluate((element) => {
-        const style = getComputedStyle(element);
-        return {
-          style: style.borderTopStyle,
-          left: style.borderLeftWidth,
-          background: style.backgroundImage,
-        };
-      });
-
-  expect((await border("stale")).style).toBe("dashed");
-  expect((await border("stale")).background).toContain("repeating-linear-gradient");
-  expect((await border("not_run")).style).toBe("dashed");
-  expect((await border("failed")).left).toBe("3px");
-  expect((await border("complete")).style).toBe("solid");
-
-  // The stale node says why, and the failed one says what went wrong.
-  await expect(page.getByText("edited - downstream stale")).toBeVisible();
-  await expect(page.getByText(/matrix of rank 4/)).toBeVisible();
-  await expect(page.getByTestId("node-running").locator(".prog i")).toBeVisible();
+  // Form, not only colour: complete is a solid border, which is what the other
+  // four states are distinguished *from*.
+  const drawn = await page
+    .getByTestId("node-complete")
+    .first()
+    .evaluate((element) => {
+      const style = getComputedStyle(element);
+      return { style: style.borderTopStyle, opacity: Number(style.opacity) };
+    });
+  expect(drawn.style).toBe("solid");
+  expect(drawn.opacity).toBe(1);
 });
 
 test("selecting a node focuses its tab", async ({ page }) => {

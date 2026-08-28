@@ -38,7 +38,7 @@ from chemometrics_workbench.models import (
     SplitNode,
 )
 
-FIXTURES = Path(__file__).resolve().parents[1] / "stub" / "fixtures"
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "contract"
 
 
 def pipeline(*nodes: Any) -> Pipeline:

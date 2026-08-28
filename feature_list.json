@@ -352,13 +352,13 @@
         "import-endpoints"
       ],
       "user_visible_behavior": "The file the user picks is the file that is imported - today the screen discards it and the server it talks to would not know what to do with it.",
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "The import screen sends the picked file to /api/import/preview and /api/import.",
         "chemometrics_workbench.api.router is what serves those URLs.",
         "The 17 end-to-end tests that assume the fixture project and dataset are rewritten."
       ],
-      "evidence": "",
+      "evidence": "2026-08-28. Closed by #89, which is where it was always going to land. The import screen sends the file the user picked as a multipart upload - Import.tsx keeps the File from the input's onChange and useImportDataset posts it with its corrections - and the two 1.1-only buttons (\"Use the example file\", \"Import a broken file\") are gone, because a real file reaches the preview and an unreadable one reaches the failure state by being unreadable. frontend/e2e/empty.spec.ts proves both against a real empty project: a one-column CSV is a READER_FAILED alert naming the file with no traceback, and a six-channel CSV previews, takes an orientation correction that swaps 4 x 6 to 6 x 4, and commits to a dataset the table renders. The 17 end-to-end tests that assumed the fixture project were rewritten as part of #89's one cut, which is what this issue said had to happen.",
       "notes": "Found in #81 and measured there: wiring the real router into the stub fails 17 of 40 end-to-end tests, across import, states, shell, inspector and the walkthrough. Folded into #89's cut and #90's rewrite rather than done separately."
     },
     {
@@ -374,7 +374,7 @@
         "results-endpoint"
       ],
       "user_visible_behavior": "There is one server. The frontend has never known the difference, and no query parameter can put the application into a state it could not reach honestly.",
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "projects, projects/{id}/datasets, pipelines/{id}, pipelines/{id}/state, experiments/{id} and experiments/{id}/run are served from the real store.",
         "The error envelope is settled and every screen still renders it.",
@@ -385,8 +385,46 @@
         "Every state #49 renders is still reachable, now by real means.",
         "Not one URL changed."
       ],
+      "evidence": "2026-08-28. On feature/89_http-surface-complete. New module src/chemometrics_workbench/server.py (the assembled application: ephemeral port, bearer token, CORS for the Vite dev server, the error envelope, and the bundle mount), tests/test_server.py (25 tests), and tests/seed_e2e.py (the Playwright seed). stub/ is deleted; its generated fixtures moved to tests/fixtures/contract/ with a README saying what they now are, and tests/test_stub_server.py and tests/test_stub_fixtures.py went with the module they tested. uv run pytest is 721 passed, 1 skipped; ruff check, ruff format --check and mypy over 19 source files all clean; pnpm typecheck, pnpm lint and pnpm test (52) clean; pnpm exec playwright test is 33 passed, 3 skipped.\n\nNOT ONE URL CHANGED. Every path the frontend has used since its first commit answers from the real store, and tests/test_server.py asserts the list: projects, projects/{id}, projects/{id}/datasets, import/preview, import, pipelines/{id}, pipelines/{id}/state, pipelines/{id}/validate, experiments/{id}, experiments/{id}/run, jobs/{id}, jobs/{id}/cancel, spectra/{node_id}, results/{node_id}, schema/steps, steps/validate. Token authentication is unchanged and is a real check: every /api path 401s without the bearer token, with the documented body. A 404 raised by the router itself carries the same envelope as one raised by a handler, so a client never has to tell two error shapes apart.\n\nTHE FOUR AFFORDANCES ARE GONE and their absence is a test, not a habit: test_the_source_tree_carries_no_stub_affordances greps src/ and frontend/src/ for X-Stub-Fail, ?empty, ?oversize and failrun and asserts nothing is found, and test_the_1_1_only_affordances_no_longer_do_anything asserts each is ignored rather than merely absent - ?empty and ?oversize on the datasets endpoint return exactly what the honest request returns, X-Stub-Fail is a header that means nothing, and run?fail=true succeeds, because a run fails only if it fails.\n\nEVERY STATE #49 RENDERS IS REACHABLE BY REAL MEANS, and the means is a seeded project rather than a query parameter: a state is a fact about a project, so the Playwright suite runs three real servers over three real project directories (playwright.config.ts). 8765 holds Tecator imported through the real import handler and the artboard's four-branch fourteen-node pipeline with every node executed - complete, and everything that reads. 8766 holds a project with nothing in it - the empty state, and the imports, which are the tests that change the project they run in. 8767 holds the same pipeline plus a branch that cannot be fitted, with nothing executed - running, queued, not_run and failed. Stale is reached by editing a node in the inspector, which is where it always came from. Overloaded is the one state with no replacement: ?oversize fabricated a 42,000 x 6,200 shape, #81 established that the envelope is reported and not enforced, and no file that size belongs in CI - the envelope arithmetic is covered by frontend/src/__tests__/envelope.test.ts instead.\n\nTHE SEED COMPUTES NOTHING. tests/seed_e2e.py writes the committed Tecator data out as a CSV and posts it to the real /api/import - data/tecator/tecator.txt carries a prose header and the 22 principal components the file also supplies, so no reader will take it and load_tecator parses it specially - then writes the pipeline through the pipeline store and runs it through executor.execute. The real backend reproduces the fixture's numbers: 240 x 100, explained variance 68.9 / 28.4 / 1.6 per cent and 99.9 cumulative, 240 spectra decimated to 60 traces over 100 variables. That is why spectra.spec.ts and analysis.spec.ts pass unchanged - the strongest evidence the swap kept the contract.\n\nFOUR SERVER BUGS THE STUB WAS HIDING, each found by pointing the suite at the real thing and each fixed with a regression test. (1) Nothing ever wrote experiment.json, so GET /experiments/current - a published endpoint - answered 404 for the life of a project however many runs had happened. executor.experiment_for and jobs.submit_run now write the record on every ending, succeeded, failed and cancelled alike, because a failed experiment is a result and models.py says so on the field. (2) pipelines/{id}/state could not report a failed node at all: _node_state knew complete, queued, running and not_run, so a failed run showed as a graph of nodes that merely never ran and the artboard's failed encoding was a state only the fixture could produce. (3) The job blamed the wrong node - the last one to report progress, which is precisely the last one that finished, not the one that raised. ExecutorError has carried node_id as a field since #83 for exactly this reason (\"a canvas that wants to mark the node red cannot parse it back out of English\") and the job now reads it. (4) open_project called _remember on every call, rewriting a registry file shared by every project on the machine; a page load asks six questions at once, and two of them racing on that write turned a plain GET into a 500 - intermittently. _remember now skips the write when nothing would change and never fails an open, and the check-then-create in open_project_directory is under a lock, because create_project makes arrays/ before it writes project.json and the losers of that race found a directory that was neither empty nor yet a project - which made the first load of a new project a 500. test_concurrent_reads_on_one_project_never_fail fires thirty concurrent reads and asserts every one is a 200 or a 404.\n\nONE FRONTEND CHANGE, AND IT IS THE FINDING. Nothing refetched pipelines/{id}/state while a job advanced: in Phase 1.1 the fixture had a node permanently running and another permanently failed, so the states were on screen without anything asking for them. Against a real backend they are events. Shell.tsx now invalidates pipeline-state when the job's status or node_id changes, following the poll the job query already runs rather than adding a second timer, and the Job type gained the node_id field #85 added to the envelope. No URL and no payload changed. The import screen's file picker (#99) is the other half and landed with it: the file the user picks is the file that is read.\n\nPAGINATION IS DEFERRED WITH ITS REASON RECORDED, in a comment above the list endpoints in api.py: there is nothing to page, because a project holds one pipeline and its datasets are a JSON file read whole until SQLite arrives in 1.3, and fixing the shape of the answer before knowing the question is what Phase 1.1 existed to avoid.\n\nNOT DONE, and raised as #108: the walkthrough. #50's three tests are test.fixme with the reason in the file. The step list builds a client-side draft and no endpoint writes a pipeline back - the frontend has read pipelines/current since its first commit and has never posted one - so the SNV, Savitzky-Golay and PCA nodes it assembles never reach the server and the run that follows has only the source node to execute. Every part of the walkthrough passes elsewhere against the real backend (the empty project and the import in empty.spec.ts, the run's lifecycle, cancellation and failure in runs.spec.ts, the scores against the kernel's own numbers in analysis.spec.ts); what is missing is the single path through them, which is #90's subject and needs the endpoint first.",
+      "notes": "Four 1.1-only affordances die here: ?empty, ?oversize, ?failrun and X-Stub-Fail. Each carries a comment saying it is 1.1-only. Done 2026-08-28. Four server bugs and one frontend contract gap were found by pointing the end-to-end suite at the real backend; all five are fixed here. Two findings became issues rather than a widened branch: #108 (no endpoint writes a pipeline) and #109 (the overloaded state has no way to be reached). #90 now depends on #108."
+    },
+    {
+      "id": "pipeline-persistence",
+      "priority": 15,
+      "area": "backend",
+      "issue": 108,
+      "title": "No endpoint writes a pipeline, so the canvas cannot save what it builds",
+      "depends_on": [
+        "http-surface-complete"
+      ],
+      "user_visible_behavior": "A pipeline assembled in the step list is still there after a reload, and running it runs the steps that were added.",
+      "status": "not_started",
+      "verification": [
+        "A pipeline built through the step list survives a reload.",
+        "Running it executes the added nodes, not only the source.",
+        "Editing a node's parameters through the inspector persists, and the executor's cache keys follow the edit.",
+        "Layout coordinates stay outside Pipeline.content_hash(), so moving a node still cannot invalidate a cache entry.",
+        "#50's walkthrough stops being test.fixme and passes."
+      ],
       "evidence": "",
-      "notes": "Four 1.1-only affordances die here: ?empty, ?oversize, ?failrun and X-Stub-Fail. Each carries a comment saying it is 1.1-only."
+      "notes": "Found in #89 by pointing the Playwright suite at the real backend. The frontend has read pipelines/current since its first commit and has never posted one, so 1.1 published no way to save a pipeline and 1.2 served every URL it did publish. This is the one thing standing between the suite and #90's exit criterion; #90 depends on it. The shape is a decision, not a detail: whether the canvas PUTs a whole pipeline or POSTs node operations, and what that means for the merkle cache keys in #83."
+    },
+    {
+      "id": "overloaded-state-unreachable",
+      "priority": 16,
+      "area": "frontend",
+      "issue": 109,
+      "title": "The overloaded state has no way to be reached end to end",
+      "depends_on": [
+        "http-surface-complete"
+      ],
+      "user_visible_behavior": "The beyond-the-envelope notice is proven to appear on a dataset that is really past PROPOSAL.md section 13's envelope.",
+      "status": "not_started",
+      "verification": [
+        "The overloaded notice is exercised against a real dataset shape, or the decision not to is recorded with its reason."
+      ],
+      "evidence": "",
+      "notes": "?oversize fabricated a 42,000 x 6,200 shape and died in #89. #81 established that the envelope is reported and not enforced - frontend/src/states/envelope.ts computes it from n_samples and n_variables - so the honest server reports the shape as read, and nothing replaces the lie. The arithmetic is covered by envelope.test.ts; what is not covered is the screen. A file that size does not belong in CI, so this is probably a decision to record rather than a test to write."
     },
     {
       "id": "e2e-real-backend",
@@ -396,7 +434,8 @@
       "title": "The sub-phase exit criterion as a test",
       "depends_on": [
         "pipeline-validator",
-        "http-surface-complete"
+        "http-surface-complete",
+        "pipeline-persistence"
       ],
       "user_visible_behavior": "The Phase 1.1 walkthrough passes against the real backend, on a file the user picks, with no stub in the repository.",
       "status": "not_started",
@@ -408,7 +447,7 @@
         "No new fixture was introduced to make it pass."
       ],
       "evidence": "",
-      "notes": "If it passes unedited, the 1.1 contract held. Every edit it needs is a finding about that contract."
+      "notes": "If it passes unedited, the 1.1 contract held. Every edit it needs is a finding about that contract. BLOCKED BEHIND #108 as of 2026-08-28: #50's three walkthrough tests are test.fixme because no endpoint writes a pipeline, so the steps the walkthrough adds never reach the server. Everything else it asserts already passes against the real backend in empty.spec.ts, runs.spec.ts and analysis.spec.ts; what is missing is the single path through them. stub/ is deleted, so that half of the exit criterion is met."
     }
   ]
 }

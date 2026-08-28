@@ -51,7 +51,7 @@ from chemometrics_workbench.models import (
 )
 from chemometrics_workbench.project import create_project, write_array
 
-FIXTURES = Path(__file__).resolve().parents[1] / "stub" / "fixtures"
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "contract"
 
 #: Two effects put a floor under agreement with the fixture, and neither is a
 #: divergence. `generate_fixtures._round` writes six decimal places, worth up
@@ -110,9 +110,9 @@ def _pipeline(version_id: UUID, *nodes: Any) -> Pipeline:
 
 
 def fixture_pipeline(version_id: UUID) -> Pipeline:
-    """The four branches `stub/generate_fixtures.py` publishes, rebuilt here.
+    """The four branches the Phase 1.1 fixture generator publishes, rebuilt here.
 
-    Rebuilt rather than imported because `stub/` is deleted in #89 and this
+    Rebuilt rather than imported because `stub/` was deleted in #89 and this
     test outlives it. The recipe is asserted against the fixture's own
     `pipeline.json` below, so the copy cannot drift while the fixture lasts.
     """

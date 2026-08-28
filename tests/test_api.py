@@ -1,13 +1,11 @@
 """Tests for the real HTTP surface: the import endpoints and what they write.
 
 The endpoints are exercised through a bare FastAPI application holding the
-router, not through `stub/server.py`: the router is what survives #89, and a
-test that went through the stub would be testing a module scheduled for
-deletion. `tests/test_stub_server.py` covers the other direction — that the
-stub no longer answers for these paths.
+router rather than through the assembled application: `tests/test_server.py`
+covers the server, and these cover the payload builders on their own.
 
-The payload shapes are checked against `stub/fixtures/import_preview.json` and
-`stub/fixtures/datasets.json`, because those are the contract the Phase 1.1
+The payload shapes are checked against `tests/fixtures/contract/import_preview.json` and
+`tests/fixtures/contract/datasets.json`, because those are the contract the Phase 1.1
 frontend already renders.
 """
 
@@ -49,7 +47,7 @@ from chemometrics_workbench.project import (
 )
 from tests.test_executor import fixture_pipeline
 
-FIXTURES = Path(__file__).resolve().parents[1] / "stub" / "fixtures"
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "contract"
 READER_FILES = Path(__file__).resolve().parent / "fixtures" / "readers"
 
 
