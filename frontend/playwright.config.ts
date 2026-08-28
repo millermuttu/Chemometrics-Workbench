@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -50,9 +51,31 @@ const ROOT = path.join(os.tmpdir(), "chemometrics-e2e");
  * directory is not on the command line either: it comes from
  * `CHEMOMETRICS_PROJECT` below, which is the variable the server reads anyway.
  */
+/** The interpreter, and why it is not `uv run`.
+ *
+ * Playwright starts all four of these **at once**, and `uv run` checks and
+ * updates the environment before it runs anything. On Linux and macOS four of
+ * those overlapping is harmless - a file being replaced while another process
+ * has it open is ordinary there. On Windows it is a sharing violation, and the
+ * losers exit non-zero: every server started on its own worked, and four
+ * started together did not.
+ *
+ * `uv sync` has already made the environment by the time the tests run - CI
+ * does it in its own step, and a developer does it to get a working checkout -
+ * so this calls that interpreter rather than asking uv to re-check it four
+ * times concurrently. If it is not there, fall back to `uv run` and let it
+ * build one.
+ */
+const VENV = path.join("..", ".venv", process.platform === "win32" ? "Scripts" : "bin",
+  process.platform === "win32" ? "python.exe" : "python");
+const PYTHON = existsSync(path.join(import.meta.dirname, VENV))
+  ? path.join(".venv", process.platform === "win32" ? "Scripts" : "bin",
+      process.platform === "win32" ? "python.exe" : "python")
+  : "uv run python";
+
 const serve = (name: string, port: string, mode: string) => ({
-  // From the repository root, because that is where uv's environment is.
-  command: ["uv run python tests/seed_e2e.py --serve --fresh", mode].filter(Boolean).join(" "),
+  // From the repository root, because that is where the environment is.
+  command: [PYTHON, "tests/seed_e2e.py --serve --fresh", mode].filter(Boolean).join(" "),
   cwd: "..",
   url: `http://127.0.0.1:${port}/`,
   env: {
