@@ -35,15 +35,20 @@ is **#90**, and #90 is **blocked behind #108**.
 | M″ | Rank through the store | #101 | L | not started |
 | N | HTTP surface complete, stub retired | #89 | F, J, K, L | **passing** |
 | N′ | No endpoint writes a pipeline | **#108** | N | **not started — blocks #90** |
-| N″ | The overloaded state is unreachable | **#109** | N | not started |
+| N″ | The overloaded state is unreachable | #109 | N | not started |
 | O | 1.2's exit criterion as a test | #90 | I, N, **#108** | not started |
 
 ## Current work
 
-**Nothing is `in_progress`.** #89 and #99 are done on `feature/89_http-surface-complete`, committed
-as `b9dc2c4` and **pushed**. **No pull request is open**: `git push` works over HTTPS, but
-`api.github.com` does not resolve from this machine and the GitHub MCP server fails with `ETIMEOUT`,
-so nothing that needs the API could be done — see "Waiting on the user".
+**Nothing is `in_progress`.** #89 and #99 merged into `dev` on 2026-08-28 as pull request **#110**,
+with all three CI checks green. Both issues are closed, the branch is deleted locally and on origin,
+the tree is clean and `dev` is pushed. **#109 was opened** for the overloaded state; **#108 already
+existed**, filed on 2026-08-27, and says exactly what #89 independently found.
+
+One CI failure was fixed on the branch before merging, and the cause is worth remembering: CI runs a
+bare `uv run mypy`, which takes its file list from `pyproject.toml`, and that list still named the
+deleted `stub` directory. The local check had been `mypy src`, which is **not the command CI runs**.
+Run the bare `uv run mypy` — it covers `src` and `tests` both.
 
 ## What #89 turned out to be
 
@@ -133,10 +138,6 @@ maintainer, **#103** is small, **#109** is probably a decision to record rather 
 ## Waiting on the user
 
 - **#71 — what a non-positive `h0` should do** in the Jackson–Mudholkar SPE limit. Gasoline's `h0` is −0.0190; our kernel uses it as computed, `mdatools` clamps it to 0.001. The divergence is recorded and proven; what the kernel *should* do is a specification decision, not a coding one.
-- **GitHub was unreachable for the whole of the 2026-08-28 session** — `api.github.com` did not resolve and the GitHub MCP server failed with `ETIMEOUT`. Three things follow, and all three are outstanding:
-  - **`feature/89_http-surface-complete` is pushed (`b9dc2c4`) but has no pull request.** Open one **with `dev` as the base** — GitHub's default is `main`, which is the release line. `git push` itself works; only the API is unreachable.
-  - **Issues #108 and #109 do not exist on GitHub yet.** They are in `feature_list.json` with full notes, and the numbers were reserved by assumption — check what the next free number actually is when GitHub is reachable, and correct both the issues and the references to them in `feature_list.json`, `session-handoff.md` and `frontend/e2e/walkthrough.spec.ts` if they differ.
-  - #89 and #99 could not be closed from here.
 - **GitHub default branch is still `main`.** Any pull request opened without an explicit base targets the release line. Change it under Settings → Branches; it cannot be changed from here with the current tools.
 - **Parity against a commercial package** — `PROPOSAL.md` §19 Q4 is unresolved. The EULA is not public; a licence would have to be confirmed and written permission sought before publishing a comparison.
 - Remaining open questions are in `PROPOSAL.md` §19 — team and pace, funding intent, project name.
