@@ -19,6 +19,13 @@ A state is a project, so a starting state is a seeded directory:
     uv run python tests/seed_e2e.py --empty    <directory>   # nothing in it
     uv run python tests/seed_e2e.py --unrun    <directory>   # imported, not run
 
+`--fresh` removes the directory first, which is what the Playwright config
+wants: a project left over from a previous run carries its arrays and its
+edits. It is a flag rather than the default because this takes a path from the
+command line and deletes it - a seed script should not be one typo away from
+removing someone's project. Without it, `create_project` refuses a directory
+that is not empty, which is the safe failure.
+
 `--empty` is the state `EmptyProject` renders, reached by opening an empty
 project rather than by a query parameter the server had to be taught to
 understand. `--unrun` writes the pipeline and leaves every node without arrays,
@@ -32,6 +39,7 @@ from __future__ import annotations
 import csv
 import io
 import os
+import shutil
 import sys
 from pathlib import Path
 from uuid import UUID
@@ -276,13 +284,18 @@ def seed(directory: Path, *, run: bool = True, failing: bool = False) -> None:
 
 def main(argv: list[str]) -> int:
     modes = {"--empty", "--unrun"}
+    flags = modes | {"--fresh"}
     mode = next((argument for argument in argv if argument in modes), None)
-    paths = [argument for argument in argv if argument not in modes]
+    paths = [argument for argument in argv if argument not in flags]
     if len(paths) != 1:
         print(__doc__, file=sys.stderr)
         return 2
 
     directory = Path(paths[0]).resolve()
+    if "--fresh" in argv and directory.exists():
+        # `shutil` rather than `rm -rf`, because this runs on Windows too - the
+        # reason the removal moved in here from the Playwright command at all.
+        shutil.rmtree(directory)
     if mode == "--empty":
         from chemometrics_workbench.project import create_project
 

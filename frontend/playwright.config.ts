@@ -1,3 +1,6 @@
+import os from "node:os";
+import path from "node:path";
+
 import { defineConfig } from "@playwright/test";
 
 /** The walkthrough that is Phase 1.1's exit criterion (#50) grows out of these.
@@ -28,25 +31,41 @@ import { defineConfig } from "@playwright/test";
  * left over from a previous run carries its arrays and its edits.
  */
 
-const ROOT = "/tmp/chemometrics-e2e";
+/** Where the seeded projects go.
+ *
+ * `os.tmpdir()` rather than `/tmp`, because this runs on Windows too, and the
+ * removal is `--fresh` inside the seed script rather than an `rm -rf` here for
+ * the same reason: the command is handed to whatever shell the platform has,
+ * and `cmd.exe` has neither.
+ */
+const ROOT = path.join(os.tmpdir(), "chemometrics-e2e");
+
+/** The seed for one project, quoted: a temp path can contain spaces. */
+const seedCommand = (name: string, mode: string) =>
+  ["uv run python tests/seed_e2e.py --fresh", mode, `"${path.join(ROOT, name)}"`]
+    .filter(Boolean)
+    .join(" ");
 
 const serve = (name: string, port: string, seed: string) => ({
   // From the repository root, because that is where uv's environment is.
-  command: `rm -rf ${ROOT}/${name} && ${seed} && uv run python -m chemometrics_workbench.server`,
+  command: `${seed} && uv run python -m chemometrics_workbench.server`,
   cwd: "..",
   url: `http://127.0.0.1:${port}/`,
   env: {
-    CHEMOMETRICS_PROJECT: `${ROOT}/${name}`,
-    CHEMOMETRICS_CONFIG_HOME: `${ROOT}/config`,
+    CHEMOMETRICS_PROJECT: path.join(ROOT, name),
+    CHEMOMETRICS_CONFIG_HOME: path.join(ROOT, "config"),
     WORKBENCH_PORT: port,
     WORKBENCH_TOKEN: "e2e-token",
-    WORKBENCH_BUNDLE: "frontend/dist",
+    WORKBENCH_BUNDLE: path.join("frontend", "dist"),
   },
   // Never reuse: a server left running from a development session holds a
   // different token and a project someone has been editing, and the failure
   // would look like a broken application.
   reuseExistingServer: false,
-  timeout: 240_000,
+  // Generous because this seeds a project through the kernels before the
+  // server starts, and a Windows runner is slower at all of it than the
+  // machine this was written on.
+  timeout: 420_000,
 });
 
 export default defineConfig({
@@ -79,9 +98,9 @@ export default defineConfig({
     },
   ],
   webServer: [
-    serve("seeded", "8765", `uv run python tests/seed_e2e.py ${ROOT}/seeded`),
-    serve("empty", "8766", `uv run python tests/seed_e2e.py --empty ${ROOT}/empty`),
-    serve("runs", "8767", `uv run python tests/seed_e2e.py --unrun ${ROOT}/runs`),
-    serve("walkthrough", "8768", `uv run python tests/seed_e2e.py --empty ${ROOT}/walkthrough`),
+    serve("seeded", "8765", seedCommand("seeded", "")),
+    serve("empty", "8766", seedCommand("empty", "--empty")),
+    serve("runs", "8767", seedCommand("runs", "--unrun")),
+    serve("walkthrough", "8768", seedCommand("walkthrough", "--empty")),
   ],
 });

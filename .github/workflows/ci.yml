@@ -77,8 +77,14 @@ jobs:
   # matrix: nothing it does depends on the Python version, and running it twice
   # would only double the minutes.
   frontend:
-    name: frontend
-    runs-on: ubuntu-latest
+    name: frontend (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Never fail-fast: a failure on one platform is a fact about that
+      # platform, and cancelling the others hides whether it is the only one.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     defaults:
       run:
         working-directory: frontend
@@ -116,11 +122,17 @@ jobs:
       - name: Build
         run: pnpm build
 
-      # Chromium only, but with its system libraries: the runner does not carry
-      # all of them, and a browser that cannot start fails the run at the last
-      # step after everything else has already passed.
-      - name: Install Playwright chromium
+      # Chromium only. `--with-deps` installs the system libraries the browser
+      # needs and is Linux-only - it is what apt-get would do, and there is
+      # nothing for it to do on macOS or Windows, where it fails rather than
+      # being ignored.
+      - name: Install Playwright chromium (Linux)
+        if: runner.os == 'Linux'
         run: pnpm exec playwright install --with-deps chromium
+
+      - name: Install Playwright chromium
+        if: runner.os != 'Linux'
+        run: pnpm exec playwright install chromium
 
       # The end-to-end tests run against the real server serving the built
       # bundle - the same origin and the same token the packaged application
@@ -137,8 +149,21 @@ jobs:
         working-directory: .
         run: uv sync --locked
 
-      # e2e/walkthrough.spec.ts is #50's exit criterion. Its three tests are
-      # test.fixme until #108 gives the canvas a way to save a pipeline; what
-      # they assert is covered meanwhile by empty, runs and analysis specs.
+      # e2e/walkthrough.spec.ts is #50's exit criterion and Phase 1.2's (#90):
+      # an empty project, a file the user picks, a pipeline built and saved,
+      # a run, and a scores plot equal to what the server served. It runs on
+      # all three platforms because the application is shipped on all three,
+      # and a walkthrough that only ever ran on the runner it was written for
+      # proves less than it appears to.
       - name: End-to-end
         run: pnpm test:e2e
+
+      # The traces say which platform failed and where, which is the whole
+      # reason for running three of them.
+      - name: Upload the report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.os }}
+          path: frontend/playwright-report/
+          retention-days: 7

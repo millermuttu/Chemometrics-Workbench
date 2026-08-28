@@ -440,7 +440,7 @@
         "pipeline-persistence"
       ],
       "user_visible_behavior": "The Phase 1.1 walkthrough passes against the real backend, on a file the user picks, with no stub in the repository.",
-      "status": "not_started",
+      "status": "in_progress",
       "verification": [
         "#50's walkthrough runs green against the real server, in CI, on the three-platform matrix.",
         "The import step uses a real file chosen through the file dialog, not a fixture path.",
