@@ -15,7 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `design/data-model.md` — the same schema as mermaid diagrams, plus what is deliberately not modelled yet.
 - `design/canvas/` — artboard sources for the five core screens.
 - `frontend/` — the React application: the shell, the five screens, the Plotly theme bridge and the Playwright walkthrough.
-- `stub/` — the Phase 1.1 stub server and its generated fixtures. **Deleted in Phase 1.2 (#89).** Nothing new belongs in it.
+- `tests/fixtures/contract/` — the Phase 1.1 stub's generated fixtures, kept as regression inputs after `stub/` was deleted in #89. They are the contract the frontend was built against; they are not regenerated and nothing in `src/` reads them.
 - `docs/parity-report.md` — generated, never hand-edited.
 
 **Phase 1 runs in three sub-phases**, because the interface and the backend are independently riskiest and a frontend built against invented JSON would encode an API contract nobody agreed to:
@@ -48,13 +48,12 @@ Follow this on every session. It exists because the failure mode in a long solo 
 - The next feature to pick up is named.
 - `session-handoff.md` is rewritten to match the state just described, and committed.
 
-## Intended toolchain (not yet scaffolded)
+## Toolchain
 
-When scaffolding, use these — they are the recorded stack, and deviating from them is a decision worth surfacing:
+The recorded stack; deviating from it is a decision worth surfacing. The installed halves are in `pyproject.toml` and `frontend/package.json` — what is recorded here is what those files do not yet say.
 
-- **Backend:** Python, `uv` for environment and dependency management, FastAPI, Pydantic, NumPy, SciPy, pandas. Lint with `ruff`, type-check with `mypy`, test with `pytest`.
 - **`scikit-learn` and `chemotools` are development dependencies, not runtime ones**, and must not be added to `[project.dependencies]`. They are the open reference implementations the parity fixtures are generated against; a kernel that imported either would be a wrapper around the thing we claim parity with. `chemotools` was evaluated in Phase 0 (#13) and rejected for the runtime for that reason plus its weight — it requires scikit-learn and installs 20 MB, 17 MB of it bundled example data. It is adopted as a reference for SNV, MSC and the baselines, which have no other. The evidence is in `docs/decisions/0001-chemotools.md`.
-- **Frontend:** Node.js with `pnpm`, Vite, React, TypeScript, Tailwind CSS, shadcn/ui, TanStack Query, Plotly.js. Test with `vitest`, end-to-end with `playwright`.
+- **Frontend:** shadcn/ui is the component library — recorded, not yet installed.
 - **Data:** SQLite via SQLAlchemy for metadata, pipelines, experiments, metrics and lineage. Files (datasets, processed arrays, model artifacts, reports) live in the project directory on disk; the database stores references, never contents.
 - **Packaging:** PyInstaller, three-platform GitHub Actions matrix.
 

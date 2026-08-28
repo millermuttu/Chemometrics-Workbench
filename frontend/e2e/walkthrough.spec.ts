@@ -1,17 +1,30 @@
 import { expect, test, type Page } from "@playwright/test";
 
-/** Phase 1.1's exit criterion, written as a test.
+import { spectraCsv } from "./spectra-file";
+
+/** Phase 1.1's exit criterion, written as a test - and Phase 1.2's, which is
+ * #90.
  *
- * The sub-phase is finished when this passes, not when the screens look done -
- * which is the point of writing it as a test rather than judging by eye at the
- * end. It walks the whole path against the stub server: an empty project, an
- * import with its detection preview, the dataset loaded, a pipeline assembled
- * through the step list, a run watched through its real lifecycle, and the
- * scores read back and compared against the numbers the kernel produced.
+ * **These are `fixme` and that is a real status, not a caveat on a pass.** The
+ * walkthrough assembles a pipeline through the step list and then runs it. The
+ * step list builds a *draft*, on the client, and there is no endpoint that
+ * writes a pipeline back: the frontend has read `pipelines/current` since its
+ * first commit and has never posted one, and #89 served every URL the frontend
+ * uses without inventing one it does not. So the SNV, Savitzky-Golay and PCA
+ * nodes this walks through never reach the server, and the run that follows
+ * has only the source node to execute.
  *
- * Two more paths follow it: one that cancels a running job, one that provokes
- * a failure and reads the cause.
+ * That gap is the finding, recorded as its own issue rather than closed by a
+ * widened branch: **the pipeline cannot be edited over HTTP**. Everything else
+ * the walkthrough asserts is covered and passing elsewhere against the real
+ * backend - the empty project and the import in `empty.spec.ts`, the run's
+ * lifecycle, cancellation and failure in `runs.spec.ts`, and the scores
+ * compared against what the kernel produced in `analysis.spec.ts`. What is
+ * missing is the single path through all of them, which is #90's subject and
+ * needs the endpoint first.
  */
+
+test.fixme(true, "no endpoint writes a pipeline; the step list is a client-side draft (#90)");
 
 /** What the server says the results are. The walkthrough asserts the screen
  * shows these numbers, not merely that a plot exists. */
@@ -46,22 +59,27 @@ async function drawnScores(page: Page) {
 
 test("the whole path: empty project to a scores plot the kernel produced", async ({ page }) => {
   // 1. An empty project, with one obvious action.
-  await page.goto("/?token=e2e-token&empty");
+  await page.goto("/?token=e2e-token");
   await expect(page.getByRole("heading", { name: "This project is empty" })).toBeVisible();
   await page.getByRole("button", { name: "Import data" }).click();
 
-  // 2. Import, with the detection stated before anything is committed.
-  await page.getByRole("button", { name: "Use the example file" }).click();
-  await expect(page.getByText("tecator.txt")).toBeVisible();
-  await expect(page.getByLabel("Delimiter")).toHaveValue("whitespace");
+  // 2. Import the file the user picked, with the detection stated before
+  //    anything is committed. Thirty samples because a PCA of five components
+  //    needs a matrix that has five.
+  await page.getByLabel("Choose file").setInputFiles({
+    name: "spectra.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(spectraCsv(30, 12)),
+  });
+  await expect(page.getByText("spectra.csv")).toBeVisible();
+  await expect(page.getByLabel("Delimiter")).toHaveValue(",");
   await expect(page.getByLabel("Orientation")).toHaveValue("samples_in_rows");
-  await expect(page.getByText(/reconstructed as 100 evenly spaced points/)).toBeVisible();
 
   // 3. The dataset is loaded only after the preview is confirmed.
-  await expect(page.getByRole("tab", { name: /tecator_raw/ })).toHaveCount(0);
-  await page.getByRole("button", { name: "Import 240 × 100" }).click();
-  await expect(page.getByRole("tab", { name: /tecator_raw/ })).toBeVisible();
-  await expect(page.getByRole("cell", { name: "C001" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: /spectra/ })).toHaveCount(0);
+  await page.getByRole("button", { name: "Import 30 × 12" }).click();
+  await expect(page.getByRole("tab", { name: /spectra/ })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "A001" })).toBeVisible();
 
   // 4. A pipeline assembled through the step list: SNV, then Savitzky-Golay,
   //    then PCA. Direct manipulation is #51; this is 1.1's builder.
@@ -142,7 +160,7 @@ test("the cancel path: a running job stops where it stood", async ({ page }) => 
 });
 
 test("the failure path: the run names a cause and shows no trace", async ({ page }) => {
-  await page.goto("/?token=e2e-token&failrun");
+  await page.goto("/?token=e2e-token");
   await page.getByRole("button", { name: "Run pipeline" }).click();
 
   const failure = page.getByTestId("run-failed");

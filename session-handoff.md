@@ -2,19 +2,17 @@
 
 Compact state for the next session. **Overwrite this file at the end of every session** — it is a snapshot, not a log. Read it first, then `feature_list.json`, `git log` on `dev`, and the open issues.
 
-**Updated:** 2026-08-27
+**Updated:** 2026-08-28
 
 ---
 
 ## Where things stand
 
-**Phase 0 is released and tagged `v0.1.0`. Phase 1.1 is released and tagged `v0.2.0`.** The walking skeleton walks: the React shell and its five core screens, over a token-authenticated stub FastAPI server on `127.0.0.1`, with a Playwright walkthrough green in CI.
+**Phase 0 is released and tagged `v0.1.0`. Phase 1.1 is released and tagged `v0.2.0`.**
 
-**Phase 1.2 is thirteen features in, of nineteen.** The project directory and the array store are real, all three readers are written, the schema no longer advertises a step the executor could not run, the executor runs a pipeline from a real dataset and now fits its PCA nodes too, the import endpoints read a real file into a real `DatasetVersion`, the validator emits the two warnings nothing has ever emitted, the Phase 0 metrics gap is closed, a run is a real background job with counted progress, and the spectra payload is decimated by the server. **Every feature in 1.2 is now done except the two that close it: #89 and #90.** Four new issues came out of that work — #97, #99, #101 and #103, all listed below.
-
-**Two features have landed with their HTTP half deferred.** #81's handlers and #87's results payload are written and tested; neither is served, because the swap from the stub is one cut rather than a handler at a time. That is #99, and it lands in #89.
-
-**1.2's exit criterion:** #50's walkthrough passes against the real backend, on a file the user picks, with `stub/` deleted (#90).
+**Phase 1.2 is sixteen features in, of twenty-one.** #89 is done: there is one server, `stub/` is
+deleted, and the whole end-to-end suite runs against the real backend. What is left in the sub-phase
+is **#90**, and #90 is **blocked behind #108**.
 
 | | Feature | Issue | Depends on | Status |
 | --- | --- | --- | --- | --- |
@@ -33,50 +31,110 @@ Compact state for the next session. **Overwrite this file at the end of every se
 | K | Server-side decimation and the density band | #86 | H | passing |
 | L | Results endpoint | #87 | H | passing |
 | M | The metrics gap | #88 | — | passing |
-| M′ | The import contract findings | #99 | F, L | not started |
+| M′ | The import contract findings | #99 | F, L | **passing** |
 | M″ | Rank through the store | #101 | L | not started |
-| N | HTTP surface complete, stub retired | #89 | F, J, K, L | not started |
-| O | 1.2's exit criterion as a test | #90 | I, N | not started |
-
-Chain: `A → B → C → {D, E, F} → H → {I, J, K, L} → N → O`. **H′ (#97) blocks nothing**, but #86 and #87 both need its answer before they assert anything about `centre_d`. **M′ (#99) is folded into N and O** rather than done on its own, and now covers #87's endpoint as well as #81's. **M″ (#101) blocks nothing** and is a specification decision, like #71. **I′ (#103) blocks nothing** — it is #84's own convention working: a third warning becomes an issue rather than a widened branch.
+| N | HTTP surface complete, stub retired | #89 | F, J, K, L | **passing** |
+| N′ | No endpoint writes a pipeline | **#108** | N | **not started — blocks #90** |
+| N″ | The overloaded state is unreachable | **#109** | N | not started |
+| O | 1.2's exit criterion as a test | #90 | I, N, **#108** | not started |
 
 ## Current work
 
-**Nothing is `in_progress`.** Every Phase 1.2 feature except #89 and #90 merged into `dev` on 2026-08-27 — #81, #82, #83, #84, #85, #86, #87 and #88, as pull requests #100, #96, #98, #104, #106, #107, #102 and #105. All branches are deleted locally and on origin, the tree is clean and `dev` is pushed.
+**Nothing is `in_progress`.** #89 and #99 are done on `feature/89_http-surface-complete`, committed
+but **not yet pushed and with no pull request open** — see "Waiting on the user".
+
+## What #89 turned out to be
+
+It was much bigger than its issue text, as the last handoff warned, and the reason is worth keeping:
+**pointing the end-to-end suite at the real backend found bugs the stub had been hiding.** Four in the
+server, one in the frontend contract, all fixed here with regression tests.
+
+1. **Nothing ever wrote `experiment.json`.** `GET /experiments/current` — a published endpoint — answered
+   404 for the life of a project however many runs had happened. `executor.experiment_for` and
+   `jobs.submit_run` now write the record on every ending: succeeded, failed and cancelled alike,
+   because a failed experiment is a result and `models.py` says so on the field.
+2. **`pipelines/{id}/state` could not report a failed node.** It knew `complete`, `queued`, `running`
+   and `not_run`, so a failed run rendered as a graph of nodes that merely never ran, and the
+   artboard's `failed` encoding was a state only the fixture could produce.
+3. **The job blamed the wrong node** — the last one to *report progress*, which is precisely the last
+   one that finished rather than the one that raised. `ExecutorError` has carried `node_id` as a field
+   since #83 for exactly this ("a canvas that wants to mark the node red cannot parse it back out of
+   English"); the job now reads it.
+4. **A plain `GET` could 500, intermittently.** `open_project` called `_remember` on *every* call,
+   rewriting a registry file shared by every project on the machine; a page load asks six questions at
+   once and two of them racing on that write failed the open. Worse, the check-then-create in
+   `open_project_directory` was unsynchronised, and `create_project` makes `arrays/` before it writes
+   `project.json` — so the losers of that race found a directory that was neither empty nor yet a
+   project, which made **the first load of a brand-new project a 500**. Both are fixed, and
+   `test_concurrent_reads_on_one_project_never_fail` fires thirty concurrent reads at one project.
+5. **One frontend change, and it is the finding.** Nothing refetched `pipelines/{id}/state` while a job
+   advanced: in 1.1 the fixture had a node permanently `running` and another permanently `failed`, so
+   those states were on screen without anything asking for them. Against a real backend they are
+   *events*. `Shell.tsx` now invalidates `pipeline-state` when the job's status or `node_id` changes,
+   following the poll the job query already runs. **No URL and no payload changed.**
+
+## How the end-to-end suite works now
+
+**A state is a project, so a starting state is a seeded directory.** The stub reached its states
+through query parameters, which meant one server could be anything on request. `playwright.config.ts`
+now runs **three real servers over three real project directories**, seeded by `tests/seed_e2e.py`:
+
+- **8765 `seeded`** — Tecator imported through the real import handler, the artboard's four-branch
+  fourteen-node pipeline with every node executed. Everything that reads.
+- **8766 `empty`** — a project with nothing in it. The empty state, and the imports, which are the
+  tests that *change* the project they run in.
+- **8767 `runs`** — the same pipeline plus a branch that cannot be fitted, with **nothing executed**.
+  Runs really run here, so they can be watched, cancelled and failed.
+
+Things that were learned the hard way and should not be rediscovered:
+
+- **Tecator is too fast to watch.** The whole fourteen-node run finishes in about 0.2 s — real work,
+  and far quicker than a browser polling four times a second can catch a node `running`. The `runs`
+  project therefore carries a **synthetic 2,000 × 800 matrix** (`seed_e2e.synthetic_dataset`),
+  generated and stated as such; **no number is claimed from it**, the same footing as #86's fixture.
+  4,000 × 1,500 was measured at ~3 s per branch and rejected as impolite on a runner.
+- **A cached pipeline has no work to cancel.** This is why the run tests cannot share the seeded
+  project, and it is correct behaviour rather than a problem to work around.
+- **A failed run is remembered by the job table**, so it would follow every later test on the same
+  server. That is the other reason `runs` is its own project.
+- **`data/tecator/tecator.txt` is not reader-readable** — a prose header and the 22 principal
+  components the file also supplies, which is why `load_tecator` parses it specially. The seed writes
+  the data out as a CSV and posts it to the real `/api/import`, so the seeded dataset comes through
+  the reader a user's file goes through.
+- **The real backend reproduces the fixture's numbers**: 240 × 100, explained variance 68.9 / 28.4 /
+  1.6 per cent and 99.9 cumulative, 240 spectra decimated to 60 traces. `spectra.spec.ts` and
+  `analysis.spec.ts` pass **unchanged**, which is the strongest evidence the swap kept the contract.
 
 ## Next action
 
-**#89 is what is left**, and then #90. Four findings are open — **#97**, **#99**, **#101** and **#103** — of which #97 and #101 are specification decisions waiting on the maintainer, and #103 is small.
+**#108, then #90.** #108 is the blocker and it is a real design question, not a detail.
 
-**#89 is much bigger than its issue text suggests, and that is the single most important thing to know before starting it.** It now carries:
+**#108 — no endpoint writes a pipeline.** The step list builds a **client-side draft**; the frontend
+has read `pipelines/current` since its first commit and has never posted one, so 1.1 published no way
+to save a pipeline and #89 served every URL it did publish without inventing one it did not. The
+consequence is that #50's three walkthrough tests are `test.fixme` with the reason in the file: the
+SNV, Savitzky-Golay and PCA nodes the walkthrough assembles never reach the server, and the run that
+follows has only the source node to execute. **Everything else the walkthrough asserts already passes
+against the real backend** — the empty project and the import in `empty.spec.ts`, the run's lifecycle,
+cancellation and failure in `runs.spec.ts`, the scores against the kernel's own numbers in
+`analysis.spec.ts`. What is missing is the single path through them.
 
-- the pipeline store, which nothing else has built and which four deferred endpoints all need;
-- the import handlers (#81), the results endpoint (#87), the run endpoint (#85) and the spectra endpoint (#86), all written and tested but not served;
-- the frontend's file-picker change — the 1.1 import screen discards the file the user picks (#99);
-- the four 1.1-only affordances (`?empty`, `?oversize`, `?failrun`, `X-Stub-Fail`);
-- a rewrite of the 17 end-to-end tests that assume the fixture project and dataset.
+The shape of #108 is a decision to take deliberately: whether the canvas `PUT`s a whole pipeline or
+`POST`s node operations, and what either means for #83's merkle cache keys. Layout coordinates must
+stay outside `Pipeline.content_hash()` — moving a node must not invalidate a cache entry.
 
-**Consider splitting it before starting.** The pipeline store is a feature on its own and everything else waits on it; doing it as one branch means one pull request that cannot be reviewed in pieces and cannot land half-done. **#97 should be answered before #86's and #87's numbers are asserted end to end in #90.**
+**Then #90**, which is the exit criterion and is mostly un-`fixme`-ing the walkthrough once #108 lands.
 
-### Decisions taken with the maintainer, so they are not re-argued
-
-1. **The project directory and the array store land in 1.2; SQLite stays in 1.3.** Files are real from 1.2 — a restart loses the project *list*, not the data.
-2. **All three readers land in 1.2** — done, and #78's interface survived being generalised by #79 and re-proven by #80.
-3. **`MSC(reference="supplied")` is removed from the enum** (#82) — done. The kernel keeps the capability; the schema stops claiming a saved pipeline can express it. Re-adding it means adding the spectrum's field too, which is additive and needs no migration. This closes the question open since pull request #22.
-4. **Estimator fitting is #87's, not the executor's** (taken in #83). `execute` walks estimator nodes and reports them in `Run.pending_estimators` rather than fitting them, because what a fitted estimator stores — with which diagnostics and which limits — is exactly what #87 specifies. Guessing at it in #83 would have been the invented contract Phase 1.1 existed to avoid.
-
-### What to be careful about in 1.2
-
-- **The frontend should need no changes at all.** If a screen has to be edited to work against the real backend, the 1.1 contract was wrong, and *that is the finding* — record it rather than quietly adjusting the screen. #82 is the shape to copy: the schema narrowed, the fixture regenerated, and the inspector's generated form followed with no screen touched.
-- **Four affordances die in #89**: `?empty`, `?oversize`, `?failrun` and `X-Stub-Fail`. Grep for them; each has a comment saying it is 1.1-only.
-- **Seven handlers in `stub/server.py` carry `Phase 1.2:` markers** naming the issue that replaces each. Grep `Phase 1.2:`.
-- **The validator has two warnings specified and nothing emitting them** (#84): a `MeanCentre` or `Autoscale` upstream of a split leaks validation samples into the training statistics and makes RMSECV optimistic; a PLS node with no centring upstream is legal and almost always wrong. `metrics-and-validation.md` §9 and `pls-regression.md` §3. **The 1.1 validate endpoint returns `valid: true` unconditionally** — a stub with a GUESS envelope, and this is what fills it.
-- **The metrics gap (#88) is a Phase 0 inheritance**: SEC, SEP, Q² and `coefficients_original_units` are specified in `metrics-and-validation.md` §5–§6 and not implemented. Nothing verified them in #12.
-- **Tecator at 100 variables never exercised x-axis decimation.** #86 needs a dataset big enough to actually drop points along the wavelength axis.
+Loose findings, none blocking: **#97** and **#101** are specification decisions waiting on the
+maintainer, **#103** is small, **#109** is probably a decision to record rather than a test to write.
 
 ## Waiting on the user
 
 - **#71 — what a non-positive `h0` should do** in the Jackson–Mudholkar SPE limit. Gasoline's `h0` is −0.0190; our kernel uses it as computed, `mdatools` clamps it to 0.001. The divergence is recorded and proven; what the kernel *should* do is a specification decision, not a coding one.
+- **GitHub was unreachable for the whole of the 2026-08-28 session** — `api.github.com` did not resolve and the GitHub MCP server failed with `ETIMEOUT`. Three things follow, and all three are outstanding:
+  - **`feature/89_http-surface-complete` is committed but not pushed, and has no pull request.** Push it and open one **with `dev` as the base**.
+  - **Issues #108 and #109 do not exist on GitHub yet.** They are in `feature_list.json` with full notes, and the numbers were reserved by assumption — check what the next free number actually is when GitHub is reachable, and correct both the issues and the references to them in `feature_list.json`, `session-handoff.md` and `frontend/e2e/walkthrough.spec.ts` if they differ.
+  - #89 and #99 could not be closed from here.
 - **GitHub default branch is still `main`.** Any pull request opened without an explicit base targets the release line. Change it under Settings → Branches; it cannot be changed from here with the current tools.
 - **Parity against a commercial package** — `PROPOSAL.md` §19 Q4 is unresolved. The EULA is not public; a licence would have to be confirmed and written permission sought before publishing a comparison.
 - Remaining open questions are in `PROPOSAL.md` §19 — team and pace, funding intent, project name.
@@ -173,7 +231,7 @@ From #42–#50 (the frontend), which 1.2 must not disturb:
 
 From #41 and #53 (the fixtures and the stub server), which are the contract 1.2 has to honour:
 
-- **The fixtures are the contract, and they are generated.** `stub/generate_fixtures.py` computes nothing of its own — it calls kernels and reshapes their output. Deterministic: UUID5 of a fixed namespace, every timestamp pinned to `2026-08-24T09:00Z`.
+- **The fixtures are the contract, and they were generated.** They computed nothing of their own — the generator called kernels and reshaped their output. They now sit in `tests/fixtures/contract/`, frozen: a payload that has to change shape is a decision recorded in the issue, never a quiet edit to a file there.
 - **The envelope shapes are marked GUESS and the numbers are not.** Every array, metric, confidence limit, content hash and fold index is real and **1.2 must reproduce it**. Pagination, the error body, how a job reports progress and how run-state attaches to a pipeline are guesses 1.2 may change — each is marked at the point it is built.
 - **The endpoint paths are the ones 1.2 implements**, so the frontend never changes when the handlers do: `projects`, `projects/{id}/datasets`, `import/preview`, `import`, `pipelines/{id}`, `pipelines/{id}/state`, `pipelines/{id}/validate`, `experiments/{id}`, `experiments/{id}/run`, `jobs/{id}`, `jobs/{id}/cancel`, `spectra/{node_id}`, `results/{node_id}`. All under `/api`, all requiring `Authorization: Bearer <token>`.
 - **`spectra/{node_id}` is keyed on the pipeline's node ids**, not dataset ids. `results/{node_id}` likewise takes `pca_a`–`pca_d`. Anything else is a 404 with a body.

@@ -52,7 +52,13 @@ test("an accepted edit marks downstream nodes stale and offers a re-run", async 
   await expect(page.locator(".react-flow__node")).toHaveCount(14);
 
   await page.getByRole("button", { name: "Re-run" }).click();
-  await expect(page.getByRole("status").first()).toContainText(/Queued|Preprocessing/);
+  // Any point of the lifecycle: the edited node's own arrays are the only ones
+  // that have to be recomputed, and on 240 x 100 that is over in milliseconds -
+  // often before the poll that would have caught "Queued". `runs.spec.ts` is
+  // where a run is slow enough to watch advance.
+  await expect(page.getByRole("status").first()).toContainText(
+    /Queued|Preprocessing|Fitting|Done/,
+  );
 });
 
 test("provenance is collapsed until asked for, and hashes are truncated in the middle", async ({
@@ -64,5 +70,7 @@ test("provenance is collapsed until asked for, and hashes are truncated in the m
 
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  await expect(inspector.getByText("sha256:e435…90d7")).toBeVisible();
+  // The hash is the file's, so it is asserted by shape rather than by value:
+  // it belonged to the fixture before #89 and belongs to the imported file now.
+  await expect(inspector.getByText(/^sha256:[0-9a-f]{4}…[0-9a-f]{4}$/)).toBeVisible();
 });

@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 import type { Pipeline, PipelineState } from "@/api/queries";
 import { draftGraph, nodeStateOf, parameterLine, toEdges, toNodes } from "@/canvas/graph";
 
-const FIXTURES = path.resolve(import.meta.dirname, "../../../stub/fixtures");
+const FIXTURES = path.resolve(import.meta.dirname, "../../../tests/fixtures/contract");
 const read = <T,>(name: string) =>
   JSON.parse(readFileSync(path.join(FIXTURES, `${name}.json`), "utf8")) as T;
 

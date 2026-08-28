@@ -7,16 +7,9 @@ is where the replacements live, and in #89 it becomes the whole server.
 **Not one URL changes.** That was the point of building the frontend against
 these paths from its first commit.
 
-**The stub does not include this router yet, and that is a finding rather than
-an oversight** — see #99. Swapping one handler at a time works only where the
-handlers are independent, and the import flow is not: the project the frontend
-lists, the dataset it opens and the pipeline it runs are one chain, and a real
-import produces a dataset the fixture pipeline knows nothing about. On top of
-that the 1.1 import screen sends no file at all — its `<input type="file">`
-discards what the user picked and posts an empty body — so these endpoints
-could not be reached from it even if the rest lined up. Both are #89's to
-settle, with the walkthrough rewritten in #90. Until then this router is
-exercised by `tests/test_api.py` and the stub keeps serving the 1.1 flow.
+#99 recorded why these could not be swapped in one at a time: the project the
+frontend lists, the dataset it opens and the pipeline it runs are one chain, so
+the swap is one cut. This is that cut.
 
 ## What is here now
 
@@ -27,7 +20,17 @@ nowhere to appear.
 - `GET  /api/projects`, `GET /api/projects/{id}` — the open project
 - `GET  /api/projects/{id}/datasets` — read from `datasets.json` on disk
 - `POST /api/import/preview` — the reader's detection, nothing committed
-- `POST /api/import` — commits with the user's corrections applied
+- `POST /api/import` — commits with the user's corrections applied, and starts
+  a pipeline on the dataset if the project has none
+- `GET  /api/pipelines/{id}` and `/state`, `POST /api/pipelines/{id}/validate`
+- `GET  /api/experiments/{id}`, `POST /api/experiments/{id}/run`
+- `GET  /api/jobs/{id}`, `POST /api/jobs/{id}/cancel`
+- `GET  /api/spectra/{node_id}`, `GET /api/results/{node_id}`
+- `GET  /api/schema/steps`, `POST /api/steps/validate`
+
+`current` is a real id here: the frontend has asked for `pipelines/current` and
+`experiments/current` since its first commit, and a project holds one of each
+until there is a database to hold more.
 
 `results_payload` (#87) renders an estimator result for `results/{node_id}`,
 `spectra_payload` (#86) renders `spectra/{node_id}`, and `validation_payload`
@@ -75,18 +78,32 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import threading
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated, Any
 
 import numpy as np
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from numpy.typing import NDArray
+from pydantic import TypeAdapter, ValidationError
 
 from chemometrics_workbench import readers
 from chemometrics_workbench.checks import check_pipeline
-from chemometrics_workbench.executor import EstimatorResult
-from chemometrics_workbench.models import Dataset, DatasetVersion, Pipeline, Project
+from chemometrics_workbench.executor import EstimatorResult, stored
+from chemometrics_workbench.executor import stored_display as _stored_display
+from chemometrics_workbench.executor import stored_result as _stored_result
+from chemometrics_workbench.jobs import Job, Jobs, submit_run
+from chemometrics_workbench.models import (
+    Dataset,
+    DatasetVersion,
+    NodeId,
+    Pipeline,
+    PipelineNode,
+    PreprocessStep,
+    Project,
+    SourceNode,
+)
 from chemometrics_workbench.project import (
     DatasetEntry,
     ProjectError,
@@ -95,7 +112,12 @@ from chemometrics_workbench.project import (
     create_project,
     open_project,
     read_datasets,
+    read_experiment,
+    read_layout,
+    read_pipeline,
     write_array,
+    write_layout,
+    write_pipeline,
 )
 
 __all__ = [
@@ -131,6 +153,20 @@ _BLOCK = 1 << 20
 
 router = APIRouter()
 
+#: The one job table this process has. Jobs do not survive a restart, which is
+#: Phase 1.3's; see `jobs.py`.
+JOBS = Jobs()
+
+#: Where the canvas puts a node it has never seen. Left to right by depth, in
+#: the artboards' spacing, so a generated graph reads like a drawn one until
+#: the user moves something.
+_LAYOUT_STEP_X = 170
+_LAYOUT_STEP_Y = 130
+
+
+#: Serialises the check-then-create in `open_project_directory`; see there.
+_CREATE_LOCK = threading.Lock()
+
 
 def open_project_directory() -> Path:
     """The one project this server has open, created on first use.
@@ -140,8 +176,22 @@ def open_project_directory() -> Path:
     """
     configured = os.environ.get("CHEMOMETRICS_PROJECT")
     directory = Path(configured) if configured else config_dir() / "projects" / "default"
-    if not (directory / "project.json").exists():
-        create_project(directory, name=directory.name, description="")
+    # Check-then-act, under a lock. A page load asks six questions at once and
+    # every one of them opens the project, so on a directory that is not a
+    # project yet every one of them tries to create it. `create_project` makes
+    # `arrays/` before it writes `project.json`, so the losers found a
+    # directory that was neither empty nor yet a project and refused - turning
+    # the first load of a new project into a 500, intermittently.
+    #
+    # A lock rather than a retry because the two cases a retry has to tell
+    # apart - a winner halfway through and a directory that really is not a
+    # project - look identical from outside, and only waiting distinguishes
+    # them. One server owns one project directory, so one lock is the whole of
+    # it; two processes over one directory is a database question, not this
+    # one, and it arrives with SQLite in Phase 1.3.
+    with _CREATE_LOCK:
+        if not (directory / "project.json").exists():
+            create_project(directory, name=directory.name, description="")
     return directory
 
 
@@ -165,6 +215,24 @@ def _entry_json(entry: DatasetEntry) -> Any:
 
 
 # --- Projects and datasets ------------------------------------------------
+#
+# ## Pagination is deferred, and this is the reason (#89)
+#
+# Phase 1.1 marked pagination a GUESS: the list endpoints return a bare JSON
+# array, with no envelope to hang `next` or `total` off. #89 keeps that, and
+# the decision is recorded here rather than left to be rediscovered.
+#
+# There is nothing to page. A project holds one pipeline and, until SQLite
+# arrives in Phase 1.3, its datasets are a JSON file read whole - paging a list
+# that is already entirely in memory adds a cursor the client must thread
+# through and buys nothing. `GET /projects` returns the single open project for
+# the same reason: the server has one.
+#
+# What would change the answer is Phase 1.3's database and more than one
+# project per server, and by then the store can page properly instead of
+# slicing a list it just parsed. Adding the envelope now would fix the shape of
+# an answer before knowing the question - which is what Phase 1.1 existed to
+# avoid, and why these endpoints were built against a published contract.
 
 
 @router.get("/projects")
@@ -252,6 +320,8 @@ async def import_dataset(
 
     try:
         entry = add_dataset(directory, dataset, version)
+        if read_pipeline(directory) is None:
+            start_pipeline(directory, project, version)
     except ProjectError as error:
         raise _fail(500, "project_unavailable", str(error)) from error
     return _entry_json(entry)
@@ -585,3 +655,304 @@ def _trace(index: int, y: NDArray[np.float64], version: DatasetVersion) -> dict[
         "sample_id": ids[index] if index < len(ids) else f"row {index}",
         "y": [float(value) for value in y],
     }
+
+
+# --- Pipelines ------------------------------------------------------------
+
+
+def _current_pipeline(directory: Path) -> Pipeline:
+    pipeline = read_pipeline(directory)
+    if pipeline is None:
+        raise _fail(
+            404,
+            "not_found",
+            "this project has no pipeline yet. Import a dataset and one is started for it.",
+        )
+    return pipeline
+
+
+@router.get("/pipelines/{pipeline_id}")
+def get_pipeline(pipeline_id: str) -> Any:
+    """The project's pipeline. `current` is the id the frontend has always used."""
+    directory, _ = _project()
+    pipeline = _current_pipeline(directory)
+    if pipeline_id not in ("current", str(pipeline.pipeline_id)):
+        raise _fail(404, "not_found", f"no pipeline {pipeline_id}.", pipeline_id=pipeline_id)
+    return json.loads(pipeline.model_dump_json())
+
+
+@router.get("/pipelines/{pipeline_id}/state")
+def get_pipeline_state(pipeline_id: str) -> Any:
+    """Which nodes have a current result, which are running, and where they sit.
+
+    Derived, never stored: a node is `complete` because its output is on disk
+    under its own key, and `not_run` because it is not. That is #83's staleness
+    rule read back rather than a second flag kept beside the graph — a flag can
+    disagree with the arrays, and this cannot.
+
+    The layout *is* stored, in its own file outside `Pipeline.content_hash()`,
+    because where a node sits is not something the arrays can imply.
+    """
+    directory, _ = _project()
+    pipeline = _current_pipeline(directory)
+    version = _current_version(directory, pipeline)
+
+    present = stored(directory, pipeline, version) if version is not None else {}
+    running = _running_job(str(pipeline.pipeline_id))
+    failed = _failed_job(str(pipeline.pipeline_id))
+    states: dict[str, dict[str, Any]] = {}
+    for node in pipeline.nodes:
+        states[node.id] = _node_state(node, present, running, failed)
+
+    return {
+        "pipeline_id": str(pipeline.pipeline_id),
+        "nodes": states,
+        "layout": _layout(directory, pipeline),
+    }
+
+
+@router.post("/pipelines/{pipeline_id}/validate")
+def validate_pipeline(pipeline_id: str) -> Any:
+    directory, _ = _project()
+    return validation_payload(_current_pipeline(directory))
+
+
+def _node_state(
+    node: PipelineNode, present: dict[NodeId, str], running: Job | None, failed: Job | None = None
+) -> dict[str, Any]:
+    if running is not None:
+        if running.node_id == node.id:
+            return {"state": "running", "progress": running.progress}
+        if node.id not in present:
+            return {"state": "queued"}
+    # A run that failed names the node it failed on, and that node carries the
+    # cause. Without this the canvas showed a failed run as a graph of nodes
+    # that merely never ran, and the artboard's `failed` encoding - the left
+    # stripe and the footer - was a state only the fixture could produce.
+    if failed is not None and failed.node_id == node.id:
+        return {"state": "failed", "message": failed.message}
+    if node.id not in present:
+        return {"state": "not_run" if running is None else "queued"}
+    return {"state": "complete"}
+
+
+def _layout(directory: Path, pipeline: Pipeline) -> dict[str, dict[str, float]]:
+    """Where each node sits, generated for any node the canvas has not placed.
+
+    Generated rather than left empty because a graph with every node at the
+    origin is unreadable, and the canvas has no way to send a layout back yet.
+    Anything already stored wins, so a node the user has moved stays moved.
+    """
+    stored_layout = read_layout(directory)
+    by_id = {node.id: node for node in pipeline.nodes}
+
+    depth: dict[str, int] = {}
+
+    def depth_of(node_id: str) -> int:
+        if node_id in depth:
+            return depth[node_id]
+        inputs = by_id[node_id].inputs
+        depth[node_id] = 0 if not inputs else 1 + max(depth_of(parent) for parent in inputs)
+        return depth[node_id]
+
+    rows: dict[int, int] = {}
+    layout: dict[str, dict[str, float]] = {}
+    for node in pipeline.nodes:
+        if node.id in stored_layout:
+            layout[node.id] = stored_layout[node.id]
+            continue
+        column = depth_of(node.id)
+        row = rows.get(column, 0)
+        rows[column] = row + 1
+        layout[node.id] = {
+            "x": float(40 + column * _LAYOUT_STEP_X),
+            "y": float(40 + row * _LAYOUT_STEP_Y),
+        }
+    return layout
+
+
+# --- Experiments and jobs -------------------------------------------------
+
+
+@router.get("/experiments/{experiment_id}")
+def get_experiment(experiment_id: str) -> Any:
+    directory, _ = _project()
+    experiment = read_experiment(directory)
+    if experiment is None:
+        raise _fail(404, "not_found", "nothing has been run in this project yet.")
+    if experiment_id not in ("current", str(experiment.experiment_id)):
+        raise _fail(404, "not_found", f"no experiment {experiment_id}.")
+    return json.loads(experiment.model_dump_json())
+
+
+@router.post("/experiments/{experiment_id}/run")
+def run_experiment(experiment_id: str) -> Any:
+    """Submit the pipeline and answer at once, before any work has happened.
+
+    §11: experiments are submitted as jobs, not waited on. The body is the
+    job's, which is what the screen polls.
+    """
+    directory, _ = _project()
+    pipeline = _current_pipeline(directory)
+    version = _current_version(directory, pipeline)
+    if version is None:
+        raise _fail(
+            409,
+            "no_dataset",
+            "the pipeline's source node points at a dataset version this project does not "
+            "hold. Import the file again, or start a pipeline on a dataset it does have.",
+        )
+    job = submit_run(JOBS, str(pipeline.pipeline_id), directory, pipeline, version)
+    return job.payload()
+
+
+@router.get("/jobs/{job_id}")
+def get_job(job_id: str) -> Any:
+    job = JOBS.get(job_id)
+    if job is None:
+        raise _fail(404, "not_found", f"no job {job_id}.", job_id=job_id)
+    return job.payload()
+
+
+@router.post("/jobs/{job_id}/cancel")
+def cancel_job(job_id: str) -> Any:
+    job = JOBS.cancel(job_id)
+    if job is None:
+        raise _fail(404, "not_found", f"no job {job_id}.", job_id=job_id)
+    return job.payload()
+
+
+def _running_job(experiment_id: str) -> Job | None:
+    return JOBS.running_for(experiment_id)
+
+
+def _failed_job(experiment_id: str) -> Job | None:
+    """The most recent failed run for this pipeline, if the last one failed.
+
+    Only the latest, and only while it is still the latest: a node that failed
+    an hour ago and has since been re-run is not failed, and the cheapest way
+    to say so is to let the next run's job replace this one.
+    """
+    return JOBS.latest_failed_for(experiment_id)
+
+
+# --- Node outputs ---------------------------------------------------------
+
+
+@router.get("/spectra/{node_id}")
+def get_spectra(node_id: str, highlight: Annotated[str | None, Query()] = None) -> Any:
+    directory, pipeline, version = _runnable()
+    values = _stored_display(directory, pipeline, version, node_id)
+    if values is None:
+        raise _fail(
+            404,
+            "not_found",
+            f"node {node_id!r} has no result yet. Run the pipeline, or pick a node that has.",
+            node_id=node_id,
+        )
+    return spectra_payload(node_id, values, version, highlight=_indices(highlight))
+
+
+@router.get("/results/{node_id}")
+def get_results(node_id: str) -> Any:
+    directory, pipeline, version = _runnable()
+    result = _stored_result(directory, pipeline, version, node_id)
+    if result is None:
+        raise _fail(
+            404,
+            "not_found",
+            f"node {node_id!r} has no fitted result yet.",
+            node_id=node_id,
+        )
+    return results_payload(result, version)
+
+
+def _indices(raw: str | None) -> list[int]:
+    if not raw:
+        return []
+    try:
+        return [int(part) for part in raw.split(",") if part.strip()]
+    except ValueError as error:
+        raise _fail(422, "bad_request", f"highlight must be whole numbers: {error}") from error
+
+
+# --- The step schema ------------------------------------------------------
+
+
+@router.get("/schema/steps")
+def step_schema() -> Any:
+    """The preprocessing steps' JSON Schema, from the live models.
+
+    Served from `models.py` rather than from a file, which is a change of
+    source and not of shape: the inspector builds its parameter forms from
+    this, so a field's bounds come from the same place the backend enforces
+    them.
+    """
+    return TypeAdapter(PreprocessStep).json_schema()
+
+
+@router.post("/steps/validate")
+def validate_step(step: dict[str, Any]) -> Any:
+    """Validate one step against the model that will enforce it.
+
+    The cross-field rules — an odd Savitzky-Golay window, `polyorder` below it,
+    `start` below `end` — live in `model_validator` and have no JSON Schema
+    equivalent, so a form checking them itself would be restating `models.py`
+    in TypeScript and drifting from it.
+    """
+    try:
+        TypeAdapter(PreprocessStep).validate_python(step)
+    except ValidationError as error:
+        return {
+            "valid": False,
+            "errors": [
+                {
+                    "field": ".".join(str(part) for part in problem["loc"]) or "step",
+                    "message": problem["msg"].removeprefix("Value error, "),
+                }
+                for problem in error.errors()
+            ],
+        }
+    return {"valid": True, "errors": []}
+
+
+# --- What the handlers above share ----------------------------------------
+
+
+def _current_version(directory: Path, pipeline: Pipeline) -> DatasetVersion | None:
+    """The dataset version the pipeline's source node names."""
+    sources = [node for node in pipeline.nodes if isinstance(node, SourceNode)]
+    wanted = {str(node.version_id) for node in sources}
+    for entry in read_datasets(directory):
+        for version in entry.versions:
+            if str(version.version_id) in wanted:
+                return version
+    return None
+
+
+def _runnable() -> tuple[Path, Pipeline, DatasetVersion]:
+    directory, _ = _project()
+    pipeline = _current_pipeline(directory)
+    version = _current_version(directory, pipeline)
+    if version is None:
+        raise _fail(404, "not_found", "the pipeline's dataset is not in this project.")
+    return directory, pipeline, version
+
+
+def start_pipeline(directory: Path, project: Project, version: DatasetVersion) -> Pipeline:
+    """The pipeline an import leaves behind: one source node, nothing else.
+
+    A project with a dataset and no recipe has nowhere for the canvas to start,
+    and the frontend has no way to create a pipeline — it has asked for
+    `pipelines/current` since its first commit and never posted one. So an
+    import starts the recipe it is obviously the beginning of, and the user
+    builds from there.
+    """
+    pipeline = Pipeline(
+        project_id=project.project_id,
+        name=f"{version.source.filename if version.source else 'dataset'} pipeline",
+        nodes=[SourceNode(id="source", version_id=version.version_id)],
+    )
+    write_pipeline(directory, pipeline)
+    write_layout(directory, {"source": {"x": 40.0, "y": 40.0}})
+    return pipeline

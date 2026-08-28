@@ -21,7 +21,7 @@ import {
 } from "@/plot/analysis";
 import type { PlotTheme } from "@/plot/theme";
 
-const FIXTURES = path.resolve(import.meta.dirname, "../../../stub/fixtures");
+const FIXTURES = path.resolve(import.meta.dirname, "../../../tests/fixtures/contract");
 const pca = (JSON.parse(readFileSync(path.join(FIXTURES, "pca.json"), "utf8")) as Record<string, PcaPayload>)
   .pca_a;
 

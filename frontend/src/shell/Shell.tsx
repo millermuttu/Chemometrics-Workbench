@@ -1,4 +1,4 @@
-import { useCallback, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -154,16 +154,29 @@ export function Shell() {
 
   const [staleFrom, setStaleFrom] = useState<string | null>(null);
   const [dismissedFailure, setDismissedFailure] = useState(false);
-  /** `?failrun` makes the next run take the stub server's failing sequence.
-   * Like `?empty` and `?oversize`, it exists because a state that can only be
-   * reached by editing code is a state nobody tests. All three go in 1.2,
-   * where a rank-deficient matrix fails on its own. */
-  const failNext = new URLSearchParams(window.location.search).has("failrun");
   const [jobId, setJobId] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const job = useJob(jobId);
   const run = useRunExperiment();
   const cancel = useCancelJob();
+
+  /** A run moves the canvas, so the canvas has to be asked again.
+   *
+   * `pipelines/{id}/state` derives each node's state from what is on disk and
+   * from the job table, so it is the only thing that knows which node is
+   * running now and which one a failure stopped at. Nothing refetched it while
+   * a job advanced: in Phase 1.1 the stub's fixture had a node permanently
+   * `running` and another permanently `failed`, so the states were on screen
+   * without anything asking for them. Against a real backend they are events,
+   * and this is what turns the job's progress into the graph the artboard
+   * draws. The `job` query already polls; this follows it rather than adding a
+   * second timer.
+   */
+  const advanced = `${job.data?.status ?? ""}:${job.data?.node_id ?? ""}`;
+  useEffect(() => {
+    if (!jobId) return;
+    void queryClient.invalidateQueries({ queryKey: ["pipeline-state"] });
+  }, [advanced, jobId, queryClient]);
 
   const open = useCallback(
     (tab: Omit<Tab, "transient">, transient: boolean) =>
@@ -281,7 +294,7 @@ export function Shell() {
             className="btn btn-p"
             onClick={async () => {
               setDismissedFailure(false);
-              const started = await run.mutateAsync({ fail: failNext });
+              const started = await run.mutateAsync();
               setJobId(started.job_id);
               setStartedAt(Date.now());
             }}
@@ -412,7 +425,7 @@ export function Shell() {
             className="btn"
             style={{ height: 22 }}
             onClick={async () => {
-              const started = await run.mutateAsync({});
+              const started = await run.mutateAsync();
               setJobId(started.job_id);
               setStartedAt(Date.now());
               setStaleFrom(null);

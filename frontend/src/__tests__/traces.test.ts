@@ -13,7 +13,7 @@ import type { SpectraPayload } from "@/api/queries";
 import { bandTraces, spectraTraces } from "@/plot/traces";
 import type { PlotTheme } from "@/plot/theme";
 
-const FIXTURES = path.resolve(import.meta.dirname, "../../../stub/fixtures");
+const FIXTURES = path.resolve(import.meta.dirname, "../../../tests/fixtures/contract");
 const spectra = JSON.parse(
   readFileSync(path.join(FIXTURES, "spectra.json"), "utf8"),
 ) as Record<string, SpectraPayload>;

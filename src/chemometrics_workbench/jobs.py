@@ -60,12 +60,20 @@ import uuid
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from chemometrics_workbench.executor import Progress, Run, RunCancelled, execute
-from chemometrics_workbench.models import DatasetVersion, Pipeline
+from chemometrics_workbench.executor import (
+    Progress,
+    Run,
+    RunCancelled,
+    execute,
+    experiment_for,
+)
+from chemometrics_workbench.models import DatasetVersion, ExperimentStatus, Pipeline
+from chemometrics_workbench.project import write_experiment
 
 __all__ = [
     "Job",
@@ -79,7 +87,7 @@ _log = logging.getLogger(__name__)
 
 
 class JobStatus(StrEnum):
-    """The five states `stub/fixtures/jobs.json` publishes, and #49 renders."""
+    """The five states `tests/fixtures/contract/jobs.json` publishes, and #49 renders."""
 
     QUEUED = "queued"
     RUNNING = "running"
@@ -193,16 +201,45 @@ class Jobs:
         with self._lock:
             return self._jobs.get(job_id)
 
+    def latest_failed_for(self, experiment_id: str) -> Job | None:
+        """The last job for this experiment, but only if it failed.
+
+        "The last one failed" rather than "one of them failed": a re-run that
+        succeeds must clear the canvas, and asking whether any job ever failed
+        would leave a stripe on the node for the rest of the session.
+        """
+        with self._lock:
+            for job in reversed(list(self._jobs.values())):
+                if job.experiment_id == experiment_id:
+                    return job if job.status is JobStatus.FAILED else None
+        return None
+
+    def running_for(self, experiment_id: str) -> Job | None:
+        """The unfinished job for one experiment, if there is one.
+
+        Asked by the canvas on every state request, so it reads the table under
+        its lock rather than handing out the ids and letting a caller race a
+        second look-up against a job finishing between the two.
+        """
+        with self._lock:
+            for job in self._jobs.values():
+                if job.experiment_id == experiment_id and not job.status.finished:
+                    return job
+        return None
+
     def cancel(self, job_id: str) -> Job | None:
-        """Ask a job to stop, and report where it stood when asked.
+        """Stop a job, and report it stopped where it stood.
+
+        The status flips immediately, at the progress the job had reached. The
+        worker notices between nodes and unwinds shortly after, so a node
+        already running finishes — but the decision is the user's and it is
+        recorded when they make it, not when the arithmetic catches up.
+        Reporting `running` back to someone who has just pressed Cancel would
+        mean the screen argued with them.
 
         A job that has already finished is returned unchanged: cancelling a
-        succeeded run cannot un-succeed it, and reporting otherwise would lose
-        a result the user can see on their screen.
-
-        A job that has not started yet goes straight to `cancelled` — there is
-        no worker to ask, and leaving it `queued` would mean waiting for a run
-        nobody wants before the table admitted it was cancelled.
+        succeeded run cannot un-succeed it, and saying otherwise would lose a
+        result the user can see.
         """
         with self._lock:
             job = self._jobs.get(job_id)
@@ -211,9 +248,8 @@ class Jobs:
             if job.status.finished:
                 return job
             self._cancels[job_id].set()
-            if job.status is JobStatus.QUEUED:
-                job = replace(job, status=JobStatus.CANCELLED, message="Cancelled")
-                self._jobs[job_id] = job
+            job = replace(job, status=JobStatus.CANCELLED, message="Cancelled")
+            self._jobs[job_id] = job
             return job
 
     def shutdown(self, wait: bool = True) -> None:
@@ -241,10 +277,16 @@ class Jobs:
             # The traceback is for whoever is reading the log, never for the
             # user: §6's rule is a specific diagnostic, not a stack trace.
             _log.exception("job %s failed", job_id)
+            # An exception that names a node names the node the canvas should
+            # mark, which is not the one the last progress report named: that
+            # one finished. `ExecutorError` carries the id as a field for
+            # exactly this, so the id is read rather than parsed out of English.
+            blamed = getattr(error, "node_id", None)
             self._update(
                 job_id,
                 status=JobStatus.FAILED,
                 message=str(error) or type(error).__name__,
+                **({"node_id": blamed} if blamed is not None else {}),
             )
         else:
             self._update(
@@ -280,13 +322,57 @@ def submit_run(
     no other coupling between the two modules.
     """
 
+    started_at = datetime.now(UTC)
+
     def work(reporter: Reporter) -> Run:
-        return execute(
-            directory,
-            pipeline,
-            version,
-            on_progress=reporter.advance,
-            is_cancelled=lambda: reporter.cancelled,
-        )
+        # The experiment is written by whichever way the run ends, because a
+        # failed experiment is a result too - `models.py` says so on the field -
+        # and an endpoint in the published contract that only ever answers 404
+        # is not served.
+        try:
+            run = execute(
+                directory,
+                pipeline,
+                version,
+                on_progress=reporter.advance,
+                is_cancelled=lambda: reporter.cancelled,
+            )
+        except RunCancelled:
+            _record(directory, pipeline, version, None, ExperimentStatus.CANCELLED, started_at)
+            raise
+        except Exception as error:
+            _record(
+                directory,
+                pipeline,
+                version,
+                None,
+                ExperimentStatus.FAILED,
+                started_at,
+                error=str(error) or type(error).__name__,
+            )
+            raise
+        _record(directory, pipeline, version, run, ExperimentStatus.SUCCEEDED, started_at)
+        return run
 
     return jobs.submit(experiment_id, work)
+
+
+def _record(
+    directory: str | Path,
+    pipeline: Pipeline,
+    version: DatasetVersion,
+    run: Run | None,
+    status: ExperimentStatus,
+    started_at: datetime,
+    error: str | None = None,
+) -> None:
+    """Write the experiment, never letting that failure lose the run itself."""
+    try:
+        write_experiment(
+            directory,
+            experiment_for(
+                pipeline, version, run, status=status, started_at=started_at, error=error
+            ),
+        )
+    except Exception:  # pragma: no cover - a full disk must not eat the result
+        _log.exception("could not write the experiment record for %s", pipeline.pipeline_id)

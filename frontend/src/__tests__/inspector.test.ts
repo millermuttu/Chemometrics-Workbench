@@ -13,7 +13,7 @@ import type { Pipeline } from "@/api/queries";
 import { checkBounds, specFor, stepSpecs, type StepSchema } from "@/inspector/schema";
 import { downstreamOf } from "@/inspector/stale";
 
-const FIXTURES = path.resolve(import.meta.dirname, "../../../stub/fixtures");
+const FIXTURES = path.resolve(import.meta.dirname, "../../../tests/fixtures/contract");
 const read = <T,>(name: string) =>
   JSON.parse(readFileSync(path.join(FIXTURES, `${name}.json`), "utf8")) as T;
 

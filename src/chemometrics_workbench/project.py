@@ -32,6 +32,7 @@ path would survive zipping and then point at a stranger's home directory.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import io
 import json
@@ -42,15 +43,26 @@ from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
-from pydantic import Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from chemometrics_workbench.arrays import as_float64
-from chemometrics_workbench.models import Dataset, DatasetVersion, Frozen, Project
+from chemometrics_workbench.models import (
+    Dataset,
+    DatasetVersion,
+    Experiment,
+    Frozen,
+    NodeId,
+    Pipeline,
+    Project,
+)
 
 __all__ = [
     "ARRAYS_DIR",
     "DATASETS_FILE",
+    "EXPERIMENT_FILE",
+    "LAYOUT_FILE",
     "LAYOUT_VERSION",
+    "PIPELINE_FILE",
     "PROJECT_FILE",
     "DatasetEntry",
     "ProjectError",
@@ -62,12 +74,21 @@ __all__ = [
     "open_project",
     "read_array",
     "read_datasets",
+    "read_experiment",
+    "read_layout",
+    "read_pipeline",
     "write_array",
+    "write_experiment",
     "write_json",
+    "write_layout",
+    "write_pipeline",
 ]
 
 PROJECT_FILE = "project.json"
 DATASETS_FILE = "datasets.json"
+PIPELINE_FILE = "pipeline.json"
+LAYOUT_FILE = "pipeline_layout.json"
+EXPERIMENT_FILE = "experiment.json"
 ARRAYS_DIR = "arrays"
 REGISTRY_FILE = "projects.json"
 
@@ -277,6 +298,91 @@ def add_dataset(
     return updated
 
 
+# --- The pipeline store ---------------------------------------------------
+#
+# One pipeline per project, until there is a database to hold more. The
+# frontend has asked for `pipelines/current` since its first commit, which is
+# the shape this matches: a project is a dataset and the recipe being built on
+# it. A second pipeline is a schema question and a screen that does not exist.
+
+
+def read_pipeline(directory: str | os.PathLike[str]) -> Pipeline | None:
+    """The project's pipeline, or `None` if nothing has been built yet."""
+    return _read_model(directory, PIPELINE_FILE, Pipeline)
+
+
+def write_pipeline(directory: str | os.PathLike[str], pipeline: Pipeline) -> None:
+    path = Path(directory)
+    _require_project(path)
+    write_json(path / PIPELINE_FILE, json.loads(pipeline.model_dump_json()))
+
+
+def read_layout(directory: str | os.PathLike[str]) -> dict[NodeId, dict[str, float]]:
+    """Where the canvas put each node.
+
+    Kept in its own file, deliberately outside `Pipeline` and therefore outside
+    `Pipeline.content_hash()`: moving a node must not change the science, and
+    must not invalidate an executor cache entry either. `design/data-model.md`
+    says so and #83's keys depend on it.
+    """
+    path = Path(directory)
+    _require_project(path)
+    document = _read_json(path / LAYOUT_FILE)
+    if not isinstance(document, dict):
+        return {}
+    return {
+        str(node): {"x": float(place.get("x", 0.0)), "y": float(place.get("y", 0.0))}
+        for node, place in document.items()
+        if isinstance(place, dict)
+    }
+
+
+def write_layout(directory: str | os.PathLike[str], layout: dict[NodeId, dict[str, float]]) -> None:
+    path = Path(directory)
+    _require_project(path)
+    write_json(path / LAYOUT_FILE, layout)
+
+
+def read_experiment(directory: str | os.PathLike[str]) -> Experiment | None:
+    """The last experiment recorded, or `None` if nothing has been run."""
+    return _read_model(directory, EXPERIMENT_FILE, Experiment)
+
+
+def write_experiment(directory: str | os.PathLike[str], experiment: Experiment) -> None:
+    path = Path(directory)
+    _require_project(path)
+    write_json(path / EXPERIMENT_FILE, json.loads(experiment.model_dump_json()))
+
+
+def _read_model[Model: BaseModel](
+    directory: str | os.PathLike[str], filename: str, model: type[Model]
+) -> Model | None:
+    path = Path(directory)
+    _require_project(path)
+    document = _read_json(path / filename)
+    if document is None:
+        return None
+    try:
+        return model.model_validate(document)
+    except ValidationError as error:
+        raise ProjectError(f"{path / filename} is not a valid {model.__name__}: {error}") from error
+
+
+def _read_json(path: Path) -> Any:
+    """Read one JSON document, or `None` if it is not there.
+
+    A file that exists and cannot be parsed is an error rather than an absence:
+    a project whose pipeline is unreadable has lost work, and quietly starting
+    again from nothing is the wrong answer to that.
+    """
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise ProjectError(f"{path} could not be read: {error}") from error
+
+
 # --- The array store ------------------------------------------------------
 
 
@@ -415,16 +521,36 @@ def forget_project(directory: str | os.PathLike[str]) -> None:
 
 
 def _remember(path: Path, project: Project) -> None:
-    """Record that this project exists, newest first, without duplicates."""
+    """Record that this project exists, newest first, without duplicates.
+
+    Two things this deliberately does not do, both because `open_project` is on
+    the path of every HTTP request that touches a project:
+
+    **It does not rewrite the registry when nothing would change.** A server
+    answering six queries on one page load opened the project six times, and
+    each open rewrote a file shared by every project on the machine. The
+    registry says which projects exist and which was opened last; re-recording
+    the same directory as the newest entry says nothing new, so it is skipped.
+
+    **It never fails the open.** The registry is a convenience - `known_projects`
+    already says so by returning `[]` for a corrupt one - and a project that
+    cannot be listed is still a project that can be used. Before this, two
+    concurrent requests racing on the write turned a `GET` into a 500.
+    """
     directory = str(path.resolve())
+    entries = known_projects()
+    if entries and entries[0].get("directory") == directory:
+        return
+
     entry = {
         "directory": directory,
         "project_id": str(project.project_id),
         "name": project.name,
         "last_opened": datetime.now(UTC).isoformat(),
     }
-    others = [item for item in known_projects() if item.get("directory") != directory]
-    _write_registry([entry, *others])
+    others = [item for item in entries if item.get("directory") != directory]
+    with contextlib.suppress(ProjectError, OSError):
+        _write_registry([entry, *others])
 
 
 def _write_registry(entries: list[dict[str, str]]) -> None:

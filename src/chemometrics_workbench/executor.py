@@ -82,6 +82,7 @@ import hashlib
 import json
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field, fields
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -92,8 +93,12 @@ from chemometrics_workbench import preprocessing
 from chemometrics_workbench.decomposition import PCA
 from chemometrics_workbench.models import (
     DatasetVersion,
+    Environment,
+    Experiment,
+    ExperimentStatus,
     KFoldSplit,
     LeaveOneOut,
+    Metrics,
     NodeId,
     PCASpec,
     Pipeline,
@@ -113,10 +118,15 @@ __all__ = [
     "Progress",
     "Run",
     "RunCancelled",
+    "capture_environment",
     "execute",
+    "experiment_for",
     "node_keys",
     "node_label",
     "result_path",
+    "stored",
+    "stored_display",
+    "stored_result",
 ]
 
 CACHE_FILE = "cache.json"
@@ -163,8 +173,13 @@ class ExecutorError(Exception):
     One exception rather than a hierarchy, for the reason `ProjectError` is
     one: the only caller that distinguishes cases is the HTTP layer, and it
     turns all of them into the same error body. What the caller needs is the
-    node id, and every message carries it.
+    node id, so it is carried as a field as well as in the sentence — a canvas
+    that wants to mark the node red cannot parse it back out of English.
     """
+
+    def __init__(self, message: str, node_id: NodeId | None = None) -> None:
+        super().__init__(message)
+        self.node_id = node_id
 
 
 @dataclass(frozen=True)
@@ -412,6 +427,75 @@ def execute(
     )
 
 
+def capture_environment() -> Environment:
+    """What was installed when a run happened, so a number can be explained later.
+
+    Only the packages that can move a number are recorded — `models.py` says so
+    on the field. `scikit-learn` is deliberately absent: it is a development
+    dependency and never runs here.
+    """
+    import platform
+
+    import scipy
+
+    import chemometrics_workbench as cw
+
+    return Environment(
+        app_version=cw.__version__,
+        python_version=platform.python_version(),
+        platform=platform.platform(),
+        packages={"numpy": np.__version__, "scipy": scipy.__version__},
+    )
+
+
+def experiment_for(
+    pipeline: Pipeline,
+    version: DatasetVersion,
+    run: Run | None = None,
+    *,
+    status: ExperimentStatus = ExperimentStatus.SUCCEEDED,
+    started_at: datetime | None = None,
+    error: str | None = None,
+) -> Experiment:
+    """The record one execution leaves behind.
+
+    Built here rather than in `jobs.py` because the metrics come out of the
+    `Run`, and a caller that runs the executor directly — the Playwright seed
+    does — needs the same record the endpoint writes. The pipeline is snapshot
+    by value: `Experiment` says so, and a pipeline gets edited.
+
+    The headline metrics are the *last* estimator's in topological order. One
+    experiment carries one set, which is Phase 1.2's simplification and not a
+    claim that a four-branch pipeline has a single explained variance; #87's
+    per-node results are where each branch's own numbers live.
+    """
+    metrics: Metrics | None = None
+    if run is not None and run.results:
+        last = list(run.results.values())[-1]
+        metrics = Metrics(
+            explained_variance=[float(value) for value in last.explained_variance_ratio],
+            extra={
+                "hotelling_t2_limit": float(last.hotelling_t2_limit),
+                "spe_limit": float(last.spe_limit),
+            },
+        )
+    return Experiment(
+        project_id=pipeline.project_id,
+        pipeline_snapshot=pipeline,
+        dataset_version_id=version.version_id,
+        dataset_content_hash=version.content_hash,
+        status=status,
+        resolved_splits=list(run.resolved_splits) if run is not None else [],
+        metrics=metrics,
+        # A succeeded experiment must record its environment; the model refuses
+        # one that does not, so this is not optional for the success path.
+        environment=capture_environment() if status == ExperimentStatus.SUCCEEDED else None,
+        started_at=started_at,
+        finished_at=datetime.now(UTC),
+        error=error,
+    )
+
+
 def node_keys(pipeline: Pipeline, version: DatasetVersion) -> dict[NodeId, str]:
     """The cache key of every node: its own content, chained through its inputs.
 
@@ -496,7 +580,8 @@ def _folds_for(node: PipelineNode, parent: _State | None, n_samples: int) -> lis
             f"node {node.id!r} is a split below another split. Nested resampling is "
             "not modelled: the inner folds would have no defined relationship to "
             "the outer ones, and the experiment record has one ResolvedSplit per "
-            "split node with no way to say which outer fold it belonged to."
+            "split node with no way to say which outer fold it belonged to.",
+            node.id,
         )
 
     spec = node.spec
@@ -508,7 +593,8 @@ def _folds_for(node: PipelineNode, parent: _State | None, n_samples: int) -> lis
         raise ExecutorError(
             f"node {node.id!r} asks for the {spec.kind!r} split, which has no splitter "
             "yet. K-fold and leave-one-out are implemented; train/test, repeated "
-            "K-fold and an external set are not."
+            "K-fold and an external set are not.",
+            node.id,
         )
 
     validate_partition(folds, n_samples)
@@ -528,11 +614,14 @@ def _compute(
         try:
             values = read_array(directory, version.array_path)
         except ProjectError as error:
-            raise ExecutorError(f"node {node.id!r} could not read the dataset: {error}") from error
+            raise ExecutorError(
+                f"node {node.id!r} could not read the dataset: {error}", node.id
+            ) from error
         if values.shape != (version.n_samples, version.n_variables):
             raise ExecutorError(
                 f"node {node.id!r} read a {values.shape[0]}x{values.shape[1]} array where "
-                f"the version records {version.n_samples}x{version.n_variables}."
+                f"the version records {version.n_samples}x{version.n_variables}.",
+                node.id,
             )
         return _State(arrays=[values], folds=None)
 
@@ -547,7 +636,9 @@ def _compute(
         return _State(arrays=[parent.arrays[0]] * len(folds), folds=folds)
 
     if node.type != "preprocess":
-        raise ExecutorError(f"node {node.id!r} has type {node.type!r}, which is not executable.")
+        raise ExecutorError(
+            f"node {node.id!r} has type {node.type!r}, which is not executable.", node.id
+        )
 
     if folds is None:
         return _State(arrays=[_transform(node, parent.arrays[0], None, axis)], folds=None)
@@ -580,7 +671,7 @@ def _transform(
     except (ValueError, RuntimeError, NotImplementedError) as error:
         where = "" if fold is None else f" on a training fold of {fold.train.size} samples"
         raise ExecutorError(
-            f"node {node.id!r} ({node.step.kind}) failed{where}: {error}"
+            f"node {node.id!r} ({node.step.kind}) failed{where}: {error}", node.id
         ) from error
 
 
@@ -625,7 +716,7 @@ def _estimator(
     try:
         model = PCA(node.spec.n_components).fit(matrix[rows])
     except (ValueError, RuntimeError) as error:
-        raise ExecutorError(f"node {node.id!r} (pca) failed: {error}") from error
+        raise ExecutorError(f"node {node.id!r} (pca) failed: {error}", node.id) from error
 
     calibration = matrix[rows]
     result = EstimatorResult(
@@ -681,6 +772,87 @@ def _resolved(node_id: NodeId, folds: list[Fold] | None) -> ResolvedSplit:
         train_indices=[fold.train.tolist() for fold in folds],
         test_indices=[fold.test.tolist() for fold in folds],
     )
+
+
+# --- reading back what a run stored ---------------------------------------
+
+
+def stored(directory: str | Path, pipeline: Pipeline, version: DatasetVersion) -> dict[NodeId, str]:
+    """Which nodes have a result on disk, keyed by node id, valued by key.
+
+    Cheap: it reads the index and the results directory and computes nothing.
+    This is how the HTTP surface answers "is this node's result current?"
+    without running anything, and how a canvas knows what to dim.
+    """
+    path = Path(directory)
+    keys = node_keys(pipeline, version)
+    index = _load_index(path)
+    by_id = {node.id: node for node in pipeline.nodes}
+
+    present: dict[NodeId, str] = {}
+    for node_id, key in keys.items():
+        if by_id[node_id].type == "estimator":
+            if result_path(path, key).exists():
+                present[node_id] = key
+        elif index.get(key):
+            present[node_id] = key
+    return present
+
+
+def stored_display(
+    directory: str | Path, pipeline: Pipeline, version: DatasetVersion, node_id: NodeId
+) -> NDArray[np.float64] | None:
+    """One node's array as it would be drawn, read back rather than recomputed.
+
+    `None` when the node has not been run, which the caller reports as such
+    rather than serving something out of date.
+    """
+    path = Path(directory)
+    keys = node_keys(pipeline, version)
+    if node_id not in keys:
+        return None
+    paths = _load_index(path).get(keys[node_id])
+    if not paths:
+        return None
+
+    by_id = {node.id: node for node in pipeline.nodes}
+    folds = _governing_folds(node_id, by_id, version.n_samples)
+    state = _from_cache(path, paths, folds)
+    return None if state is None else state.display
+
+
+def stored_result(
+    directory: str | Path, pipeline: Pipeline, version: DatasetVersion, node_id: NodeId
+) -> EstimatorResult | None:
+    """One estimator's stored result, or `None` if it has not been fitted."""
+    keys = node_keys(pipeline, version)
+    if node_id not in keys:
+        return None
+    file = result_path(Path(directory), keys[node_id])
+    if not file.exists():
+        return None
+    try:
+        return EstimatorResult.from_json(json.loads(file.read_text(encoding="utf-8")))
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def _governing_folds(
+    node_id: NodeId, by_id: dict[NodeId, PipelineNode], n_samples: int
+) -> list[Fold] | None:
+    """The split above a node, resolved again from its spec.
+
+    Recomputed rather than stored: a `SplitSpec` and `n` determine the folds
+    entirely (`metrics-and-validation.md` §8), so deriving them is cheaper than
+    keeping a second copy that can disagree with the recipe.
+    """
+    current = by_id[node_id]
+    while True:
+        if current.type == "split":
+            return _folds_for(current, None, n_samples)
+        if not current.inputs:
+            return None
+        current = by_id[current.inputs[0]]
 
 
 # --- the cache index ------------------------------------------------------
