@@ -2,29 +2,26 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { spectraCsv } from "./spectra-file";
 
-/** Phase 1.1's exit criterion, written as a test - and Phase 1.2's, which is
- * #90.
+/** Phase 1.1's exit criterion, written as a test.
  *
- * **These are `fixme` and that is a real status, not a caveat on a pass.** The
- * walkthrough assembles a pipeline through the step list and then runs it. The
- * step list builds a *draft*, on the client, and there is no endpoint that
- * writes a pipeline back: the frontend has read `pipelines/current` since its
- * first commit and has never posted one, and #89 served every URL the frontend
- * uses without inventing one it does not. So the SNV, Savitzky-Golay and PCA
- * nodes this walks through never reach the server, and the run that follows
- * has only the source node to execute.
+ * The sub-phase is finished when this passes, not when the screens look done -
+ * which is the point of writing it as a test rather than judging by eye at the
+ * end. It walks the whole path against the **real** backend: a project with
+ * nothing in it, an import of a file the user picks with its detection stated
+ * before anything is committed, the dataset loaded, a pipeline assembled
+ * through the step list **and saved**, a run watched through its real
+ * lifecycle, and the scores read back and compared against the numbers the
+ * kernel produced.
  *
- * That gap is the finding, recorded as its own issue rather than closed by a
- * widened branch: **the pipeline cannot be edited over HTTP**. Everything else
- * the walkthrough asserts is covered and passing elsewhere against the real
- * backend - the empty project and the import in `empty.spec.ts`, the run's
- * lifecycle, cancellation and failure in `runs.spec.ts`, and the scores
- * compared against what the kernel produced in `analysis.spec.ts`. What is
- * missing is the single path through all of them, which is #90's subject and
- * needs the endpoint first.
+ * It was `fixme` between #89 and #108, because the step list built a
+ * client-side draft and no endpoint wrote a pipeline back, so the nodes it
+ * assembled never reached the server. #108 added `PUT /pipelines/{id}` and the
+ * Save that uses it.
+ *
+ * This runs on the empty project (8766), because it starts by importing.
  */
 
-test.fixme(true, "no endpoint writes a pipeline; the step list is a client-side draft (#90)");
+test.describe.configure({ timeout: 180_000 });
 
 /** What the server says the results are. The walkthrough asserts the screen
  * shows these numbers, not merely that a plot exists. */
@@ -95,25 +92,35 @@ test("the whole path: empty project to a scores plot the kernel produced", async
   await page.getByRole("button", { name: "Validate" }).click();
   await expect(page.getByText("valid · 3 steps")).toBeVisible();
 
-  // 5. The run, watched through its real lifecycle. The result must not have
-  //    been there from the start: no results tab is open yet.
+  // Saved, not merely drawn. Until #108 the recipe lived in this tab and
+  // nowhere else, so a reload lost it and a run had only the source to execute.
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.locator(".react-flow__node")).toHaveCount(before + 3);
+  await page.reload();
+  await page.getByRole("button", { name: "Pipeline", exact: true }).click();
+  await expect(page.locator(".react-flow__node")).toHaveCount(before + 3);
+
+  // 5. The run, through its real lifecycle. The result must not have been
+  //    there from the start: no results tab is open yet, and the nodes have no
+  //    arrays until this runs.
   await expect(page.getByTestId("scores-plot")).toHaveCount(0);
+  await expect(page.getByTestId("node-not_run").first()).toBeVisible();
+
   const status = page.getByRole("status").first();
   await page.getByRole("button", { name: "Run pipeline" }).click();
-  await expect(status).toContainText("Queued");
 
-  const seen: number[] = [];
-  const deadline = Date.now() + 20_000;
-  while (Date.now() < deadline) {
-    const width = await page.locator(".status .prog i").first().getAttribute("style");
-    const percent = Number(/width:\s*([\d.]+)%/.exec(width ?? "")?.[1] ?? "-1");
-    if (percent >= 0 && percent !== seen.at(-1)) seen.push(percent);
-    if (await status.getByText("Complete").count()) break;
-    await page.waitForTimeout(150);
-  }
-  expect(seen.length, `progress advanced through ${seen.join(", ")}`).toBeGreaterThan(2);
-  expect(seen).toEqual([...seen].sort((a, b) => a - b));
-  expect(seen.at(-1)).toBe(100);
+  // The end state, not a frame of the middle. Thirty samples by twelve
+  // channels is over in milliseconds - faster than the job poll - so asserting
+  // "Queued" here would be asserting that the machine is slow. `runs.spec.ts`
+  // watches progress advance, on a project seeded large enough to see it.
+  await expect(status).toContainText("Done", { timeout: 60_000 });
+  const width = await page.locator(".status .prog i").first().getAttribute("style");
+  expect(Number(/width:\s*([\d.]+)%/.exec(width ?? "")?.[1] ?? "-1")).toBe(100);
+
+  // Every node the walkthrough built now has its arrays, which is the thing
+  // that was impossible before #108: a saved recipe is what the run executes.
+  await expect(page.getByTestId("node-complete")).toHaveCount(before + 3);
+  await expect(page.getByTestId("node-not_run")).toHaveCount(0);
 
   // 6. The scores, read back and compared against what the kernel produced.
   const outline = page.getByRole("complementary", { name: "Project outline" });
@@ -121,7 +128,9 @@ test("the whole path: empty project to a scores plot the kernel produced", async
   await expect(page.getByTestId("scores-plot")).toBeVisible();
   await expect(page.locator(".gl-container canvas").first()).toBeVisible();
 
-  const served = await servedScores(page, "pca_a");
+  // The node the walkthrough built, not the fixture's: `withDrafts` names it
+  // after the step, so a PCA added to a fresh pipeline is `pca`.
+  const served = await servedScores(page, "pca");
   const drawn = await drawnScores(page);
   expect(drawn.sample).toBe(served.sample);
   expect(drawn.x).toBeCloseTo(served.first[0], 12);
@@ -141,31 +150,9 @@ test("the whole path: empty project to a scores plot the kernel produced", async
   await expect(page.getByTestId("scores-plot")).toBeVisible();
 });
 
-test("the cancel path: a running job stops where it stood", async ({ page }) => {
-  await page.goto("/?token=e2e-token");
-  await page.getByRole("button", { name: "Pipeline", exact: true }).click();
-  await page.getByRole("button", { name: "Run pipeline" }).click();
-
-  const status = page.getByRole("status").first();
-  await expect(status).toContainText("Preprocessing: SNV", { timeout: 10_000 });
-  await expect(page.getByTestId("tab-progress")).toBeVisible();
-
-  await status.getByRole("button", { name: "Cancel" }).click();
-  await expect(status).toContainText("Cancelled");
-
-  const frozen = await page.locator(".status .prog i").first().getAttribute("style");
-  await page.waitForTimeout(2_000);
-  expect(await page.locator(".status .prog i").first().getAttribute("style")).toBe(frozen);
-  await expect(page.getByTestId("tab-progress")).toHaveCount(0);
-});
-
-test("the failure path: the run names a cause and shows no trace", async ({ page }) => {
-  await page.goto("/?token=e2e-token");
-  await page.getByRole("button", { name: "Run pipeline" }).click();
-
-  const failure = page.getByTestId("run-failed");
-  await expect(failure).toBeVisible({ timeout: 20_000 });
-  await expect(failure).toContainText("5 components were asked of a matrix of rank 4");
-  await expect(failure).not.toContainText("Traceback");
-  await expect(page.getByRole("status").first()).toContainText("rank 4");
-});
+/* The cancel and failure paths were here in Phase 1.1, driven by the stub's
+ * `?failrun`. They live in `runs.spec.ts` now, against a project seeded with a
+ * branch that genuinely cannot be fitted and nothing computed - a real run to
+ * cancel, and a real failure to read. Repeating them here would mean asserting
+ * them on a project that has just been imported into, where a cached pipeline
+ * gives a run no work to do. */

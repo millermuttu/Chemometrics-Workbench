@@ -238,6 +238,35 @@ export function usePipelineState() {
   });
 }
 
+/** Save the recipe. The whole node list, not a patch (#108).
+ *
+ * One project holds one pipeline and one user edits it, so last-write-wins
+ * needs no conflict rules, and the canvas already holds the entire graph it is
+ * drawing - sending a diff would mean inventing an operation language for a
+ * problem nobody has yet.
+ *
+ * Both queries are invalidated because both change: the pipeline is the new
+ * recipe, and the state is derived from it - a node whose key changed has no
+ * arrays under the new key and comes back `not_run`. Nothing here writes
+ * staleness; it is read back out of the store.
+ */
+export function useSavePipeline() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (nodes: PipelineNode[]) =>
+      api<Pipeline>("/pipelines/current", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nodes }),
+      }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["pipeline"] });
+      void client.invalidateQueries({ queryKey: ["pipeline-state"] });
+      void client.invalidateQueries({ queryKey: ["experiment"] });
+    },
+  });
+}
+
 export function useExperiment() {
   return useQuery({
     queryKey: ["experiment"],

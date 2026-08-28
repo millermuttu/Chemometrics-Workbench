@@ -64,15 +64,24 @@ export default defineConfig({
   projects: [
     {
       name: "seeded",
-      testIgnore: /(empty|runs)\.spec\.ts/,
+      testIgnore: /(empty|runs|walkthrough)\.spec\.ts/,
       use: { baseURL: "http://127.0.0.1:8765" },
     },
     { name: "empty", testMatch: /empty\.spec\.ts/, use: { baseURL: "http://127.0.0.1:8766" } },
     { name: "runs", testMatch: /runs\.spec\.ts/, use: { baseURL: "http://127.0.0.1:8767" } },
+    {
+      // #50's exit criterion starts from a project with nothing in it and
+      // imports into it, so it cannot share one with anything - `empty` leaves
+      // a dataset behind, and the walkthrough would find it.
+      name: "walkthrough",
+      testMatch: /walkthrough\.spec\.ts/,
+      use: { baseURL: "http://127.0.0.1:8768" },
+    },
   ],
   webServer: [
     serve("seeded", "8765", `uv run python tests/seed_e2e.py ${ROOT}/seeded`),
     serve("empty", "8766", `uv run python tests/seed_e2e.py --empty ${ROOT}/empty`),
     serve("runs", "8767", `uv run python tests/seed_e2e.py --unrun ${ROOT}/runs`),
+    serve("walkthrough", "8768", `uv run python tests/seed_e2e.py --empty ${ROOT}/walkthrough`),
   ],
 });

@@ -10,8 +10,9 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import type { Pipeline, PipelineState } from "@/api/queries";
-import { draftGraph, nodeStateOf, parameterLine, toEdges, toNodes } from "@/canvas/graph";
+import type { Pipeline, PipelineNode, PipelineState } from "@/api/queries";
+import { withDrafts } from "@/canvas/PipelineCanvas";
+import { draftGraph, nodeStateOf, parameterLine, toEdges, toNodes, type DraftStep } from "@/canvas/graph";
 
 const FIXTURES = path.resolve(import.meta.dirname, "../../../tests/fixtures/contract");
 const read = <T,>(name: string) =>
@@ -84,9 +85,19 @@ describe("edges", () => {
 it("lays a drafted pipeline out as a chain below the committed one", () => {
   const { nodes, edges } = draftGraph(
     [
-      { kind: "SNV", type: "preprocess", parameters: "" },
-      { kind: "SG d1 w11", type: "preprocess", parameters: "" },
-      { kind: "PCA", type: "estimator", parameters: "5 components" },
+      { kind: "SNV", type: "preprocess", parameters: "", payload: { step: { kind: "snv" } } },
+      {
+        kind: "SG d1 w11",
+        type: "preprocess",
+        parameters: "",
+        payload: { step: { kind: "savgol", window_length: 11, polyorder: 2, deriv: 1 } },
+      },
+      {
+        kind: "PCA",
+        type: "estimator",
+        parameters: "5 components",
+        payload: { spec: { kind: "pca", n_components: 5 } },
+      },
     ],
     { x: 40, y: 500 },
   );
@@ -94,4 +105,68 @@ it("lays a drafted pipeline out as a chain below the committed one", () => {
   expect(nodes.every((node) => node.data.state === "not_run")).toBe(true);
   expect(nodes.map((node) => node.position.x)).toEqual([40, 210, 380]);
   expect(edges).toHaveLength(2);
+});
+
+describe("withDrafts", () => {
+  const source: PipelineNode = {
+    id: "source",
+    type: "source",
+    inputs: [],
+    version_id: "1a2b3c4d-0000-4000-8000-000000000000",
+  };
+  const snv: DraftStep = {
+    kind: "SNV",
+    type: "preprocess",
+    parameters: "",
+    payload: { step: { kind: "snv" } },
+  };
+  const pca: DraftStep = {
+    kind: "PCA",
+    type: "estimator",
+    parameters: "",
+    payload: { spec: { kind: "pca", n_components: 5 } },
+  };
+
+  it("chains the drafts onto the terminal node, carrying their payloads", () => {
+    const nodes = withDrafts([source], [snv, pca]);
+
+    expect(nodes.map((node) => node.id)).toEqual(["source", "snv", "pca"]);
+    expect(nodes[1].inputs).toEqual(["source"]);
+    expect(nodes[2].inputs).toEqual(["snv"]);
+    // The payload travels: what is drawn is what is sent.
+    expect(nodes[1].step).toEqual({ kind: "snv" });
+    expect(nodes[2].spec).toEqual({ kind: "pca", n_components: 5 });
+    expect(nodes[0]).toBe(source);
+  });
+
+  it("appends to the end that nothing consumes, not to the last in the list", () => {
+    // A source and a branch off it: the terminal node is the branch's tip.
+    const centre: PipelineNode = {
+      id: "centre",
+      type: "preprocess",
+      inputs: ["source"],
+      step: { kind: "mean_centre" },
+    };
+    const nodes = withDrafts([source, centre], [snv]);
+    expect(nodes[2].inputs).toEqual(["centre"]);
+  });
+
+  it("does not collide ids when the same step is added twice", () => {
+    const nodes = withDrafts([source], [snv, snv]);
+    expect(nodes.map((node) => node.id)).toEqual(["source", "snv", "snv_2"]);
+    expect(nodes[2].inputs).toEqual(["snv"]);
+  });
+
+  it("does not collide with an id the saved pipeline already uses", () => {
+    const saved: PipelineNode[] = [
+      source,
+      { id: "snv", type: "preprocess", inputs: ["source"], step: { kind: "snv" } },
+    ];
+    expect(withDrafts(saved, [snv]).map((node) => node.id)).toEqual(["source", "snv", "snv_2"]);
+  });
+
+  it("returns the saved nodes untouched when there is nothing drafted", () => {
+    const saved = [source];
+    expect(withDrafts(saved, [])).toBe(saved);
+  });
 });

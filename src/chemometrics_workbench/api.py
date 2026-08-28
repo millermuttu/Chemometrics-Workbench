@@ -86,7 +86,7 @@ from typing import Annotated, Any
 import numpy as np
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from numpy.typing import NDArray
-from pydantic import TypeAdapter, ValidationError
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from chemometrics_workbench import readers
 from chemometrics_workbench.checks import check_pipeline
@@ -709,6 +709,82 @@ def get_pipeline_state(pipeline_id: str) -> Any:
         "nodes": states,
         "layout": _layout(directory, pipeline),
     }
+
+
+class PipelineWrite(BaseModel):
+    """What a client may change about a pipeline: its recipe, and its name.
+
+    Identity is not in the body. `pipeline_id`, `project_id` and `created_at`
+    belong to the server, and a client that could send them could rename one
+    pipeline into another - so they are taken from the stored record and the
+    body carries only what the canvas can actually edit.
+
+    Layout is not here either, and deliberately: where a node sits lives in its
+    own file outside `Pipeline.content_hash()`, so that moving a node cannot
+    invalidate an executor cache entry. Folding coordinates into this body
+    would undo that in one line.
+    """
+
+    nodes: list[PipelineNode]
+    name: str | None = None
+
+
+@router.put("/pipelines/{pipeline_id}")
+def put_pipeline(pipeline_id: str, body: PipelineWrite) -> Any:
+    """Replace the pipeline's node list with the one sent.
+
+    **The whole list, not a patch.** One project holds one pipeline and one
+    user edits it, so last-write-wins needs no conflict rules, and the canvas
+    already holds the entire graph it is drawing - sending a diff would mean
+    inventing an operation language for a problem nobody has yet.
+
+    **Nothing here writes staleness.** A node's cache key is its own JSON
+    chained through its inputs' keys, so editing a node changes its key and its
+    descendants' and nothing else's; the arrays that no longer match simply
+    stop being found, and `pipelines/{id}/state` reports those nodes as
+    `not_run` because they are. A stale flag written beside the graph could
+    disagree with the arrays. This cannot.
+    """
+    directory, _ = _project()
+    existing = _current_pipeline(directory)
+    if pipeline_id not in ("current", str(existing.pipeline_id)):
+        raise _fail(404, "not_found", f"no pipeline {pipeline_id}.", pipeline_id=pipeline_id)
+
+    # Constructed rather than `model_copy(update=...)`, which does not re-run
+    # validators: the DAG rules - unique ids, known inputs, at least one
+    # source, no cycles - are on `Pipeline` itself, and a copy would skip them.
+    try:
+        updated = Pipeline(
+            pipeline_id=existing.pipeline_id,
+            project_id=existing.project_id,
+            name=body.name or existing.name,
+            nodes=body.nodes,
+            created_at=existing.created_at,
+        )
+    except ValidationError as error:
+        first = error.errors()[0]
+        raise _fail(
+            422,
+            "invalid_pipeline",
+            str(first.get("msg", "the pipeline is not valid")),
+            field=".".join(str(part) for part in first["loc"]),
+        ) from error
+
+    # A source node naming a dataset this project does not hold would be
+    # accepted by the schema and then fail at run time with nothing to point
+    # at. §4.3 makes this a trust boundary; refuse it where it is written.
+    if _current_version(directory, updated) is None:
+        raise _fail(
+            422,
+            "invalid_pipeline",
+            "the pipeline's source node names a dataset version this project does not hold.",
+        )
+
+    try:
+        write_pipeline(directory, updated)
+    except ProjectError as error:
+        raise _fail(500, "project_unavailable", str(error)) from error
+    return json.loads(updated.model_dump_json())
 
 
 @router.post("/pipelines/{pipeline_id}/validate")
