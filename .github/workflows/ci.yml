@@ -167,6 +167,41 @@ jobs:
             exit $code
           fi
 
+      # The seed runs; the webServer still does not. That leaves the server
+      # itself, so this starts it exactly as playwright.config.ts does - same
+      # environment, same module - and reports what it said either way. A
+      # notice on success is worth as much as an error on failure here: it
+      # says the server is not the problem.
+      - name: Server smoke test
+        shell: bash
+        working-directory: .
+        env:
+          CHEMOMETRICS_PROJECT: ${{ runner.temp }}/smoke-project
+          CHEMOMETRICS_CONFIG_HOME: ${{ runner.temp }}/smoke-config
+          WORKBENCH_PORT: "8799"
+          WORKBENCH_TOKEN: smoke-token
+          WORKBENCH_BUNDLE: frontend/dist
+        run: |
+          set +e
+          uv run python -m chemometrics_workbench.server > server.log 2>&1 &
+          pid=$!
+          for _ in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -m 5 \
+              -H "Authorization: Bearer smoke-token" http://127.0.0.1:8799/api/projects)
+            [ "$code" = "200" ] && break
+            kill -0 $pid 2>/dev/null || break
+            sleep 2
+          done
+          kill $pid 2>/dev/null
+          tail=$(tr '\n' ' ' < server.log | tail -c 900)
+          if [ "$code" = "200" ]; then
+            printf '::notice title=Server started on %s::/api/projects answered 200\n' "$RUNNER_OS"
+          else
+            printf '::error title=Server failed on %s::last status %s; %s\n' "$RUNNER_OS" "$code" "$tail"
+            cat server.log
+            exit 1
+          fi
+
       # e2e/walkthrough.spec.ts is #50's exit criterion and Phase 1.2's (#90):
       # an empty project, a file the user picks, a pipeline built and saved,
       # a run, and a scores plot equal to what the server served. It runs on
