@@ -41,7 +41,9 @@ is **#90**, and #90 is **blocked behind #108**.
 ## Current work
 
 **Nothing is `in_progress`.** #89 and #99 are done on `feature/89_http-surface-complete`, committed
-but **not yet pushed and with no pull request open** — see "Waiting on the user".
+as `b9dc2c4` and **pushed**. **No pull request is open**: `git push` works over HTTPS, but
+`api.github.com` does not resolve from this machine and the GitHub MCP server fails with `ETIMEOUT`,
+so nothing that needs the API could be done — see "Waiting on the user".
 
 ## What #89 turned out to be
 
@@ -132,7 +134,7 @@ maintainer, **#103** is small, **#109** is probably a decision to record rather 
 
 - **#71 — what a non-positive `h0` should do** in the Jackson–Mudholkar SPE limit. Gasoline's `h0` is −0.0190; our kernel uses it as computed, `mdatools` clamps it to 0.001. The divergence is recorded and proven; what the kernel *should* do is a specification decision, not a coding one.
 - **GitHub was unreachable for the whole of the 2026-08-28 session** — `api.github.com` did not resolve and the GitHub MCP server failed with `ETIMEOUT`. Three things follow, and all three are outstanding:
-  - **`feature/89_http-surface-complete` is committed but not pushed, and has no pull request.** Push it and open one **with `dev` as the base**.
+  - **`feature/89_http-surface-complete` is pushed (`b9dc2c4`) but has no pull request.** Open one **with `dev` as the base** — GitHub's default is `main`, which is the release line. `git push` itself works; only the API is unreachable.
   - **Issues #108 and #109 do not exist on GitHub yet.** They are in `feature_list.json` with full notes, and the numbers were reserved by assumption — check what the next free number actually is when GitHub is reachable, and correct both the issues and the references to them in `feature_list.json`, `session-handoff.md` and `frontend/e2e/walkthrough.spec.ts` if they differ.
   - #89 and #99 could not be closed from here.
 - **GitHub default branch is still `main`.** Any pull request opened without an explicit base targets the release line. Change it under Settings → Branches; it cannot be changed from here with the current tools.
