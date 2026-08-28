@@ -70,12 +70,18 @@ const serve = (name: string, port: string, seed: string) => ({
 
 export default defineConfig({
   testDir: "./e2e",
+  // An HTML report and a trace for anything that failed. The default reporter
+  // writes nothing to disk, so a failure on a runner left only an exit code -
+  // which is exactly the case a three-platform matrix creates, where the
+  // machine that failed is not the machine anyone is sitting at.
+  reporter: [["list"], ["html", { open: "never" }]],
   // One at a time: the three servers are three projects on disk, and a test
   // that presses Run changes what a parallel test would read.
   workers: 1,
   use: {
     baseURL: "http://127.0.0.1:8765",
     viewport: { width: 1440, height: 900 },
+    trace: "retain-on-failure",
     // No GPU: the container this runs in has no usable one, and chromium takes
     // the whole browser down rather than falling back on its own.
     launchOptions: { args: ["--disable-gpu"] },
