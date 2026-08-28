@@ -70,11 +70,15 @@ const serve = (name: string, port: string, seed: string) => ({
 
 export default defineConfig({
   testDir: "./e2e",
-  // An HTML report and a trace for anything that failed. The default reporter
-  // writes nothing to disk, so a failure on a runner left only an exit code -
-  // which is exactly the case a three-platform matrix creates, where the
-  // machine that failed is not the machine anyone is sitting at.
-  reporter: [["list"], ["html", { open: "never" }]],
+  // On a runner: the `github` reporter, which turns each failure into a
+  // workflow annotation carrying the message and the line it failed on. A
+  // three-platform matrix is worth little if the machine that failed is not
+  // the machine anyone can read, and an exit code is not a finding. The HTML
+  // report and the trace are uploaded beside it for whoever wants to step
+  // through it.
+  reporter: process.env.CI
+    ? [["github"], ["list"], ["html", { open: "never" }]]
+    : [["list"], ["html", { open: "never" }]],
   // One at a time: the three servers are three projects on disk, and a test
   // that presses Run changes what a parallel test would read.
   workers: 1,
