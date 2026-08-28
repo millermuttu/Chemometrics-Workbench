@@ -205,6 +205,42 @@ jobs:
             exit 1
           fi
 
+      # Four at once, which is the one thing none of the steps above do and
+      # exactly what Playwright does. If servers only fail in company, they
+      # fail here too - and here their output is capturable.
+      - name: Four servers at once
+        shell: bash
+        working-directory: .
+        env:
+          CHEMOMETRICS_CONFIG_HOME: ${{ runner.temp }}/four-config
+        run: |
+          set +e
+          for port in 8781 8782 8783 8784; do
+            CHEMOMETRICS_PROJECT="${RUNNER_TEMP}/four-$port" WORKBENCH_PORT=$port \
+              WORKBENCH_TOKEN=four-token WORKBENCH_BUNDLE=frontend/dist \
+              uv run python tests/seed_e2e.py --serve --fresh --empty > "four-$port.log" 2>&1 &
+          done
+          bad=0
+          for port in 8781 8782 8783 8784; do
+            code=""
+            for _ in $(seq 1 60); do
+              code=$(curl -s -o /dev/null -w '%{http_code}' -m 5 \
+                -H "Authorization: Bearer four-token" "http://127.0.0.1:$port/api/projects")
+              [ "$code" = "200" ] && break
+              sleep 2
+            done
+            if [ "$code" != "200" ]; then
+              bad=1
+              printf '::error title=Server on %s failed on %s::%s\n' "$port" "$RUNNER_OS" \
+                "$(tr '\n' ' ' < "four-$port.log" | tail -c 700)"
+            fi
+          done
+          pkill -f chemometrics_workbench.server 2>/dev/null
+          pkill -f seed_e2e.py 2>/dev/null
+          for port in 8781 8782 8783 8784; do echo "--- $port ---"; cat "four-$port.log"; done
+          [ $bad -eq 0 ] && printf '::notice title=Four servers started on %s::all answered 200\n' "$RUNNER_OS"
+          exit $bad
+
       - name: Server smoke test
         shell: bash
         working-directory: .

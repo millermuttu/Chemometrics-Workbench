@@ -45,7 +45,13 @@ test("a run advances through real work, in all three places at once", async ({ p
     }
     await page.waitForTimeout(100);
   }
-  expect(seen.length, `progress advanced through ${seen.join(", ")}`).toBeGreaterThan(2);
+  // It advanced, and it never went backwards. Not *how many* frames were
+  // caught: that is a fact about how fast the runner is, and a fast one can
+  // finish two nodes between polls - macOS did, and failed on a 3 that meant
+  // nothing. #85's real claim, that progress is counted from nodes finishing
+  // rather than interpolated against the clock, is asserted where it can be
+  // observed exactly: in the Python job tests.
+  expect(seen.length, `progress advanced through ${seen.join(", ")}`).toBeGreaterThanOrEqual(2);
   expect(seen).toEqual([...seen].sort((a, b) => a - b));
 
   await status.getByRole("button", { name: "Cancel" }).click();
