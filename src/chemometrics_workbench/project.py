@@ -169,7 +169,9 @@ def open_project(directory: str | os.PathLike[str]) -> Project:
         raise ProjectError(f"{path} is a file, not a project directory.")
 
     if not db.database_path(path).exists():
-        raise ProjectError(f"{path} is not a project directory: it has no {db.DATABASE_FILE}.")
+        if not (path / PROJECT_FILE).exists():
+            raise ProjectError(f"{path} is not a project directory: it has no {db.DATABASE_FILE}.")
+        _import_json_project(path)
 
     with _session(path) as session:
         record = session.scalars(select(db.ProjectRow)).first()
@@ -193,6 +195,140 @@ def open_project(directory: str | os.PathLike[str]) -> Project:
 
     _remember(path, project)
     return project
+
+
+def _import_json_project(path: Path) -> None:
+    """Read a project written before the database existed, once.
+
+    Phase 1.2 kept the index in five JSON files. A directory holding those and
+    no `project.db` is read into a fresh database here, in one transaction, and
+    **the files are left where they are and never read again** - they are not a
+    second copy to keep in step, they are what this directory used to be.
+
+    Not a refusal, because the alternative was telling anyone with a project on
+    disk to import it again, and the seeded end-to-end projects are real users
+    of the old shape. Deleted when nothing can plausibly still be on 1.2.
+    """
+    record = _json_document(path / PROJECT_FILE)
+    if not isinstance(record, dict):
+        raise ProjectError(f"{path / PROJECT_FILE} should hold an object.")
+
+    written = record.get("layout_version")
+    if written != LAYOUT_VERSION:
+        raise ProjectError(
+            f"{path} was written with layout version {written!r} and this build reads "
+            f"version {LAYOUT_VERSION}. Upgrade the application rather than editing the file."
+        )
+
+    try:
+        project = Project.model_validate({**record.get("project", {}), "directory": str(path)})
+    except ValidationError as error:
+        first = error.errors()[0]
+        field = ".".join(str(part) for part in first["loc"]) or "project"
+        raise ProjectError(
+            f"{path / PROJECT_FILE} is not a valid project: {field} {first['msg']}."
+        ) from error
+
+    datasets = _json_document(path / DATASETS_FILE) or []
+    pipeline_record = _json_document(path / PIPELINE_FILE)
+    layout_record = _json_document(path / LAYOUT_FILE)
+    experiment_record = _json_document(path / EXPERIMENT_FILE)
+
+    try:
+        entries = [DatasetEntry.model_validate(entry) for entry in datasets]
+        pipeline = Pipeline.model_validate(pipeline_record) if pipeline_record else None
+        experiment = Experiment.model_validate(experiment_record) if experiment_record else None
+    except ValidationError as error:
+        raise ProjectError(f"the project at {path} could not be read: {error}") from error
+
+    # One transaction: a directory either has a database holding everything the
+    # files held, or it still has only the files and is read again next time.
+    with _session(path, create=True) as session:
+        session.add(
+            db.ProjectRow(
+                project_id=str(project.project_id),
+                name=project.name,
+                created_at=project.created_at.isoformat(),
+                document=_document(project),
+            )
+        )
+        for entry in entries:
+            session.add(
+                db.DatasetRow(
+                    dataset_id=str(entry.dataset.dataset_id),
+                    name=entry.dataset.name,
+                    created_at=entry.dataset.created_at.isoformat(),
+                    document=entry.dataset.model_dump_json(),
+                )
+            )
+            for version in entry.versions:
+                session.add(
+                    db.DatasetVersionRow(
+                        version_id=str(version.version_id),
+                        dataset_id=str(version.dataset_id),
+                        version=version.version,
+                        content_hash=version.content_hash,
+                        n_samples=version.n_samples,
+                        n_variables=version.n_variables,
+                        array_path=version.array_path,
+                        created_at=version.created_at.isoformat(),
+                        document=version.model_dump_json(),
+                    )
+                )
+        if pipeline is not None:
+            session.add(
+                db.PipelineRow(
+                    pipeline_id=str(pipeline.pipeline_id),
+                    name=pipeline.name,
+                    content_hash=pipeline.content_hash(),
+                    created_at=pipeline.created_at.isoformat(),
+                    document=pipeline.model_dump_json(),
+                )
+            )
+            # Flushed before the layout that points at it: without a declared
+            # relationship between the two mappers, the unit of work is free to
+            # attempt the child insert first, and the foreign key refuses it.
+            session.flush()
+            # Layout is keyed on the pipeline, so a layout without one has
+            # nothing to hang from and is dropped rather than invented.
+            if isinstance(layout_record, dict):
+                session.add(
+                    db.PipelineLayoutRow(
+                        pipeline_id=str(pipeline.pipeline_id),
+                        document=json.dumps(layout_record),
+                    )
+                )
+        if experiment is not None:
+            session.add(
+                db.ExperimentRow(
+                    experiment_id=str(experiment.experiment_id),
+                    dataset_version_id=str(experiment.dataset_version_id),
+                    status=experiment.status.value,
+                    started_at=(
+                        experiment.started_at.isoformat() if experiment.started_at else None
+                    ),
+                    finished_at=(
+                        experiment.finished_at.isoformat() if experiment.finished_at else None
+                    ),
+                    document=experiment.model_dump_json(),
+                )
+            )
+        session.commit()
+
+
+def _json_document(path: Path) -> Any:
+    """One of the pre-database files, or `None` if it is not there.
+
+    A file that exists and cannot be parsed is an error rather than an absence:
+    a project whose pipeline is unreadable has lost work, and quietly starting
+    again from nothing is the wrong answer to that.
+    """
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise ProjectError(f"{path} could not be read: {error}") from error
 
 
 def _document(project: Project) -> str:
@@ -566,7 +702,11 @@ def is_project(directory: str | os.PathLike[str]) -> bool:
     is a fact about the directory layout, which is this module's to know. It
     asked for `project.json` by name until the database replaced it.
     """
-    return db.database_path(Path(directory)).exists()
+    directory = Path(directory)
+    # A directory written before the database counts: `open_project` reads it
+    # into one on the way past, and answering "no" here would send `api.py` to
+    # `create_project`, which refuses over an existing project.
+    return db.database_path(directory).exists() or (directory / PROJECT_FILE).exists()
 
 
 def _require_project(path: Path) -> None:
