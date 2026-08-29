@@ -8,40 +8,62 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 ## Where things stand
 
-**Phase 0 is released and tagged `v0.1.0`. Phase 1.1 is released and tagged `v0.2.0`.**
+**Phase 0 is tagged `v0.1.0`, Phase 1.1 `v0.2.0`, and Phase 1.2 `v0.3.0` — released 2026-08-29.**
 
-**Phase 1.2 is complete: twenty-one features of twenty-one, all `passing`.** The sub-phase exit
-criterion — #50's walkthrough against the real backend with `stub/` deleted — is met and green on
-ubuntu, macOS and Windows. There is nothing left in the phase to build.
+Phase 1.2 closed with twenty-one features of twenty-one passing; its list is now
+`docs/phase-1-2/feature_list.json`, kept as its record. The live `feature_list.json` is **Phase 2's**.
 
-| | Feature | Issue | Status |
-| --- | --- | --- | --- |
-| A–M | Phase 1.2's backend, in order | #76–#88 | passing |
-| M′ | The import contract findings | #99 | passing |
-| N | HTTP surface complete, stub retired | #89 | passing |
-| N′ | The canvas can save a pipeline | #108 | passing |
-| O | The sub-phase exit criterion as a test | #90 | passing |
-| H′ | The fixture's `centre_d` array | #97 | passing |
-| M″ | Rank through the store | #101 | passing |
-| I′ | MSC above a split | #103 | passing |
-| N″ | The overloaded state | #109 | passing |
+**Phase 1.3 — SQLite in each project directory, and the two halves joined — is unstarted**, and is
+still the next phase in `PROPOSAL.md`'s order. Phase 2's first feature was pulled ahead of it at the
+user's direction, not instead of it.
+
+| Feature | Issue | Status |
+| --- | --- | --- |
+| A branch is dragged on the canvas, and a node can be removed | #51 | passing |
+| Duplicate a subgraph, and compare two terminal nodes in one tab | #51 | not started |
 
 ## Current work
 
-**Nothing is `in_progress`.** `dev` is at `8c2ce14`, the tree is clean, no branches remain and no
-pull requests are open. Merged on 2026-08-29: #111 (#108), #112 (#90), #114 (#103 and the CI fix),
-#113 (#97), #115 (#101), #116 (#109).
+**Nothing is `in_progress`.** `dev` is at `c1e09ba`, `main` at `c2a51e2` and tagged `v0.3.0`, the
+tree is clean, no branches remain and no pull requests are open. Merged on 2026-08-29: #111 (#108),
+#112 (#90), #114 (#103), #113 (#97), #115 (#101), #116 (#109), #117 (the phase into `main`),
+#118 (#51's first half).
 
 ## Next action
 
-**The phase ends.** Open a pull request from `dev` into `main`, merge it, and tag the release —
-`v0.3.0` is the obvious number, and nothing in the repository has claimed it. **This has not been
-done and is the first thing to pick up.** GitHub's default base is still `main`, so this is the one
-pull request that wants no explicit base override.
+Two things are open, and **which comes first is a decision, not a default**:
 
-Then Phase 1.3: SQLite in each project directory, and the two halves joined. It has no
-`feature_list.json` yet — the current one covers 1.2 and should be moved to `docs/phase-1-2/`
-alongside the two lists already there, and a new one written for 1.3.
+- **Phase 1.3**, which is where `PROPOSAL.md` says the project goes next. It has no
+  `feature_list.json` yet — one has to be written before a branch is cut.
+- **The rest of #51** — duplicating a subgraph, and a comparison tab for two terminal nodes. The
+  entry is in the live list. The comparison tab has no artboard behind it and little to compare
+  until PLS has a kernel in the executor, which is the argument for letting 1.3 go first.
+
+## What #51's first half settled
+
+**Every non-source node holds exactly one input** — `models.py` types it as `tuple[NodeId]`. Two
+consequences shape the whole feature and should not be rediscovered:
+
+- **Connecting replaces the target's input rather than appending to it.** A branch is one node with
+  several *children*, which is what the artboard's fork of `corn_raw` into four paths actually is.
+- **An edge cannot be cut on its own** — the child would be left with no input, which is not a
+  pipeline. Edges are rewired, never deleted.
+
+Three more, each of which cost a cycle:
+
+- **`frontend/src/canvas/edits.ts` holds every rule, pure and tested**, beside `graph.ts`. Each
+  refusal is the client half of a `models.py` validator, enforced during the drag through React
+  Flow's `isValidConnection`. **Nothing in the canvas component computes a graph rule of its own** —
+  keep it that way, or the client and the server start disagreeing about what is legal.
+- **The remove control is on the node, not in the side panel.** Clicking a node opens its tab, which
+  replaces the panel before anything in it can be clicked. The first version put it in the step list
+  and four browser tests found that immediately.
+- **An edge is an SVG `<g>` with no layout box, so Playwright calls every one of them hidden.**
+  Assert `toHaveCount`, never `toBeVisible`, on `.react-flow__edge`.
+
+**Node positions are still not draggable.** Layout lives in `pipeline_state.json`, outside
+`content_hash()`, and nothing writes it back — moving a node is a separate change with a server side
+to it.
 
 ## What #109 settled, so it is not re-argued
 
@@ -65,7 +87,7 @@ Two mechanics worth not rediscovering:
   `SpectraView.tsx` imports it at module scope. Past the envelope it is never called — the guard
   returns first. The stub replaces a browser global, not a project state.
 
-## A CI gotcha found this session
+## A CI gotcha worth not rediscovering
 
 **The github MCP server's `get_check_runs` served `in_progress` for about forty minutes after the
 jobs had finished.** The e2e matrix completed at 06:30:31–06:30:55 — around two and a half minutes,
@@ -115,7 +137,7 @@ Both found because a check was made stricter. This is the argument for `retries:
 ## Waiting on the user
 
 - **#71 — what a non-positive `h0` should do** in the Jackson–Mudholkar SPE limit. Gasoline's `h0` is −0.0190; our kernel uses it as computed, `mdatools` clamps it to 0.001. The divergence is recorded and proven; what the kernel *should* do is a specification decision, not a coding one.
-- **GitHub default branch is still `main`.** Any pull request opened without an explicit base targets the release line. Change it under Settings → Branches; it cannot be changed from here with the current tools. (The phase-end pull request is the one case where that default is what is wanted.)
+- **GitHub default branch is still `main`.** Any pull request opened without an explicit base targets the release line. Change it under Settings → Branches; it cannot be changed from here with the current tools. Every feature pull request must set `dev` as its base explicitly.
 - **Parity against a commercial package** — `PROPOSAL.md` §19 Q4 is unresolved. The EULA is not public; a licence would have to be confirmed and written permission sought before publishing a comparison.
 - Remaining open questions are in `PROPOSAL.md` §19 — team and pace, funding intent, project name.
 
