@@ -2,11 +2,17 @@ import { useState } from "react";
 
 import type { DraftStep } from "@/canvas/graph";
 
-/** The 1.1 pipeline builder: a list, not a drag surface.
+/** The pipeline builder beside the canvas: appending, and what a drag cannot do.
  *
- * Dragging nodes into place is #51 and is wanted; it is not on the path to
- * this sub-phase's exit criterion, and a step list expresses
- * SNV -> Savitzky-Golay -> PCA perfectly well.
+ * The list is still the right tool for a linear chain - SNV -> Savitzky-Golay
+ * -> PCA is three clicks here and three drags on the canvas. #51 made the
+ * canvas editable for the case a list cannot express, a branch, and left this
+ * where it was.
+ *
+ * The one thing it gained is a Save enabled by a graph edit as well as by a
+ * draft step. Removing a node is a control on the node itself: clicking a node
+ * opens its tab, so anything in here would be replaced by the tab before it
+ * could be clicked.
  */
 
 /** The catalogue, with the payload each entry becomes.
@@ -64,9 +70,19 @@ interface Props {
   onSave: () => void;
   saving: boolean;
   validation: string | null;
+  /** The canvas holds edits the server has not seen, so Save has work to do. */
+  edited: boolean;
 }
 
-export function StepList({ steps, onChange, onValidate, onSave, saving, validation }: Props) {
+export function StepList({
+  steps,
+  onChange,
+  onValidate,
+  onSave,
+  saving,
+  validation,
+  edited,
+}: Props) {
   const [choice, setChoice] = useState(STEPS[0].kind);
 
   return (
@@ -148,7 +164,7 @@ export function StepList({ steps, onChange, onValidate, onSave, saving, validati
         <button
           className="btn btn-p"
           style={{ height: 24 }}
-          disabled={steps.length === 0 || saving}
+          disabled={(steps.length === 0 && !edited) || saving}
           onClick={onSave}
         >
           {saving ? "Saving…" : "Save"}
