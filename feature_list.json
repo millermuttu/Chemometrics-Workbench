@@ -428,12 +428,13 @@
         "http-surface-complete"
       ],
       "user_visible_behavior": "The beyond-the-envelope notice is proven to appear on a dataset that is really past PROPOSAL.md section 13's envelope.",
-      "status": "not_started",
+      "status": "passing",
       "verification": [
-        "The overloaded notice is exercised against a real dataset shape, or the decision not to is recorded with its reason."
+        "cd frontend && pnpm test - overloaded.test.tsx renders the notice and the guard that reaches it.",
+        "The decision not to prove it end to end is recorded in docs/decisions/0005-overloaded-state-coverage.md."
       ],
-      "evidence": "",
-      "notes": "Opened 2026-08-28 from #89. ?oversize fabricated a 42,000 x 6,200 shape and died with the other three affordances; nothing replaces it, because #81 established that section 13's envelope is reported and not enforced. The arithmetic is covered by frontend/src/__tests__/envelope.test.ts; the screen is not. The issue lists four options and suggests covering Overloaded.tsx as a component test and recording the decision for the remainder - no option honestly proves a real 1 GB import reaches the notice, and a hollow DatasetVersion would be a fixture wearing a real project's clothes."
+      "evidence": "2026-08-29. `cd frontend && npx vitest run` - 9 files, 63 tests passed, including src/__tests__/overloaded.test.tsx (6 tests). `npx tsc -b --noEmit` and `npx eslint .` both exit 0. The test renders Overloaded.tsx and SpectraView.tsx's guard through react-dom/server and asserts the crossed bounds (\"BEYOND THE V1 ENVELOPE - spectra - variables - memory\"), the sentence (\"42,000 x 6,200 is about 1,042 MB as float32\", \"20,000 x 4,000, about 320 MB\"), role=\"alert\", that children render beside the notice, and that the plot view is never entered. Option A - a real oversize import - is deliberately not implemented; docs/decisions/0005-overloaded-state-coverage.md records why and states the remaining gap.",
+      "notes": "Opened 2026-08-28 from #89. Closed 2026-08-29 with option C plus D: a component test for the screen, and the end-to-end gap recorded rather than closed. The envelope is reported and not enforced (#81), so the only honest input to this state is about a gigabyte - there is no small one, because the state is a function of size alone. A seeded DatasetVersion with no array (option B) was rejected: the application cannot produce that record. Rendered with react-dom/server rather than jsdom plus a testing library, because the state draws nothing and runs no effects, so static markup is its whole output; react-dom is already a dependency. plotly.js-gl2d-dist-min is stubbed because it reads `self` at load - it replaces a browser global, not a project state. vitest.config.ts now includes src/**/*.test.tsx."
     },
     {
       "id": "e2e-real-backend",
