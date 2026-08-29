@@ -2,7 +2,7 @@
 
 Compact state for the next session. **Overwrite this file at the end of every session** — it is a snapshot, not a log. Read it first, then `feature_list.json`, `git log` on `dev`, and the open issues.
 
-**Updated:** 2026-08-28
+**Updated:** 2026-08-29
 
 ---
 
@@ -10,130 +10,92 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 **Phase 0 is released and tagged `v0.1.0`. Phase 1.1 is released and tagged `v0.2.0`.**
 
-**Phase 1.2 is sixteen features in, of twenty-one.** #89 is done: there is one server, `stub/` is
-deleted, and the whole end-to-end suite runs against the real backend. What is left in the sub-phase
-is **#90**, and #90 is **blocked behind #108**.
+**Phase 1.2's exit criterion is met.** #50's walkthrough runs green against the real backend, on a
+file the user picks, with `stub/` deleted — **and on all three platforms**. Seventeen of the
+twenty-one features are `passing`; the four that are not block nothing and are listed below.
 
-| | Feature | Issue | Depends on | Status |
-| --- | --- | --- | --- | --- |
-| A | Archive the 1.1 list, open the 1.2 list | #76 | — | passing |
-| B | Project directory and array store | #77 | A | passing |
-| C | Reader interface and the CSV/TXT reader | #78 | B | passing |
-| D | XLSX reader | #79 | C | passing |
-| E | JCAMP-DX reader | #80 | C | passing |
-| F | Import endpoints | #81 | B, C | passing |
-| G | Drop `MSC(reference="supplied")` | #82 | A | passing |
-| H | Pipeline executor | #83 | B, G | passing |
-| H′ | The fixture's `centre_d` array | #97 | H | not started |
-| I | Pipeline validator | #84 | H | passing |
-| I′ | MSC above a split | #103 | I | not started |
-| J | Real jobs | #85 | H | passing |
-| K | Server-side decimation and the density band | #86 | H | passing |
-| L | Results endpoint | #87 | H | passing |
-| M | The metrics gap | #88 | — | passing |
-| M′ | The import contract findings | #99 | F, L | **passing** |
-| M″ | Rank through the store | #101 | L | not started |
-| N | HTTP surface complete, stub retired | #89 | F, J, K, L | **passing** |
-| N′ | No endpoint writes a pipeline | **#108** | N | **not started — blocks #90** |
-| N″ | The overloaded state is unreachable | #109 | N | not started |
-| O | 1.2's exit criterion as a test | #90 | I, N, **#108** | not started |
+| | Feature | Issue | Status |
+| --- | --- | --- | --- |
+| A–M | Phase 1.2's backend, in order | #76–#88 | passing |
+| M′ | The import contract findings | #99 | passing |
+| N | HTTP surface complete, stub retired | #89 | passing |
+| N′ | The canvas can save a pipeline | #108 | passing |
+| **O** | **The sub-phase exit criterion as a test** | **#90** | **passing** |
+| H′ | The fixture's `centre_d` array | #97 | not started — **maintainer decision** |
+| M″ | Rank through the store | #101 | not started — **maintainer decision** |
+| I′ | MSC above a split | #103 | not started — small |
+| N″ | The overloaded state is unreachable | #109 | not started — probably a decision to record |
 
 ## Current work
 
-**Nothing is `in_progress`.** #89 and #99 merged into `dev` on 2026-08-28 as pull request **#110**,
-with all three CI checks green. Both issues are closed, the branch is deleted locally and on origin,
-the tree is clean and `dev` is pushed. **#109 was opened** for the overloaded state; **#108 already
-existed**, filed on 2026-08-27, and says exactly what #89 independently found.
+**Nothing is `in_progress`.** #108 merged as pull request #111 and #90 is on
+`feature/90_e2e-real-backend`, green on all five checks.
 
-One CI failure was fixed on the branch before merging, and the cause is worth remembering: CI runs a
-bare `uv run mypy`, which takes its file list from `pyproject.toml`, and that list still named the
-deleted `stub` directory. The local check had been `mypy src`, which is **not the command CI runs**.
-Run the bare `uv run mypy` — it covers `src` and `tests` both.
+## What the three-platform matrix cost and bought
 
-## What #89 turned out to be
+#90's first verification step asked for the walkthrough green "in CI, on the three-platform matrix",
+and that matrix did not exist — CI was ubuntu-only. The maintainer chose to **build it** rather than
+amend the step. It found four bugs an ubuntu-only job would never have shown:
 
-It was much bigger than its issue text, as the last handoff warned, and the reason is worth keeping:
-**pointing the end-to-end suite at the real backend found bugs the stub had been hiding.** Four in the
-server, one in the frontend contract, all fixed here with regression tests.
+1. **CRLF broke a pinned checksum, and this one is the application's, not the harness's.**
+   `data/tecator/tecator.txt` is verified against a SHA-256 pinned in `datasets.py` before it is
+   read, and git rewrites LF as CRLF on checkout on Windows — every line changes, so the digest
+   changes, so `load_tecator` refuses the file. **Anyone cloning this repository on Windows would
+   meet this the moment they touched the reference dataset.** Fixed with a `.gitattributes` marking
+   the committed dataset and the reader fixtures `-text`. The check was deliberately *not* relaxed: a
+   checksum that tolerates a transformation is not checking anything.
+2. **The seed shut down the server's job pool.** Once seed and server shared a process,
+   `with TestClient(app)` ran the app's lifespan, whose shutdown calls `JOBS.shutdown()`.
+3. **A locator read the wrong element** — `getByRole("status").first()` matched the stale banner, not
+   the run status bar. Both carry `role="status"`. This is what made ubuntu flaky.
+4. **An assertion measured the runner.** macOS failed on two sampled progress frames where the test
+   wanted three, which is a fact about machine speed rather than the application.
 
-1. **Nothing ever wrote `experiment.json`.** `GET /experiments/current` — a published endpoint — answered
-   404 for the life of a project however many runs had happened. `executor.experiment_for` and
-   `jobs.submit_run` now write the record on every ending: succeeded, failed and cancelled alike,
-   because a failed experiment is a result and `models.py` says so on the field.
-2. **`pipelines/{id}/state` could not report a failed node.** It knew `complete`, `queued`, `running`
-   and `not_run`, so a failed run rendered as a graph of nodes that merely never ran, and the
-   artboard's `failed` encoding was a state only the fixture could produce.
-3. **The job blamed the wrong node** — the last one to *report progress*, which is precisely the last
-   one that finished rather than the one that raised. `ExecutorError` has carried `node_id` as a field
-   since #83 for exactly this ("a canvas that wants to mark the node red cannot parse it back out of
-   English"); the job now reads it.
-4. **A plain `GET` could 500, intermittently.** `open_project` called `_remember` on *every* call,
-   rewriting a registry file shared by every project on the machine; a page load asks six questions at
-   once and two of them racing on that write failed the open. Worse, the check-then-create in
-   `open_project_directory` was unsynchronised, and `create_project` makes `arrays/` before it writes
-   `project.json` — so the losers of that race found a directory that was neither empty nor yet a
-   project, which made **the first load of a brand-new project a 500**. Both are fixed, and
-   `test_concurrent_reads_on_one_project_never_fail` fires thirty concurrent reads at one project.
-5. **One frontend change, and it is the finding.** Nothing refetched `pipelines/{id}/state` while a job
-   advanced: in 1.1 the fixture had a node permanently `running` and another permanently `failed`, so
-   those states were on screen without anything asking for them. Against a real backend they are
-   *events*. `Shell.tsx` now invalidates `pipeline-state` when the job's status or `node_id` changes,
-   following the poll the job query already runs. **No URL and no payload changed.**
+**The lesson worth not repeating:** diagnosing Windows took nine CI cycles and three wrong theories,
+because all four smoke steps used `--empty` — and `--empty` never loads Tecator. Four diagnostics
+that each avoided the failing path, reasoned from confidently. What ended it was one line of the
+actual CI log, which needed the maintainer to paste it: **the github MCP server exposes no Actions
+tools at all**, so log and artifact access is not a token-scope question, and every CI question costs
+a push-and-wait until that changes.
 
-## How the end-to-end suite works now
+## How the end-to-end suite works
 
-**A state is a project, so a starting state is a seeded directory.** The stub reached its states
-through query parameters, which meant one server could be anything on request. `playwright.config.ts`
-now runs **three real servers over three real project directories**, seeded by `tests/seed_e2e.py`:
+**A state is a project, so a starting state is a seeded directory.** `playwright.config.ts` runs
+**four** real servers over four real project directories, each seeded by `tests/seed_e2e.py --serve
+--fresh`, which seeds and then serves in one process:
 
-- **8765 `seeded`** — Tecator imported through the real import handler, the artboard's four-branch
-  fourteen-node pipeline with every node executed. Everything that reads.
-- **8766 `empty`** — a project with nothing in it. The empty state, and the imports, which are the
-  tests that *change* the project they run in.
-- **8767 `runs`** — the same pipeline plus a branch that cannot be fitted, with **nothing executed**.
-  Runs really run here, so they can be watched, cancelled and failed.
+- **8765 `seeded`** — Tecator imported through the real handler, the four-branch fourteen-node
+  pipeline with every node run. Everything that reads.
+- **8766 `empty`** — nothing in it. The empty state and the imports.
+- **8767 `runs`** — the same pipeline plus a branch that cannot be fitted, nothing executed. Runs
+  really run here, so they can be watched, cancelled and failed. Carries a **synthetic 2,000 × 800**
+  matrix because Tecator's whole run finishes in ~0.2 s, far too fast to catch a node `running`;
+  it is generated and **no number is claimed from it**.
+- **8768 `walkthrough`** — empty, and its own, because #50 imports and cannot share with `empty`.
 
-Things that were learned the hard way and should not be rediscovered:
-
-- **Tecator is too fast to watch.** The whole fourteen-node run finishes in about 0.2 s — real work,
-  and far quicker than a browser polling four times a second can catch a node `running`. The `runs`
-  project therefore carries a **synthetic 2,000 × 800 matrix** (`seed_e2e.synthetic_dataset`),
-  generated and stated as such; **no number is claimed from it**, the same footing as #86's fixture.
-  4,000 × 1,500 was measured at ~3 s per branch and rejected as impolite on a runner.
-- **A cached pipeline has no work to cancel.** This is why the run tests cannot share the seeded
-  project, and it is correct behaviour rather than a problem to work around.
-- **A failed run is remembered by the job table**, so it would follow every later test on the same
-  server. That is the other reason `runs` is its own project.
-- **`data/tecator/tecator.txt` is not reader-readable** — a prose header and the 22 principal
-  components the file also supplies, which is why `load_tecator` parses it specially. The seed writes
-  the data out as a CSV and posts it to the real `/api/import`, so the seeded dataset comes through
-  the reader a user's file goes through.
-- **The real backend reproduces the fixture's numbers**: 240 × 100, explained variance 68.9 / 28.4 /
-  1.6 per cent and 99.9 cumulative, 240 spectra decimated to 60 traces. `spectra.spec.ts` and
-  `analysis.spec.ts` pass **unchanged**, which is the strongest evidence the swap kept the contract.
+Portability details that were learned the hard way: `os.tmpdir()` not `/tmp`; the removal is
+`--fresh` inside the seed script (Python's `shutil`) rather than `rm -rf` in a shell;
+`playwright install --with-deps` is Linux-only and is split by `runner.os`; the webServer command is
+one command, not two joined by `&&`; and on a runner Playwright uses the `github` reporter so a
+failure is an annotation rather than an exit code in a log nobody can read.
 
 ## Next action
 
-**#108, then #90.** #108 is the blocker and it is a real design question, not a detail.
+**Phase 1.2 is done bar four issues that block nothing.** Two of them are decisions only the
+maintainer can take, and they have been waiting since #83 and #87:
 
-**#108 — no endpoint writes a pipeline.** The step list builds a **client-side draft**; the frontend
-has read `pipelines/current` since its first commit and has never posted one, so 1.1 published no way
-to save a pipeline and #89 served every URL it did publish without inventing one it did not. The
-consequence is that #50's three walkthrough tests are `test.fixme` with the reason in the file: the
-SNV, Savitzky-Golay and PCA nodes the walkthrough assembles never reach the server, and the run that
-follows has only the source node to execute. **Everything else the walkthrough asserts already passes
-against the real backend** — the empty project and the import in `empty.spec.ts`, the run's lifecycle,
-cancellation and failure in `runs.spec.ts`, the scores against the kernel's own numbers in
-`analysis.spec.ts`. What is missing is the single path through them.
+- **#97** — the fixture's `centre_d` is fitted on all samples; §9 requires refitting per training
+  fold. The divergence is measured and proven; what the kernel *should* do is a specification call.
+  It also invalidates `pca_d`, so regenerating means regenerating both.
+- **#101** — a centred matrix read back as float32 reports a rank one too high. Only the displayed
+  integer moves; the limits move in the ninth decimal.
+- **#103** — MSC above a split leaks like the two warnings #84 emits, and nothing warns. Small.
+- **#109** — the overloaded state has no way to be reached now `?oversize` is gone. The issue lists
+  four options and suggests covering `Overloaded.tsx` as a component test and recording the decision
+  for the rest.
 
-The shape of #108 is a decision to take deliberately: whether the canvas `PUT`s a whole pipeline or
-`POST`s node operations, and what either means for #83's merkle cache keys. Layout coordinates must
-stay outside `Pipeline.content_hash()` — moving a node must not invalidate a cache entry.
-
-**Then #90**, which is the exit criterion and is mostly un-`fixme`-ing the walkthrough once #108 lands.
-
-Loose findings, none blocking: **#97** and **#101** are specification decisions waiting on the
-maintainer, **#103** is small, **#109** is probably a decision to record rather than a test to write.
+**Then the phase ends**: a pull request from `dev` into `main`, merged, and a release tag. Phase 1.3
+is SQLite and the two halves joined.
 
 ## Waiting on the user
 
