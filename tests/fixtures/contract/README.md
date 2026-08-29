@@ -21,5 +21,21 @@ Two things they are not:
   file here to match. Every envelope marked GUESS in Phase 1.1 may change; the
   numbers may not, because they came from the kernels.
 
+## The one number the application deliberately does not reproduce
+
+`spectra.json` publishes `centre_d` as a mean centring fitted on all 240
+samples. `metrics-and-validation.md` §9 requires a node below a split to be
+refitted on the training fold alone, and the executor does that, so the two
+differ - by 1.2e-03, measured. `pca.json`'s `pca_d` is fitted on that array and
+diverges with it.
+
+**This is the exception to the rule above, and the only one.** The fixture is
+the Phase 1.1 record; §9 is the specification; where they disagree the
+application follows the specification and the record stays a record.
+`docs/decisions/0003-fixture-centre-d.md` is why, and
+`tests/test_executor.py` computes both numbers so the divergence cannot drift
+without a test noticing. Every other array here is reproduced to the fixture's
+own rounding - a new disagreement is a finding, not a precedent.
+
 `tests/seed_e2e.py` rebuilds the same four-branch pipeline these were generated
 from, so the end-to-end suite exercises the same graph against real arrays.
