@@ -11,14 +11,26 @@ import { expect, test } from "@playwright/test";
  * leaves the nodes that finished on disk, and the failing run afterwards still
  * fails, because the branch it fails on is not one of them.
  *
- * Real work needs a real budget: 2,000 x 800 through four branches and a
- * ten-fold split is a few seconds cold, and Playwright's default 30 s cap is
- * for tests that only click.
+ * Real work needs a real budget: 3,000 x 1,200 through four branches and a
+ * ten-fold split is about ten seconds cold, and Playwright's default 30 s cap
+ * is for tests that only click.
+ *
+ * **What these do not assert.** Progress counted per node rather than
+ * interpolated, cancellation bounded by one node, what a cancelled run keeps,
+ * a failure naming the node it stopped at - all of that is run mechanics, and
+ * `tests/test_jobs.py` proves it deterministically, driven by
+ * `threading.Event` rather than by sleeps. Re-proving it here means racing a
+ * live process through a hundred-millisecond DOM poll, and every flake this
+ * suite has had lived in exactly that overlap. What only a browser can show is
+ * that the screen is *wired* to those mechanics: that the status bar, the tab
+ * badge and the node carry the same run, that cancelling from the UI reaches
+ * the cancelled state, and that the canvas marks the node the executor named.
+ * That is what is left here.
  */
 
 test.describe.configure({ timeout: 180_000 });
 
-test("a run advances through real work, in all three places at once", async ({ page }) => {
+test("a run shows in all three places, and cancelling stops it", async ({ page }) => {
   await page.goto("/?token=e2e-token");
   await page.getByRole("button", { name: "Pipeline", exact: true }).click();
 
@@ -27,27 +39,20 @@ test("a run advances through real work, in all three places at once", async ({ p
   const status = page.locator(".status");
   await page.getByRole("button", { name: "Run pipeline" }).click();
 
-  // Everything below is *observed while the run is on*, not demanded at an
-  // instant. A node is `running` for as long as that node takes, which is a
-  // fraction of a run that is itself a few seconds: an assertion that arrives
-  // a moment late finds a finished run and fails on a machine being quick.
-  // That is what made this flaky on macOS, and it is the same shape of mistake
-  // three other tests here made. What the test wants to know is whether these
-  // three places carried the run at all, so it watches for them.
-  const seen: number[] = [];
-  let sawRunningNode = false;
-  let sawTabProgress = false;
+  // Watched while the run is on, not demanded at an instant. Each of these is
+  // present for as long as the thing it describes lasts, which is a fraction
+  // of a run: an assertion that arrives a moment late finds a finished run and
+  // fails on a machine being quick.
   let sawStatus = false;
+  let sawTabProgress = false;
+  let sawRunningNode = false;
+  let cancellable = false;
 
-  let finalState = "never-observed";
   const deadline = Date.now() + 120_000;
   while (Date.now() < deadline) {
     // Cancel is offered exactly while the job is queued or running, so it is
-    // the application's own answer to "is a run on right now" - better than a
-    // list of the messages a run can show, which is what this asked for first
-    // and which missed `Running`, the one `jobs.py` sets before any node has
-    // reported. A test should not have to keep a copy of that vocabulary.
-    const cancellable = Boolean(await status.getByRole("button", { name: "Cancel" }).count());
+    // the application's own answer to "is a run on right now".
+    cancellable = Boolean(await status.getByRole("button", { name: "Cancel" }).count());
 
     if (!sawTabProgress && (await page.getByTestId("tab-progress").count())) sawTabProgress = true;
     if (!sawRunningNode && (await page.getByTestId("node-running").count())) sawRunningNode = true;
@@ -56,50 +61,27 @@ test("a run advances through real work, in all three places at once", async ({ p
       if (text.trim() && !/^Idle/.test(text)) sawStatus = true;
     }
 
-    const style = await page.locator(".status .prog i").first().getAttribute("style");
-    const percent = Number(/width:\s*([\d.]+)%/.exec(style ?? "")?.[1] ?? "-1");
-    if (percent >= 0 && percent !== seen.at(-1)) seen.push(percent);
-
-    // Stop once everything is observed and there is still a run to cancel.
-    if (cancellable && sawStatus && sawRunningNode && sawTabProgress && seen.length >= 2) {
-      finalState = "all-observed";
-      break;
-    }
-    // Over means it was on and now is not - `sawStatus` is that memory. Without
-    // it, the first turn of the loop can land in the beat between the job being
-    // submitted and the Cancel button rendering, read a progress bar already at
-    // zero, and conclude the run had finished before it started. Measured: that
-    // lost four runs in five.
-    if (!cancellable && sawStatus && seen.length) {
-      finalState = `run-finished: ${(await status.innerText()).replace(/\n/g, " | ")}`;
-      break;
-    }
+    if (cancellable && sawStatus && sawRunningNode && sawTabProgress) break;
+    // Over means it was on and now is not. Without `sawStatus` as that memory,
+    // the first turn of the loop can land in the beat between the job being
+    // submitted and Cancel rendering and conclude the run finished before it
+    // started - measured, that lost four runs in five.
+    if (!cancellable && sawStatus) break;
     await page.waitForTimeout(100);
   }
 
-  // The status bar, the tab and the node all carried the same run. The
-  // message carries what was actually observed: when this fails it is almost
-  // always because the run ended sooner than the watcher expected, and the
-  // useful question is which of the three was missed and how far the run got.
-  const observed =
-    `status=${sawStatus} tab=${sawTabProgress} node=${sawRunningNode} ` +
-    `progress=[${seen.join(", ")}] final=${finalState}`;
-  expect(sawStatus, `the status bar carried the run — ${observed}`).toBe(true);
-  expect(sawTabProgress, `the tab carried the run — ${observed}`).toBe(true);
-  expect(sawRunningNode, `a node showed as running — ${observed}`).toBe(true);
-
-  // It advanced, and it never went backwards. Not *how many* frames were
-  // caught: that is a fact about how fast the runner is. #85's real claim,
-  // that progress is counted from nodes finishing rather than interpolated
-  // against the clock, is asserted where it can be observed exactly - in the
-  // Python job tests.
-  expect(seen.length, `progress advanced through ${seen.join(", ")}`).toBeGreaterThanOrEqual(2);
-  expect(seen).toEqual([...seen].sort((a, b) => a - b));
+  const observed = `status=${sawStatus} tab=${sawTabProgress} node=${sawRunningNode}`;
+  expect(sawStatus, `the status bar carried the run - ${observed}`).toBe(true);
+  expect(sawTabProgress, `the tab carried the run - ${observed}`).toBe(true);
+  expect(sawRunningNode, `a node showed as running - ${observed}`).toBe(true);
+  expect(cancellable, `the run was still on to be cancelled - ${observed}`).toBe(true);
 
   await status.getByRole("button", { name: "Cancel" }).click();
   await expect(status).toContainText("Cancelled");
 
-  // Cancelled means stopped: the bar does not move on afterwards.
+  // Cancelled means stopped: the bar does not move on afterwards, and the tab
+  // stops claiming a run. What a cancelled run *keeps* is #85's subject and is
+  // asserted where it can be seen exactly - `tests/test_jobs.py`.
   const frozen = await page.locator(".status .prog i").first().getAttribute("style");
   await page.waitForTimeout(2_000);
   await expect(status).toContainText("Cancelled");

@@ -97,9 +97,18 @@ export default defineConfig({
   reporter: process.env.CI
     ? [["github"], ["list"], ["html", { open: "never" }]]
     : [["list"], ["html", { open: "never" }]],
-  // One at a time: the three servers are three projects on disk, and a test
-  // that presses Run changes what a parallel test would read.
+  // One at a time: the four servers are four projects on disk, and a test that
+  // presses Run changes what a parallel test would read.
   workers: 1,
+  // A stray `.only` greens the suite by running one test of thirty-four, and
+  // it looks exactly like a pass. On a runner that is a failure.
+  forbidOnly: Boolean(process.env.CI),
+  // No retries, deliberately: a green check should mean the suite passed, not
+  // that it passed within three attempts. Every flake this suite has had was
+  // an assertion about a frame of a live run rather than about what the run
+  // leaves behind, and the fix for that is the assertion. `runs.spec.ts` says
+  // which claims belong here and which belong to `tests/test_jobs.py`.
+  retries: 0,
   use: {
     baseURL: "http://127.0.0.1:8765",
     viewport: { width: 1440, height: 900 },
