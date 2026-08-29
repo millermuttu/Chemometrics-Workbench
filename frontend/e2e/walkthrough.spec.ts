@@ -61,12 +61,13 @@ test("the whole path: empty project to a scores plot the kernel produced", async
   await page.getByRole("button", { name: "Import data" }).click();
 
   // 2. Import the file the user picked, with the detection stated before
-  //    anything is committed. Thirty samples because a PCA of five components
-  //    needs a matrix that has five.
+  //    anything is committed. Thirty by twenty-four because a PCA of five
+  //    components needs a matrix that really has five: see `spectra-file.ts`,
+  //    which had two until #101 made the rank tolerance honest enough to say so.
   await page.getByLabel("Choose file").setInputFiles({
     name: "spectra.csv",
     mimeType: "text/csv",
-    buffer: Buffer.from(spectraCsv(30, 12)),
+    buffer: Buffer.from(spectraCsv(30, 24)),
   });
   await expect(page.getByText("spectra.csv")).toBeVisible();
   await expect(page.getByLabel("Delimiter")).toHaveValue(",");
@@ -74,7 +75,7 @@ test("the whole path: empty project to a scores plot the kernel produced", async
 
   // 3. The dataset is loaded only after the preview is confirmed.
   await expect(page.getByRole("tab", { name: /spectra/ })).toHaveCount(0);
-  await page.getByRole("button", { name: "Import 30 × 12" }).click();
+  await page.getByRole("button", { name: "Import 30 × 24" }).click();
   await expect(page.getByRole("tab", { name: /spectra/ })).toBeVisible();
   await expect(page.getByRole("cell", { name: "A001" })).toBeVisible();
 
