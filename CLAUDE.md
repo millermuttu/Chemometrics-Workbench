@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-**Phase 0 is released and tagged `v0.1.0`; Phase 1.1 is released and tagged `v0.2.0`.** The algorithm kernels, the parity programme and the reproducibility schema are green in CI, and the React shell now walks its five core screens over a stub FastAPI server. What does not exist yet is the thing behind the stub: no readers, no executor, no database, no persistence. Phase 1.2 builds the backend.
+**Phase 0 is tagged `v0.1.0`, Phase 1.1 `v0.2.0`, and Phase 1.2 `v0.3.0`.** The kernels, the parity programme and the reproducibility schema are green in CI, and the React shell walks its screens over the **real** backend: readers, the array store, the executor, real jobs and the HTTP surface, with `stub/` deleted. What does not exist yet is the database — **Phase 1.3 is unstarted**: SQLite in each project directory, and the two halves joined. A restart still loses the project list, not the data.
 
 - `PROPOSAL.md` — the specification. Read it before proposing or writing anything.
-- `feature_list.json` — the **live** task list. It currently covers Phase 1.2.
-- `docs/phase-0/feature_list.json`, `docs/phase-1-1/feature_list.json` — the completed lists, kept as their record. Do not add to them.
+- `feature_list.json` — the **live** task list. It covers Phase 2, which was started ahead of Phase 1.3 at the user's direction (#51); Phase 1.3 is still the next phase in `PROPOSAL.md`'s order and has no list yet.
+- `docs/phase-0/feature_list.json`, `docs/phase-1-1/feature_list.json`, `docs/phase-1-2/feature_list.json` — the completed lists, kept as their record. Do not add to them.
 - `design/DESIGN_BRIEF.md` — screens, states and plot rules for the UI.
 - `src/chemometrics_workbench/` — the kernels: preprocessing, PCA, PLS, validation, reference datasets.
 - `src/chemometrics_workbench/models.py` — the Pydantic schema for the reproducibility model; its invariants are exercised by `tests/test_models.py`.
@@ -21,8 +21,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Phase 1 runs in three sub-phases**, because the interface and the backend are independently riskiest and a frontend built against invented JSON would encode an API contract nobody agreed to:
 
 - **1.1 — walking skeleton, done and tagged `v0.2.0`.** The React shell and the core screens over a **stub server**: FastAPI on `127.0.0.1`, token-authenticated, serving fixtures generated from the real kernels at the endpoint paths 1.2 will implement. Jobs advance and can be cancelled and made to fail; there is no executor, no database and no persistence behind them. The frontend talks HTTP from its first commit, so 1.2 replaces handlers behind unchanged URLs rather than integrating in one moment.
-- **1.2 — backend, in progress.** The project directory and the array store, the CSV/TXT, XLSX and JCAMP-DX readers, the pipeline executor, real jobs and the HTTP surface, replacing the stub's handlers one at a time behind unchanged URLs. It ends when #50's walkthrough passes against the real backend with `stub/` deleted. **SQLite is not part of it** — a restart loses the project list, not the data.
-- **1.3 — database and integration.** SQLite in each project directory, and the two halves joined.
+- **1.2 — backend, done and tagged `v0.3.0`.** The project directory and the array store, the CSV/TXT, XLSX and JCAMP-DX readers, the pipeline executor, real jobs and the HTTP surface, replacing the stub's handlers behind unchanged URLs. It ended when #50's walkthrough passed against the real backend on all three platforms with `stub/` deleted. **SQLite was not part of it** — a restart loses the project list, not the data.
+- **1.3 — database and integration, unstarted.** SQLite in each project directory, and the two halves joined.
 
 Everything below summarises decisions recorded in those documents that are easy to violate accidentally.
 

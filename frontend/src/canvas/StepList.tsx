@@ -9,9 +9,10 @@ import type { DraftStep } from "@/canvas/graph";
  * canvas editable for the case a list cannot express, a branch, and left this
  * where it was.
  *
- * Two things it gained: removing the selected node, because a canvas whose
- * only delete is a keypress on a focused element is a canvas nobody deletes
- * from; and a Save that is enabled by a graph edit as well as by a draft step.
+ * The one thing it gained is a Save enabled by a graph edit as well as by a
+ * draft step. Removing a node is a control on the node itself: clicking a node
+ * opens its tab, so anything in here would be replaced by the tab before it
+ * could be clicked.
  */
 
 /** The catalogue, with the payload each entry becomes.
@@ -71,9 +72,6 @@ interface Props {
   validation: string | null;
   /** The canvas holds edits the server has not seen, so Save has work to do. */
   edited: boolean;
-  /** The node the canvas has selected, when it is still in the graph. */
-  selected: { id: string; label: string } | null;
-  onRemove: (id: string) => void;
 }
 
 export function StepList({
@@ -84,8 +82,6 @@ export function StepList({
   saving,
   validation,
   edited,
-  selected,
-  onRemove,
 }: Props) {
   const [choice, setChoice] = useState(STEPS[0].kind);
 
@@ -157,21 +153,6 @@ export function StepList({
           Add
         </button>
       </div>
-
-      {/* Removing reconnects the node's children to its parent, so the
-          pipeline stays a pipeline - `edits.ts` owns that rule. The source is
-          refused there, and the button says so rather than disappearing. */}
-      {selected ? (
-        <div style={{ padding: "0 12px 10px" }}>
-          <button
-            className="btn"
-            style={{ height: 24, width: "100%" }}
-            onClick={() => onRemove(selected.id)}
-          >
-            Remove {selected.label}
-          </button>
-        </div>
-      ) : null}
 
       <div style={{ padding: "0 12px 10px", display: "flex", gap: 6, alignItems: "center" }}>
         <button className="btn" style={{ height: 24 }} disabled={steps.length === 0} onClick={onValidate}>

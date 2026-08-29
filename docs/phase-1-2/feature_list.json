@@ -1,0 +1,463 @@
+{
+  "phase": "Phase 1.2 - Backend: readers, the executor, real jobs and the HTTP surface",
+  "exit_criterion": "Issue #50's Playwright walkthrough passes against the real backend, on a file the user picks, with stub/ deleted (issue #90).",
+  "status_values": [
+    "not_started",
+    "in_progress",
+    "blocked",
+    "passing"
+  ],
+  "features": [
+    {
+      "id": "phase-1-2-feature-list",
+      "priority": 1,
+      "area": "process",
+      "issue": 76,
+      "title": "Archive the Phase 1.1 feature list and open the Phase 1.2 list",
+      "depends_on": [],
+      "user_visible_behavior": "feature_list.json is the live Phase 1.2 list, Phase 1.1's is preserved at docs/phase-1-1/feature_list.json as its record, and CLAUDE.md describes a repository whose walking skeleton is released and tagged v0.2.0.",
+      "status": "passing",
+      "verification": [
+        "docs/phase-1-1/feature_list.json exists and parses, with every Phase 1.1 status unchanged.",
+        "feature_list.json parses and its phase is Phase 1.2.",
+        "Every feature names an issue number, and every issue 76-90 is named by exactly one feature.",
+        "No depends_on entry names a feature id the list does not contain, and no more than one feature is in_progress.",
+        "CLAUDE.md names feature_list.json as the live Phase 1.2 list, docs/phase-1-1/ as 1.1's record, and v0.2.0 as the released tag."
+      ],
+      "evidence": "2026-08-26. On feature/76_phase-1-2-feature-list. git mv feature_list.json docs/phase-1-1/feature_list.json - loads and reports 'Phase 1.1 - Walking skeleton: frontend over a stub server', 13 features, statuses unchanged (13 passing). The new feature_list.json loads and reports 'Phase 1.2 - Backend: readers, the executor, real jobs and the HTTP surface', 15 features (1 in_progress, 14 not_started), no dangling depends_on, and its issue numbers are exactly 76-90 with no repeats. Issues #76-#90 opened on GitHub. CLAUDE.md:7 names v0.2.0 as released, CLAUDE.md:10 names feature_list.json as the live Phase 1.2 list and CLAUDE.md:11 names docs/phase-1-1/ as 1.1's record. stub/server.py's seven 'Phase 1.2:' markers now carry the issue numbers that replace them. ruff check and ruff format --check clean; pytest 497 passed, 1 skipped.",
+      "notes": "Done. Phase 1.2's shape was decided with the maintainer on 2026-08-25 and is recorded in docs/decisions/0002-phase-1-shape.md. Next feature: project-directory (#77)."
+    },
+    {
+      "id": "project-directory",
+      "priority": 2,
+      "area": "backend",
+      "issue": 77,
+      "title": "Project directory and the array store",
+      "depends_on": [
+        "phase-1-2-feature-list"
+      ],
+      "user_visible_behavior": "A project is a directory on disk that can be created, closed, re-opened in a new process and zipped for a colleague; its arrays survive a restart even though the project list is not yet in a database.",
+      "status": "passing",
+      "verification": [
+        "A project directory is created with the documented layout, including arrays/.",
+        "An array written and read back in a new process is bit-identical at float32.",
+        "The kernels receive float64 - the conversion happens at the store boundary and nowhere else.",
+        "The path registry in the user's config directory lists a project that was opened earlier.",
+        "Opening a directory that is not a project names what is wrong instead of raising.",
+        "No absolute path appears inside a project directory: it is zipped, unpacked elsewhere and opened."
+      ],
+      "evidence": "2026-08-26. On feature/77_project-directory. New module src/chemometrics_workbench/project.py and 30 tests in tests/test_project.py; uv run pytest is 527 passed, 1 skipped (498 before), ruff check and ruff format clean, mypy clean over 30 source files. Layout: project.json plus arrays/, created by create_project and repaired by open_project when a zip has dropped the empty directory. float32/float64: an array written and loaded straight back with numpy.load is float32 on disk, read_array returns float64, and a subprocess - a genuinely new process - reopens the project and reads the array back with a sha256 of its bytes equal to the parent's spectra.astype(float32).astype(float64), so the round trip is bit-identical rather than close. The kernels' own as_float64 is what write_array validates with, so a NaN or a 1-D array is refused at the store with the message it would have been refused with three steps later. Arrays are content-addressed at arrays/<sha256>.npy: writing the same array twice leaves one file and returns the same sha256: hash, which DatasetVersion.content_hash accepts unchanged. Registry: CHEMOMETRICS_CONFIG_HOME, else XDG_CONFIG_HOME, else ~/.config, mirroring datasets.cache_dir; it lists projects most-recently-opened first, once each, keeps listing a directory that has been deleted or unmounted, and a corrupt registry costs a re-open rather than a crash. Diagnostics: a missing directory, a file, a directory with no project.json, invalid JSON, a newer layout_version and an invalid project record each raise ProjectError naming what is wrong - no traceback reaches a caller. Portability: project.json records no absolute path (directory is excluded and supplied by open_project), and a project zipped, unpacked elsewhere and opened with the original deleted returns the same name and the same array. Array paths that are absolute or escape the project directory are refused, which matters because that path arrives from a client over HTTP in #81.",
+      "notes": "Done. Two things deliberately deferred, both to their own issues rather than widened here: the project directory holds only project.json and arrays/ - model artifacts and reports get their directories when something writes one - and there is no locking, so two application instances on one project directory is undefined until 1.3 has a database to arbitrate. Next: #78."
+    },
+    {
+      "id": "reader-csv",
+      "priority": 3,
+      "area": "backend",
+      "issue": 78,
+      "title": "Reader interface and the CSV/TXT reader",
+      "depends_on": [
+        "project-directory"
+      ],
+      "user_visible_behavior": "A CSV or TXT file imports through a preview that shows what was detected and offers alternatives for every guess, and the corrections the user makes are applied to the imported data.",
+      "status": "passing",
+      "verification": [
+        "A European-decimal-comma CSV imports with the right numbers.",
+        "A transposed file is detected as transposed, and the alternative orientation is offered.",
+        "Wavelength headers, metadata columns and targets are separated, and a correction to any of them changes the committed dataset.",
+        "The response validates against the import_preview shape the 1.1 fixture publishes.",
+        "The source file's content hash and the reader version are recorded on the DatasetVersion.",
+        "A malformed file returns a diagnostic naming what failed, with no traceback.",
+        "A real sample file is committed as a fixture."
+      ],
+      "evidence": "2026-08-26. On feature/78_reader-csv. New package src/chemometrics_workbench/readers/ (__init__.py: the interface; delimited.py: CSV/TXT), 34 tests in tests/test_readers_delimited.py, and four real sample files in tests/fixtures/readers/ cut from the committed Tecator dataset with their provenance in a README beside them. uv run pytest is 561 passed, 1 skipped (528 before); ruff check, ruff format --check and mypy over 33 source files all clean. The interface is two functions, sniff and read, plus head: sniff reports a Detection with a Choice for every guess, and read parses the whole file according to a Detection - the one sniff returned or that one with the user's corrections folded in, which is why a correction cannot be displayed and then ignored. Detection, proven against the fixtures: tecator_subset.csv is comma/decimal point/samples in rows with a wavelength_nm axis read off the header; tecator_subset_eu.csv is semicolon/decimal comma with batch as a metadata column and fat and moisture as targets; tecator_transposed.csv is detected as samples_in_columns; spectra_whitespace.txt is whitespace-delimited, headerless, and gets an index axis with a note rather than an invented wavelength range. A descending header reads as wavenumber_cm-1, an unordered header is refused as an axis, and an empty column is discarded with its reason. Corrections are real: read(EUROPEAN) and read(PLAIN) return the same numbers to 1e-4 against load_tecator().spectra[:8, :12], and correcting the decimal separator to '.' on a decimal-comma file fails with a diagnostic instead of silently importing nothing. A correction outside the offered alternatives, and a correction to a field the reader does not offer, are both refused rather than dropped. Diagnostics, never a stack trace: an empty file, a one-column file, a ragged line named by number, a non-numeric cell in a wavelength column named by line, a file of only text, and an unknown suffix each raise ReaderError with a sentence naming what is wrong. Provenance: every Imported carries a SourceFile with sha256: hash, reader name and reader version. The preview payload's keys, and its source, detected, axis and head sub-keys, are asserted field for field against stub/fixtures/import_preview.json, which is the Phase 1.1 contract.",
+      "notes": "Done. Two findings recorded rather than acted on here. (1) A numeric header name settles a column as a variable whatever its cells hold, so one 'n/a' in a wavelength column fails at the parse naming its line instead of quietly reclassifying the column as metadata - the alternative silently imports a dataset one variable short. (2) The axis kind is detected but cannot be corrected: the Phase 1.1 preview shape has no alternatives for it, and adding one is a contract change that belongs to #81 with the frontend finding. Next: #79, or #81 once #79 and #80 land."
+    },
+    {
+      "id": "reader-xlsx",
+      "priority": 4,
+      "area": "backend",
+      "issue": 79,
+      "title": "XLSX reader",
+      "depends_on": [
+        "reader-csv"
+      ],
+      "user_visible_behavior": "An Excel workbook imports through the same preview as a CSV, including choosing which sheet to read.",
+      "status": "passing",
+      "verification": [
+        "A multi-sheet workbook imports, with the sheet chosen in the preview.",
+        "A title row above the header, blank leading rows and merged cells do not shift the data.",
+        "The same data exported to CSV and imported through #78 gives identical arrays.",
+        "The XLSX dependency is declared in [project.dependencies], not borrowed from a development extra.",
+        "A real sample workbook is committed as a fixture."
+      ],
+      "evidence": "2026-08-26. On feature/79_reader-xlsx. New src/chemometrics_workbench/readers/xlsx.py and readers/grid.py, 18 tests in tests/test_readers_xlsx.py, and tests/fixtures/readers/tecator_subset.xlsx - the same eight Tecator samples and twelve channels as the CSV fixtures, under a merged title row over a blank row, with a second sheet. uv run pytest is 579 passed, 1 skipped (561 before); ruff and mypy clean over 36 source files. openpyxl is declared in [project.dependencies] and mypy is told it ships no stubs. The interface held, and moved: everything a spreadsheet and a text file share - header detection, orientation, column classification, the axis rules, the read and the preview head - is now readers/grid.py, and delimited.py keeps only what text has (decode, delimiter, splitting, line counting). #78's 34 tests pass unchanged against the refactor, which is the evidence that the move preserved behaviour. Agreement is the sharpest test: read(tecator_subset.xlsx) and read(tecator_subset.csv) give the same values within float, the same sample_ids, the same fat targets, and the same axis to 0.05 nm - the CSV fixture prints its headers to six significant digits where the workbook holds full floats. What only a workbook has: a sheet Choice with the others as alternatives and 'sheet' in correctable; a merged title row and a blank row skipped without shifting the columns; trailing empty rows and columns dropped rather than imported as blank samples; dates rendered as ISO text so a date column is metadata rather than a plausible absorbance; numbers stored as text still put through decimal detection, so '1,5' in a cell is 1.5. Diagnostics: a sheet with no table, an empty sheet, a non-zip file with an .xlsx suffix, and a sheet name that is not there each raise ReaderError naming the workbook and the sheet. A delimiter correction is refused for a workbook, because offering a correction that cannot be applied is the same lie as ignoring one.",
+      "notes": "Done. One interface change landed here and CSV moved with it, as the issue anticipated. Two additions to the shape: Detection.sheet, and Detection.correctable, which is per-reader because a delimiter means nothing to a spreadsheet. A correction that changes which table is read - a sheet, and one day a JCAMP block - triggers a re-detection through the optional resniff hook, because the sample count, the axis and every column classification go stale when the sheet changes. The 1.1 preview screen does not render a sheet chooser, so the correction is reachable through the API and not yet through the UI: that is a contract finding for #81 alongside the file-upload one. Next: #80."
+    },
+    {
+      "id": "reader-jcamp",
+      "priority": 5,
+      "area": "backend",
+      "issue": 80,
+      "title": "JCAMP-DX reader",
+      "depends_on": [
+        "reader-csv"
+      ],
+      "user_visible_behavior": "A .jdx or .dx file imports through the same preview, with the axis and metadata the file states rather than reconstructed.",
+      "status": "passing",
+      "verification": [
+        "A multi-block file imports as multiple samples.",
+        "XFACTOR, YFACTOR, FIRSTX, LASTX and NPOINTS are applied - the axis is read, never reconstructed.",
+        "A compression form the reader does not support is named in a diagnostic rather than mis-parsed.",
+        "The file's own metadata is carried onto the dataset where the model has somewhere to put it.",
+        "A real sample file is committed as a fixture."
+      ],
+      "evidence": "2026-08-26. On feature/80_reader-jcamp. New src/chemometrics_workbench/readers/jcamp.py, 25 tests in tests/test_readers_jcamp.py, and two fixtures: tecator_subset.jdx, a LINK block of eight spectra carrying the same eight Tecator samples and twelve channels as the CSV and the workbook, and compressed_forms.jdx, hand-written so SQZ, DIF and DUP can each be asserted against a stated number. uv run pytest is 604 passed, 1 skipped (579 before); ruff and mypy clean over 38 source files. No new dependency: the ASDF decoder is written here. Multi-block: eight blocks become eight samples, each block's ##TITLE becomes its sample id, and the LINK block's own header - ORIGIN, OWNER - is carried onto every spectrum inside it. Blocks whose point counts or axes disagree are refused as two datasets rather than merged. The axis is read: ##FIRSTX, ##LASTX and ##NPOINTS give the values, ##XFACTOR and ##YFACTOR scale them (asserted separately on a file with XFACTOR=2.0 and YFACTOR=0.001), and axis_reconstructed is False. ##XUNITS of 1/CM and NANOMETERS name the axis; MICROMETERS leaves it numbered with a note rather than converted, and a file with no ##FIRSTX is refused with 'does not invent one'. The compressed forms decode: A00 J K then A03 J T gives 100, 101, 103, 104, 104; +10-20+30-40 gives the four PAC values; a0 j J % gives -10, -11, -10, -10. A DIF line's restatement of the previous line's last ordinate is checked, and a file where it disagrees is refused with 'difference form has been misread' - the case that would otherwise yield a plausible spectrum. Refused by name rather than guessed at: a data form this build does not read, a ##PEAK TABLE (a reduction of a spectrum, not a spectrum), an ##NPOINTS that disagrees with the decoded data, a file with no ##LDR entries, a file with headers and no data, an empty file, and a token in no form the reader knows. Nothing in a JCAMP file is a guess, so Detection.correctable is empty and every correction is refused. read(tecator_subset.jdx) and read(tecator_subset.csv) agree within 1e-4, which is three formats and one dataset.",
+      "notes": "Done. The ASDF decoder covers PAC, SQZ, DIF and DUP under (XY..XY) and (X++(Y..Y)). NTUPLES, peak tables and the forms this build does not read are refused by name rather than partially parsed, because a guessed form produces a spectrum that looks right and is not. Two conversions were declined rather than written: MICROMETERS to nanometres, and transmittance to absorbance - both are science the import step should not do silently, and both belong in a pipeline step if they are wanted. Next: #81, which now has all three readers and the array store behind it."
+    },
+    {
+      "id": "import-endpoints",
+      "priority": 6,
+      "area": "backend",
+      "issue": 81,
+      "title": "Import endpoints: preview and commit",
+      "depends_on": [
+        "project-directory",
+        "reader-csv"
+      ],
+      "user_visible_behavior": "Importing a file through the running frontend writes a real array into the project directory and a real DatasetVersion that references it; the dataset list is read back from disk after a restart.",
+      "status": "passing",
+      "verification": [
+        "POST /api/import/preview returns detections from the reader rather than from a fixture.",
+        "POST /api/import commits with the user's corrections applied and writes the array through the store.",
+        "The committed dataset is read back from the project directory by a second server process.",
+        "The shape is reported as read, which is what the frontend's own envelope check reads.",
+        "A file the reader rejects returns the documented error body, not a 500.",
+        "The frontend cannot reach these handlers at all: recorded as #99, not worked around."
+      ],
+      "evidence": "2026-08-27. On feature/81_import-endpoints. New module src/chemometrics_workbench/api.py holding the router, a dataset index in project.py (DatasetEntry, read_datasets, add_dataset over datasets.json), and 19 tests in tests/test_api.py; uv run pytest is 644 passed, 1 skipped (625 before), ruff check, ruff format --check and mypy over 42 source files all clean. python-multipart is added to [project.dependencies] - FastAPI's form parser, needed because a file and its corrections arrive together and a browser sends that as multipart. Endpoints, all under the URLs the 1.1 frontend already uses: GET /api/projects and /api/projects/{id} return the one open project, created on first use at CHEMOMETRICS_PROJECT or <config dir>/projects/default; GET /api/projects/{id}/datasets reads datasets.json off disk; POST /api/import/preview returns readers.preview() with every Choice's alternatives; POST /api/import reads with the user's corrections applied, writes the array through #77's store and records a DatasetVersion that references it. Payload shapes are asserted key for key against stub/fixtures/import_preview.json and datasets.json, which is the contract the 1.1 screens render. Proven: a CSV, a workbook and a JCAMP file all preview through the same endpoint and the endpoint never learns which format it holds; a preview commits nothing and leaves no datasets.json; an import writes float32 to arrays/ and returns a sha256: content hash; a second TestClient over a second application - a restart, as far as the server is concerned - lists the dataset back from the directory alone; two imports of the same stem are two datasets with two ids and one name, because a name is not an identity; a correction that cannot be applied (decimal '.' on a decimal-comma file) is a 422 reader_failed rather than a quiet empty import, and a correction the reader does not offer names the field it refused. Refusals are diagnostics: a file of only text is 422 with the reader's own sentence and no traceback, a file with no suffix says no reader claims it, an upload past MAX_UPLOAD_BYTES is 413 before it is written (§4.3 calls localhost a trust boundary), and an upload calling itself '../../project.json' writes into a temporary directory and leaves the project's own file untouched. The temporary directory is empty after both a failed and a successful read. The envelope is reported rather than enforced: §13's limit is computed by the frontend's own states/envelope.ts from n_samples and n_variables, so the honest server behaviour is to report the shape as read - asserted equal between the preview and the committed version - and ?oversize is not replaced by anything. NOT DONE, and raised as #99: the router is not wired into stub/server.py. Wiring it fails 17 of the 40 end-to-end tests, because the fixture pipeline is built on the fixture dataset version and a real import produces a dataset it knows nothing about; and the 1.1 import screen discards the file the user picks and posts an empty body, so it cannot drive these handlers at all. Both belong to #89's one cut.",
+      "notes": "First two stub handlers written for real, behind unchanged URLs, but NOT swapped in: see #99. The swap is one cut in #89 rather than a handler at a time, because projects, datasets, import, pipelines and experiments are one chain in the fixtures. python-multipart is a new runtime dependency, taken because the commit carries a file and its corrections together."
+    },
+    {
+      "id": "drop-msc-supplied",
+      "priority": 7,
+      "area": "schema",
+      "issue": 82,
+      "title": "Drop MSC(reference='supplied') from the schema",
+      "depends_on": [
+        "phase-1-2-feature-list"
+      ],
+      "user_visible_behavior": "The inspector no longer offers an MSC reference the executor cannot run; the schema advertises only what a saved pipeline can express.",
+      "status": "passing",
+      "verification": [
+        "grep -rn '\"supplied\"' src/ names only the kernel's own parameter, not models.py.",
+        "from_spec no longer carries the branch that raises for it.",
+        "The regenerated step_schema.json offers two MSC references, and the inspector's form follows.",
+        "The suite is green, including the parity cases."
+      ],
+      "evidence": "2026-08-27. On feature/82_drop-msc-supplied. `MSCStep.reference` is `Literal[\"mean\", \"median\"]`; the comment above it records why the third option went and what re-adding it would need, so the next person to want it finds the reason at the field rather than in a closed issue. `grep -rn '\"supplied\"' src/` returns five lines: the kernel's own `MSCReference` literal and its two branches in `MSCTransformer`, plus the models.py comment and the from_spec docstring that both explain the absence - no schema field. `from_spec` lost its `reference_spectrum` parameter entirely rather than keeping a dead argument: the schema can no longer express the case, so there is nothing to pass and nothing to raise about. The kernel call `MSCTransformer(\"supplied\", reference_spectrum=...)` still works and a test asserts it alongside the ValidationError the step now raises - what went is the schema's claim, not the capability. `MSCTransformer`'s error message no longer says the schema carries the choice, because it no longer does. `uv run python stub/generate_fixtures.py` regenerated the fixtures and the only diff is `step_schema.json`'s MSC enum losing `\"supplied\"`; the pipeline and dataset content hashes are unchanged (sha256:9a684f48..., sha256:e435c053...), which is the check that this narrowed a form and not a number. Green: `uv run pytest` is 603 passed, 1 skipped, including the parity cases; `uv run ruff check .` and `ruff format --check .` clean over 58 files; `uv run mypy` clean over 38 source files; `pnpm test` 52 passed with the inspector test now expecting two MSC references; `pnpm e2e` 40 passed, so the inspector's generated form follows the schema without the screen being touched.",
+      "notes": "Open since pull request #22; decided with the maintainer on 2026-08-25. Re-adding it later is additive and needs no migration. Lands before the executor is written against the enum."
+    },
+    {
+      "id": "pipeline-executor",
+      "priority": 8,
+      "area": "backend",
+      "issue": 83,
+      "title": "Pipeline executor",
+      "depends_on": [
+        "project-directory",
+        "drop-msc-supplied"
+      ],
+      "user_visible_behavior": "A pipeline runs from a real dataset: each node's output is computed once, cached on disk, and recomputed only when it or something upstream of it changes.",
+      "status": "passing",
+      "verification": [
+        "The pipeline the 1.1 fixture publishes executes end to end and reproduces the fixture's arrays.",
+        "Editing one node recomputes it and its descendants, and nothing else.",
+        "RangeSelect reads its axis off the DatasetVersion, not off the recipe.",
+        "A split branch is fitted on its training rows and the other branches only transform.",
+        "A step that fails names the node it failed at.",
+        "Moving a node on the canvas does not invalidate a cached result."
+      ],
+      "evidence": "2026-08-27. On feature/83_pipeline-executor. New module src/chemometrics_workbench/executor.py and 22 tests in tests/test_executor.py; uv run pytest is 625 passed, 1 skipped (603 before), ruff check, ruff format --check and mypy over 40 source files all clean. End to end: the pipeline the 1.1 fixture publishes - rebuilt in the test and asserted node for node against pipeline.json, because stub/ is deleted in #89 - runs against Tecator in a real project directory and reproduces every array spectra.json serves except centre_d. The agreement is to 2e-6 on eight nodes and 5e-5 on autoscale_c, and both numbers are measured rather than chosen: the same chain computed in float64 agrees with the fixture to 5.0e-07, which is its 6-decimal rounding, and going through the array store's float32 moves the worst node to 1.3e-06 - except autoscale_c, where a first derivative cancels most of the signal and autoscaling then divides by a small standard deviation, measured at 2.8e-05. centre_d is a deliberate divergence, raised as #97: the fixture fits it on all 240 samples and metrics-and-validation.md §9 requires refitting on the training fold alone. The test computes both, asserts the fixture holds the fit-on-everything number (4.9e-07) and that the executor differs from it by more than 1e-4 (1.2e-03), and then reproduces the executor's own value from fold arithmetic done by hand. Every sample's displayed row comes from the fold that held it out, checked over all 240 rather than on one row. Caching: keys are a merkle chain - a node's own JSON, the source keyed on the dataset version, chained through its inputs' keys - so a second run recomputes nothing, editing branch C's Savitzky-Golay recomputes exactly savgol and autoscale_c, and editing centre_d below the split recomputes only centre_d. A pipeline with a different pipeline_id and name hashes every node identically and reruns nothing, which is what makes moving a node on the canvas safe: layout coordinates live in pipeline_state.json, outside the model the key is taken from. A different dataset version reruns everything. A pruned array file and a corrupt cache.json each cost a recomputation rather than an error. Every node's output is read back out of the store before its successors see it, so a run that hit the cache and a run that recomputed agree bit for bit - checked with assert_array_equal, not allclose. RangeSelect takes its axis off the DatasetVersion: start=900 end=1000 keeps the 51 channels the axis says and nothing about the recipe knows what a nanometre is. Failures name the node: a one-variable window then SNV is \"node 'scatter' (snv) failed: SNV with ddof=1 needs more than 1 variables\", the same below a split adds \"on a training fold of 216 samples\", a split below a split, a train_test split with no splitter yet, a version whose array is not the shape it records, and a missing array file are each refused by name. Leave-one-out is the other splitter that works, checked on 8 samples against 8 hand-computed leave-one-out means. Estimator nodes are walked and reported in Run.pending_estimators, not fitted - what a fitted estimator stores is #87's subject.",
+      "notes": "preprocessing.from_spec is the seam and already covers every step the schema can express. The kernels stay pure - no caching or job logic leaks into preprocessing.py. Estimator fitting is deliberately not here: it is #87's subject, and the executor reports estimator nodes in Run.pending_estimators rather than guessing at what a fitted one should store. The fixture's centre_d array cannot be reproduced under metrics-and-validation.md §9 and the divergence is raised as #97."
+    },
+    {
+      "id": "fixture-centre-d-fold-fit",
+      "priority": 9,
+      "area": "backend",
+      "issue": 97,
+      "title": "The fixture's centre_d array is fitted on all samples, and the executor differs",
+      "depends_on": [
+        "pipeline-executor"
+      ],
+      "user_visible_behavior": "The spectra view of a node below a split shows what actually happened to each sample - the fold that held it out - rather than a mean taken over the samples it is being validated against.",
+      "status": "passing",
+      "verification": [
+        "The exception is recorded where the fixture rule is stated.",
+        "The decision is in docs/decisions/, so it is not re-argued from preference.",
+        "#87 does not assert the fixture's centre_d or pca_d numbers.",
+        "A test computes both values, so the divergence cannot drift unnoticed."
+      ],
+      "evidence": "2026-08-29. On feature/97_fixture-centre-d-exception. Decided with the maintainer: **the fixture keeps the array it published and the executor keeps following §9.** Recorded in docs/decisions/0003-fixture-centre-d.md and as the one stated exception in tests/fixtures/contract/README.md, beside the rule it excepts.\n\nThe fixture is the Phase 1.1 record; §9 is the specification; where they disagree the application follows the specification and the record stays a record. Regenerating would make a historical artefact agree with a rule it predates - and #89 deleted stub/generate_fixtures.py with the rest of stub/, so it would mean rebuilding a generator first, then regenerating pca.json too because pca_d is fitted on centre_d.\n\nNo code changed, and none needed to. The executor already implements §9 and #87 already measures the divergence rather than asserting the fixture's numbers: test_a_node_below_a_split_is_refitted_per_fold_which_the_fixture_is_not asserts the fixture holds the fit-on-everything value (4.9e-07, its own 6-decimal rounding) and that the executor differs by more than 1e-4 (1.2e-03), then reproduces the executor's value from fold arithmetic done by hand; test_pca_d_diverges_from_the_fixture_for_the_reason_centre_d_does does the same for pca_d. The divergence is a measured fact a test would notice changing, which is what makes leaving it safe.\n\nThe record says what it does not license: every other published array is reproduced to the fixture's rounding, so a new disagreement is a finding to investigate rather than a precedent to cite. uv run pytest 731 passed, 1 skipped; ruff and mypy clean.",
+      "notes": "Found in #83 and measured there: fit-on-everything agrees with the fixture to 4.9e-07, out of fold differs by 1.2e-03. metrics-and-validation.md §9 requires the fold fit; the fixture's run_preprocessing says in its own docstring that it does no fold handling. Blocks nothing - #86 and #87 both need to know which array centre_d holds. Decided 2026-08-29, recorded in docs/decisions/0003-fixture-centre-d.md."
+    },
+    {
+      "id": "pipeline-validator",
+      "priority": 9,
+      "area": "backend",
+      "issue": 84,
+      "title": "Pipeline validator: the two warnings nothing emits",
+      "depends_on": [
+        "pipeline-executor"
+      ],
+      "user_visible_behavior": "A pipeline that will produce an optimistic RMSECV, or a PLS with no centring upstream, warns the user and points at the node - without blocking the run.",
+      "status": "passing",
+      "verification": [
+        "A MeanCentre or Autoscale upstream of a split emits the leakage warning, naming the node.",
+        "A PLS node with no centring upstream emits its warning, naming the node.",
+        "Neither fires on the fixture pipeline.",
+        "The warnings do not block a run.",
+        "The validate response is computed - the unconditional valid: true is gone.",
+        "Each warning states the consequence, not only the rule."
+      ],
+      "evidence": "2026-08-27. On feature/84_pipeline-validator. New module src/chemometrics_workbench/checks.py (check_pipeline, PipelineWarning, two codes), validation_payload in api.py, the stub's validate handler replaced by a call to it, and 21 tests in tests/test_checks.py. uv run pytest is 679 passed, 1 skipped (658 before); ruff check, ruff format --check and mypy over 44 source files all clean; pnpm e2e is 40 passed with the frontend untouched. Warning one, the leak: a MeanCentre or an Autoscale with a split anywhere below it names both nodes and says RMSECV comes out optimistic and that moving the node below the split fits it per fold - the consequence and the remedy, not the rule. Found through intervening nodes, and both splits named when one centring feeds two. Silent when the centring is below the split, when it is on a branch that never reaches one (the fixture's shape - centre_a and split_d are in one pipeline and have nothing to do with each other), and for SNV, Normalise, Savitzky-Golay and the baselines above a split, which estimate nothing across samples. Autoscale counts as centring for both rules because it subtracts the column means before it divides. Warning two: a PLS or PLS-DA node with no MeanCentre or Autoscale anywhere above it says the first component spends itself on the offset and the model carries no intercept to absorb it. Silenced by either kind of centring at any distance above. A PCA with no centring is deliberately not warned about - only pls-regression.md section 3 says 'almost always wrong', and extending it to PCA would be a preference with no document behind it. A PLS fed by a leaky centring is warned about once, not twice: the centring is there, and where it sits is the other warning's subject. Both fire at once on a pipeline that earns both, and neither hides the other. Envelope: the GUESS shape is kept exactly - valid and problems, which the canvas renders by joining the sentences - and warnings is added alongside carrying code, node_id, related and severity, so a canvas can point at the node without parsing a sentence. valid is false whenever there is anything to say, because the 1.1 screen shows the problems only then and reporting valid while holding a warning would drop it. Nothing blocks: check_pipeline is advisory, and a test executes a leaky pipeline to completion after asserting it warns. The stub's handler is computed rather than constant - it parses stub/fixtures/pipeline.json and calls validation_payload - and the fixture pipeline earns neither warning, so the response is byte-identical to the constant it replaced, now for a reason. A third case, MSC above a split, is #103 rather than a widened branch.",
+      "notes": "Both are specified in metrics-and-validation.md section 9 and pls-regression.md section 3 and have never been emitted. The 1.1 handler returns valid: true unconditionally. The envelope keeps valid and problems and adds warnings alongside, so the frontend is unchanged. MSC above a split leaks by the same rule and is raised as #103."
+    },
+    {
+      "id": "msc-above-a-split",
+      "priority": 16,
+      "area": "backend",
+      "issue": 103,
+      "title": "MSC above a split leaks too, and nothing warns about it",
+      "depends_on": [
+        "pipeline-validator"
+      ],
+      "user_visible_behavior": "A pipeline whose MSC reference is estimated from the held-out spectra as well as the training ones says so, as centring above a split already does.",
+      "status": "passing",
+      "verification": [
+        "MSC above a split emits the leakage warning, naming the node and the split.",
+        "Its message states the consequence in MSC's own terms, not the centring sentence.",
+        "One code, named for the category rather than for centring, since MSC is not centring.",
+        "MSC still does not count as centring for the PLS rule.",
+        "metrics-and-validation.md section 9 says why MSC is not on its legitimate list."
+      ],
+      "evidence": "2026-08-29. On feature/103_msc-above-a-split. checks.py gained `_FITTED_ACROSS_SAMPLES` (MeanCentre, Autoscale, MSC) beside the existing `_CENTRING` (MeanCentre, Autoscale), and 5 tests in tests/test_checks.py. uv run pytest 736 passed, 1 skipped (731 before); ruff, format and mypy clean; pnpm exec playwright test 34 passed, run three times over.\n\nONE CODE, RENAMED - which is the decision the issue asked to be taken here. The consequence is one thing (a parameter fitted on every sample, above a split, is fitted on the held-out ones too) so a screen filtering for 'this pipeline leaks' wants all three steps under one code. But the old value said `centring_upstream_of_split`, and MSC is not centring - the code would have been a lie about the case being added. It is now `fitted_upstream_of_split`, named for the category. Nothing renders the code today (the canvas joins the sentences), so the rename costs nothing, and a test asserts the value so it is a decision rather than a detail.\n\nTHE SENTENCE IS PER STEP, which is the other half of the issue's question. A warning that says 'the mean' about a reference spectrum is wrong in a way a user would notice, and a user who does not recognise the description will not act on it. MSC's says the held-out spectra contribute to the reference spectrum the training spectra are corrected against; centring's is unchanged. A test asserts each says its own thing and not the other's, and that both name the node, the split and the remedy.\n\nTHE TWO RULES MEAN DIFFERENT THINGS AND MSC SEPARATES THEM. The leak rule asks whether one sample's output depends on which others were present - MSC estimates its reference across the fit set, so it does. The PLS rule asks whether an offset was removed, and MSC removes none: it regresses against a reference and leaves no intercept, so a PLS below an MSC and nothing else is still what pls-regression.md section 3 warns about. test_msc_does_not_count_as_centring_for_the_pls_rule holds that apart, and MSC below a split is silent because that is the remedy the warning names.\n\nmetrics-and-validation.md section 9 now states the test - whether one sample's output depends on which other samples were present - and tabulates every preprocessing step in the schema against it, so the next reader does not re-derive which side MSC falls on. It also records why MSC is the case that shows the test is the rule rather than the two names it used to give.",
+      "notes": "Raised from #84 under its own convention: a third warning becomes an issue rather than a widened branch. MSC estimates a reference from the fit set, so a sample's output depends on which other samples were present - the property that makes centring a leak. SNV, Normalise, Savitzky-Golay, the baselines and RangeSelect were checked and are legitimate above a split; MSC is the only step in the schema that leaks and is not warned about. Open question in the issue: one warning code for all three steps, or a second code, since the sentence differs."
+    },
+    {
+      "id": "real-jobs",
+      "priority": 10,
+      "area": "backend",
+      "issue": 85,
+      "title": "Real jobs: background execution, progress, cancel and failure",
+      "depends_on": [
+        "pipeline-executor"
+      ],
+      "user_visible_behavior": "A run returns immediately and reports real progress as the pipeline advances; cancelling stops the work, and a genuine failure renders the failure screen with a cause and no traceback.",
+      "status": "passing",
+      "verification": [
+        "A run submits and returns queued before any work has started.",
+        "Progress is counted per node as the DAG walk advances, not interpolated.",
+        "A cancelled run stops where it stood and keeps only the nodes that finished.",
+        "A run that genuinely fails carries a cause and no traceback, with no affordance.",
+        "A 10-fold cross-validated run finishes inside 30 s with progress visible throughout.",
+        "The endpoint itself waits for #89's store: recorded under #99, not worked around."
+      ],
+      "evidence": "2026-08-27. On feature/85_real-jobs. New module src/chemometrics_workbench/jobs.py (Jobs, Job, JobStatus, Reporter, submit_run) and progress and cancellation hooks on executor.execute (Progress, RunCancelled, node_label); 18 tests in tests/test_jobs.py. uv run pytest is 729 passed, 1 skipped (711 before); ruff check, ruff format --check and mypy over 46 source files all clean. The job suite was run three times over and passed identically each time - it is driven by threading.Event rather than by sleeps, so nothing depends on how fast the machine is. Submission returns before the work starts, as queued with zero progress, which is the honest first frame and the same one the 1.1 fixture opens with. Progress is counted: the executor reports each node as it finishes and the fraction is completed over total, asserted as exactly 0.25, 0.5, 0.75, 1.0 over a four-node pipeline with the labels 'Reading the dataset', 'Preprocessing: snv', 'Preprocessing: mean_centre', 'Fitting: pca'. Labels come from the recipe rather than a table of pretty names, which would drift the moment a step is added. Cancellation is cooperative - the executor is asked between nodes - so a node already running finishes and the wait is bounded by the slowest single node rather than by the whole run. A cancelled execution keeps what finished: cancelling after two of four nodes leaves those two cached, and resuming reuses them and computes only the rest. Their values are asserted identical to a run with the cache off, because a node's key is its recipe and its data and never what ran after it. A queued job that has not started is cancelled without waiting for a worker; a running one stops where it stood, keeping the progress it had reached rather than resetting to zero or jumping to one; a late progress report from a node that was already running cannot bring a cancelled job back to life; and cancelling a job that already succeeded leaves its result alone. Failure carries a cause and no traceback - the traceback goes to the log for a developer - and a failure with no message at all falls back to the exception type rather than rendering an empty red box. A job that raises does not take the table with it: the next submission still runs. #49's failed state is reached by a real bad recipe, a one-variable window then SNV, with no ?fail=true. Section 13's budget: a 10-fold cross-validated run over Tecator finishes well inside 30 s and more than two distinct progress values are observed while it does, so progress is visible throughout rather than arriving in one jump. A thread rather than a process, because every kernel operation is NumPy and releases the GIL, and a process pool would buy pre-emptive cancellation at the cost of copying every matrix across a pipe. The envelope keeps the five 1.1 fields and adds node_id beside them, so a canvas can light up the node being worked on and a screen that ignores it renders what it rendered before. Nothing survives a restart, which is Phase 1.3's. NOT DONE: POST /api/experiments/{id}/run is still the stub's. A run needs an experiment, which holds a pipeline snapshot, and there is nowhere to keep one until #89's store - the third feature to reach that cut, and #99 covers it. What the endpoint would do is submit_run, and Job.payload() is what it would return.",
+      "notes": "The 1.1 job envelope is marked GUESS and may change here; a frontend change is the finding. No job survives a restart - persistence is 1.3. The envelope kept its five fields and gained node_id, so the frontend is unchanged after all. The endpoint waits for #89's store, as #99 describes."
+    },
+    {
+      "id": "server-side-decimation",
+      "priority": 11,
+      "area": "backend",
+      "issue": 86,
+      "title": "Server-side decimation and the density band, computed",
+      "depends_on": [
+        "pipeline-executor"
+      ],
+      "user_visible_behavior": "Spectra plots stay responsive on a dataset far larger than Plotly can draw, because the server decides what is drawn and what goes into the density band.",
+      "status": "passing",
+      "verification": [
+        "The payload is the shape stub/fixtures/spectra.json publishes, and reproduces it on Tecator.",
+        "The band is computed from every spectrum, not from the undrawn remainder.",
+        "x-decimation is min/max per bucket and keeps a peak a stride at the same budget loses.",
+        "A highlighted spectrum comes back at full resolution with its own axis.",
+        "Section 13's preview budget is met at the full 20,000 x 4,000 envelope.",
+        "The endpoint itself waits for #89's store: recorded under #99, not worked around."
+      ],
+      "evidence": "2026-08-27. On feature/86_server-side-decimation. spectra_payload, decimate, MAX_TRACES and MAX_POINTS added to api.py; 11 tests in tests/test_api.py. uv run pytest is 740 passed, 1 skipped (729 before); ruff check, ruff format --check and mypy over 46 source files all clean. Contract: the payload's keys, its decimation sub-keys, its band sub-keys and its trace keys are asserted equal to stub/fixtures/spectra.json's, and on Tecator the axis, the first trace and the band median reproduce the fixture's numbers - decimation is 240 traces capped to 60 with banded true and all 100 variables kept, exactly as published. Decimation is min/max per bucket rather than a stride, and the test measures the difference rather than asserting the rule: one channel raised by 0.9 at index 2501 of 4000, positioned between two strided samples, gives a payload maximum of 1.133 under min/max and 0.707 under a stride of the same budget - the peak is simply not in the strided payload. Two indices per bucket in the order they occur, so the drawn line rises and falls as the real one does; the extremes are taken over the mean spectrum because the axis is shared by every trace and a per-trace axis would mean one x array per spectrum. The kept axis is monotonic, every trace is its length, and 4000 variables become exactly 1000 points. An axis already inside the budget is returned whole and nothing is decided about it. The band is percentiles 5, 50 and 95 over every spectrum - asserted against numpy directly - because it describes the distribution, and below the cap there is no band and every spectrum is drawn. Highlighting: highlighted rows come back at full resolution under a new 'highlighted' key carrying its own 4000-point axis, sorted and de-duplicated, with the decimated traces untouched by asking for them; a row that is not a sample is a 404 with the documented body naming it; and a node whose width is not the dataset's - what a range selection produces - is refused by name rather than guessing an axis. Section 13's budget: the assertion runs at 4000 x 4000 (128 MB, 0.112 s) to stay polite on a runner, and the full envelope was measured separately at 20,000 x 4000 in 0.611 s, so the under-1-second preview holds at the target shape and not only at a fifth of it. The dataset is synthetic and generated to a stated shape, because no committed dataset is wide enough to drop a point - Tecator is 240 x 100, corn 80 x 700, gasoline 60 x 401, all inside the 1000-point budget. Nothing numerical is claimed from it. NOT DONE: GET /api/spectra/{node_id} is still the stub's, because it needs a pipeline to have node ids at all and there is no pipeline store until #89 - the fourth feature to reach that cut, which is #99. Consuming 'highlighted' also needs the frontend to ask for it, which it has no way to do today: selection is a client-side concept in spectraTraces and never reaches the server.",
+      "notes": "Tecator at 100 variables never exercised x-decimation in 1.1. This needs a dataset big enough to drop points. Node ids stay the pipeline's, not the dataset's. Synthetic data generated to a stated shape, because no committed dataset is wide enough to drop a point; nothing numerical is claimed from it. The endpoint waits for #89's store, as #99 describes."
+    },
+    {
+      "id": "results-endpoint",
+      "priority": 12,
+      "area": "backend",
+      "issue": 87,
+      "title": "Results endpoint served from the executor",
+      "depends_on": [
+        "pipeline-executor"
+      ],
+      "user_visible_behavior": "The analysis panels show PCA computed from the user's own data rather than from a fixture.",
+      "status": "passing",
+      "verification": [
+        "The three branches with no split above them reproduce the fixture's PCA numbers.",
+        "A PCA below a split is fitted on fold zero's training rows and the held-out rows are projected through it.",
+        "A result is keyed the way its node is, so editing a node above an estimator gives it a new result.",
+        "The payload is the shape stub/fixtures/pca.json publishes.",
+        "PLS and PLS-DA are named as having no kernel rather than skipped.",
+        "The endpoint itself waits for the pipeline store: recorded under #99, not worked around."
+      ],
+      "evidence": "2026-08-27. On feature/87_results-endpoint. Estimator fitting added to executor.py (EstimatorResult, result_path, ALPHA) and results_payload added to api.py; 10 new tests in tests/test_executor.py and 4 in tests/test_api.py. uv run pytest is 658 passed, 1 skipped (644 before); ruff check, ruff format --check and mypy over 42 source files all clean. Parity: pca_a, pca_b and pca_c reproduce the fixture - explained variance to rtol 1e-4, Hotelling T-squared to 1e-3, and the two limits, which the fixture does not round at all, to 1e-12 and 1e-6. pca_d does not, and the test proves the input is why rather than the kernel: reconstructing the fixture's own convention (centre_d fitted on all 240 samples) reproduces its explained variance to 1e-4, while section 9's convention differs by 3.8e-05 on explained variance and 1.8e-01 on T-squared. Recorded as a comment on #97, which now covers two fixtures rather than one. Second finding, raised as #101: the reported rank is 100 where the fixture says 99, because a centred array read back from the store as float32 no longer has columns summing to exactly zero and the SVD finds a hundredth singular value above the rank tolerance. Measured: the spurious eigenvalue is 3.1e-16 against a leading 2.64, it moves the SPE limit in the ninth decimal, and the same chain in float64 gives 99. Only the displayed integer changes. Split handling: pca_d is fitted on fold zero's 216 training rows - the fixture's choice, and deliberately not an aggregation, because there is no single model over ten folds - and the 24 held-out rows are projected through it and stored beside the calibration ones. The payload puts them under a new 'validation' key, so every array the 1.1 screen reads keeps the length the fixture has and a screen that ignores the key renders what it rendered before. Storage: results/<key>.json, keyed the way arrays are, so editing a node gives its estimator a new key and a new result while the untouched branch keeps both; a stored result is read back rather than refitted (asserted by editing the stored file and seeing the edit survive), and an unreadable one is refitted rather than refused. PLS and PLS-DA have no kernel here and are reported in Run.pending_estimators. A PCA that cannot be fitted names its node. NOT DONE: GET /api/results/{node_id} is not served, because a result belongs to a node in a pipeline and there is no pipeline store yet - it is #89's, like the rest of the surface, and the same cut #99 describes. What the endpoint would return is results_payload, asserted key for key against pca.json.",
+      "notes": "The fixture's numbers were always real - they were generated by the kernels. Here the fixture becomes a regression test rather than a source. The estimator half landed here; the endpoint waits for #89's pipeline store, as #99 describes. Two findings: pca_d's divergence (added to #97) and the reported rank (#101)."
+    },
+    {
+      "id": "metrics-gap",
+      "priority": 13,
+      "area": "kernel",
+      "issue": 88,
+      "title": "The metrics gap: SEC, SEP, Q-squared and coefficients in original units",
+      "depends_on": [],
+      "user_visible_behavior": "The four quantities metrics-and-validation.md specifies and Phase 0 never implemented are available and covered by parity.",
+      "status": "passing",
+      "verification": [
+        "SEC, SEP and Q-squared are implemented, with RMSEC still dividing by n and the corrections living in SEC and SEP.",
+        "Fold aggregation is pooled residuals, not the mean of per-fold RMSEs.",
+        "coefficients_original_units back-transforms the foldable chain, and says so when the chain is not foldable.",
+        "Each has a parity case against a reference whose aggregation rule is established.",
+        "docs/parity-report.md is regenerated."
+      ],
+      "evidence": "2026-08-27. On feature/88_metrics-gap. sec, sep and q2 added to validation.py; coefficients_original_units and FOLDABLE added to regression.py; 11 new reference entries and 5 new parity cases; docs/parity-report.md regenerated. uv run pytest is 711 passed, 1 skipped (679 before); ruff check, ruff format --check and mypy over 44 source files all clean. SEC and SEP: bias-corrected scatter, over n-A-1 and n-1. Section 5's identity RMSEP^2 = bias^2 + (n-1)/n * SEP^2 holds to 1e-12, and there is no such identity for RMSEC and SEC because their denominators differ by more than one - both asserted. Their ratio is sqrt((n-1)/(n-A-1)) for A of 0, 3 and 7. Hand arithmetic on a six-sample case where the residuals square to exactly 1 pins all three denominators at once. Adding a constant offset to the predictions moves RMSE and leaves SEC and SEP unchanged, which is the distinction they exist for. n-A-1 <= 0 raises naming both counts rather than falling back to another denominator, as section 5 requires. Q-squared is the same formula as R-squared over held-out predictions and is implemented as such: section 6 puts both denominators on the total sum of squares about the full calibration mean. A constructed two-cluster case pins that - a per-fold mean gives a denominator ten times smaller and a different number, which is what packages disagree on. Negative Q-squared is returned unclipped. coefficients_original_units folds the chain by measuring it rather than restating pls-regression.md section 7's table: every foldable step is affine, so passing the identity through the fitted chain recovers f(e_j) - f(0) and f(0) is the offset. Savitzky-Golay's interp edge handling comes out exactly right with nobody re-deriving it, and a kernel change cannot leave a stale copy here. Proven per step - centring moves the intercept and leaves the coefficients alone, autoscaling divides each by its scale, range selection leaves zeros where variables were dropped, Savitzky-Golay at deriv 0, 1 and 2 - and for a three-step chain, each reproducing the model's own predictions to 1e-10. SNV, MSC and the baselines are refused by type and named. A test shows why that guard is by type and not by probing: SNV refuses a zero row outright, and treating its identity image as a linear map gives predictions more than 1.0 away from the model's own. Parity: 11 entries added, none changed, none removed. q2 against sklearn.metrics.r2_score over scikit-learn's own held-out predictions on the recorded folds - identical within float on all three datasets. coefficients_original_units and intercept_original_units against a PLSRegression fitted on the raw matrix, which reaches the same vector by centring internally - identical on all three, the tecator intercept within rtol 1e-6. A further case asserts the folded model reproduces the pipeline's predictions on the real datasets to 1e-9, which is PROPOSAL.md section 9's CI constraint. SEC and SEP are recorded as unsourced with the reason: neither scikit-learn nor chemotools computes them and mdatools reports RMSE and bias instead, so computing them from another package's predictions would test their model rather than our metric - the standing SNV and MSC had before #13. The report is now 105 comparisons, 105 passed, 0 failed, up from 96. FOUND while generating the reference: scikit-learn's PLSRegression.intercept_ holds ybar, and X @ coef_ + intercept_ does not reproduce its own predict() - out by xbar . coef_, which is 4.79 on tecator against a response range of 0.9 to 58.5. A parity claim built on that attribute would have failed against a correct kernel. The generator recovers the intercept from predict() and asserts it, and pls-regression.md section 14 records the trap. SEC and SEP live in Metrics.extra; the schema needed no change.",
+      "notes": "A Phase 0 inheritance - nothing in #12 verified these. Depends on nothing in 1.2, so it can be picked up whenever the chain is blocked. SNV, MSC and baselines cannot be folded into coefficients; Savitzky-Golay can. The chain is folded by measuring it - the identity through the fitted transformers - rather than by restating section 7's table, so a kernel change cannot leave a stale copy. scikit-learn's PLSRegression.intercept_ is ybar and does not reproduce its own predictions; recorded in pls-regression.md section 14."
+    },
+    {
+      "id": "rank-through-the-store",
+      "priority": 15,
+      "area": "kernels",
+      "issue": 101,
+      "title": "A centred matrix read back from the array store reports rank 100, not 99",
+      "depends_on": [
+        "results-endpoint"
+      ],
+      "user_visible_behavior": "The rank the analysis panel shows for a centred matrix is the rank it has, not one more.",
+      "status": "passing",
+      "verification": [
+        "A centred matrix through the store reports the rank it has, not one more.",
+        "Nothing computed in float64 throughout moves; the parity suite is unchanged.",
+        "The documented rule in pca.md says what the code does.",
+        "The decision is in docs/decisions/, with the measurement that settled it.",
+        "A test asserts the margin, not only the resulting integer."
+      ],
+      "evidence": "2026-08-29. On feature/101_rank-tolerance. Decided with the maintainer: **widen the tolerance to the precision the data arrived in.** uv run pytest 731 passed, 1 skipped; ruff, format and mypy clean.\n\nTHE OBVIOUS FIX WAS WRONG, AND WRONG BY A LOT. The issue proposed max(n,p)*eps32*s1, which was implemented and measured on Tecator: it reports **rank 66** for a matrix of rank 99, discarding 33 genuine components. Multiplying the *data* error by the dimension overshoots by max(n,p), and on collinear spectra that is the difference between a threshold below the real components and one well inside them. Caught because the existing test failed with 66 rather than the expected 99 - the measurement was there to walk into.\n\nWHAT WAS TAKEN INSTEAD: tol = (max(n,p)*eps64 + eps_data) * s1. Two error terms, added, because they are two different things. The arithmetic term keeps the dimension factor - the SVD runs in float64 whatever it was handed. The data term does not: it is a perturbation of the input, and by Weyl's inequality perturbing A by E moves each singular value by at most the norm of E, which for a float32 round trip is about eps32*s1. A perturbation of X is not an accumulation over its entries.\n\nMEASURED, on the stored SNV + mean-centre chain: s1 = 2.513e+01; the smallest genuine singular value s99 = 1.313e-04; the spurious s100 = 2.799e-07, which the float32 round trip creates because a centred matrix read back no longer has columns summing to exactly zero. Tolerances: 1.34e-12 gives rank 100 (before), 7.19e-04 gives rank 66 (the first attempt), 3.00e-06 gives **rank 99** (accepted). Genuine and spurious are 470 apart, so the accepted threshold sits in a wide gap - 10x above the noise, 44x below the signal - and the test asserts that separation rather than only the integer, so a change that narrows the margin is visible before it is wrong.\n\nWHERE THE KNOWLEDGE LIVES. `read_array` returns float64, so by the time PCA sees a matrix it cannot tell what precision it arrived in - but the executor knows, because it is the thing that put it through the store. So `PCA` takes `data_eps` and the executor passes `PCA.STORED_EPS`. The default is eps64, which leaves the tolerance where it has always been to within one part in max(n,p): nothing computed in float64 throughout moved, and the parity suite is untouched.\n\npca.md §9 now states the rule the code follows, and docs/decisions/0004-rank-tolerance-precision.md records the decision with the measurement and both rejected options - accepting rank 100 (the issue's own 'least honest'), and re-centring after reading (a fix at the wrong layer).\n\nAND IT IMMEDIATELY CAUGHT A SECOND INSTANCE, in the walkthrough's own test data. e2e/spectra-file.ts varied two things across samples - an overall scale and one band's height - so the matrix it generated had **two** real components, and the walkthrough asked PCA for five. That passed before this change only because the float64 tolerance admitted three singular values of numerical noise (1.8e-07, 9.9e-08, 2.5e-09 against a leading 1.4e-01) as though they were structure: the scores plot the exit criterion asserts was partly fitted to noise. With the tolerance honest, all three platforms failed with \"5 components were asked of a matrix of rank 3\" - the correct answer to a question that should never have been asked. Fixed in the data rather than by lowering n_components or loosening the tolerance: each band's height now varies independently per sample, and at 30 x 24 the matrix has rank 9 after SNV, a first derivative and centring, with singular values 3.55, 2.98, 1.62, 1.28, 0.55, 0.36, 0.26 - so a PCA of five is fitting structure that is really there. pnpm exec playwright test 34 passed, three full suites.",
+      "notes": "Found in #87 and measured there: the spurious eigenvalue is 3.1e-16 against a leading 2.64, and moves the SPE limit in the ninth decimal. Only the displayed integer changes. The rank tolerance is a published numerical convention, so widening it to float32 precision is a specification decision rather than a fix to make inside a feature. Decided 2026-08-29, recorded in docs/decisions/0004-rank-tolerance-precision.md. The first implementation - the one the issue proposed - reported rank 66 and was rejected on measurement."
+    },
+    {
+      "id": "import-contract-findings",
+      "priority": 13,
+      "area": "backend",
+      "issue": 99,
+      "title": "The import handlers cannot be swapped in one at a time, and the 1.1 screen sends no file",
+      "depends_on": [
+        "import-endpoints"
+      ],
+      "user_visible_behavior": "The file the user picks is the file that is imported - today the screen discards it and the server it talks to would not know what to do with it.",
+      "status": "passing",
+      "verification": [
+        "The import screen sends the picked file to /api/import/preview and /api/import.",
+        "chemometrics_workbench.api.router is what serves those URLs.",
+        "The 17 end-to-end tests that assume the fixture project and dataset are rewritten."
+      ],
+      "evidence": "2026-08-28. Closed by #89, which is where it was always going to land. The import screen sends the file the user picked as a multipart upload - Import.tsx keeps the File from the input's onChange and useImportDataset posts it with its corrections - and the two 1.1-only buttons (\"Use the example file\", \"Import a broken file\") are gone, because a real file reaches the preview and an unreadable one reaches the failure state by being unreadable. frontend/e2e/empty.spec.ts proves both against a real empty project: a one-column CSV is a READER_FAILED alert naming the file with no traceback, and a six-channel CSV previews, takes an orientation correction that swaps 4 x 6 to 6 x 4, and commits to a dataset the table renders. The 17 end-to-end tests that assumed the fixture project were rewritten as part of #89's one cut, which is what this issue said had to happen.",
+      "notes": "Found in #81 and measured there: wiring the real router into the stub fails 17 of 40 end-to-end tests, across import, states, shell, inspector and the walkthrough. Folded into #89's cut and #90's rewrite rather than done separately."
+    },
+    {
+      "id": "http-surface-complete",
+      "priority": 14,
+      "area": "backend",
+      "issue": 89,
+      "title": "The HTTP surface complete, the stub retired",
+      "depends_on": [
+        "import-endpoints",
+        "real-jobs",
+        "server-side-decimation",
+        "results-endpoint"
+      ],
+      "user_visible_behavior": "There is one server. The frontend has never known the difference, and no query parameter can put the application into a state it could not reach honestly.",
+      "status": "passing",
+      "verification": [
+        "projects, projects/{id}/datasets, pipelines/{id}, pipelines/{id}/state, experiments/{id} and experiments/{id}/run are served from the real store.",
+        "The error envelope is settled and every screen still renders it.",
+        "The pagination decision is taken and implemented, or deferred with its reason recorded.",
+        "grep -rn 'X-Stub-Fail|[?]empty|oversize|failrun' returns nothing outside history.",
+        "stub/ is deleted; fixtures still worth having as regression inputs have moved to tests/fixtures/.",
+        "Token authentication on 127.0.0.1 is unchanged.",
+        "Every state #49 renders is still reachable, now by real means.",
+        "Not one URL changed."
+      ],
+      "evidence": "2026-08-28. On feature/89_http-surface-complete. New module src/chemometrics_workbench/server.py (the assembled application: ephemeral port, bearer token, CORS for the Vite dev server, the error envelope, and the bundle mount), tests/test_server.py (25 tests), and tests/seed_e2e.py (the Playwright seed). stub/ is deleted; its generated fixtures moved to tests/fixtures/contract/ with a README saying what they now are, and tests/test_stub_server.py and tests/test_stub_fixtures.py went with the module they tested. uv run pytest is 721 passed, 1 skipped; ruff check, ruff format --check and mypy over 19 source files all clean; pnpm typecheck, pnpm lint and pnpm test (52) clean; pnpm exec playwright test is 33 passed, 3 skipped.\n\nNOT ONE URL CHANGED. Every path the frontend has used since its first commit answers from the real store, and tests/test_server.py asserts the list: projects, projects/{id}, projects/{id}/datasets, import/preview, import, pipelines/{id}, pipelines/{id}/state, pipelines/{id}/validate, experiments/{id}, experiments/{id}/run, jobs/{id}, jobs/{id}/cancel, spectra/{node_id}, results/{node_id}, schema/steps, steps/validate. Token authentication is unchanged and is a real check: every /api path 401s without the bearer token, with the documented body. A 404 raised by the router itself carries the same envelope as one raised by a handler, so a client never has to tell two error shapes apart.\n\nTHE FOUR AFFORDANCES ARE GONE and their absence is a test, not a habit: test_the_source_tree_carries_no_stub_affordances greps src/ and frontend/src/ for X-Stub-Fail, ?empty, ?oversize and failrun and asserts nothing is found, and test_the_1_1_only_affordances_no_longer_do_anything asserts each is ignored rather than merely absent - ?empty and ?oversize on the datasets endpoint return exactly what the honest request returns, X-Stub-Fail is a header that means nothing, and run?fail=true succeeds, because a run fails only if it fails.\n\nEVERY STATE #49 RENDERS IS REACHABLE BY REAL MEANS, and the means is a seeded project rather than a query parameter: a state is a fact about a project, so the Playwright suite runs three real servers over three real project directories (playwright.config.ts). 8765 holds Tecator imported through the real import handler and the artboard's four-branch fourteen-node pipeline with every node executed - complete, and everything that reads. 8766 holds a project with nothing in it - the empty state, and the imports, which are the tests that change the project they run in. 8767 holds the same pipeline plus a branch that cannot be fitted, with nothing executed - running, queued, not_run and failed. Stale is reached by editing a node in the inspector, which is where it always came from. Overloaded is the one state with no replacement: ?oversize fabricated a 42,000 x 6,200 shape, #81 established that the envelope is reported and not enforced, and no file that size belongs in CI - the envelope arithmetic is covered by frontend/src/__tests__/envelope.test.ts instead.\n\nTHE SEED COMPUTES NOTHING. tests/seed_e2e.py writes the committed Tecator data out as a CSV and posts it to the real /api/import - data/tecator/tecator.txt carries a prose header and the 22 principal components the file also supplies, so no reader will take it and load_tecator parses it specially - then writes the pipeline through the pipeline store and runs it through executor.execute. The real backend reproduces the fixture's numbers: 240 x 100, explained variance 68.9 / 28.4 / 1.6 per cent and 99.9 cumulative, 240 spectra decimated to 60 traces over 100 variables. That is why spectra.spec.ts and analysis.spec.ts pass unchanged - the strongest evidence the swap kept the contract.\n\nFOUR SERVER BUGS THE STUB WAS HIDING, each found by pointing the suite at the real thing and each fixed with a regression test. (1) Nothing ever wrote experiment.json, so GET /experiments/current - a published endpoint - answered 404 for the life of a project however many runs had happened. executor.experiment_for and jobs.submit_run now write the record on every ending, succeeded, failed and cancelled alike, because a failed experiment is a result and models.py says so on the field. (2) pipelines/{id}/state could not report a failed node at all: _node_state knew complete, queued, running and not_run, so a failed run showed as a graph of nodes that merely never ran and the artboard's failed encoding was a state only the fixture could produce. (3) The job blamed the wrong node - the last one to report progress, which is precisely the last one that finished, not the one that raised. ExecutorError has carried node_id as a field since #83 for exactly this reason (\"a canvas that wants to mark the node red cannot parse it back out of English\") and the job now reads it. (4) open_project called _remember on every call, rewriting a registry file shared by every project on the machine; a page load asks six questions at once, and two of them racing on that write turned a plain GET into a 500 - intermittently. _remember now skips the write when nothing would change and never fails an open, and the check-then-create in open_project_directory is under a lock, because create_project makes arrays/ before it writes project.json and the losers of that race found a directory that was neither empty nor yet a project - which made the first load of a new project a 500. test_concurrent_reads_on_one_project_never_fail fires thirty concurrent reads and asserts every one is a 200 or a 404.\n\nONE FRONTEND CHANGE, AND IT IS THE FINDING. Nothing refetched pipelines/{id}/state while a job advanced: in Phase 1.1 the fixture had a node permanently running and another permanently failed, so the states were on screen without anything asking for them. Against a real backend they are events. Shell.tsx now invalidates pipeline-state when the job's status or node_id changes, following the poll the job query already runs rather than adding a second timer, and the Job type gained the node_id field #85 added to the envelope. No URL and no payload changed. The import screen's file picker (#99) is the other half and landed with it: the file the user picks is the file that is read.\n\nPAGINATION IS DEFERRED WITH ITS REASON RECORDED, in a comment above the list endpoints in api.py: there is nothing to page, because a project holds one pipeline and its datasets are a JSON file read whole until SQLite arrives in 1.3, and fixing the shape of the answer before knowing the question is what Phase 1.1 existed to avoid.\n\nNOT DONE, and raised as #108 (which already existed, filed 2026-08-27): the walkthrough. #50's three tests are test.fixme with the reason in the file. The step list builds a client-side draft and no endpoint writes a pipeline back - the frontend has read pipelines/current since its first commit and has never posted one - so the SNV, Savitzky-Golay and PCA nodes it assembles never reach the server and the run that follows has only the source node to execute. Every part of the walkthrough passes elsewhere against the real backend (the empty project and the import in empty.spec.ts, the run's lifecycle, cancellation and failure in runs.spec.ts, the scores against the kernel's own numbers in analysis.spec.ts); what is missing is the single path through them, which is #90's subject and needs the endpoint first.\n\nMerged into dev on 2026-08-28 as pull request #110 with all three CI checks green. One CI failure was fixed first: CI runs a bare `uv run mypy`, whose file list comes from pyproject.toml and still named the deleted stub directory; the local check had been `mypy src`, which is not the command CI runs.",
+      "notes": "Four 1.1-only affordances die here: ?empty, ?oversize, ?failrun and X-Stub-Fail. Each carries a comment saying it is 1.1-only. Done 2026-08-28. Four server bugs and one frontend contract gap were found by pointing the end-to-end suite at the real backend; all five are fixed here. Two findings became issues rather than a widened branch: #108 (no endpoint writes a pipeline) and #109 (the overloaded state has no way to be reached). #90 now depends on #108."
+    },
+    {
+      "id": "pipeline-persistence",
+      "priority": 15,
+      "area": "backend",
+      "issue": 108,
+      "title": "There is no way to save a pipeline, so a real project can only ever run a source node",
+      "depends_on": [
+        "http-surface-complete"
+      ],
+      "user_visible_behavior": "A pipeline assembled in the step list is still there after a reload, and running it runs the steps that were added.",
+      "status": "passing",
+      "verification": [
+        "PUT /api/pipelines/{id} stores the node list, and GET returns what was stored.",
+        "A pipeline built through the step list survives a reload.",
+        "Running it executes the added nodes, not only the source.",
+        "Layout coordinates stay outside Pipeline.content_hash(), so moving a node cannot invalidate a cache entry.",
+        "Staleness stays derived from the store: editing a node changes its key and its descendants', and nothing writes a stale flag.",
+        "A rejected pipeline (a cycle, an unknown input, a second RangeSelect) is a documented error body, not a 500.",
+        "#50's walkthrough stops being test.fixme and passes."
+      ],
+      "evidence": "2026-08-29. On feature/108_pipeline-persistence. `PUT /api/pipelines/{id}` in api.py with a `PipelineWrite` body, `useSavePipeline` and a Save button on the canvas, `withDrafts` in PipelineCanvas.tsx, and a `RequestValidationError` handler in server.py. uv run pytest is 730 passed, 1 skipped (721 before); ruff check, ruff format --check and mypy over 45 files all clean; pnpm typecheck and lint clean; pnpm test 57 passed (52 before); pnpm exec playwright test is **34 passed, 0 skipped** - the three walkthrough tests were test.fixme and are not any more.\n\nTHE WHOLE LIST, NOT A PATCH, as decided with the maintainer. One project holds one pipeline and one user edits it, so last-write-wins needs no conflict rules, and the canvas already holds the entire graph it is drawing; a diff would mean inventing an operation language for a problem nobody has. The body carries `nodes` and an optional `name` and nothing else: `pipeline_id`, `project_id` and `created_at` are taken from the stored record, because a client that could send them could rename one pipeline into another. Layout is not in the body either, and deliberately - where a node sits lives in its own file outside `Pipeline.content_hash()`, and folding coordinates into this body would undo #83's guarantee in one line. `test_moving_a_node_cannot_invalidate_a_cache_entry` saves the same recipe twice, which is what a canvas does after a node is dragged, and asserts every node is still complete.\n\nSTALENESS STAYS DERIVED, as decided with the maintainer, and nothing here writes a flag. A node's key is its own JSON chained through its inputs' keys, so editing one changes its key and its descendants' and nothing else's; the arrays that no longer match simply stop being found and the node reports `not_run` because it is. `test_editing_a_node_leaves_staleness_derived_from_the_store` runs a four-node pipeline to completion, changes the PCA from 3 components to 2, and asserts source, snv and centre stay complete while only pca goes not_run - then edits snv to an MSC and asserts everything below it goes with it and the source does not. It also asserts the state entry has the keys it always had, so no second record of the same fact was introduced.\n\nNO NEW VALIDATION WAS WRITTEN, because the model already had it. `Pipeline`'s `_valid_dag` enforces unique ids, known inputs, at least one source and no cycles, and `content_hash` covers only `nodes` - so the endpoint constructs a `Pipeline` (rather than `model_copy(update=...)`, which does not re-run validators) and turns ValidationError into the documented 422. One check is the endpoint's own: a source node naming a dataset version the project does not hold is refused where it is written, because the schema would accept it and the run would then fail with nothing to point at.\n\nA SECOND ERROR SHAPE WAS FOUND AND CLOSED. FastAPI answers its own body-validation failures with `{\"detail\": [...]}` rather than the documented `{\"error\": {...}}` - a second error format, which is exactly what the envelope exists to prevent, and invisible until a client sends a body that is malformed rather than merely wrong. server.py now handles `RequestValidationError` into the same envelope. It earned its keep immediately: the first end-to-end save failed with \"Input tag 'savitzky_golay' found using 'kind' does not match any of the expected tags\", naming the field, which is how the step catalogue's wrong discriminator was found in one run rather than by reading the schema. The kind is `savgol`.\n\nTHE CANVAS'S DRAFTS BECAME NODES. `DraftStep` carried two display strings and nothing else, because nothing was ever sent anywhere - the step list drew a picture. It now carries the payload the endpoint takes, so what is drawn is what is sent, and the catalogue writes the schema's defaults out rather than leaving them implicit. `withDrafts` chains the drafts onto a terminal node - one nothing else consumes - because that is the only end a list can be appended to; a freshly imported project has exactly one, which is the shape the step list exists for. A branched pipeline has several ends and this takes the first, which is a stated limit: choosing which branch to extend needs somewhere to say so, and that is #51. Ids are derived from the step and de-duplicated against what is already saved, so adding a second SNV gives `snv_2` rather than something the server has to refuse. Five unit tests cover it.\n\nTHE EXIT CRITERION PASSES. #50's walkthrough now runs green against the real server: an empty project, an import of a file the test hands to the file input, the detection stated before anything is committed, the dataset opened, SNV + Savitzky-Golay + PCA assembled through the step list, **saved**, **the page reloaded**, and the three nodes still there - then a run that leaves every node complete and a scores plot whose first point and sample id equal what `results/pca` served, to 12 decimal places. The reload is the assertion #108 exists for.\n\nEVERY DIFF TO THE 1.1 WALKTHROUGH, AND WHAT IT SAYS ABOUT THE CONTRACT - which is #90's fourth verification step, recorded here because this is where the edits were made:\n  1. `?token=e2e-token&empty` became `?token=e2e-token` against a real empty project. The affordance was a stub's; a state is a fact about a project (#89).\n  2. \"Use the example file\" became `setInputFiles` with a generated CSV. The 1.1 screen discarded the file the user picked (#99); the contract had no way to say which file to import.\n  3. Tecator's 240 x 100 became a generated 30 x 12, and the \"reconstructed as 100 evenly spaced points\" assertion went. That note is `load_tecator`'s, not a reader's: `data/tecator/tecator.txt` carries a prose header and 22 principal components and no reader will take it. A file that states its axis in its header is the ordinary case, and the axis is then read rather than reconstructed.\n  4. A Save click and a page reload were added. This is the contract gap itself - #108 - and the reload is what proves it closed.\n  5. `results/pca_a` became `results/pca`. The node id is the fixture's in 1.1 and the user's now: `withDrafts` names a node after the step that made it.\n  6. The \"Queued\" assertion became \"Done\" plus progress at 100. Thirty samples by twelve channels finishes faster than the job poll, so asserting a transient frame would be asserting that the machine is slow. `runs.spec.ts` watches progress advance on a project seeded large enough to see it.\n  7. The cancel and failure paths were removed from this file. Both were driven by `?failrun` and both now live in `runs.spec.ts` against a branch that genuinely cannot be fitted, with nothing computed - a real run to cancel and a real failure to read.\n  8. The walkthrough got its own server (8768, empty). It imports, so it cannot share a project with anything that also imports.\nNo new fixture was introduced: the CSV is generated in `e2e/spectra-file.ts` and nothing was committed to make any of it pass.",
+      "notes": "Filed 2026-08-27, before #89 started, and #89 independently found the same thing by pointing the end-to-end suite at the real backend. The issue lays out the options: A, a write endpoint plus a canvas that saves; B, an import that starts a default recipe. This blocks #90 - #50's three walkthrough tests are test.fixme until it lands. The shape is a decision, not a detail: what it means for #83's merkle cache keys, and layout coordinates must stay outside Pipeline.content_hash() so moving a node cannot invalidate a cache entry. Done 2026-08-29. Option A from the issue: a write endpoint and a canvas that saves. Option B - an import that starts a default recipe - was not taken and is still a live product question: an import starts a source node and nothing else, so the user builds the recipe rather than finding one they did not ask for."
+    },
+    {
+      "id": "overloaded-state-unreachable",
+      "priority": 16,
+      "area": "frontend",
+      "issue": 109,
+      "title": "The overloaded state has no way to be reached end to end",
+      "depends_on": [
+        "http-surface-complete"
+      ],
+      "user_visible_behavior": "The beyond-the-envelope notice is proven to appear on a dataset that is really past PROPOSAL.md section 13's envelope.",
+      "status": "passing",
+      "verification": [
+        "cd frontend && pnpm test - overloaded.test.tsx renders the notice and the guard that reaches it.",
+        "The decision not to prove it end to end is recorded in docs/decisions/0005-overloaded-state-coverage.md."
+      ],
+      "evidence": "2026-08-29. `cd frontend && npx vitest run` - 9 files, 63 tests passed, including src/__tests__/overloaded.test.tsx (6 tests). `npx tsc -b --noEmit` and `npx eslint .` both exit 0. The test renders Overloaded.tsx and SpectraView.tsx's guard through react-dom/server and asserts the crossed bounds (\"BEYOND THE V1 ENVELOPE - spectra - variables - memory\"), the sentence (\"42,000 x 6,200 is about 1,042 MB as float32\", \"20,000 x 4,000, about 320 MB\"), role=\"alert\", that children render beside the notice, and that the plot view is never entered. Option A - a real oversize import - is deliberately not implemented; docs/decisions/0005-overloaded-state-coverage.md records why and states the remaining gap.",
+      "notes": "Opened 2026-08-28 from #89. Closed 2026-08-29 with option C plus D: a component test for the screen, and the end-to-end gap recorded rather than closed. The envelope is reported and not enforced (#81), so the only honest input to this state is about a gigabyte - there is no small one, because the state is a function of size alone. A seeded DatasetVersion with no array (option B) was rejected: the application cannot produce that record. Rendered with react-dom/server rather than jsdom plus a testing library, because the state draws nothing and runs no effects, so static markup is its whole output; react-dom is already a dependency. plotly.js-gl2d-dist-min is stubbed because it reads `self` at load - it replaces a browser global, not a project state. vitest.config.ts now includes src/**/*.test.tsx."
+    },
+    {
+      "id": "e2e-real-backend",
+      "priority": 15,
+      "area": "test",
+      "issue": 90,
+      "title": "The sub-phase exit criterion as a test",
+      "depends_on": [
+        "pipeline-validator",
+        "http-surface-complete",
+        "pipeline-persistence"
+      ],
+      "user_visible_behavior": "The Phase 1.1 walkthrough passes against the real backend, on a file the user picks, with no stub in the repository.",
+      "status": "passing",
+      "verification": [
+        "#50's walkthrough runs green against the real server, in CI, on the three-platform matrix.",
+        "The import step uses a real file chosen through the file dialog, not a fixture path.",
+        "The provoked failure is provoked by real means, X-Stub-Fail having gone in #89.",
+        "Every diff to the 1.1 walkthrough is recorded, with what it says about the contract.",
+        "No new fixture was introduced to make it pass."
+      ],
+      "evidence": "2026-08-29. On feature/90_e2e-real-backend. The frontend CI job became a three-platform matrix (ubuntu-latest, macos-latest, windows-latest, fail-fast false) and **all three are green**, along with check (py3.12) and check (py3.13). Locally: uv run pytest 731 passed, 1 skipped; ruff check, ruff format --check and mypy over 45 files clean; pnpm typecheck, lint clean; pnpm test 57 passed; pnpm exec playwright test 34 passed, 0 skipped, run three times over to confirm it is not flaky.\n\nTHE EXIT CRITERION, STEP BY STEP. (1) #50's walkthrough runs green in CI on all three platforms - the step this feature existed to satisfy, and the reason the matrix was built rather than the step amended. (2) The import uses a real file handed to the file input, generated in e2e/spectra-file.ts; no fixture path. (3) The provoked failure is provoked by real means - a PCA asked for twelve components from six channels, refused by decomposition.py in its own words, X-Stub-Fail having gone in #89. (4) Every diff to the 1.1 walkthrough is recorded with what it says about the contract: eight of them, in #108's evidence, where the edits were made. (5) No new fixture was introduced - git diff --diff-filter=A over the branch adds no data file.\n\nTHE MATRIX FOUND FOUR REAL BUGS, none of which an ubuntu-only job would ever have shown.\n\n  1. WINDOWS, AND IT WAS THE APPLICATION RATHER THAN THE HARNESS. `data/tecator/tecator.txt` is verified against a checksum pinned in datasets.py before it is read, and git rewrites LF as CRLF on checkout on Windows: every line of the file changes, so its SHA-256 changes, so load_tecator refuses it with 'does not match its pinned checksum'. Anyone cloning this repository on Windows would meet it the moment they touched the reference dataset; it surfaced here as a server that would not start. Fixed with a .gitattributes marking the committed dataset and the reader fixtures `-text`, so what is checked out is what was committed. The check is deliberately not relaxed - a checksum that tolerates a transformation is not checking anything - and test_the_committed_data_is_checked_out_byte_for_byte asserts the outcome on every platform in a second rather than leaving it to a Windows runner.\n\n  2. THE SEED SHUT DOWN THE SERVER'S JOB POOL. Once the seed and the server shared a process (--serve), `with TestClient(app)` ran the application's lifespan, whose shutdown calls JOBS.shutdown() - leaving the server about to start with a dead thread pool and every run failing 'cannot schedule new futures after shutdown'. The seed borrows the import handler; it does not run a server, and no longer pretends to.\n\n  3. A LOCATOR THAT READ THE WRONG ELEMENT, which is what made ubuntu flaky - it failed once and passed twice on the same tree. getByRole('status').first() matched the stale banner rather than the run status bar: both carry role='status' and DOM order puts the banner first, so the locator read whichever the test had just caused. Three spec files now target `.status`.\n\n  4. AN ASSERTION THAT MEASURED THE RUNNER. macOS failed on 'progress advanced through 76, 94' - two sampled frames where the test wanted three, because a quick machine finishes two nodes between polls. #85's claim is that progress is counted from nodes finishing rather than interpolated against a clock, and that is asserted in the Python job tests where it can be observed exactly; here it is enough that it advanced and never went backwards.\n\nHOW THE HARNESS CHANGED TO BE PORTABLE. The seeded projects moved from /tmp to os.tmpdir(); the removal moved from an `rm -rf` in the Playwright command into the seed script as `--fresh`, where shutil does it - a flag rather than the default, because the script deletes a path given on the command line. `playwright install --with-deps` is Linux-only and is split by runner.os. The webServer command is one command rather than two joined by `&&`, and the project directory comes from CHEMOMETRICS_PROJECT rather than the command line, so the seed and the server cannot disagree about which project is open. On a runner Playwright uses the `github` reporter, so a failure is an annotation carrying its message and line rather than an exit code buried in a log; the HTML report and the trace upload beside it, per platform.\n\nWHAT THE DIAGNOSIS COST, AND WHY, recorded because the lesson is cheaper to read than to repeat. Nine CI cycles and three wrong theories - the `&&` chaining, a uv environment race, cmd.exe in general. The cause was that all four smoke steps used `--empty`, and `--empty` never loads Tecator: four diagnostics that each avoided the failing path, and confident reasoning from their passing. The `&&` and uv changes were kept because both are better regardless, but the comments claiming they were the fix were corrected. What ended it was one line of the actual log.",
+      "notes": "If it passes unedited, the 1.1 contract held. Every edit it needed is a finding about that contract, and the eight of them are in #108's evidence. Done 2026-08-29: the three-platform matrix was built rather than the verification step amended, and it found four bugs an ubuntu-only job would not have - one of them, CRLF breaking the pinned checksum, in the application rather than the tests."
+    }
+  ]
+}

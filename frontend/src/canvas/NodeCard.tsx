@@ -90,6 +90,23 @@ export function NodeCard({ data, selected }: NodeProps) {
         }}
       >
         {node.type}
+        {/* Removing reconnects the children to the parent - `edits.ts` owns
+            that rule, and the source has no control at all because it is where
+            the data enters. The click is stopped here: it would otherwise also
+            open the node's tab, which is what a click on the body means. */}
+        {node.onRemove ? (
+          <button
+            className="tabx"
+            aria-label={`Remove node ${node.label}`}
+            style={{ marginLeft: "auto" }}
+            onClick={(event) => {
+              event.stopPropagation();
+              node.onRemove!();
+            }}
+          >
+            ×
+          </button>
+        ) : null}
       </div>
 
       <div style={{ flex: 1, padding: "5px 8px 0", minHeight: 0 }}>

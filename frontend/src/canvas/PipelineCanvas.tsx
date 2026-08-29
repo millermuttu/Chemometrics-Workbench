@@ -78,7 +78,6 @@ export function PipelineCanvas({ onOpenNode }: { onOpenNode: (id: string, label:
   const [validation, setValidation] = useState<string | null>(null);
   /** The edited graph, or null while it still matches what the server holds. */
   const [edited, setEdited] = useState<PipelineNode[] | null>(null);
-  const [selected, setSelected] = useState<{ id: string; label: string } | null>(null);
   // React Flow asks whether a connection is valid many times during one drag
   // and never reports the drop it refused. The reason for the last refusal is
   // kept here so the end of the drag can say why nothing happened.
@@ -96,7 +95,9 @@ export function PipelineCanvas({ onOpenNode }: { onOpenNode: (id: string, label:
     const style = getComputedStyle(document.documentElement);
     const token = (name: string) => style.getPropertyValue(`--${name}`).trim() || "currentColor";
     const committed = {
-      nodes: toNodes({ ...pipeline.data, nodes }, state.data, nodeLabel),
+      nodes: toNodes({ ...pipeline.data, nodes }, state.data, nodeLabel, (id) =>
+        edit(() => remove(nodes, id)),
+      ),
       edges: toEdges(
         { ...pipeline.data, nodes },
         state.data,
@@ -152,9 +153,7 @@ export function PipelineCanvas({ onOpenNode }: { onOpenNode: (id: string, label:
             // Selecting a node focuses its tab - the mechanism that ties the
             // graph to the pages.
             if (String(node.id).startsWith("draft-")) return;
-            const label = String((node.data as { label: string }).label);
-            setSelected({ id: node.id, label });
-            onOpenNode(node.id, label);
+            onOpenNode(node.id, String((node.data as { label: string }).label));
           }}
         >
           {/* The artboard's ground: a 22px dot grid in --grid. */}
@@ -166,11 +165,6 @@ export function PipelineCanvas({ onOpenNode }: { onOpenNode: (id: string, label:
         steps={steps}
         saving={save.isPending}
         edited={edited !== null}
-        selected={selected && nodes.some((node) => node.id === selected.id) ? selected : null}
-        onRemove={(id) => {
-          edit(() => remove(nodes, id));
-          setSelected(null);
-        }}
         onSave={async () => {
           if (!pipeline.data) return;
           try {
