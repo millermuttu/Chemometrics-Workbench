@@ -117,6 +117,38 @@ def test_tecator_shape_and_targets() -> None:
     assert tecator.targets["moisture"][0] == pytest.approx(60.5)
 
 
+def test_the_committed_data_is_checked_out_byte_for_byte() -> None:
+    """No CRLF in a file whose digest is its identity.
+
+    Git rewrites LF as CRLF on checkout on Windows unless told not to, which
+    changes every line of `tecator.txt` and therefore its SHA-256 - so
+    `load_tecator` raised "does not match its pinned checksum" there and
+    nowhere else. `.gitattributes` marks these files `-text`; this asserts the
+    outcome, on every platform, in a second, rather than waiting for a Windows
+    runner to notice.
+
+    The reader fixtures are included because their exact bytes are the input
+    under test: a line ending is precisely the sort of thing those tests are
+    about.
+    """
+    root = Path(__file__).resolve().parents[1]
+    byte_sensitive = [
+        root / "src" / "chemometrics_workbench" / "data" / "tecator" / "tecator.txt",
+        *sorted((root / "tests" / "fixtures" / "readers").glob("*.csv")),
+        *sorted((root / "tests" / "fixtures" / "readers").glob("*.txt")),
+        *sorted((root / "tests" / "fixtures" / "readers").glob("*.jdx")),
+    ]
+    assert byte_sensitive, "the fixtures moved; this test is pointing at nothing"
+
+    carriage_returns = [
+        str(path.relative_to(root)) for path in byte_sensitive if b"\r" in path.read_bytes()
+    ]
+    assert carriage_returns == [], (
+        "these files carry CRLF, which changes their digest and breaks the "
+        "pinned checksum: " + ", ".join(carriage_returns)
+    )
+
+
 def test_tecator_content_hash_is_pinned() -> None:
     tecator = load_tecator()
     assert tecator.source.file_hash == f"sha256:{TECATOR_SHA256}"

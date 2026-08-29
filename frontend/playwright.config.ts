@@ -27,8 +27,8 @@ import { defineConfig } from "@playwright/test";
  *   is remembered by the job table and would follow every later test, and
  *   because a pipeline whose arrays are all cached has no work to cancel.
  *
- * The seed runs as part of each server's command so the ordering is the shell's
- * rather than Playwright's, and each directory is recreated every run - one
+ * Each server seeds its own project and then serves it, in one process: the
+ * seed script's `--serve`. Each directory is recreated every run, because one
  * left over from a previous run carries its arrays and its edits.
  */
 
@@ -43,34 +43,25 @@ const ROOT = path.join(os.tmpdir(), "chemometrics-e2e");
 
 /** Seed the project, then serve it - in one process, with no shell operator.
  *
- * This used to be `<seed> && uv run python -m ...server`. Playwright hands the
- * `webServer` command to the platform's shell, which on Windows is `cmd.exe`,
- * and the chain did not survive the trip: seed and server each ran perfectly
- * there on their own - two smoke steps in CI proved it - while the two joined
- * by `&&` would not start at all. So nothing is joined any more, and the
- * directory is not on the command line either: it comes from
- * `CHEMOMETRICS_PROJECT` below, which is the variable the server reads anyway.
+ * This used to be `<seed> && uv run python -m ...server`. One command rather
+ * than two joined by a shell operator, and the directory is not on the command
+ * line either - it comes from `CHEMOMETRICS_PROJECT` below, which is the
+ * variable the server reads anyway, so the two cannot disagree about which
+ * project is open.
  */
-/** The interpreter, and why it is not `uv run`.
+/** The interpreter: the environment `uv sync` already made.
  *
- * Playwright starts all four of these **at once**, and `uv run` checks and
- * updates the environment before it runs anything. On Linux and macOS four of
- * those overlapping is harmless - a file being replaced while another process
- * has it open is ordinary there. On Windows it is a sharing violation, and the
- * losers exit non-zero: every server started on its own worked, and four
- * started together did not.
- *
- * `uv sync` has already made the environment by the time the tests run - CI
- * does it in its own step, and a developer does it to get a working checkout -
- * so this calls that interpreter rather than asking uv to re-check it four
- * times concurrently. If it is not there, fall back to `uv run` and let it
- * build one.
+ * `uv run` would work too - it is what this used to say. Calling the
+ * interpreter directly keeps four simultaneous starts from each re-checking
+ * the same environment, which is work nobody needs four times, and it takes
+ * uv out of the path between Playwright and a server it is waiting on. Falls
+ * back to `uv run python` when there is no `.venv`, which is the case on a
+ * checkout nobody has synced yet.
  */
-const VENV = path.join("..", ".venv", process.platform === "win32" ? "Scripts" : "bin",
-  process.platform === "win32" ? "python.exe" : "python");
-const PYTHON = existsSync(path.join(import.meta.dirname, VENV))
-  ? path.join(".venv", process.platform === "win32" ? "Scripts" : "bin",
-      process.platform === "win32" ? "python.exe" : "python")
+const VENV_BIN = process.platform === "win32" ? "Scripts" : "bin";
+const VENV_PYTHON = process.platform === "win32" ? "python.exe" : "python";
+const PYTHON = existsSync(path.join(import.meta.dirname, "..", ".venv", VENV_BIN, VENV_PYTHON))
+  ? path.join(".venv", VENV_BIN, VENV_PYTHON)
   : "uv run python";
 
 const serve = (name: string, port: string, mode: string) => ({
