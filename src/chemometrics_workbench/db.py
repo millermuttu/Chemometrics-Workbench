@@ -173,7 +173,10 @@ class ExperimentRow(Base):
     experiment_id: Mapped[str] = mapped_column(String, primary_key=True)
     dataset_version_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     status: Mapped[str] = mapped_column(String, nullable=False)
-    started_at: Mapped[str] = mapped_column(String, nullable=False)
+    # Both are nullable because `Experiment` types them so: a pending run has
+    # not started, and a running one has not finished. Ordering newest-first
+    # puts a run with no start last, which is where it belongs.
+    started_at: Mapped[str | None] = mapped_column(String, nullable=True)
     finished_at: Mapped[str | None] = mapped_column(String, nullable=True)
     document: Mapped[str] = mapped_column(Text, nullable=False)
 

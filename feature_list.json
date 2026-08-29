@@ -36,7 +36,7 @@
         "database-module"
       ],
       "user_visible_behavior": "The project's index is the database: datasets, the pipeline, its layout and the last experiment survive a restart from tables rather than from five JSON files. Nothing the user sees changes.",
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "tests/test_project.py - the zip-and-open portability test passes unchanged.",
         "tests/test_project.py - no absolute path is recorded anywhere in the project.",
@@ -44,8 +44,8 @@
         "tests/test_server.py - the pipeline reads back after a module-reload restart.",
         "cd frontend && npx playwright test - 38 tests over four seeded projects."
       ],
-      "evidence": "",
-      "notes": "project.json, datasets.json, pipeline.json, pipeline_layout.json and experiment.json become tables. arrays/<sha256>.npy and results/<key>.json stay files - PROPOSAL.md section 11 says the database stores references, never contents, and a fitted result is contents. The config directory registry stays too: it is the one thing a project directory cannot know, that the user has it. Every public signature in project.py stays exactly as it is, so api.py, executor.py, server.py and tests/seed_e2e.py are untouched; a signature that has to change is a finding worth an issue, not a widened branch. add_dataset's unlocked read-modify-write (project.py:268-297) becomes one insert in one transaction - the first real bug the database fixes."
+      "evidence": "2026-08-29. `uv run pytest` - 745 passed, 1 skipped, the same count as before the swap: the tests that named the five JSON files now name the database and assert the same invariants. The three that matter for portability pass unchanged - no absolute path anywhere in project.db's own bytes, the round trip through a subprocess, and zip the directory, extract it elsewhere, delete the original, open it. `cd frontend && npx playwright test` - 38 passed across seeded, empty, runs and walkthrough, against a backend whose index is now SQLite. `uv run ruff check`, `uv run ruff format --check` and `uv run mypy` all clean.",
+      "notes": "project.json, datasets.json, pipeline.json, pipeline_layout.json and experiment.json become tables. arrays/<sha256>.npy and results/<key>.json stay files - PROPOSAL.md section 11 says the database stores references, never contents, and a fitted result is contents. The config directory registry stays too: it is the one thing a project directory cannot know, that the user has it. Every public signature in project.py stays exactly as it is, so api.py, executor.py, server.py and tests/seed_e2e.py are untouched; a signature that has to change is a finding worth an issue, not a widened branch. add_dataset's unlocked read-modify-write (project.py:268-297) becomes one insert in one transaction - the first real bug the database fixes. Implemented 2026-08-29. Every public signature stayed as it was, so executor.py, server.py and tests/seed_e2e.py are untouched; api.py changed in one place only, and not a signature - it decided create-or-open by asking whether project.json existed, which is a fact about the directory layout, so it now asks project.is_project(). _read_model and _read_json were deleted with the last JSON reader; #121 brings back what it needs. read_experiment returns the most recently started row rather than the one file's contents, which gives an experiment history nothing reads yet. write_layout is keyed on the project's pipeline and refuses a layout with no pipeline to belong to. ExperimentRow.started_at became nullable, because Experiment types it so: a pending run has not started."
     },
     {
       "id": "pre-database-directory-opens",
