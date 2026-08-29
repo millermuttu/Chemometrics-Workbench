@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import sqlite3
 import subprocess
 import sys
 import zipfile
@@ -20,11 +21,11 @@ from uuid import uuid4
 
 import numpy as np
 import pytest
+from sqlalchemy import select
 
-from chemometrics_workbench import project as store
+from chemometrics_workbench import db
 from chemometrics_workbench.project import (
     ARRAYS_DIR,
-    PROJECT_FILE,
     ProjectError,
     config_dir,
     create_project,
@@ -55,7 +56,8 @@ def test_a_new_project_has_the_documented_layout(tmp_path: Path) -> None:
     project = create_project(tmp_path / "corn", name="Corn")
 
     root = tmp_path / "corn"
-    assert (root / PROJECT_FILE).is_file()
+    # The database is the index and the marker; arrays are the files it names.
+    assert (root / db.DATABASE_FILE).is_file()
     assert (root / ARRAYS_DIR).is_dir()
     assert project.name == "Corn"
     assert Path(project.directory) == root.resolve()
@@ -86,12 +88,21 @@ def test_reopening_returns_the_same_project(tmp_path: Path) -> None:
 
 
 def test_no_absolute_path_is_recorded_inside_the_project(tmp_path: Path) -> None:
-    """What makes a project directory portable. `directory` is deliberately dropped."""
+    """What makes a project directory portable. `directory` is deliberately emptied.
+
+    Asserted against the database file's own bytes rather than against the
+    record read back through the models: what gets zipped and sent is the file,
+    and a path that reached it any other way would still be wrong everywhere
+    else.
+    """
     create_project(tmp_path / "corn", name="Corn")
 
-    record = json.loads((tmp_path / "corn" / PROJECT_FILE).read_text(encoding="utf-8"))
-    assert "directory" not in record["project"]
-    assert str(tmp_path) not in json.dumps(record)
+    with db.open_session(tmp_path / "corn") as session:
+        record = json.loads(session.scalars(select(db.ProjectRow)).one().document)
+    assert record["directory"] == ""
+    assert str(tmp_path) not in (tmp_path / "corn" / db.DATABASE_FILE).read_bytes().decode(
+        "utf-8", "ignore"
+    )
 
 
 # --- Diagnostics, not stack traces ----------------------------------------
@@ -106,7 +117,7 @@ def test_a_directory_that_is_not_a_project_is_named(tmp_path: Path) -> None:
     plain = tmp_path / "plain"
     plain.mkdir()
 
-    with pytest.raises(ProjectError, match=f"no {PROJECT_FILE}"):
+    with pytest.raises(ProjectError, match=f"no {db.DATABASE_FILE}"):
         open_project(plain)
 
 
@@ -118,31 +129,36 @@ def test_a_file_is_not_a_project_directory(tmp_path: Path) -> None:
         open_project(lonely)
 
 
-def test_a_corrupt_project_file_names_the_problem(tmp_path: Path) -> None:
+def test_a_database_that_is_not_a_database_names_the_problem(tmp_path: Path) -> None:
     create_project(tmp_path / "corn", name="Corn")
-    (tmp_path / "corn" / PROJECT_FILE).write_text("{not json", encoding="utf-8")
+    db.dispose_all()
+    (tmp_path / "corn" / db.DATABASE_FILE).write_bytes(b"not a database")
 
-    with pytest.raises(ProjectError, match="not valid JSON"):
+    # A diagnostic, never a stack trace - PROPOSAL.md section 6.
+    with pytest.raises(ProjectError):
         open_project(tmp_path / "corn")
 
 
-def test_a_newer_layout_is_refused_by_name(tmp_path: Path) -> None:
+def test_a_newer_schema_is_refused_by_name(tmp_path: Path) -> None:
+    """The guard `layout_version` used to give the five JSON files."""
     create_project(tmp_path / "corn", name="Corn")
-    path = tmp_path / "corn" / PROJECT_FILE
-    record = json.loads(path.read_text(encoding="utf-8"))
-    record["layout_version"] = store.LAYOUT_VERSION + 1
-    path.write_text(json.dumps(record), encoding="utf-8")
+    db.dispose_all()
+    with sqlite3.connect(tmp_path / "corn" / db.DATABASE_FILE) as connection:
+        connection.execute(f"PRAGMA user_version={db.SCHEMA_VERSION + 1}")
 
-    with pytest.raises(ProjectError, match="layout version"):
+    with pytest.raises(ProjectError, match="newer version"):
         open_project(tmp_path / "corn")
 
 
 def test_an_invalid_project_record_names_its_field(tmp_path: Path) -> None:
     create_project(tmp_path / "corn", name="Corn")
-    path = tmp_path / "corn" / PROJECT_FILE
-    record = json.loads(path.read_text(encoding="utf-8"))
-    record["project"]["name"] = ""
-    path.write_text(json.dumps(record), encoding="utf-8")
+    with db.open_session(tmp_path / "corn") as session:
+        row = session.scalars(select(db.ProjectRow)).one()
+        record = json.loads(row.document)
+        record["name"] = ""
+        row.document = json.dumps(record)
+        session.commit()
+    db.dispose_all()
 
     with pytest.raises(ProjectError, match="name"):
         open_project(tmp_path / "corn")
@@ -343,7 +359,7 @@ def test_forgetting_a_project_leaves_the_project_alone(tmp_path: Path) -> None:
     forget_project(tmp_path / "corn")
 
     assert known_projects() == []
-    assert (tmp_path / "corn" / PROJECT_FILE).is_file()
+    assert (tmp_path / "corn" / db.DATABASE_FILE).is_file()
     assert open_project(tmp_path / "corn").name == "Corn"
 
 

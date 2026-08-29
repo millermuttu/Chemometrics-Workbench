@@ -109,7 +109,7 @@ def test_the_open_project_is_created_on_first_use_and_is_a_real_directory(
     body = client.get("/api/projects").json()
     assert len(body) == 1
     assert body[0]["directory"] == str(project)
-    assert (project / "project.json").exists()
+    assert (project / "project.db").exists()
     assert body[0]["project_id"] == str(open_project(project).project_id)
 
 
@@ -352,15 +352,15 @@ def test_an_upload_cannot_write_outside_its_temporary_directory(
     client: TestClient, project: Path
 ) -> None:
     """A filename is a name here, never a path. §4.3 again."""
-    project_id(client)  # opens the project, so there is a project.json to protect
-    original = (project / "project.json").read_text(encoding="utf-8")
+    project_id(client)  # opens the project, so there is a database to protect
+    original = (project / "project.db").read_bytes()
     response = client.post(
         "/api/import/preview",
-        files={"file": ("../../project.json", b"kind,of,csv\n1,2,3\n")},
+        files={"file": ("../../project.db", b"kind,of,csv\n1,2,3\n")},
     )
 
     assert response.status_code in {200, 422}
-    assert (project / "project.json").read_text(encoding="utf-8") == original
+    assert (project / "project.db").read_bytes() == original
 
 
 def test_nothing_is_left_in_the_temporary_directory_after_a_failed_read(
