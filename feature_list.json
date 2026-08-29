@@ -190,13 +190,15 @@
         "pipeline-executor"
       ],
       "user_visible_behavior": "The spectra view of a node below a split shows what actually happened to each sample - the fold that held it out - rather than a mean taken over the samples it is being validated against.",
-      "status": "not_started",
+      "status": "passing",
       "verification": [
-        "The decision is recorded: either spectra.json is regenerated with the out-of-fold array, or the exception is written where the fixture rule is stated.",
-        "#87 asserts whichever was chosen, and does not assert the other."
+        "The exception is recorded where the fixture rule is stated.",
+        "The decision is in docs/decisions/, so it is not re-argued from preference.",
+        "#87 does not assert the fixture's centre_d or pca_d numbers.",
+        "A test computes both values, so the divergence cannot drift unnoticed."
       ],
-      "evidence": "",
-      "notes": "Found in #83 and measured there: fit-on-everything agrees with the fixture to 4.9e-07, out of fold differs by 1.2e-03. metrics-and-validation.md §9 requires the fold fit; the fixture's run_preprocessing says in its own docstring that it does no fold handling. Blocks nothing - #86 and #87 both need to know which array centre_d holds."
+      "evidence": "2026-08-29. On feature/97_fixture-centre-d-exception. Decided with the maintainer: **the fixture keeps the array it published and the executor keeps following §9.** Recorded in docs/decisions/0003-fixture-centre-d.md and as the one stated exception in tests/fixtures/contract/README.md, beside the rule it excepts.\n\nThe fixture is the Phase 1.1 record; §9 is the specification; where they disagree the application follows the specification and the record stays a record. Regenerating would make a historical artefact agree with a rule it predates - and #89 deleted stub/generate_fixtures.py with the rest of stub/, so it would mean rebuilding a generator first, then regenerating pca.json too because pca_d is fitted on centre_d.\n\nNo code changed, and none needed to. The executor already implements §9 and #87 already measures the divergence rather than asserting the fixture's numbers: test_a_node_below_a_split_is_refitted_per_fold_which_the_fixture_is_not asserts the fixture holds the fit-on-everything value (4.9e-07, its own 6-decimal rounding) and that the executor differs by more than 1e-4 (1.2e-03), then reproduces the executor's value from fold arithmetic done by hand; test_pca_d_diverges_from_the_fixture_for_the_reason_centre_d_does does the same for pca_d. The divergence is a measured fact a test would notice changing, which is what makes leaving it safe.\n\nThe record says what it does not license: every other published array is reproduced to the fixture's rounding, so a new disagreement is a finding to investigate rather than a precedent to cite. uv run pytest 731 passed, 1 skipped; ruff and mypy clean.",
+      "notes": "Found in #83 and measured there: fit-on-everything agrees with the fixture to 4.9e-07, out of fold differs by 1.2e-03. metrics-and-validation.md §9 requires the fold fit; the fixture's run_preprocessing says in its own docstring that it does no fold handling. Blocks nothing - #86 and #87 both need to know which array centre_d holds. Decided 2026-08-29, recorded in docs/decisions/0003-fixture-centre-d.md."
     },
     {
       "id": "pipeline-validator",
