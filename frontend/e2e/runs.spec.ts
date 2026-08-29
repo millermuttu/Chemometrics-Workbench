@@ -22,28 +22,53 @@ test("a run advances through real work, in all three places at once", async ({ p
   await page.goto("/?token=e2e-token");
   await page.getByRole("button", { name: "Pipeline", exact: true }).click();
 
-  const status = page.getByRole("status").first();
+  // `.status` is the run status bar; a second role="status" carries the stale
+  // banner, and DOM order puts that one first.
+  const status = page.locator(".status");
   await page.getByRole("button", { name: "Run pipeline" }).click();
-  await expect(status).toContainText(/Queued|Preprocessing/);
 
-  // The status bar, the tab and the node all carry the same run.
-  await expect(page.getByTestId("tab-progress")).toBeVisible();
-  await expect(page.getByTestId("node-running").locator(".prog i")).toBeVisible();
-
-  // Progress is counted, never interpolated (#85): it only ever goes up, and
-  // it moves because nodes finish rather than because the clock ticks.
+  // Everything below is *observed while the run is on*, not demanded at an
+  // instant. A node is `running` for as long as that node takes, which is a
+  // fraction of a run that is itself a few seconds: an assertion that arrives
+  // a moment late finds a finished run and fails on a machine being quick.
+  // That is what made this flaky on macOS, and it is the same shape of mistake
+  // three other tests here made. What the test wants to know is whether these
+  // three places carried the run at all, so it watches for them.
   const seen: number[] = [];
-  const deadline = Date.now() + 30_000;
+  let sawRunningNode = false;
+  let sawTabProgress = false;
+  let sawStatus = false;
+
+  const deadline = Date.now() + 120_000;
   while (Date.now() < deadline) {
+    if (!sawTabProgress && (await page.getByTestId("tab-progress").count())) sawTabProgress = true;
+    if (!sawRunningNode && (await page.getByTestId("node-running").count())) sawRunningNode = true;
+    if (!sawStatus && /Queued|Preprocessing|Fitting/.test((await status.innerText()) || "")) {
+      sawStatus = true;
+    }
+
     const style = await page.locator(".status .prog i").first().getAttribute("style");
     const percent = Number(/width:\s*([\d.]+)%/.exec(style ?? "")?.[1] ?? "-1");
     if (percent >= 0 && percent !== seen.at(-1)) seen.push(percent);
-    if (await status.getByRole("button", { name: "Cancel" }).count()) {
-      if (seen.length > 2) break;
-    }
+
+    // Stop once there is enough to assert and there is still a run to cancel.
+    const cancellable = await status.getByRole("button", { name: "Cancel" }).count();
+    if (cancellable && sawRunningNode && sawTabProgress && seen.length >= 2) break;
+    if (!cancellable && seen.length) break;
     await page.waitForTimeout(100);
   }
-  expect(seen.length, `progress advanced through ${seen.join(", ")}`).toBeGreaterThan(2);
+
+  // The status bar, the tab and the node all carried the same run.
+  expect(sawStatus, "the status bar named the run").toBe(true);
+  expect(sawTabProgress, "the tab carried the run").toBe(true);
+  expect(sawRunningNode, "a node showed as running").toBe(true);
+
+  // It advanced, and it never went backwards. Not *how many* frames were
+  // caught: that is a fact about how fast the runner is. #85's real claim,
+  // that progress is counted from nodes finishing rather than interpolated
+  // against the clock, is asserted where it can be observed exactly - in the
+  // Python job tests.
+  expect(seen.length, `progress advanced through ${seen.join(", ")}`).toBeGreaterThanOrEqual(2);
   expect(seen).toEqual([...seen].sort((a, b) => a - b));
 
   await status.getByRole("button", { name: "Cancel" }).click();
@@ -70,7 +95,7 @@ test("the failure names its cause, marks the node, and shows no trace", async ({
   // matrix read back as float32 reports one more than it has (#101).
   await expect(failure).toContainText(/components were asked of a matrix of rank \d+/);
   await expect(failure).not.toContainText("Traceback");
-  await expect(page.getByRole("status").first()).toContainText(/rank \d+/);
+  await expect(page.locator(".status")).toContainText(/rank \d+/);
 
   // --fail is semantic and separate from the data palette on purpose: a
   // failing thing must never read as a red spectrum.

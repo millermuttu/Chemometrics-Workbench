@@ -51,14 +51,18 @@ test("an accepted edit marks downstream nodes stale and offers a re-run", async 
   // A stale result dims; it does not vanish. Every node is still on the canvas.
   await expect(page.locator(".react-flow__node")).toHaveCount(14);
 
+  // The re-run is offered, and taking it clears what the edit made stale.
+  //
+  // The outcome rather than a frame of the middle: the edited node is the only
+  // one whose arrays have to be recomputed and every other node is already in
+  // the store, so this run is over in milliseconds - well inside one poll of
+  // the job. Asserting "Queued" or even "Done" here asserts that the machine
+  // was slow enough to be caught looking, which is why this test was flaky.
+  // `runs.spec.ts` watches a run advance, on a project seeded large enough.
   await page.getByRole("button", { name: "Re-run" }).click();
-  // Any point of the lifecycle: the edited node's own arrays are the only ones
-  // that have to be recomputed, and on 240 x 100 that is over in milliseconds -
-  // often before the poll that would have caught "Queued". `runs.spec.ts` is
-  // where a run is slow enough to watch advance.
-  await expect(page.getByRole("status").first()).toContainText(
-    /Queued|Preprocessing|Fitting|Done/,
-  );
+  await expect(page.getByText("Downstream results are stale.")).toHaveCount(0);
+  await expect(page.getByTestId("node-stale")).toHaveCount(0);
+  await expect(page.getByTestId("node-complete")).toHaveCount(14);
 });
 
 test("provenance is collapsed until asked for, and hashes are truncated in the middle", async ({

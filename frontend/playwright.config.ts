@@ -1,3 +1,7 @@
+import { existsSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import { defineConfig } from "@playwright/test";
 
 /** The walkthrough that is Phase 1.1's exit criterion (#50) grows out of these.
@@ -23,40 +27,83 @@ import { defineConfig } from "@playwright/test";
  *   is remembered by the job table and would follow every later test, and
  *   because a pipeline whose arrays are all cached has no work to cancel.
  *
- * The seed runs as part of each server's command so the ordering is the shell's
- * rather than Playwright's, and each directory is recreated every run - one
+ * Each server seeds its own project and then serves it, in one process: the
+ * seed script's `--serve`. Each directory is recreated every run, because one
  * left over from a previous run carries its arrays and its edits.
  */
 
-const ROOT = "/tmp/chemometrics-e2e";
+/** Where the seeded projects go.
+ *
+ * `os.tmpdir()` rather than `/tmp`, because this runs on Windows too, and the
+ * removal is `--fresh` inside the seed script rather than an `rm -rf` here for
+ * the same reason: the command is handed to whatever shell the platform has,
+ * and `cmd.exe` has neither.
+ */
+const ROOT = path.join(os.tmpdir(), "chemometrics-e2e");
 
-const serve = (name: string, port: string, seed: string) => ({
-  // From the repository root, because that is where uv's environment is.
-  command: `rm -rf ${ROOT}/${name} && ${seed} && uv run python -m chemometrics_workbench.server`,
+/** Seed the project, then serve it - in one process, with no shell operator.
+ *
+ * This used to be `<seed> && uv run python -m ...server`. One command rather
+ * than two joined by a shell operator, and the directory is not on the command
+ * line either - it comes from `CHEMOMETRICS_PROJECT` below, which is the
+ * variable the server reads anyway, so the two cannot disagree about which
+ * project is open.
+ */
+/** The interpreter: the environment `uv sync` already made.
+ *
+ * `uv run` would work too - it is what this used to say. Calling the
+ * interpreter directly keeps four simultaneous starts from each re-checking
+ * the same environment, which is work nobody needs four times, and it takes
+ * uv out of the path between Playwright and a server it is waiting on. Falls
+ * back to `uv run python` when there is no `.venv`, which is the case on a
+ * checkout nobody has synced yet.
+ */
+const VENV_BIN = process.platform === "win32" ? "Scripts" : "bin";
+const VENV_PYTHON = process.platform === "win32" ? "python.exe" : "python";
+const PYTHON = existsSync(path.join(import.meta.dirname, "..", ".venv", VENV_BIN, VENV_PYTHON))
+  ? path.join(".venv", VENV_BIN, VENV_PYTHON)
+  : "uv run python";
+
+const serve = (name: string, port: string, mode: string) => ({
+  // From the repository root, because that is where the environment is.
+  command: [PYTHON, "tests/seed_e2e.py --serve --fresh", mode].filter(Boolean).join(" "),
   cwd: "..",
   url: `http://127.0.0.1:${port}/`,
   env: {
-    CHEMOMETRICS_PROJECT: `${ROOT}/${name}`,
-    CHEMOMETRICS_CONFIG_HOME: `${ROOT}/config`,
+    CHEMOMETRICS_PROJECT: path.join(ROOT, name),
+    CHEMOMETRICS_CONFIG_HOME: path.join(ROOT, "config"),
     WORKBENCH_PORT: port,
     WORKBENCH_TOKEN: "e2e-token",
-    WORKBENCH_BUNDLE: "frontend/dist",
+    WORKBENCH_BUNDLE: path.join("frontend", "dist"),
   },
   // Never reuse: a server left running from a development session holds a
   // different token and a project someone has been editing, and the failure
   // would look like a broken application.
   reuseExistingServer: false,
-  timeout: 240_000,
+  // Generous because this seeds a project through the kernels before the
+  // server starts, and a Windows runner is slower at all of it than the
+  // machine this was written on.
+  timeout: 420_000,
 });
 
 export default defineConfig({
   testDir: "./e2e",
+  // On a runner: the `github` reporter, which turns each failure into a
+  // workflow annotation carrying the message and the line it failed on. A
+  // three-platform matrix is worth little if the machine that failed is not
+  // the machine anyone can read, and an exit code is not a finding. The HTML
+  // report and the trace are uploaded beside it for whoever wants to step
+  // through it.
+  reporter: process.env.CI
+    ? [["github"], ["list"], ["html", { open: "never" }]]
+    : [["list"], ["html", { open: "never" }]],
   // One at a time: the three servers are three projects on disk, and a test
   // that presses Run changes what a parallel test would read.
   workers: 1,
   use: {
     baseURL: "http://127.0.0.1:8765",
     viewport: { width: 1440, height: 900 },
+    trace: "retain-on-failure",
     // No GPU: the container this runs in has no usable one, and chromium takes
     // the whole browser down rather than falling back on its own.
     launchOptions: { args: ["--disable-gpu"] },
@@ -79,9 +126,9 @@ export default defineConfig({
     },
   ],
   webServer: [
-    serve("seeded", "8765", `uv run python tests/seed_e2e.py ${ROOT}/seeded`),
-    serve("empty", "8766", `uv run python tests/seed_e2e.py --empty ${ROOT}/empty`),
-    serve("runs", "8767", `uv run python tests/seed_e2e.py --unrun ${ROOT}/runs`),
-    serve("walkthrough", "8768", `uv run python tests/seed_e2e.py --empty ${ROOT}/walkthrough`),
+    serve("seeded", "8765", ""),
+    serve("empty", "8766", "--empty"),
+    serve("runs", "8767", "--unrun"),
+    serve("walkthrough", "8768", "--empty"),
   ],
 });

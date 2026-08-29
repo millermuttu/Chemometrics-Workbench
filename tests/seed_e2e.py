@@ -19,6 +19,22 @@ A state is a project, so a starting state is a seeded directory:
     uv run python tests/seed_e2e.py --empty    <directory>   # nothing in it
     uv run python tests/seed_e2e.py --unrun    <directory>   # imported, not run
 
+`--fresh` removes the directory first, which is what the Playwright config
+wants: a project left over from a previous run carries its arrays and its
+edits. It is a flag rather than the default because this takes a path from the
+command line and deletes it - a seed script should not be one typo away from
+removing someone's project. Without it, `create_project` refuses a directory
+that is not empty, which is the safe failure.
+
+`--serve` seeds and then runs the server over what it seeded, and the directory
+may be left out entirely - it comes from `CHEMOMETRICS_PROJECT`, which is the
+same variable the server reads, so the two cannot disagree about which project
+is open. That combination exists because of Windows: `playwright.config.ts` used
+to chain `seed && server` in the `webServer` command, and Playwright hands that
+string to `cmd.exe`, where it did not survive. Seed and server each ran
+perfectly on their own there - proven by two smoke steps in CI - so the fix was
+to stop needing a shell operator at all.
+
 `--empty` is the state `EmptyProject` renders, reached by opening an empty
 project rather than by a query parameter the server had to be taught to
 understand. `--unrun` writes the pipeline and leaves every node without arrays,
@@ -32,6 +48,7 @@ from __future__ import annotations
 import csv
 import io
 import os
+import shutil
 import sys
 from pathlib import Path
 from uuid import UUID
@@ -70,7 +87,7 @@ def tecator_csv() -> bytes:
     return buffer.getvalue().encode("utf-8")
 
 
-def synthetic_dataset(directory: Path, project, n_samples: int = 2000, n_variables: int = 800):  # type: ignore[no-untyped-def]
+def synthetic_dataset(directory: Path, project, n_samples: int = 3000, n_variables: int = 1200):  # type: ignore[no-untyped-def]
     """A dataset big enough that a run takes long enough to watch.
 
     Tecator is 240 x 100, and every kernel in the pipeline is NumPy: the whole
@@ -78,6 +95,13 @@ def synthetic_dataset(directory: Path, project, n_samples: int = 2000, n_variabl
     fast for a browser polling four times a second to catch a node in the
     `running` state. `#49` requires that state to be reachable, so the project
     the run tests use carries a bigger matrix.
+
+    3,000 x 1,200 is about 1.5 s of work per branch here, so the whole run is
+    ten-ish seconds - comfortably longer than the poll that has to see into it.
+    It was 2,000 x 800, which was three seconds on the machine this was written
+    on and under two on a macOS runner: fast enough that the run could be over
+    before the assertion looking for a running node arrived. Sizing this for
+    the slowest machine rather than the fastest is backwards.
 
     Generated, not measured, and **no number is claimed from it** - the same
     footing as #86's decimation fixture. It is shaped like spectra (a smooth
@@ -235,15 +259,23 @@ def seed(directory: Path, *, run: bool = True, failing: bool = False) -> None:
     else:
         # Otherwise the import goes through the handler a browser posts to, so
         # the dataset is recorded exactly as a real one is - detection included.
-        with TestClient(server.app) as client:
-            response = client.post(
-                "/api/import",
-                files={"file": ("tecator.csv", tecator_csv())},
-                data={"name": "tecator_raw"},
-                headers={"Authorization": f"Bearer {server.TOKEN}"},
-            )
-            response.raise_for_status()
-            entry = response.json()
+        # Deliberately not `with TestClient(...)`: the context manager runs the
+        # application's lifespan, and this app's shutdown calls
+        # `JOBS.shutdown()`. Under `--serve` the seed and the server share one
+        # process, so exiting that block would leave the server it is about to
+        # start with a thread pool that has already been shut down - every run
+        # then failing with "cannot schedule new futures after shutdown".
+        # Nothing is needed from the lifespan here: this borrows the import
+        # handler, it does not run a server.
+        client = TestClient(server.app)
+        response = client.post(
+            "/api/import",
+            files={"file": ("tecator.csv", tecator_csv())},
+            data={"name": "tecator_raw"},
+            headers={"Authorization": f"Bearer {server.TOKEN}"},
+        )
+        response.raise_for_status()
+        entry = response.json()
         version = api._current_version(
             directory,
             build_pipeline(project.project_id, UUID(entry["versions"][-1]["version_id"])),
@@ -276,22 +308,45 @@ def seed(directory: Path, *, run: bool = True, failing: bool = False) -> None:
 
 def main(argv: list[str]) -> int:
     modes = {"--empty", "--unrun"}
+    flags = modes | {"--fresh", "--serve"}
     mode = next((argument for argument in argv if argument in modes), None)
-    paths = [argument for argument in argv if argument not in modes]
-    if len(paths) != 1:
+    paths = [argument for argument in argv if argument not in flags]
+
+    if len(paths) > 1:
+        print(__doc__, file=sys.stderr)
+        return 2
+    if paths:
+        directory = Path(paths[0]).resolve()
+    elif os.environ.get("CHEMOMETRICS_PROJECT"):
+        directory = Path(os.environ["CHEMOMETRICS_PROJECT"]).resolve()
+    else:
         print(__doc__, file=sys.stderr)
         return 2
 
-    directory = Path(paths[0]).resolve()
+    if "--fresh" in argv and directory.exists():
+        # `shutil` rather than `rm -rf`, because this runs on Windows too - the
+        # reason the removal moved in here from the Playwright command at all.
+        shutil.rmtree(directory)
+    os.environ["CHEMOMETRICS_PROJECT"] = str(directory)
     if mode == "--empty":
         from chemometrics_workbench.project import create_project
 
         if not (directory / "project.json").exists():
             create_project(directory, name="Tecator meat study", description="")
         print(f"seeded {directory}: empty, as an unimported project is")
-        return 0
+        return _serve(argv)
 
     seed(directory, run=mode != "--unrun", failing=mode == "--unrun")
+    return _serve(argv)
+
+
+def _serve(argv: list[str]) -> int:
+    """Run the server over what was just seeded, if asked to."""
+    if "--serve" not in argv:
+        return 0
+    from chemometrics_workbench import server
+
+    server.main()
     return 0
 
 
