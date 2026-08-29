@@ -10,8 +10,9 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 **Phase 0 is released and tagged `v0.1.0`. Phase 1.1 is released and tagged `v0.2.0`.**
 
-**Phase 1.2 is twenty features of twenty-one.** The exit criterion is met and green on all three
-platforms. **#109 is the only issue left**, and it blocks nothing.
+**Phase 1.2 is complete: twenty-one features of twenty-one, all `passing`.** The sub-phase exit
+criterion — #50's walkthrough against the real backend with `stub/` deleted — is met and green on
+ubuntu, macOS and Windows. There is nothing left in the phase to build.
 
 | | Feature | Issue | Status |
 | --- | --- | --- | --- |
@@ -23,54 +24,79 @@ platforms. **#109 is the only issue left**, and it blocks nothing.
 | H′ | The fixture's `centre_d` array | #97 | passing |
 | M″ | Rank through the store | #101 | passing |
 | I′ | MSC above a split | #103 | passing |
-| N″ | **The overloaded state is unreachable** | **#109** | **not started** |
+| N″ | The overloaded state | #109 | passing |
 
 ## Current work
 
-**Nothing is `in_progress`.** `dev` is at `8da18fb`, the tree is clean, no branches remain and no
+**Nothing is `in_progress`.** `dev` is at `8c2ce14`, the tree is clean, no branches remain and no
 pull requests are open. Merged on 2026-08-29: #111 (#108), #112 (#90), #114 (#103 and the CI fix),
-#113 (#97), #115 (#101).
+#113 (#97), #115 (#101), #116 (#109).
 
-## What CI is now, and why it changed
+## Next action
 
-**The problem was not the individual flakes.** Every failure in the repository's last forty runs
-dated from the day the end-to-end harness landed; everything before was green. Of twelve failures,
-two were real bugs, nine were cycles spent hunting the first of those, and **four were one defect
-in different clothes**.
+**The phase ends.** Open a pull request from `dev` into `main`, merge it, and tag the release —
+`v0.3.0` is the obvious number, and nothing in the repository has claimed it. **This has not been
+done and is the first thing to pick up.** GitHub's default base is still `main`, so this is the one
+pull request that wants no explicit base override.
 
-That defect: `runs.spec.ts` re-proved *server mechanics* through a browser — progress counted per
-node, cancellation bounded by one node, a failure naming its node. `tests/test_jobs.py` proves all
-of it in eighteen tests, deterministically, driven by `threading.Event` rather than sleeps. Doing it
-again through a hundred-millisecond DOM poll means racing a live process, and every flake lived in
-that overlap. It was patched four times before the pattern was seen.
+Then Phase 1.3: SQLite in each project directory, and the two halves joined. It has no
+`feature_list.json` yet — the current one covers 1.2 and should be moved to `docs/phase-1-2/`
+alongside the two lists already there, and a new one written for 1.3.
 
-**The browser now asserts only what a browser can uniquely show**: the status bar, the tab badge and
-the node carry the same run; cancelling from the UI reaches the cancelled state; the canvas marks
-the node the executor named. The progress-sampling loop is gone. `runs.spec.ts` says at the top
-which claims live there and which belong to `test_jobs.py` — **keep that boundary.**
+## What #109 settled, so it is not re-argued
 
-Three structural facts about CI worth not rediscovering:
+`?oversize` made the 1.1 stub fabricate a 42,000 × 6,200 shape so the beyond-the-envelope notice
+could be rendered; it died with the other 1.1-only affordances in #89 and nothing replaced it.
+
+**The screen is now covered as a component, and the end-to-end gap is recorded rather than closed**
+— `docs/decisions/0005-overloaded-state-coverage.md`. §13's envelope is *reported, not enforced*
+(#81), so the state is a function of size alone: **there is no small honest input, only a
+gigabyte**, which does not belong in CI. A `DatasetVersion` whose shape exceeds the envelope with
+no array behind it was rejected — the application can never produce that record, so seeding one
+proves the screen renders for a project state that cannot exist.
+
+Two mechanics worth not rediscovering:
+
+- **`frontend/src/__tests__/overloaded.test.tsx` renders through `react-dom/server`, not jsdom.**
+  This state draws nothing and runs no effects, so static markup is its entire output.
+  `react-dom` is already a dependency; jsdom plus a testing library would be two new ones for a
+  string the test already has. `vitest.config.ts` now includes `src/**/*.test.tsx` beside `.test.ts`.
+- **`plotly.js-gl2d-dist-min` is stubbed in that test** because it reads `self` when it loads and
+  `SpectraView.tsx` imports it at module scope. Past the envelope it is never called — the guard
+  returns first. The stub replaces a browser global, not a project state.
+
+## A CI gotcha found this session
+
+**The github MCP server's `get_check_runs` served `in_progress` for about forty minutes after the
+jobs had finished.** The e2e matrix completed at 06:30:31–06:30:55 — around two and a half minutes,
+exactly as expected — and the tool kept reporting all three as running. It is stale, not stuck.
+
+**So do not diagnose a hang from that tool alone**, and do not go looking for a slow test that is
+not there: open the run in the browser, or ask, before spending a cycle on it. This compounds the
+standing limitation — the MCP server exposes no Actions tools at all, so a CI failure still costs a
+push-and-wait per question unless someone pastes the log.
+
+## What CI is, and why it is shaped that way
 
 - **Types, lint and unit tests run once**, not per platform: they do not depend on the operating
-  system, and the `e2e` job is the only matrixed one. e2e is 84–119 s a platform; the redundant
-  checks were about 20 s each.
+  system, and the `e2e` job is the only matrixed one.
 - **`retries` is 0, deliberately, and the reason is in the workflow.** A green check should mean the
-  suite passed, not that it passed within three attempts. Two bugs this session were found *only*
-  because a check got stricter rather than quieter — see below. Revisit only for flakiness that is
+  suite passed, not that it passed within three attempts. Revisit only for flakiness that is
   genuinely environmental and not ours.
 - **A push to a feature branch runs nothing.** The workflow triggers on pushes to `main`/`dev` and
   on pull requests, so verification begins when the pull request is opened. Zero checks is an
   absence, not a pass and not a failure.
-
-**The github MCP server exposes no Actions tools at all** — no runs, jobs, logs or artifacts. That
-is not a token-scope question. Reading a CI failure therefore costs a push-and-wait per question
-unless someone pastes the log; diagnosing the Windows failure took nine cycles for this reason, and
-one pasted line ended it. Workflow annotations *are* readable unauthenticated, which is why
-Playwright uses the `github` reporter on a runner.
+- **The browser asserts only what a browser can uniquely show**: the status bar, the tab badge and
+  the node carry the same run; cancelling from the UI reaches the cancelled state; the canvas marks
+  the node the executor named. Server mechanics — progress counted per node, cancellation bounded
+  by one node, a failure naming its node — are `tests/test_jobs.py`'s eighteen tests, driven by
+  `threading.Event` rather than sleeps. `runs.spec.ts` says at the top which claims live where.
+  **Keep that boundary**: four separate flakes were one defect, a browser re-proving job mechanics
+  through a hundred-millisecond DOM poll.
 
 ## Two bugs that were green for the wrong reason
 
-Both found because a check was made stricter. This is the argument for the paragraph above.
+Both found because a check was made stricter. This is the argument for `retries: 0`.
 
 1. **CRLF broke a pinned checksum.** `data/tecator/tecator.txt` is verified against a SHA-256 pinned
    in `datasets.py`, and git rewrites LF as CRLF on checkout on Windows. **Anyone cloning this
@@ -86,35 +112,21 @@ Both found because a check was made stricter. This is the argument for the parag
    varies independently, giving rank 9 at 30 × 24 — not by lowering `n_components` or loosening the
    tolerance again.
 
-## Next action
-
-**#109 is the only thing left in Phase 1.2**, and it is probably a decision to record rather than a
-test to write. `?oversize` fabricated a 42,000 × 6,200 shape and died with the other three
-affordances in #89; nothing replaces it, because #81 established that §13's envelope is *reported,
-not enforced* — `frontend/src/states/envelope.ts` computes it from `n_samples` and `n_variables`, so
-the honest server behaviour is to report the shape it read. The arithmetic is covered by
-`envelope.test.ts`; the *screen* is not. The issue lists four options and suggests covering
-`Overloaded.tsx` as a component test and recording the decision for the remainder, because no option
-honestly proves a real gigabyte import reaches the notice and a hollow `DatasetVersion` would be a
-fixture wearing a real project's clothes.
-
-**Then the phase ends**: a pull request from `dev` into `main`, merged, and a release tag. Phase 1.3
-is SQLite in each project directory, and the two halves joined.
-
 ## Waiting on the user
 
 - **#71 — what a non-positive `h0` should do** in the Jackson–Mudholkar SPE limit. Gasoline's `h0` is −0.0190; our kernel uses it as computed, `mdatools` clamps it to 0.001. The divergence is recorded and proven; what the kernel *should* do is a specification decision, not a coding one.
-- **GitHub default branch is still `main`.** Any pull request opened without an explicit base targets the release line. Change it under Settings → Branches; it cannot be changed from here with the current tools.
+- **GitHub default branch is still `main`.** Any pull request opened without an explicit base targets the release line. Change it under Settings → Branches; it cannot be changed from here with the current tools. (The phase-end pull request is the one case where that default is what is wanted.)
 - **Parity against a commercial package** — `PROPOSAL.md` §19 Q4 is unresolved. The EULA is not public; a licence would have to be confirmed and written permission sought before publishing a comparison.
 - Remaining open questions are in `PROPOSAL.md` §19 — team and pace, funding intent, project name.
 
 **Answered and recorded, so they are not re-opened:** whether Phase 1.1 warranted its own release (yes — `v0.2.0`, 2026-08-26), `MSC(reference="supplied")` (removed from the enum in #82, 2026-08-27), whether the import and empty-project screens needed artboards first (no), and where 1.2's persistence lands (project directory in 1.2, SQLite in 1.3).
 
-Four more were settled on 2026-08-29, three of them in `docs/decisions/` so they are not re-argued from preference:
+Five more were settled on 2026-08-29, four of them in `docs/decisions/` so they are not re-argued from preference:
 
 - **The pipeline is saved by a whole-list `PUT`, and staleness stays derived** (#108). One project holds one pipeline and one user edits it, so last-write-wins needs no conflict rules; and a node's cache key is already its recipe chained through its inputs', so an edit makes its arrays stop matching without anything writing a flag that could disagree with them.
 - **The `centre_d` fixture stands and the executor follows §9** (#97) — `docs/decisions/0003-fixture-centre-d.md`. It licenses nothing else: every other published array is reproduced to the fixture's rounding, so a new disagreement is a finding, not a precedent.
 - **The rank tolerance is quoted for the precision the data has** (#101) — `docs/decisions/0004-rank-tolerance-precision.md`. Two error terms added, not multiplied: the issue's own proposal (`max(n,p)·ε₃₂·σ₁`) was implemented, measured at rank 66 for a matrix of rank 99, and rejected.
+- **The beyond-the-envelope screen is covered as a component, and the gap is written down** (#109) — `docs/decisions/0005-overloaded-state-coverage.md`, summarised above.
 - **The three-platform matrix was built rather than #90's verification step amended.** It found four bugs an ubuntu-only job would never have shown.
 
 ## Carried forward from the specifications
@@ -152,7 +164,7 @@ From #84 (the validator), which #89 and #103 build on:
 - **`valid` means "there is nothing to tell you", not "this will run".** Everything runs — `checks.py` is advisory and a test executes a leaky pipeline to completion. Reporting `valid: true` while holding a warning would mean the 1.1 screen said "valid" and dropped the sentence.
 - **`Autoscale` counts as centring for both rules**, because it subtracts the column means before it divides.
 - **A PCA with no centring is deliberately not warned about.** Only `pls-regression.md` §3 says "almost always wrong", and extending that to PCA would be a preference with no document behind it.
-- **`MSC` above a split leaks by the same rule and is #103.** `SNV`, `Normalise`, Savitzky-Golay, the baselines and `RangeSelect` were all checked and are legitimate above a split — none estimates anything across samples — so MSC is the only step in the schema that leaks and is not warned about.
+- **`MSC` above a split leaks by the same rule** and was closed as #103. `SNV`, `Normalise`, Savitzky-Golay, the baselines and `RangeSelect` were all checked and are legitimate above a split — none estimates anything across samples.
 
 From #87 (the estimators), which #86 and #90 draw on:
 
@@ -160,15 +172,15 @@ From #87 (the estimators), which #86 and #90 draw on:
 - **A PCA below a split is fitted on fold zero's training rows.** The fixture's choice, and deliberately not an aggregation — there is no single model over ten folds, and averaging loadings across them is arithmetic no document specifies. The 24 held-out rows are projected through that model and stored beside the calibration ones.
 - **`validation` is an additive payload key**, so every array the 1.1 screen reads keeps the length the fixture has. A screen that ignores it renders exactly what it rendered before.
 - **`pca_d` is the second casualty of #97** — 3.8e-05 on explained variance, 1.8e-01 on T². Regenerating the fixtures means regenerating `spectra.json` **and** `pca.json`.
-- **The reported rank is one too high for any centred matrix** — #101. A centred array read back as float32 has columns that no longer sum to zero, and the SVD finds a hundredth singular value. Only the displayed integer moves; the limits move in the ninth decimal.
+- **The reported rank was one too high for any centred matrix** — #101, now fixed. A centred array read back as float32 has columns that no longer sum to zero, and the SVD finds a hundredth singular value. Only the displayed integer moved; the limits move in the ninth decimal.
 - **PLS and PLS-DA have no kernel in the executor** and are reported in `Run.pending_estimators`. What a PLS result carries is #88's subject.
 
-From #81 (the import endpoints), which #89 has to finish:
+From #81 (the import endpoints), which #89 finished:
 
-- **The router lives in `chemometrics_workbench.api` and the stub does not include it.** Wiring it in fails 17 of the 40 end-to-end tests, because the fixture pipeline is built on the fixture dataset version and a real import produces a dataset it knows nothing about. **The swap is one cut in #89, not a handler at a time** — #99.
-- **The 1.1 import screen discards the file the user picks.** `onChange={() => preview.mutate({})}`, and the request body is empty. The published contract has no way to say which file to import, so the real endpoints take a multipart upload — `file`, plus `corrections` and an optional `name`. The URLs did not change; the bodies 1.1 left empty did. Also #99.
+- **The router lives in `chemometrics_workbench.api` and the stub did not include it.** Wiring it in failed 17 of the 40 end-to-end tests, because the fixture pipeline was built on the fixture dataset version and a real import produces a dataset it knows nothing about. **The swap was one cut in #89, not a handler at a time** — #99.
+- **The 1.1 import screen discarded the file the user picked.** `onChange={() => preview.mutate({})}`, and the request body was empty. The published contract had no way to say which file to import, so the real endpoints take a multipart upload — `file`, plus `corrections` and an optional `name`. The URLs did not change; the bodies 1.1 left empty did. Also #99.
 - **`datasets.json` in the project directory is the dataset index** until SQLite arrives in 1.3, holding `DatasetEntry` — one `Dataset` and its `DatasetVersion`s. It records paths, never values, and a restart reads the dataset list back from it.
-- **§13's envelope is reported, not enforced.** `frontend/src/states/envelope.ts` computes it from `n_samples` and `n_variables`, so the server's honest behaviour is to report the shape as read. What `?oversize` did — fabricate a shape — is what breaks that, and nothing replaces it.
+- **§13's envelope is reported, not enforced.** `frontend/src/states/envelope.ts` computes it from `n_samples` and `n_variables`, so the server's honest behaviour is to report the shape as read. What `?oversize` did — fabricate a shape — is what breaks that, and #109 recorded what replaces it and what does not.
 - **An upload keeps the user's own filename inside a temporary directory**, because that name is what `SourceFile` records and what the import screen shows. Only the final path component is used, so an upload calling itself `../../project.json` writes into the temporary directory and nothing else.
 - **`python-multipart` is a new runtime dependency**, taken because a commit carries a file and its corrections together and that is what a browser sends.
 
@@ -177,12 +189,12 @@ From #83 (the executor), which #84 to #87 all build on:
 - **A node below a split has one array per fold, and displays them assembled out of fold.** `metrics-and-validation.md` §9 refits every node downstream of a split on the training fold alone; the array such a node shows takes each sample's row from the fold that held it out. This is why the fixture's `centre_d` is not reproduced — **#97**, measured there rather than argued.
 - **Cache keys are a merkle chain, not a flag.** A node's key is its own JSON plus its inputs' keys, with the source keyed on the dataset version. Editing a node changes its key and its descendants' and nothing else's, so staleness is arithmetic. Layout coordinates are not in the model at all, so a node cannot be moved into a cache miss.
 - **Every node's output is read back out of the store before its successors see it.** Otherwise a run that hit the cache and a run that recomputed would disagree in the last digits — a cache that changes an answer. The cost is that all numbers carry float32 truncation from the first node on; the fixture comparison measures it at 1.3e-06 worst case, and at 2.8e-05 for `autoscale_c`, where a derivative cancels the signal and autoscaling divides by what is left.
-- **`Run.pending_estimators` is the seam #87 picks up.** The executor names the estimator nodes it did not fit rather than skipping them silently.
+- **`Run.pending_estimators` is the seam #87 picked up.** The executor names the estimator nodes it did not fit rather than skipping them silently.
 - **A second `RangeSelect` below a first one fails, by design.** The axis comes from the `DatasetVersion`, and the first selection has already dropped variables, so the second is refused on the shape with its node named. Threading a per-node axis through the walk would make a recipe's meaning depend on where its node sits — a schema question, not an executor one.
 
 From #78–#80 (the readers), which #81 builds on:
 
-- **The reader interface is `sniff`, `read` and `head`.** `sniff` returns a `Detection` with a `Choice` for every guess; `read` takes a `Detection` — the one `sniff` returned, or that one with the user's corrections folded in. That is what stops a correction being displayed and then ignored, and it is the shape #81's preview and commit endpoints have to expose.
+- **The reader interface is `sniff`, `read` and `head`.** `sniff` returns a `Detection` with a `Choice` for every guess; `read` takes a `Detection` — the one `sniff` returned, or that one with the user's corrections folded in. That is what stops a correction being displayed and then ignored, and it is the shape #81's preview and commit endpoints expose.
 - **Everything three formats share lives in `readers/grid.py`.** #79 moved header detection, orientation, column classification, the axis rules and the preview head out of `delimited.py`; `delimited.py` keeps only what text has. #78's 34 tests passing unchanged against that move is the evidence it preserved behaviour.
 - **A correction that cannot be applied is refused, not dropped.** A delimiter correction on a workbook fails; JCAMP's `correctable` is empty because nothing in the file is a guess. Silently ignoring one is the same lie as never offering it.
 - **Three formats, one dataset, agreeing within 1e-4.** `tecator_subset.csv`, `.xlsx` and `.jdx` carry the same eight samples and twelve channels, and a test asserts the three readers agree. Any new reader should join that comparison rather than get its own private fixture.
@@ -196,20 +208,20 @@ From #24 (the R references), which changed what the parity report can claim:
 - **Gasoline's SPE limit is a real divergence with a proven cause** — see #71 above. The test reconstructs their number from our formula plus their clamp *before* recording the divergence, so it stays a convention only for as long as that is really why the two differ.
 - **R is not a dependency and CI never runs it.** The values live in `tests/fixtures/r_mdatools_values.json`, committed. Re-deriving them is a documented two-step pass in `CONTRIBUTING.md`.
 
-From #42–#50 (the frontend), which 1.2 must not disturb:
+From #42–#50 (the frontend), which 1.3 must not disturb:
 
 - **The tokens are ported, not retyped, and a test holds them in step.** `frontend/src/styles/tokens.css` carries both palettes from `design/canvas/_base.css`, and `src/__tests__/tokens.test.ts` compares them value by value. Change `_base.css` first, then re-run. `shell.css` is the same idea for geometry.
 - **IBM Plex is bundled, never fetched.** An end-to-end test fails on any request that does not go to `127.0.0.1`, which is the offline check.
-- **No fixture file is imported by the frontend.** Everything arrives over HTTP. That is what lets 1.2 swap handlers behind unchanged URLs.
+- **No fixture file is imported by the frontend.** Everything arrives over HTTP. That is what let 1.2 swap handlers behind unchanged URLs.
 - **The tab model is a pure reducer** in `src/shell/tabs.ts`: one transient tab, replaced by the next preview, pinned by a double click. New screens open through it and do not need their own routing.
 - **Plotly is driven from the tokens**, read off the DOM at draw time so a theme switch repaints. `src/plot/theme.ts` is the bridge; a plot that keeps Plotly's defaults is how this drifts from the artboards.
 - **The canvas is React Flow with a custom node**, and its layout coordinates come from `pipeline_state.json`, outside `Pipeline.content_hash()`. Moving a node must not change the science — and must not invalidate an executor cache entry either.
 
-From #41 and #53 (the fixtures and the stub server), which are the contract 1.2 has to honour:
+From #41 and #53 (the fixtures and the stub server), which are the contract 1.2 honoured:
 
 - **The fixtures are the contract, and they were generated.** They computed nothing of their own — the generator called kernels and reshaped their output. They now sit in `tests/fixtures/contract/`, frozen: a payload that has to change shape is a decision recorded in the issue, never a quiet edit to a file there.
-- **The envelope shapes are marked GUESS and the numbers are not.** Every array, metric, confidence limit, content hash and fold index is real and **1.2 must reproduce it**. Pagination, the error body, how a job reports progress and how run-state attaches to a pipeline are guesses 1.2 may change — each is marked at the point it is built.
-- **The endpoint paths are the ones 1.2 implements**, so the frontend never changes when the handlers do: `projects`, `projects/{id}/datasets`, `import/preview`, `import`, `pipelines/{id}`, `pipelines/{id}/state`, `pipelines/{id}/validate`, `experiments/{id}`, `experiments/{id}/run`, `jobs/{id}`, `jobs/{id}/cancel`, `spectra/{node_id}`, `results/{node_id}`. All under `/api`, all requiring `Authorization: Bearer <token>`.
+- **The envelope shapes are marked GUESS and the numbers are not.** Every array, metric, confidence limit, content hash and fold index is real and **1.2 reproduced it**. Pagination, the error body, how a job reports progress and how run-state attaches to a pipeline were guesses 1.2 was free to change — each is marked at the point it is built.
+- **The endpoint paths are the ones 1.2 implemented**, so the frontend never changed when the handlers did: `projects`, `projects/{id}/datasets`, `import/preview`, `import`, `pipelines/{id}`, `pipelines/{id}/state`, `pipelines/{id}/validate`, `experiments/{id}`, `experiments/{id}/run`, `jobs/{id}`, `jobs/{id}/cancel`, `spectra/{node_id}`, `results/{node_id}`. All under `/api`, all requiring `Authorization: Bearer <token>`.
 - **`spectra/{node_id}` is keyed on the pipeline's node ids**, not dataset ids. `results/{node_id}` likewise takes `pca_a`–`pca_d`. Anything else is a 404 with a body.
 
 From #4 (PLS):
