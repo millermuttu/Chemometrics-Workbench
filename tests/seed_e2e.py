@@ -87,7 +87,7 @@ def tecator_csv() -> bytes:
     return buffer.getvalue().encode("utf-8")
 
 
-def synthetic_dataset(directory: Path, project, n_samples: int = 2000, n_variables: int = 800):  # type: ignore[no-untyped-def]
+def synthetic_dataset(directory: Path, project, n_samples: int = 3000, n_variables: int = 1200):  # type: ignore[no-untyped-def]
     """A dataset big enough that a run takes long enough to watch.
 
     Tecator is 240 x 100, and every kernel in the pipeline is NumPy: the whole
@@ -95,6 +95,13 @@ def synthetic_dataset(directory: Path, project, n_samples: int = 2000, n_variabl
     fast for a browser polling four times a second to catch a node in the
     `running` state. `#49` requires that state to be reachable, so the project
     the run tests use carries a bigger matrix.
+
+    3,000 x 1,200 is about 1.5 s of work per branch here, so the whole run is
+    ten-ish seconds - comfortably longer than the poll that has to see into it.
+    It was 2,000 x 800, which was three seconds on the machine this was written
+    on and under two on a macOS runner: fast enough that the run could be over
+    before the assertion looking for a running node arrived. Sizing this for
+    the slowest machine rather than the fastest is backwards.
 
     Generated, not measured, and **no number is claimed from it** - the same
     footing as #86's decimation fixture. It is shaped like spectra (a smooth
