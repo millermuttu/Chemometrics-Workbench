@@ -39,29 +39,54 @@ test("a run advances through real work, in all three places at once", async ({ p
   let sawTabProgress = false;
   let sawStatus = false;
 
+  let finalState = "never-observed";
   const deadline = Date.now() + 120_000;
   while (Date.now() < deadline) {
+    // Cancel is offered exactly while the job is queued or running, so it is
+    // the application's own answer to "is a run on right now" - better than a
+    // list of the messages a run can show, which is what this asked for first
+    // and which missed `Running`, the one `jobs.py` sets before any node has
+    // reported. A test should not have to keep a copy of that vocabulary.
+    const cancellable = Boolean(await status.getByRole("button", { name: "Cancel" }).count());
+
     if (!sawTabProgress && (await page.getByTestId("tab-progress").count())) sawTabProgress = true;
     if (!sawRunningNode && (await page.getByTestId("node-running").count())) sawRunningNode = true;
-    if (!sawStatus && /Queued|Preprocessing|Fitting/.test((await status.innerText()) || "")) {
-      sawStatus = true;
+    if (!sawStatus && cancellable) {
+      const text = (await status.innerText()) || "";
+      if (text.trim() && !/^Idle/.test(text)) sawStatus = true;
     }
 
     const style = await page.locator(".status .prog i").first().getAttribute("style");
     const percent = Number(/width:\s*([\d.]+)%/.exec(style ?? "")?.[1] ?? "-1");
     if (percent >= 0 && percent !== seen.at(-1)) seen.push(percent);
 
-    // Stop once there is enough to assert and there is still a run to cancel.
-    const cancellable = await status.getByRole("button", { name: "Cancel" }).count();
-    if (cancellable && sawRunningNode && sawTabProgress && seen.length >= 2) break;
-    if (!cancellable && seen.length) break;
+    // Stop once everything is observed and there is still a run to cancel.
+    if (cancellable && sawStatus && sawRunningNode && sawTabProgress && seen.length >= 2) {
+      finalState = "all-observed";
+      break;
+    }
+    // Over means it was on and now is not - `sawStatus` is that memory. Without
+    // it, the first turn of the loop can land in the beat between the job being
+    // submitted and the Cancel button rendering, read a progress bar already at
+    // zero, and conclude the run had finished before it started. Measured: that
+    // lost four runs in five.
+    if (!cancellable && sawStatus && seen.length) {
+      finalState = `run-finished: ${(await status.innerText()).replace(/\n/g, " | ")}`;
+      break;
+    }
     await page.waitForTimeout(100);
   }
 
-  // The status bar, the tab and the node all carried the same run.
-  expect(sawStatus, "the status bar named the run").toBe(true);
-  expect(sawTabProgress, "the tab carried the run").toBe(true);
-  expect(sawRunningNode, "a node showed as running").toBe(true);
+  // The status bar, the tab and the node all carried the same run. The
+  // message carries what was actually observed: when this fails it is almost
+  // always because the run ended sooner than the watcher expected, and the
+  // useful question is which of the three was missed and how far the run got.
+  const observed =
+    `status=${sawStatus} tab=${sawTabProgress} node=${sawRunningNode} ` +
+    `progress=[${seen.join(", ")}] final=${finalState}`;
+  expect(sawStatus, `the status bar carried the run — ${observed}`).toBe(true);
+  expect(sawTabProgress, `the tab carried the run — ${observed}`).toBe(true);
+  expect(sawRunningNode, `a node showed as running — ${observed}`).toBe(true);
 
   // It advanced, and it never went backwards. Not *how many* frames were
   // caught: that is a fact about how fast the runner is. #85's real claim,

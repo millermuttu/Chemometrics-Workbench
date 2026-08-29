@@ -22,6 +22,7 @@ from chemometrics_workbench.checks import (
     check_pipeline,
 )
 from chemometrics_workbench.models import (
+    MSC,
     SNV,
     Autoscale,
     EstimatorNode,
@@ -148,6 +149,102 @@ def test_a_step_that_estimates_nothing_may_sit_above_a_split() -> None:
         )
     )
     assert found == []
+
+
+def test_msc_above_a_split_leaks_and_is_warned_about() -> None:
+    """#103: the third case §9's rule covers and its lists do not name.
+
+    `MSCTransformer` estimates a reference spectrum - the mean or the median
+    across the fit set - and regresses every sample against it. A sample's
+    corrected values therefore depend on which other samples were present,
+    which is exactly the property that makes centring a leak.
+    """
+    found = check_pipeline(
+        pipeline(
+            PreprocessNode(id="scatter", inputs=("source",), step=MSC()),
+            SplitNode(id="cv", inputs=("scatter",), spec=KFoldSplit(n_splits=10)),
+        )
+    )
+
+    assert [(w.code, w.node_id, w.related) for w in found] == [
+        (LEAK_BEFORE_SPLIT, "scatter", ("cv",))
+    ]
+
+
+def test_the_msc_warning_says_reference_spectrum_not_mean() -> None:
+    """The consequence in the step's own terms.
+
+    One code covers all three steps, because the consequence is one thing and a
+    screen filtering for "this pipeline leaks" wants all of them. The sentence
+    is not shared: a warning that says "the mean" about a reference spectrum is
+    wrong in a way a user would notice, and a user who does not recognise the
+    description will not act on it.
+    """
+    (msc,) = check_pipeline(
+        pipeline(
+            PreprocessNode(id="scatter", inputs=("source",), step=MSC()),
+            SplitNode(id="cv", inputs=("scatter",), spec=KFoldSplit(n_splits=10)),
+        )
+    )
+    (centre,) = check_pipeline(
+        pipeline(
+            PreprocessNode(id="centre", inputs=("source",), step=MeanCentre()),
+            SplitNode(id="cv", inputs=("centre",), spec=KFoldSplit(n_splits=10)),
+        )
+    )
+
+    assert msc.code == centre.code, "one code: the consequence is the same"
+    assert "reference spectrum" in msc.message
+    assert "the mean the training samples are centred by" not in msc.message
+    assert "the mean the training samples are centred by" in centre.message
+    assert "reference spectrum" not in centre.message
+
+    # Both name the node, the split and the remedy.
+    for warning in (msc, centre):
+        assert "'cv'" in warning.message
+        assert "RMSECV comes out optimistic" in warning.message
+        assert "below the split" in warning.message
+
+
+def test_the_code_says_fitted_rather_than_centring() -> None:
+    """MSC is not centring, so a code that says `centring` would be a lie.
+
+    Nothing renders the code today - the canvas joins the sentences - so it is
+    named for the category it now covers rather than for the first member of it.
+    """
+    assert LEAK_BEFORE_SPLIT == "fitted_upstream_of_split"
+
+
+def test_msc_below_a_split_is_silent_like_any_other_step() -> None:
+    """Below the split it is refitted per fold, which is the remedy the warning names."""
+    found = check_pipeline(
+        pipeline(
+            SplitNode(id="cv", inputs=("source",), spec=KFoldSplit(n_splits=10)),
+            PreprocessNode(id="scatter", inputs=("cv",), step=MSC()),
+        )
+    )
+    assert found == []
+
+
+def test_msc_does_not_count_as_centring_for_the_pls_rule() -> None:
+    """The two rules mean different things by a fitted step, and MSC splits them.
+
+    `pls-regression.md` §3 wants an *offset removed* so the first component does
+    not spend itself on it. MSC estimates a reference and regresses against it;
+    it leaves no intercept, so a PLS below an MSC and nothing else is still the
+    thing §3 warns about. The leak rule counts MSC; the centring rule does not.
+    """
+    found = check_pipeline(
+        pipeline(
+            PreprocessNode(id="scatter", inputs=("source",), step=MSC()),
+            EstimatorNode(
+                id="pls",
+                inputs=("scatter",),
+                spec=PLSRegressionSpec(n_components=3, target="fat"),
+            ),
+        )
+    )
+    assert [w.code for w in found] == [PLS_WITHOUT_CENTRING]
 
 
 def test_two_splits_below_one_centring_are_both_named() -> None:
