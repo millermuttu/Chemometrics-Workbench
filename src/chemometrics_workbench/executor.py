@@ -714,7 +714,13 @@ def _estimator(
 
     assert isinstance(node.spec, PCASpec)
     try:
-        model = PCA(node.spec.n_components).fit(matrix[rows])
+        # Every array reaches here through the store, which is float32 on disk
+        # (#83), so the rank tolerance is quoted for the precision the numbers
+        # actually have rather than the one they are computed in. Without this
+        # a centred matrix reports one rank too many: the round trip leaves its
+        # columns summing to near zero rather than zero, and the SVD finds a
+        # singular value sixteen orders down that a float64 tolerance admits.
+        model = PCA(node.spec.n_components, data_eps=PCA.STORED_EPS).fit(matrix[rows])
     except (ValueError, RuntimeError) as error:
         raise ExecutorError(f"node {node.id!r} (pca) failed: {error}", node.id) from error
 

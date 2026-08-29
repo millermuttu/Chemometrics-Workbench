@@ -782,32 +782,49 @@ def test_a_pca_that_cannot_be_fitted_names_its_node(
         execute(directory, pipeline, version)
 
 
-def test_the_reported_rank_is_one_higher_than_the_fixtures_and_the_store_is_why(
+def test_the_reported_rank_is_the_fixtures_now_that_the_tolerance_knows_the_precision(
     project: tuple[Path, DatasetVersion], tecator: Any
 ) -> None:
-    """A finding, measured here and raised as #101.
+    """#101, fixed: the rank tolerance is quoted for the precision the data has.
 
     Mean centring removes a degree of freedom, so a centred 240x100 matrix has
     rank 99 and the fixture says so. Reading the centred array back out of the
     store rounds it to float32, its columns no longer sum to exactly zero, and
-    the SVD finds a hundredth singular value that clears the rank tolerance.
-    The eigenvalue behind it is 3.1e-16 against a leading 2.64 - sixteen orders
-    down, and it moves the SPE limit in the ninth decimal - but `rank` is a
-    displayed integer and 100 is the wrong one.
+    the SVD finds a hundredth singular value - which a tolerance stated in
+    float64 terms admits, because it describes an arithmetic the numbers did
+    not go through.
+
+    The executor now tells `PCA` what precision the data arrived in, and the
+    two error terms are added rather than multiplied: `max(n, p)` scales the
+    rounding the decomposition accumulates, while the data term is a
+    perturbation of the matrix itself, which by Weyl moves each singular value
+    by at most its norm - no dimension factor. Scaling the data term by
+    `max(n, p)` too was tried and measured: it discards 33 genuine components
+    and reports rank 66.
     """
     directory, version = project
     run = execute(directory, fixture_pipeline(version.version_id), version)
     expected = _fixture_pca("pca_a")
 
     assert expected["rank"] == 99
-    assert run.results["pca_a"].rank == 100
+    assert run.results["pca_a"].rank == 99, "the store's precision is accounted for"
 
-    # In float64, with no store in the way, the same chain gives the fixture's.
+    # In float64, with no store in the way, the same chain gives the same - the
+    # default tolerance is unmoved to within one part in max(n, p), so nothing
+    # computed in float64 throughout shifted underneath the parity suite.
     snv = preprocessing.SNVTransformer().fit_transform(tecator.spectra)
     centred = preprocessing.MeanCentreTransformer().fit_transform(snv)
     assert PCA(5).fit(centred).rank_ == 99
 
-    # And the numbers that are not integers are unmoved by it.
+    # The margin, measured rather than hoped for: the spurious singular value
+    # and the smallest genuine one are more than two orders apart, so the
+    # threshold is not balanced on a knife edge between them.
+    stored = _as_stored(centred)
+    values = np.linalg.svd(stored, full_matrices=False, compute_uv=False)
+    assert values[99] < 1e-6 < 1e-5 < values[98], (values[98], values[99])
+    assert values[98] / values[99] > 100
+
+    # And the numbers that are not integers are unmoved by any of it.
     np.testing.assert_allclose(
         run.results["pca_a"].spe_limit, expected["diagnostics"]["spe_limit"], rtol=1e-6
     )

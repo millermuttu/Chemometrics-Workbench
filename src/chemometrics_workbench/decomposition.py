@@ -137,6 +137,7 @@ class PCA:
     | `scores_` | `n x a`, the calibration set's scores |
     | `eigenvalues_` | `r` values, `sigma_k^2/(n-1)` — every component, not the retained ones |
     | `singular_values_` | the `r` singular values above the rank tolerance |
+    | `data_eps` | the precision the data arrived in; scales the rank tolerance |
     | `rank_` | `r`, the effective rank found by the SVD |
     | `n_samples_`, `n_variables_` | the calibration shape, which the `T^2` limits need |
     """
@@ -149,10 +150,29 @@ class PCA:
     n_samples_: int | None = None
     n_variables_: int | None = None
 
-    def __init__(self, n_components: int) -> None:
+    #: The precision the *data* arrived in, which is not always the precision it
+    #: is computed in. The kernels are float64 by contract - `as_float64`
+    #: promotes whatever it is handed - so a matrix that spent time on disk as
+    #: float32 arrives here indistinguishable from one that never left memory,
+    #: and the rank tolerance would be quoted for a precision the numbers do not
+    #: have. Mean centring makes that visible: a centred matrix has one degree
+    #: of freedom fewer, but a float32 round trip leaves its columns summing to
+    #: something near rather than at zero, and the SVD finds an extra singular
+    #: value sixteen orders down that clears a float64 tolerance. See #101.
+    #:
+    #: A caller that knows the provenance says so; the default assumes none,
+    #: which leaves the tolerance where it has always been to within one part
+    #: in `max(n, p)` - so nothing computed in float64 throughout moves.
+    DEFAULT_EPS = float(np.finfo(np.float64).eps)
+    STORED_EPS = float(np.finfo(np.float32).eps)
+
+    def __init__(self, n_components: int, *, data_eps: float | None = None) -> None:
         if n_components < 1:
             raise ValueError(f"n_components must be at least 1, got {n_components}")
+        if data_eps is not None and data_eps <= 0:
+            raise ValueError(f"data_eps must be positive, got {data_eps}")
         self.n_components = int(n_components)
+        self.data_eps = self.DEFAULT_EPS if data_eps is None else float(data_eps)
 
     # ----------------------------------------------------------------------
     # fitting
@@ -169,8 +189,25 @@ class PCA:
         # §9: the effective rank is taken from the SVD rather than inferred
         # from the shape, because PCA does not centre and so cannot know
         # whether a degree of freedom was already spent.
-        tolerance = max(n_samples, n_variables) * float(np.finfo(np.float64).eps)
-        tolerance *= float(singular_values[0]) if singular_values.size else 0.0
+        #
+        # Two errors, added, because they are two different things (#101):
+        #
+        #   arithmetic  max(n, p) * eps64 * s[0]   rounding accumulated by the
+        #                                          decomposition, which runs in
+        #                                          float64 whatever it was handed
+        #   data        data_eps * s[0]            the matrix is not the matrix
+        #                                          that was meant - a float32
+        #                                          round trip perturbs it
+        #
+        # The data term is *not* scaled by the dimension. Perturbing A by E
+        # moves every singular value by at most the norm of E (Weyl), and a
+        # float32 round trip has norm about `eps32 * s[0]` - the growth factor
+        # belongs to accumulated rounding, not to a perturbation of the input.
+        # Scaling it too was measured on Tecator: it discards 33 genuine
+        # components, reporting rank 66 where the matrix has 99.
+        largest = float(singular_values[0]) if singular_values.size else 0.0
+        arithmetic = max(n_samples, n_variables) * float(np.finfo(np.float64).eps)
+        tolerance = (arithmetic + self.data_eps) * largest
         rank = int(np.count_nonzero(singular_values > tolerance))
         if rank == 0:
             raise ValueError(

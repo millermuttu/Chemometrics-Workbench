@@ -160,7 +160,15 @@ Available rank:
 
 $$r = \min(n - 1,\ p) \quad \text{when the data are centred}, \qquad r = \min(n,\ p) \quad \text{otherwise}$$
 
-Centring removes one degree of freedom, which is why the centred case loses a component. Since PCA does not centre (§2), the implementation cannot infer which case applies from the matrix alone; it takes the effective rank from the SVD, counting singular values above a tolerance of $\max(n,p) \cdot \varepsilon \cdot \sigma_1$ with $\varepsilon$ the float64 machine epsilon.
+Centring removes one degree of freedom, which is why the centred case loses a component. Since PCA does not centre (§2), the implementation cannot infer which case applies from the matrix alone; it takes the effective rank from the SVD, counting singular values above
+
+$$\text{tol} = \left(\max(n,p)\,\varepsilon_{64} + \varepsilon_{\text{data}}\right)\sigma_1$$
+
+**Two error terms, added, because they are two different things.** The first is the rounding the decomposition accumulates: it runs in float64 whatever it was handed, and $\max(n,p)$ is the usual growth factor. The second is the matrix not being the matrix that was meant — a perturbation of the *input*, which by Weyl's inequality moves each singular value by at most the norm of the perturbation, $\varepsilon_{\text{data}}\,\sigma_1$. **The data term carries no dimension factor**, because a perturbation of $X$ is not an accumulation over its entries.
+
+$\varepsilon_{\text{data}}$ defaults to $\varepsilon_{64}$, which leaves the tolerance where it has always been to within one part in $\max(n,p)$. A caller that knows the data arrived less precisely says so: the workbench's executor reads every array back through a float32 store (#83), so it passes $\varepsilon_{32}$.
+
+This is not a refinement for its own sake. Without it, a centred matrix that has been through the store reports **one rank too many** — its columns no longer sum to exactly zero, and the SVD finds a spurious hundredth singular value that a float64 tolerance admits (#101). Scaling the data term by $\max(n,p)$ as well overshoots in the other direction, and by much more: on Tecator it discards 33 genuine components and reports rank 66. The two are far apart — measured, the spurious value is $2.8\times10^{-7}$ and the smallest genuine one $1.3\times10^{-4}$ — so the threshold sits in a wide gap rather than on a knife edge.
 
 **If $a > r$, raise an error naming both numbers. Do not silently return fewer components.** Silent truncation makes downstream array shapes unpredictable and hides a user mistake — asking for 40 components from 30 samples is a misunderstanding worth surfacing, not rounding away.
 
