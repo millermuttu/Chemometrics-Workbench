@@ -118,7 +118,12 @@ export function Failure({ error, onRetry }: { error: ApiError; onRetry?: () => v
   );
 }
 
-function Preview({ preview, onImported, onCancel }: Props & { preview: ImportPreview }) {
+function Preview({
+  preview,
+  file,
+  onImported,
+  onCancel,
+}: Props & { preview: ImportPreview; file: File }) {
   const { source, detected, head } = preview;
   const [corrections, setCorrections] = useState<Record<string, string>>({});
   const commit = useImportDataset();
@@ -161,7 +166,7 @@ function Preview({ preview, onImported, onCancel }: Props & { preview: ImportPre
             className="btn btn-p"
             disabled={commit.isPending}
             onClick={async () => {
-              const entry = await commit.mutateAsync(corrections);
+              const entry = await commit.mutateAsync({ file, corrections });
               const version = entry.versions.at(-1)!;
               onImported(version.version_id, entry.dataset.name);
             }}
@@ -292,10 +297,13 @@ function Preview({ preview, onImported, onCancel }: Props & { preview: ImportPre
 
 export function Import({ onImported, onCancel }: Props) {
   const preview = useImportPreview();
+  const [file, setFile] = useState<File | null>(null);
   const error = preview.error instanceof ApiError ? preview.error : null;
 
-  if (preview.data) {
-    return <Preview preview={preview.data} onImported={onImported} onCancel={onCancel} />;
+  if (preview.data && file) {
+    return (
+      <Preview preview={preview.data} file={file} onImported={onImported} onCancel={onCancel} />
+    );
   }
 
   return (
@@ -308,24 +316,30 @@ export function Import({ onImported, onCancel }: Props) {
 
         {error ? <Failure error={error} onRetry={() => preview.reset()} /> : null}
 
+        {/* The file the user picks is the file that is read. In Phase 1.1 this
+            input discarded it and the server answered from a fixture, which is
+            why the failure state needed a button of its own; now an unreadable
+            file reaches it by being unreadable. */}
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <label className="btn" style={{ position: "relative", overflow: "hidden" }}>
-            Choose file…
+            {preview.isPending ? "Reading…" : "Choose file…"}
             <input
               type="file"
               aria-label="Choose file"
               style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer" }}
-              onChange={() => preview.mutate({})}
+              onChange={(event) => {
+                const chosen = event.target.files?.[0];
+                if (!chosen) return;
+                setFile(chosen);
+                preview.mutate(chosen);
+              }}
             />
           </label>
-          <button className="btn" onClick={() => preview.mutate({})} disabled={preview.isPending}>
-            {preview.isPending ? "Reading…" : "Use the example file"}
-          </button>
-          {/* The failed import state (#49) has to be reachable without editing
-              code; in 1.2 a truncated file reaches it on its own. */}
-          <button className="btn" onClick={() => preview.mutate({ fail: true })}>
-            Import a broken file
-          </button>
+          {file ? (
+            <span className="mono" style={{ fontSize: 11, color: "var(--ink3)" }}>
+              {file.name}
+            </span>
+          ) : null}
         </div>
       </div>
     </div>

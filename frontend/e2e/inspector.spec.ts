@@ -51,8 +51,18 @@ test("an accepted edit marks downstream nodes stale and offers a re-run", async 
   // A stale result dims; it does not vanish. Every node is still on the canvas.
   await expect(page.locator(".react-flow__node")).toHaveCount(14);
 
+  // The re-run is offered, and taking it clears what the edit made stale.
+  //
+  // The outcome rather than a frame of the middle: the edited node is the only
+  // one whose arrays have to be recomputed and every other node is already in
+  // the store, so this run is over in milliseconds - well inside one poll of
+  // the job. Asserting "Queued" or even "Done" here asserts that the machine
+  // was slow enough to be caught looking, which is why this test was flaky.
+  // `runs.spec.ts` watches a run advance, on a project seeded large enough.
   await page.getByRole("button", { name: "Re-run" }).click();
-  await expect(page.getByRole("status").first()).toContainText(/Queued|Preprocessing/);
+  await expect(page.getByText("Downstream results are stale.")).toHaveCount(0);
+  await expect(page.getByTestId("node-stale")).toHaveCount(0);
+  await expect(page.getByTestId("node-complete")).toHaveCount(14);
 });
 
 test("provenance is collapsed until asked for, and hashes are truncated in the middle", async ({
@@ -64,5 +74,7 @@ test("provenance is collapsed until asked for, and hashes are truncated in the m
 
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  await expect(inspector.getByText("sha256:e435…90d7")).toBeVisible();
+  // The hash is the file's, so it is asserted by shape rather than by value:
+  // it belonged to the fixture before #89 and belongs to the imported file now.
+  await expect(inspector.getByText(/^sha256:[0-9a-f]{4}…[0-9a-f]{4}$/)).toBeVisible();
 });

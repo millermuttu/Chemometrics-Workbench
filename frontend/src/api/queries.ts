@@ -165,58 +165,58 @@ export interface Job {
   status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
   progress: number;
   message: string;
+  /** Which node the run is on, or the one a failure stopped at. Added by #85;
+   * the five fields above are Phase 1.1's and did not change. */
+  node_id: string | null;
 }
 
 export function useProjects() {
   return useQuery({ queryKey: ["projects"], queryFn: () => api<Project[]>("/projects") });
 }
 
-/** `?empty` in the application's own URL asks the stub server for a project
- * with no datasets, which is how the empty-project state (#44) is reached
- * without editing code. In 1.2 a new project is simply empty. */
-/** `?empty` describes how this page started, not a project that can never be
- * filled: once something has been imported in this tab the flag is spent, and
- * the project has a dataset like any other. In 1.2 a new project is simply
- * empty and there is no flag at all. */
-export const IMPORTED_KEY = "stub:imported";
-
+/** A new project is empty because nothing has been imported into it, and a
+ * dataset is past the envelope because of its own shape. Both states used to
+ * need a query parameter; #89 removed the parameters and the states are
+ * reached by being in them. */
 export function useDatasets(projectId: string | undefined) {
-  const flags = new URLSearchParams(window.location.search);
-  const empty = flags.has("empty") && !sessionStorage.getItem(IMPORTED_KEY);
-  const oversize = flags.has("oversize");
-  const query = empty ? "?empty=true" : oversize ? "?oversize=true" : "";
   return useQuery({
-    queryKey: ["datasets", projectId, query],
-    queryFn: () => api<DatasetEntry[]>(`/projects/${projectId}/datasets${query}`),
+    queryKey: ["datasets", projectId],
+    queryFn: () => api<DatasetEntry[]>(`/projects/${projectId}/datasets`),
     enabled: Boolean(projectId),
   });
 }
 
-/** Nothing is committed by a preview: it reports what the reader found and
- * the user confirms or corrects it. The corrections ride along on the import
- * so 1.2's reader has them; the stub server ignores them. */
+/** Nothing is committed by a preview: it reports what the reader found and the
+ * user confirms or corrects it. The corrections ride along on the import, so
+ * the reader parses with the ones the user actually made.
+ *
+ * The file goes as multipart, because the request has to carry a file *and*
+ * fields. Phase 1.1 sent neither — the screen's file input discarded what was
+ * picked and posted an empty body, which the stub answered from a fixture
+ * whatever it was sent (#99). The URL is the one it always was. */
 export function useImportPreview() {
   return useMutation({
-    mutationFn: (options: { fail?: boolean } = {}) =>
-      api<ImportPreview>("/import/preview", {
-        method: "POST",
-        headers: options.fail ? { "X-Stub-Fail": "1" } : {},
-      }),
+    mutationFn: (file: File) => {
+      const body = new FormData();
+      body.append("file", file);
+      return api<ImportPreview>("/import/preview", { method: "POST", body });
+    },
   });
 }
 
 export function useImportDataset() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (corrections: Record<string, string>) =>
-      api<DatasetEntry>("/import", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ corrections }),
-      }),
+    mutationFn: ({ file, corrections }: { file: File; corrections: Record<string, string> }) => {
+      const body = new FormData();
+      body.append("file", file);
+      body.append("corrections", JSON.stringify(corrections));
+      return api<DatasetEntry>("/import", { method: "POST", body });
+    },
     onSuccess: () => {
-      sessionStorage.setItem(IMPORTED_KEY, "1");
       void client.invalidateQueries({ queryKey: ["datasets"] });
+      void client.invalidateQueries({ queryKey: ["pipeline"] });
+      void client.invalidateQueries({ queryKey: ["pipeline-state"] });
     },
   });
 }
@@ -235,6 +235,35 @@ export function usePipelineState() {
     // marking downstream nodes stale, or a run advancing. Refetching on every
     // remount would throw those away, and 1.1 has nothing else writing it.
     staleTime: Infinity,
+  });
+}
+
+/** Save the recipe. The whole node list, not a patch (#108).
+ *
+ * One project holds one pipeline and one user edits it, so last-write-wins
+ * needs no conflict rules, and the canvas already holds the entire graph it is
+ * drawing - sending a diff would mean inventing an operation language for a
+ * problem nobody has yet.
+ *
+ * Both queries are invalidated because both change: the pipeline is the new
+ * recipe, and the state is derived from it - a node whose key changed has no
+ * arrays under the new key and comes back `not_run`. Nothing here writes
+ * staleness; it is read back out of the store.
+ */
+export function useSavePipeline() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (nodes: PipelineNode[]) =>
+      api<Pipeline>("/pipelines/current", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nodes }),
+      }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["pipeline"] });
+      void client.invalidateQueries({ queryKey: ["pipeline-state"] });
+      void client.invalidateQueries({ queryKey: ["experiment"] });
+    },
   });
 }
 
@@ -287,10 +316,10 @@ export function useJob(jobId: string | null) {
   });
 }
 
+/** A run fails when it fails. #89 removed the parameter that used to make one. */
 export function useRunExperiment() {
   return useMutation({
-    mutationFn: (options: { fail?: boolean } = {}) =>
-      api<Job>(`/experiments/current/run${options.fail ? "?fail=true" : ""}`, { method: "POST" }),
+    mutationFn: () => api<Job>("/experiments/current/run", { method: "POST" }),
   });
 }
 

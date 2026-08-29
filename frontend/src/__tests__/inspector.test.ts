@@ -13,7 +13,7 @@ import type { Pipeline } from "@/api/queries";
 import { checkBounds, specFor, stepSpecs, type StepSchema } from "@/inspector/schema";
 import { downstreamOf } from "@/inspector/stale";
 
-const FIXTURES = path.resolve(import.meta.dirname, "../../../stub/fixtures");
+const FIXTURES = path.resolve(import.meta.dirname, "../../../tests/fixtures/contract");
 const read = <T,>(name: string) =>
   JSON.parse(readFileSync(path.join(FIXTURES, `${name}.json`), "utf8")) as T;
 
@@ -49,7 +49,7 @@ describe("the form is generated, not restated", () => {
 
   it("reads an enum as a choice and an optional field as optional", () => {
     const msc = specFor(schema, "msc")!;
-    expect(msc.fields[0].options).toEqual(["mean", "median", "supplied"]);
+    expect(msc.fields[0].options).toEqual(["mean", "median"]);
 
     const baseline = specFor(schema, "baseline")!;
     expect(baseline.fields.find((field) => field.name === "lam")!.optional).toBe(true);

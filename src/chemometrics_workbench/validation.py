@@ -47,8 +47,11 @@ __all__ = [
     "folds_from_indices",
     "k_fold",
     "leave_one_out",
+    "q2",
     "r2",
     "rmse",
+    "sec",
+    "sep",
     "validate_partition",
 ]
 
@@ -90,6 +93,78 @@ def r2(y: object, y_hat: object) -> float:
             "denominator is zero. Report it as absent rather than as a number."
         )
     return float(1.0 - np.sum(residual**2) / total)
+
+
+def sec(y: object, y_hat: object, *, n_components: int) -> float:
+    """The standard error of calibration, §5: bias-corrected, `n - A - 1`.
+
+    SEC and SEP describe the *scatter* of the residuals about their own mean
+    where the RMSEs of §4 describe total error including any offset. The
+    denominators differ deliberately and that difference is the whole reason
+    these are separate functions from `rmse`: the calibration residuals come
+    from a model that spent `A` latent variables plus an intercept fitting
+    those same samples, so the naive variance is optimistic.
+
+    **A package reporting `n - A - 1` under the name RMSEC is reporting this.**
+
+    With `n - A - 1 <= 0` there is nothing to report: §5 says to report SEC as
+    absent and say why, and never to fall back to another denominator, which
+    would produce a number that is not SEC under a label that says it is. So
+    this raises with both counts named, and the caller records the absence.
+    """
+    if n_components < 0:
+        raise ValueError(f"n_components must not be negative, got {n_components}")
+    residual = _residual(y, y_hat)
+    degrees = residual.size - n_components - 1
+    if degrees <= 0:
+        raise ValueError(
+            f"SEC is undefined: {residual.size} samples less {n_components} components "
+            "less 1 for the intercept leaves no degrees of freedom. Report it as absent "
+            "rather than dividing by something else and calling the result SEC."
+        )
+    centred = residual - residual.mean()
+    return float(np.sqrt(np.sum(centred**2) / degrees))
+
+
+def sep(y: object, y_hat: object) -> float:
+    """The standard error of prediction, §5: bias-corrected, `n - 1`.
+
+    The prediction samples took no part in the fit, so the only parameter
+    estimated from them is the mean subtracted in the bias correction, and one
+    degree of freedom is all that is lost. That is why this takes no component
+    count and SEC does.
+
+    §5 ties it to RMSEP exactly — `RMSEP^2 = bias^2 + (n-1)/n * SEP^2` — which
+    is the cheap unit test, and `tests/test_validation.py` makes it.
+    """
+    residual = _residual(y, y_hat)
+    if residual.size < 2:
+        raise ValueError(
+            f"SEP is undefined for {residual.size} sample(s): the bias correction "
+            "leaves no degrees of freedom. Report it as absent."
+        )
+    centred = residual - residual.mean()
+    return float(np.sqrt(np.sum(centred**2) / (residual.size - 1)))
+
+
+def q2(y: object, y_cross_validated: object) -> float:
+    """§6: `1 - PRESS / TSS`, over held-out predictions.
+
+    The same formula as `r2` over different predictions, and that is the point
+    rather than an accident. §6 puts both denominators on the total sum of
+    squares of the calibration response about the **full calibration mean**, so
+    the two are directly comparable and `Q^2 <= R^2` keeps its usual meaning.
+    Recomputing the mean inside each fold changes the number, and packages
+    differ on it.
+
+    It is a separate name because the argument is different — one held-out
+    prediction per sample, pooled across folds (§7), never a per-fold average.
+
+    **Q² can be negative and is not clipped.** A negative Q² means the model
+    predicts held-out samples worse than the calibration mean does, which is a
+    real finding; reporting it as zero hides a failed model.
+    """
+    return r2(y, y_cross_validated)
 
 
 # --------------------------------------------------------------------------

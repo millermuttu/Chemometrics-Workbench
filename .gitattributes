@@ -1,0 +1,27 @@
+# Line endings, and the one place they are not cosmetic.
+#
+# `data/tecator/tecator.txt` is verified against a checksum pinned in
+# `datasets.py` before it is read - the committed dataset is the one thing in
+# this repository whose *bytes* are part of its identity, and the loader
+# refuses a file that does not match rather than quietly reading a different
+# one. Git's default on Windows is to rewrite LF as CRLF on checkout, which
+# changes every line of that file and therefore its digest: `load_tecator`
+# then fails with "does not match its pinned checksum" on Windows and nowhere
+# else. It cost a day of a three-platform matrix to find, because the failure
+# looked like a server that would not start.
+#
+# The fix is to stop git rewriting them, not to relax the check. A checksum
+# that tolerates a transformation is not checking anything.
+#
+# The reader fixtures are here for the same reason a shade weaker: their exact
+# bytes are the input under test, and a delimiter or a line ending is the sort
+# of thing those tests are about.
+
+*.txt   -text
+*.csv   -text
+*.jdx   -text
+*.xlsx  binary
+*.npy   binary
+
+# Everything else takes git's usual handling; these are the files whose bytes
+# carry meaning rather than whose lines do.

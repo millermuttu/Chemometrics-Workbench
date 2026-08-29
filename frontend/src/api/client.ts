@@ -1,9 +1,9 @@
 /** The one seam between this application and its server.
  *
  * Everything the UI knows about the backend goes through `api()`. Phase 1.1
- * talks to the stub server (#53); Phase 1.2 replaces its handlers behind the
- * same URLs, and pointing at the real backend is a base-URL change and nothing
- * else. If it ever needs to be more than that, this seam is in the wrong place.
+ * talked to a stub server (#53) and Phase 1.2 replaced its handlers behind the
+ * same URLs (#89), which cost this file nothing - which is what the seam was
+ * for. If it ever needs to be more than that, it is in the wrong place.
  */
 
 /** The session token, passed once in the launch URL and then held here.
@@ -23,8 +23,9 @@ function readToken(): string {
     return fromUrl;
   }
   // A dev-server reload has no launch URL to read; the token survives in the
-  // tab, and VITE_STUB_TOKEN covers the first load against a pinned STUB_TOKEN.
-  return sessionStorage.getItem("token") ?? import.meta.env.VITE_STUB_TOKEN ?? "";
+  // tab, and VITE_WORKBENCH_TOKEN covers the first load against a server
+  // started with a pinned WORKBENCH_TOKEN.
+  return sessionStorage.getItem("token") ?? import.meta.env.VITE_WORKBENCH_TOKEN ?? "";
 }
 
 let token = "";

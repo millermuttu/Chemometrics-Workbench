@@ -9,23 +9,64 @@ import type { DraftStep } from "@/canvas/graph";
  * SNV -> Savitzky-Golay -> PCA perfectly well.
  */
 
-const STEPS: { kind: string; type: DraftStep["type"]; parameters: string }[] = [
-  { kind: "SNV", type: "preprocess", parameters: "population statistics per row" },
-  { kind: "MSC", type: "preprocess", parameters: "reference: mean" },
-  { kind: "SG d1 w11", type: "preprocess", parameters: "window 11 · poly 2 · deriv 1" },
-  { kind: "Mean centre", type: "preprocess", parameters: "column means" },
-  { kind: "Autoscale", type: "preprocess", parameters: "ddof 1" },
-  { kind: "PCA", type: "estimator", parameters: "5 components" },
+/** The catalogue, with the payload each entry becomes.
+ *
+ * The parameters are the defaults `models.py` already carries, written out
+ * rather than left implicit: what is sent is what the canvas shows, and a
+ * default that changed in the schema should change the label beside it.
+ * Editing them is the inspector's job once the node is saved.
+ */
+const STEPS: (Pick<DraftStep, "kind" | "type" | "parameters" | "payload">)[] = [
+  {
+    kind: "SNV",
+    type: "preprocess",
+    parameters: "population statistics per row",
+    payload: { step: { kind: "snv" } },
+  },
+  {
+    kind: "MSC",
+    type: "preprocess",
+    parameters: "reference: mean",
+    payload: { step: { kind: "msc", reference: "mean" } },
+  },
+  {
+    kind: "SG d1 w11",
+    type: "preprocess",
+    parameters: "window 11 · poly 2 · deriv 1",
+    payload: {
+      step: { kind: "savgol", window_length: 11, polyorder: 2, deriv: 1 },
+    },
+  },
+  {
+    kind: "Mean centre",
+    type: "preprocess",
+    parameters: "column means",
+    payload: { step: { kind: "mean_centre" } },
+  },
+  {
+    kind: "Autoscale",
+    type: "preprocess",
+    parameters: "ddof 1",
+    payload: { step: { kind: "autoscale", ddof: 1 } },
+  },
+  {
+    kind: "PCA",
+    type: "estimator",
+    parameters: "5 components",
+    payload: { spec: { kind: "pca", n_components: 5 } },
+  },
 ];
 
 interface Props {
   steps: DraftStep[];
   onChange: (steps: DraftStep[]) => void;
   onValidate: () => void;
+  onSave: () => void;
+  saving: boolean;
   validation: string | null;
 }
 
-export function StepList({ steps, onChange, onValidate, validation }: Props) {
+export function StepList({ steps, onChange, onValidate, onSave, saving, validation }: Props) {
   const [choice, setChoice] = useState(STEPS[0].kind);
 
   return (
@@ -100,6 +141,17 @@ export function StepList({ steps, onChange, onValidate, validation }: Props) {
       <div style={{ padding: "0 12px 10px", display: "flex", gap: 6, alignItems: "center" }}>
         <button className="btn" style={{ height: 24 }} disabled={steps.length === 0} onClick={onValidate}>
           Validate
+        </button>
+        {/* Until #108 the draft lived in this tab and nowhere else: closing it
+            lost the recipe, and running the experiment ran the source node.
+            Saving is what makes the pipeline the record §8 says it is. */}
+        <button
+          className="btn btn-p"
+          style={{ height: 24 }}
+          disabled={steps.length === 0 || saving}
+          onClick={onSave}
+        >
+          {saving ? "Saving…" : "Save"}
         </button>
         {validation ? (
           <span className="mono" style={{ fontSize: 10.5, color: "var(--accent)" }}>
