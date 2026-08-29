@@ -10,9 +10,8 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 **Phase 0 is released and tagged `v0.1.0`. Phase 1.1 is released and tagged `v0.2.0`.**
 
-**Phase 1.2's exit criterion is met.** #50's walkthrough runs green against the real backend, on a
-file the user picks, with `stub/` deleted — **and on all three platforms**. Seventeen of the
-twenty-one features are `passing`; the four that are not block nothing and are listed below.
+**Phase 1.2 is twenty features of twenty-one.** The exit criterion is met and green on all three
+platforms. **#109 is the only issue left**, and it blocks nothing.
 
 | | Feature | Issue | Status |
 | --- | --- | --- | --- |
@@ -20,82 +19,87 @@ twenty-one features are `passing`; the four that are not block nothing and are l
 | M′ | The import contract findings | #99 | passing |
 | N | HTTP surface complete, stub retired | #89 | passing |
 | N′ | The canvas can save a pipeline | #108 | passing |
-| **O** | **The sub-phase exit criterion as a test** | **#90** | **passing** |
-| H′ | The fixture's `centre_d` array | #97 | not started — **maintainer decision** |
-| M″ | Rank through the store | #101 | not started — **maintainer decision** |
-| I′ | MSC above a split | #103 | not started — small |
-| N″ | The overloaded state is unreachable | #109 | not started — probably a decision to record |
+| O | The sub-phase exit criterion as a test | #90 | passing |
+| H′ | The fixture's `centre_d` array | #97 | passing |
+| M″ | Rank through the store | #101 | passing |
+| I′ | MSC above a split | #103 | passing |
+| N″ | **The overloaded state is unreachable** | **#109** | **not started** |
 
 ## Current work
 
-**Nothing is `in_progress`.** #108 merged as pull request #111 and #90 is on
-`feature/90_e2e-real-backend`, green on all five checks.
+**Nothing is `in_progress`.** `dev` is at `8da18fb`, the tree is clean, no branches remain and no
+pull requests are open. Merged on 2026-08-29: #111 (#108), #112 (#90), #114 (#103 and the CI fix),
+#113 (#97), #115 (#101).
 
-## What the three-platform matrix cost and bought
+## What CI is now, and why it changed
 
-#90's first verification step asked for the walkthrough green "in CI, on the three-platform matrix",
-and that matrix did not exist — CI was ubuntu-only. The maintainer chose to **build it** rather than
-amend the step. It found four bugs an ubuntu-only job would never have shown:
+**The problem was not the individual flakes.** Every failure in the repository's last forty runs
+dated from the day the end-to-end harness landed; everything before was green. Of twelve failures,
+two were real bugs, nine were cycles spent hunting the first of those, and **four were one defect
+in different clothes**.
 
-1. **CRLF broke a pinned checksum, and this one is the application's, not the harness's.**
-   `data/tecator/tecator.txt` is verified against a SHA-256 pinned in `datasets.py` before it is
-   read, and git rewrites LF as CRLF on checkout on Windows — every line changes, so the digest
-   changes, so `load_tecator` refuses the file. **Anyone cloning this repository on Windows would
-   meet this the moment they touched the reference dataset.** Fixed with a `.gitattributes` marking
-   the committed dataset and the reader fixtures `-text`. The check was deliberately *not* relaxed: a
-   checksum that tolerates a transformation is not checking anything.
-2. **The seed shut down the server's job pool.** Once seed and server shared a process,
-   `with TestClient(app)` ran the app's lifespan, whose shutdown calls `JOBS.shutdown()`.
-3. **A locator read the wrong element** — `getByRole("status").first()` matched the stale banner, not
-   the run status bar. Both carry `role="status"`. This is what made ubuntu flaky.
-4. **An assertion measured the runner.** macOS failed on two sampled progress frames where the test
-   wanted three, which is a fact about machine speed rather than the application.
+That defect: `runs.spec.ts` re-proved *server mechanics* through a browser — progress counted per
+node, cancellation bounded by one node, a failure naming its node. `tests/test_jobs.py` proves all
+of it in eighteen tests, deterministically, driven by `threading.Event` rather than sleeps. Doing it
+again through a hundred-millisecond DOM poll means racing a live process, and every flake lived in
+that overlap. It was patched four times before the pattern was seen.
 
-**The lesson worth not repeating:** diagnosing Windows took nine CI cycles and three wrong theories,
-because all four smoke steps used `--empty` — and `--empty` never loads Tecator. Four diagnostics
-that each avoided the failing path, reasoned from confidently. What ended it was one line of the
-actual CI log, which needed the maintainer to paste it: **the github MCP server exposes no Actions
-tools at all**, so log and artifact access is not a token-scope question, and every CI question costs
-a push-and-wait until that changes.
+**The browser now asserts only what a browser can uniquely show**: the status bar, the tab badge and
+the node carry the same run; cancelling from the UI reaches the cancelled state; the canvas marks
+the node the executor named. The progress-sampling loop is gone. `runs.spec.ts` says at the top
+which claims live there and which belong to `test_jobs.py` — **keep that boundary.**
 
-## How the end-to-end suite works
+Three structural facts about CI worth not rediscovering:
 
-**A state is a project, so a starting state is a seeded directory.** `playwright.config.ts` runs
-**four** real servers over four real project directories, each seeded by `tests/seed_e2e.py --serve
---fresh`, which seeds and then serves in one process:
+- **Types, lint and unit tests run once**, not per platform: they do not depend on the operating
+  system, and the `e2e` job is the only matrixed one. e2e is 84–119 s a platform; the redundant
+  checks were about 20 s each.
+- **`retries` is 0, deliberately, and the reason is in the workflow.** A green check should mean the
+  suite passed, not that it passed within three attempts. Two bugs this session were found *only*
+  because a check got stricter rather than quieter — see below. Revisit only for flakiness that is
+  genuinely environmental and not ours.
+- **A push to a feature branch runs nothing.** The workflow triggers on pushes to `main`/`dev` and
+  on pull requests, so verification begins when the pull request is opened. Zero checks is an
+  absence, not a pass and not a failure.
 
-- **8765 `seeded`** — Tecator imported through the real handler, the four-branch fourteen-node
-  pipeline with every node run. Everything that reads.
-- **8766 `empty`** — nothing in it. The empty state and the imports.
-- **8767 `runs`** — the same pipeline plus a branch that cannot be fitted, nothing executed. Runs
-  really run here, so they can be watched, cancelled and failed. Carries a **synthetic 2,000 × 800**
-  matrix because Tecator's whole run finishes in ~0.2 s, far too fast to catch a node `running`;
-  it is generated and **no number is claimed from it**.
-- **8768 `walkthrough`** — empty, and its own, because #50 imports and cannot share with `empty`.
+**The github MCP server exposes no Actions tools at all** — no runs, jobs, logs or artifacts. That
+is not a token-scope question. Reading a CI failure therefore costs a push-and-wait per question
+unless someone pastes the log; diagnosing the Windows failure took nine cycles for this reason, and
+one pasted line ended it. Workflow annotations *are* readable unauthenticated, which is why
+Playwright uses the `github` reporter on a runner.
 
-Portability details that were learned the hard way: `os.tmpdir()` not `/tmp`; the removal is
-`--fresh` inside the seed script (Python's `shutil`) rather than `rm -rf` in a shell;
-`playwright install --with-deps` is Linux-only and is split by `runner.os`; the webServer command is
-one command, not two joined by `&&`; and on a runner Playwright uses the `github` reporter so a
-failure is an annotation rather than an exit code in a log nobody can read.
+## Two bugs that were green for the wrong reason
+
+Both found because a check was made stricter. This is the argument for the paragraph above.
+
+1. **CRLF broke a pinned checksum.** `data/tecator/tecator.txt` is verified against a SHA-256 pinned
+   in `datasets.py`, and git rewrites LF as CRLF on checkout on Windows. **Anyone cloning this
+   repository on Windows would meet it the moment they touched the reference dataset.** A
+   `.gitattributes` marks the committed dataset and reader fixtures `-text`; the check was *not*
+   relaxed, and `test_the_committed_data_is_checked_out_byte_for_byte` asserts it everywhere in a
+   second.
+2. **The exit criterion was fitting PCA to noise.** `e2e/spectra-file.ts` varied two things across
+   samples, so its matrix had two real components while the walkthrough asked PCA for five. It
+   passed only because the float64 rank tolerance admitted three singular values of numerical noise
+   as structure. #101 made the tolerance honest and all three platforms said
+   "5 components were asked of a matrix of rank 3". Fixed in the *data* — each band's height now
+   varies independently, giving rank 9 at 30 × 24 — not by lowering `n_components` or loosening the
+   tolerance again.
 
 ## Next action
 
-**Phase 1.2 is done bar four issues that block nothing.** Two of them are decisions only the
-maintainer can take, and they have been waiting since #83 and #87:
-
-- **#97** — the fixture's `centre_d` is fitted on all samples; §9 requires refitting per training
-  fold. The divergence is measured and proven; what the kernel *should* do is a specification call.
-  It also invalidates `pca_d`, so regenerating means regenerating both.
-- **#101** — a centred matrix read back as float32 reports a rank one too high. Only the displayed
-  integer moves; the limits move in the ninth decimal.
-- **#103** — MSC above a split leaks like the two warnings #84 emits, and nothing warns. Small.
-- **#109** — the overloaded state has no way to be reached now `?oversize` is gone. The issue lists
-  four options and suggests covering `Overloaded.tsx` as a component test and recording the decision
-  for the rest.
+**#109 is the only thing left in Phase 1.2**, and it is probably a decision to record rather than a
+test to write. `?oversize` fabricated a 42,000 × 6,200 shape and died with the other three
+affordances in #89; nothing replaces it, because #81 established that §13's envelope is *reported,
+not enforced* — `frontend/src/states/envelope.ts` computes it from `n_samples` and `n_variables`, so
+the honest server behaviour is to report the shape it read. The arithmetic is covered by
+`envelope.test.ts`; the *screen* is not. The issue lists four options and suggests covering
+`Overloaded.tsx` as a component test and recording the decision for the remainder, because no option
+honestly proves a real gigabyte import reaches the notice and a hollow `DatasetVersion` would be a
+fixture wearing a real project's clothes.
 
 **Then the phase ends**: a pull request from `dev` into `main`, merged, and a release tag. Phase 1.3
-is SQLite and the two halves joined.
+is SQLite in each project directory, and the two halves joined.
 
 ## Waiting on the user
 
@@ -105,6 +109,13 @@ is SQLite and the two halves joined.
 - Remaining open questions are in `PROPOSAL.md` §19 — team and pace, funding intent, project name.
 
 **Answered and recorded, so they are not re-opened:** whether Phase 1.1 warranted its own release (yes — `v0.2.0`, 2026-08-26), `MSC(reference="supplied")` (removed from the enum in #82, 2026-08-27), whether the import and empty-project screens needed artboards first (no), and where 1.2's persistence lands (project directory in 1.2, SQLite in 1.3).
+
+Four more were settled on 2026-08-29, three of them in `docs/decisions/` so they are not re-argued from preference:
+
+- **The pipeline is saved by a whole-list `PUT`, and staleness stays derived** (#108). One project holds one pipeline and one user edits it, so last-write-wins needs no conflict rules; and a node's cache key is already its recipe chained through its inputs', so an edit makes its arrays stop matching without anything writing a flag that could disagree with them.
+- **The `centre_d` fixture stands and the executor follows §9** (#97) — `docs/decisions/0003-fixture-centre-d.md`. It licenses nothing else: every other published array is reproduced to the fixture's rounding, so a new disagreement is a finding, not a precedent.
+- **The rank tolerance is quoted for the precision the data has** (#101) — `docs/decisions/0004-rank-tolerance-precision.md`. Two error terms added, not multiplied: the issue's own proposal (`max(n,p)·ε₃₂·σ₁`) was implemented, measured at rank 66 for a matrix of rank 99, and rejected.
+- **The three-platform matrix was built rather than #90's verification step amended.** It found four bugs an ubuntu-only job would never have shown.
 
 ## Carried forward from the specifications
 
