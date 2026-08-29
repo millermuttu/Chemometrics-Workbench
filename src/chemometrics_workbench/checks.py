@@ -5,7 +5,7 @@ Everything `models.py` can refuse, it refuses: an odd Savitzky-Golay window, a
 recipe that is well formed, executes without complaint, and produces a number
 that is quietly wrong. Those are here.
 
-**Both warnings in this module catch mistakes whose symptom is a plausible
+**Every warning in this module catches a mistake whose symptom is a plausible
 result.** A leaked mean does not raise; it lowers RMSECV. A PLS model on
 uncentred data does not raise; it spends its first component on the offset.
 Neither is discoverable by looking at the output, which is why they are stated
@@ -32,6 +32,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from chemometrics_workbench.models import (
+    MSC,
     Autoscale,
     MeanCentre,
     NodeId,
@@ -50,13 +51,32 @@ __all__ = [
 
 #: Codes rather than message matching, so a screen can style or filter a
 #: warning without parsing the sentence a person reads.
-LEAK_BEFORE_SPLIT = "centring_upstream_of_split"
+#:
+#: One code for the leak rather than one per step, because the consequence is
+#: one thing: a parameter fitted on every sample, above a split, is fitted on
+#: the held-out ones too. A screen filtering for "this pipeline leaks" wants
+#: all of them. The *sentence* differs per step - saying "the mean" about a
+#: reference spectrum would be wrong in a way a user would notice - and the
+#: name says `fitted` rather than `centring` because MSC is not centring (#103).
+LEAK_BEFORE_SPLIT = "fitted_upstream_of_split"
 PLS_WITHOUT_CENTRING = "pls_without_centring"
 
-#: The steps that estimate a parameter from the data *and* centre it. Both are
-#: what `pls-regression.md` §3 means by centring, because `Autoscale` subtracts
-#: the column means before it divides.
+#: What `pls-regression.md` §3 means by centring. `Autoscale` counts because it
+#: subtracts the column means before it divides. **MSC is deliberately not
+#: here**: it estimates a reference spectrum and regresses against it, which
+#: leaves no intercept for PLS's first component to stop chasing.
 _CENTRING = (MeanCentre, Autoscale)
+
+#: The steps that estimate something *across samples*, so that one sample's
+#: output depends on which others were present. That is the property §9's leak
+#: rule is about, and it is wider than centring: `MSCTransformer` estimates its
+#: reference - the mean or median spectrum - from the fit set.
+#:
+#: Everything else in the schema is row-wise or column-selecting and is
+#: legitimate above a split: SNV, Normalise, SavitzkyGolay, BaselineCorrect,
+#: RangeSelect. `test_a_step_that_estimates_nothing_may_sit_above_a_split`
+#: asserts that silence.
+_FITTED_ACROSS_SAMPLES = (MeanCentre, Autoscale, MSC)
 
 
 @dataclass(frozen=True)
@@ -99,10 +119,16 @@ def _leak_before_split(
     Savitzky-Golay, derivatives, SNV, range selection and unit conversion are
     legitimate above a split — they estimate nothing from the set of samples,
     so a sample's output does not depend on which other samples were present.
-    Centring and autoscaling do, and the validation rows contribute to the
+    Centring, autoscaling and MSC do, and the validation rows contribute to the
     statistics the training rows are then judged against.
+
+    §9 names centring and autoscaling and leaves MSC off both of its lists.
+    It belongs on this one: `MSCTransformer` estimates a reference spectrum -
+    the mean or the median across the fit set - and regresses every sample
+    against it, which is the same dependence on which samples were present.
+    That is #103, and §9 now says so rather than leaving it to be re-derived.
     """
-    if node.type != "preprocess" or not isinstance(node.step, _CENTRING):
+    if node.type != "preprocess" or not isinstance(node.step, _FITTED_ACROSS_SAMPLES):
         return []
 
     splits = sorted(other for other in _descendants(node.id, by_id) if by_id[other].type == "split")
@@ -110,6 +136,21 @@ def _leak_before_split(
         return []
 
     named = ", ".join(repr(split) for split in splits)
+    # The consequence in the step's own terms. A warning that says "the mean"
+    # about a reference spectrum is wrong in a way a user would notice, and a
+    # user who does not recognise the description will not act on the warning.
+    if isinstance(node.step, MSC):
+        leaked = (
+            "The held-out spectra contribute to the reference spectrum the training "
+            "spectra are corrected against, so a training sample's correction depends on "
+            "samples it is about to be judged against, and RMSECV comes out optimistic."
+        )
+    else:
+        leaked = (
+            "The held-out samples contribute to the mean the training samples are centred "
+            "by, and RMSECV comes out optimistic."
+        )
+
     return [
         PipelineWarning(
             code=LEAK_BEFORE_SPLIT,
@@ -117,8 +158,7 @@ def _leak_before_split(
             related=tuple(splits),
             message=(
                 f"{node.step.kind!r} at {node.id!r} is fitted above the split at {named}, so "
-                "it is fitted once on every sample. The held-out samples contribute to the "
-                "mean the training samples are centred by, and RMSECV comes out optimistic. "
+                f"it is fitted once on every sample. {leaked} "
                 "Moving the node below the split fits it on each training fold instead."
             ),
         )

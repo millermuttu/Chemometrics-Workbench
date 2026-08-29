@@ -76,15 +76,12 @@ jobs:
   # The frontend is checked on its own job rather than inside the Python
   # matrix: nothing it does depends on the Python version, and running it twice
   # would only double the minutes.
+  # Types, lint and unit tests do not depend on the operating system, so they
+  # run once. They were in the matrix and ran three times, which cost about a
+  # minute a build and told us the same thing three ways.
   frontend:
-    name: frontend (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      # Never fail-fast: a failure on one platform is a fact about that
-      # platform, and cancelling the others hides whether it is the only one.
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+    name: frontend
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: frontend
@@ -118,6 +115,49 @@ jobs:
 
       - name: Unit tests
         run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+  # The end-to-end suite, on every platform the application ships on. This is
+  # the only thing here that is platform-sensitive, and #90 found real bugs on
+  # two of the three that ubuntu alone would never have shown - a checksum
+  # broken by git's line-ending rewrite on Windows among them.
+  #
+  # No retries, deliberately. A green check should mean the suite passed, not
+  # that it passed within three attempts. Every flake this suite has had was a
+  # test asserting on a frame of a live run rather than on what the run leaves
+  # behind, and the fix for that is the assertion, not another attempt. If
+  # environmental flakiness ever appears that is genuinely not ours, this is
+  # the decision to revisit.
+  e2e:
+    name: e2e (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Never fail-fast: a failure on one platform is a fact about that
+      # platform, and cancelling the others hides whether it is the only one.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
 
       - name: Build
         run: pnpm build

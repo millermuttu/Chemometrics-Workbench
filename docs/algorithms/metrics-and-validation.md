@@ -201,6 +201,17 @@ Continuous responses are not stratified. Binning a response to balance folds is 
 
 **Nodes upstream of the split node are fitted once, on everything.** That is legitimate for transforms with no fitted parameters — Savitzky–Golay, derivatives, SNV, unit conversion, range selection — and is a leak for anything that estimates a parameter from the data, above all centring and autoscaling.
 
+**The test is whether one sample's output depends on which other samples were present**, not whether the step is called a fitted one. Applied to the schema, that puts every preprocessing step on one side or the other:
+
+| step | above a split | why |
+| --- | --- | --- |
+| `SavitzkyGolay`, `SNV`, `Normalise`, `BaselineCorrect` | legitimate | row-wise: each spectrum is transformed from itself alone |
+| `RangeSelect` | legitimate | selects columns by the axis, which is the dataset's, not the sample set's |
+| `MeanCentre`, `Autoscale` | **leak** | the column statistics are estimated across samples |
+| `MSC` | **leak** | the reference spectrum — the mean or the median across the fit set — is estimated across samples, and every sample is regressed against it |
+
+`MSC` was on neither list until [#103](https://github.com/millermuttu/Chemometrics-Workbench/issues/103), and it is the case that shows why the test above is the rule rather than the two names. It is not centring, so the PLS rule in `pls-regression.md` §3 does *not* count it — an MSC leaves no intercept for a first component to stop chasing — but it is fitted across samples, so this rule does. `checks.py` warns on all three under one code, `fitted_upstream_of_split`, with a sentence per step: saying "the mean" about a reference spectrum would be wrong in a way a reader would notice.
+
 Placing a `MeanCentre` or `Autoscale` node upstream of a split therefore leaks the validation samples' contribution into the training statistics and makes RMSECV optimistic. The pipeline validator **warns and names the node**. It does not rewrite the graph: the pipeline is the record of what was done, and silently relocating a node would make the recipe a lie. The warning travels into the experiment record so the number is never read without it.
 
 **The component count $A$ is not re-selected inside folds.** $A$ is a user parameter; every fold model is fitted with the same $A$, and the reported RMSECV is a property of that $A$. RMSECV as a function of $A$ from 1 to $A_{\max}$ is produced from the *same* fold assignment across all component counts, and is stored as `rmsecv_a<A>` keys in `extra` — one split, one pass, one curve. Choosing $A$ by the minimum of that curve and then quoting the same curve's minimum as the model's expected error is optimistic; it is the user's call, and the application does not do it for them.
