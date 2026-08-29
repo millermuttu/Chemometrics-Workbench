@@ -2,11 +2,16 @@ import { useState } from "react";
 
 import type { DraftStep } from "@/canvas/graph";
 
-/** The 1.1 pipeline builder: a list, not a drag surface.
+/** The pipeline builder beside the canvas: appending, and what a drag cannot do.
  *
- * Dragging nodes into place is #51 and is wanted; it is not on the path to
- * this sub-phase's exit criterion, and a step list expresses
- * SNV -> Savitzky-Golay -> PCA perfectly well.
+ * The list is still the right tool for a linear chain - SNV -> Savitzky-Golay
+ * -> PCA is three clicks here and three drags on the canvas. #51 made the
+ * canvas editable for the case a list cannot express, a branch, and left this
+ * where it was.
+ *
+ * Two things it gained: removing the selected node, because a canvas whose
+ * only delete is a keypress on a focused element is a canvas nobody deletes
+ * from; and a Save that is enabled by a graph edit as well as by a draft step.
  */
 
 /** The catalogue, with the payload each entry becomes.
@@ -64,9 +69,24 @@ interface Props {
   onSave: () => void;
   saving: boolean;
   validation: string | null;
+  /** The canvas holds edits the server has not seen, so Save has work to do. */
+  edited: boolean;
+  /** The node the canvas has selected, when it is still in the graph. */
+  selected: { id: string; label: string } | null;
+  onRemove: (id: string) => void;
 }
 
-export function StepList({ steps, onChange, onValidate, onSave, saving, validation }: Props) {
+export function StepList({
+  steps,
+  onChange,
+  onValidate,
+  onSave,
+  saving,
+  validation,
+  edited,
+  selected,
+  onRemove,
+}: Props) {
   const [choice, setChoice] = useState(STEPS[0].kind);
 
   return (
@@ -138,6 +158,21 @@ export function StepList({ steps, onChange, onValidate, onSave, saving, validati
         </button>
       </div>
 
+      {/* Removing reconnects the node's children to its parent, so the
+          pipeline stays a pipeline - `edits.ts` owns that rule. The source is
+          refused there, and the button says so rather than disappearing. */}
+      {selected ? (
+        <div style={{ padding: "0 12px 10px" }}>
+          <button
+            className="btn"
+            style={{ height: 24, width: "100%" }}
+            onClick={() => onRemove(selected.id)}
+          >
+            Remove {selected.label}
+          </button>
+        </div>
+      ) : null}
+
       <div style={{ padding: "0 12px 10px", display: "flex", gap: 6, alignItems: "center" }}>
         <button className="btn" style={{ height: 24 }} disabled={steps.length === 0} onClick={onValidate}>
           Validate
@@ -148,7 +183,7 @@ export function StepList({ steps, onChange, onValidate, onSave, saving, validati
         <button
           className="btn btn-p"
           style={{ height: 24 }}
-          disabled={steps.length === 0 || saving}
+          disabled={(steps.length === 0 && !edited) || saving}
           onClick={onSave}
         >
           {saving ? "Saving…" : "Save"}

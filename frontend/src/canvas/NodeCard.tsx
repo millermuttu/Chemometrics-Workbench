@@ -17,6 +17,13 @@ import type { NodeData } from "@/canvas/graph";
 
 const HEADER = 17;
 
+const PORT: React.CSSProperties = {
+  width: 7,
+  height: 7,
+  background: "var(--surface)",
+  border: "1px solid var(--rule)",
+};
+
 function frame(state: NodeData["state"]): React.CSSProperties {
   switch (state) {
     case "running":
@@ -62,7 +69,11 @@ export function NodeCard({ data, selected }: NodeProps) {
         ...frame(node.state),
       }}
     >
-      <Handle type="target" position={Position.Left} style={{ opacity: 0 }} />
+      {/* The ports are what a branch is dragged from (#51), so they are
+          visible rather than hit-areas only - a port nobody can see is a
+          feature nobody finds. Small and low contrast: structure, not
+          decoration, the same rule the edges follow. */}
+      <Handle type="target" position={Position.Left} style={PORT} />
       <div
         className="mono"
         style={{
@@ -112,7 +123,7 @@ export function NodeCard({ data, selected }: NodeProps) {
           {node.footer}
         </div>
       ) : null}
-      <Handle type="source" position={Position.Right} style={{ opacity: 0 }} />
+      <Handle type="source" position={Position.Right} style={PORT} />
     </div>
   );
 }
