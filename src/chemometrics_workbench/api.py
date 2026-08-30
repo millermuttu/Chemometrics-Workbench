@@ -188,8 +188,10 @@ def open_project_directory() -> Path:
     # apart - a winner halfway through and a directory that really is not a
     # project - look identical from outside, and only waiting distinguishes
     # them. This lock is about *this process*: it stops six requests on one
-    # page load racing each other. Two processes over one directory is the
-    # database's to arbitrate, which is #123.
+    # page load racing each other. Two *processes* over one directory is the
+    # database's to arbitrate and it does - WAL lets a reader read while a
+    # write is in flight, writers take turns, and one that cannot get its turn
+    # inside the busy timeout is told which project is busy (#123).
     with _CREATE_LOCK:
         if not is_project(directory):
             create_project(directory, name=directory.name, description="")

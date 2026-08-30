@@ -37,6 +37,7 @@ import hashlib
 import io
 import json
 import os
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -45,7 +46,7 @@ import numpy as np
 from numpy.typing import NDArray
 from pydantic import Field, ValidationError
 from sqlalchemy import select
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from chemometrics_workbench import db
@@ -360,22 +361,46 @@ def _document(project: Project) -> str:
     return project.model_copy(update={"directory": ""}).model_dump_json()
 
 
-def _session(path: Path, *, create: bool = False) -> Session:
+@contextlib.contextmanager
+def _session(path: Path, *, create: bool = False) -> Iterator[Session]:
     """A session on this project's database, with database errors named.
 
-    Every failure below arrives at the HTTP layer as `ProjectError`, which §6
-    turns into a diagnostic rather than a stack trace. `db.DatabaseError` and
+    Every failure arrives at the HTTP layer as `ProjectError`, which §6 turns
+    into a diagnostic rather than a stack trace. `db.DatabaseError` and
     SQLAlchemy's own exceptions mean the same thing to a caller - this
-    directory cannot be read as a project - so they are one type here.
+    directory cannot be read or written as a project - so they are one type
+    here.
+
+    Opening is not the only place that fails. A second application instance
+    holding the write lock makes the *commit* fail, and `database is locked` on
+    its own names neither the project nor the reason, so it is caught on the
+    way out as well.
     """
     if not create and not db.database_path(path).exists():
         raise ProjectError(f"{path} is not a project directory: it has no {db.DATABASE_FILE}.")
     try:
-        return db.open_session(path, create=create)
+        session = db.open_session(path, create=create)
     except db.DatabaseError as error:
         raise ProjectError(str(error)) from error
     except SQLAlchemyError as error:
         raise ProjectError(f"cannot open the database at {db.database_path(path)}: {error}") from (
+            error
+        )
+
+    try:
+        with session:
+            yield session
+    except OperationalError as error:
+        if "locked" in str(error.orig).lower() or "busy" in str(error.orig).lower():
+            raise ProjectError(
+                f"the project at {path} is busy: another instance held the write lock for longer "
+                f"than {db.BUSY_TIMEOUT_MS} ms. Close the other window and try again."
+            ) from error
+        raise ProjectError(f"cannot use the database at {db.database_path(path)}: {error}") from (
+            error
+        )
+    except SQLAlchemyError as error:
+        raise ProjectError(f"cannot use the database at {db.database_path(path)}: {error}") from (
             error
         )
 
