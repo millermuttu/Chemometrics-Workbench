@@ -38,7 +38,6 @@ from chemometrics_workbench.datasets import load_tecator
 from chemometrics_workbench.executor import Run, execute
 from chemometrics_workbench.models import AxisKind, DatasetVersion, VariableAxis
 from chemometrics_workbench.project import (
-    DATASETS_FILE,
     create_project,
     open_project,
     read_array,
@@ -109,7 +108,7 @@ def test_the_open_project_is_created_on_first_use_and_is_a_real_directory(
     body = client.get("/api/projects").json()
     assert len(body) == 1
     assert body[0]["directory"] == str(project)
-    assert (project / "project.json").exists()
+    assert (project / "project.db").exists()
     assert body[0]["project_id"] == str(open_project(project).project_id)
 
 
@@ -146,8 +145,8 @@ def test_preview_returns_the_readers_detection_in_the_published_shape(
     assert body["detected"]["delimiter"]["value"] == ","
     assert "alternatives" in body["detected"]["delimiter"]
 
-    # Nothing was committed, and nothing was left behind.
-    assert not (project / DATASETS_FILE).exists()
+    # Nothing was committed. Asserted against the dataset list rather than
+    # against a file that is no longer written either way.
     assert client.get(f"/api/projects/{project_id(client)}/datasets").json() == []
 
 
@@ -352,15 +351,15 @@ def test_an_upload_cannot_write_outside_its_temporary_directory(
     client: TestClient, project: Path
 ) -> None:
     """A filename is a name here, never a path. §4.3 again."""
-    project_id(client)  # opens the project, so there is a project.json to protect
-    original = (project / "project.json").read_text(encoding="utf-8")
+    project_id(client)  # opens the project, so there is a database to protect
+    original = (project / "project.db").read_bytes()
     response = client.post(
         "/api/import/preview",
-        files={"file": ("../../project.json", b"kind,of,csv\n1,2,3\n")},
+        files={"file": ("../../project.db", b"kind,of,csv\n1,2,3\n")},
     )
 
     assert response.status_code in {200, 422}
-    assert (project / "project.json").read_text(encoding="utf-8") == original
+    assert (project / "project.db").read_bytes() == original
 
 
 def test_nothing_is_left_in_the_temporary_directory_after_a_failed_read(

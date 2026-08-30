@@ -1,18 +1,18 @@
-"""The project directory: what a project *is* before there is a database.
+"""The project directory: a database of references, beside the files it names.
 
 `PROPOSAL.md` §11 splits storage in two — the database holds metadata and
 lineage, the project directory holds datasets, processed arrays, model
 artifacts and reports, and the database stores references to files rather than
-their contents. That split is what lets a project directory be zipped and sent
-to a colleague, so it holds from the first commit rather than being retrofitted
-when SQLite arrives in Phase 1.3.
+their contents. Both halves live in the same directory, which is what lets it
+be zipped and sent to a colleague.
 
-Until then there is no database at all, which has one visible consequence and
-one invisible one. The visible one: a restart loses the project *list*, not the
-data, so a registry of directories the user has opened lives in their config
-directory and stands in for the missing table. The invisible one: everything
-here is written as if the database already existed. Nothing that belongs in a
-file gets inlined into JSON because there is currently nowhere else to put it.
+The index is `project.db` (`db.py`). It replaced five JSON files —
+`project.json`, `datasets.json`, `pipeline.json`, `pipeline_layout.json` and
+`experiment.json` — and every function here kept its signature when it did, so
+nothing above this module changed. What did not move: arrays and estimator
+results are still files, because they are contents rather than references, and
+the registry of directories the user has opened still lives in their config
+directory, because it is the one thing a project directory cannot know.
 
 **Arrays are float32 on disk and float64 at the kernel boundary.** §13's
 envelope — 20,000 spectra by 4,000 variables, about 320 MB — is a float32
@@ -37,14 +37,19 @@ import hashlib
 import io
 import json
 import os
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import Field, ValidationError
+from sqlalchemy import select
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
+from sqlalchemy.orm import Session
 
+from chemometrics_workbench import db
 from chemometrics_workbench.arrays import as_float64
 from chemometrics_workbench.models import (
     Dataset,
@@ -58,6 +63,7 @@ from chemometrics_workbench.models import (
 
 __all__ = [
     "ARRAYS_DIR",
+    "CACHE_FILE",
     "DATASETS_FILE",
     "EXPERIMENT_FILE",
     "LAYOUT_FILE",
@@ -70,31 +76,38 @@ __all__ = [
     "config_dir",
     "create_project",
     "forget_project",
+    "is_project",
     "known_projects",
     "open_project",
     "read_array",
+    "read_cache_index",
     "read_datasets",
     "read_experiment",
     "read_layout",
     "read_pipeline",
     "write_array",
+    "write_cache_index",
     "write_experiment",
     "write_json",
     "write_layout",
     "write_pipeline",
 ]
 
+#: The five files the database replaced. They are still named here because a
+#: directory written before it exists has them, and #121 reads them once.
 PROJECT_FILE = "project.json"
 DATASETS_FILE = "datasets.json"
 PIPELINE_FILE = "pipeline.json"
 LAYOUT_FILE = "pipeline_layout.json"
 EXPERIMENT_FILE = "experiment.json"
+CACHE_FILE = "cache.json"
+
 ARRAYS_DIR = "arrays"
 REGISTRY_FILE = "projects.json"
 
-#: Bumped when the on-disk layout changes in a way an older build cannot read.
-#: A directory written by a newer layout is refused by name rather than
-#: half-read, because the second failure mode is the one that loses data.
+#: The version those five files were written at. The database carries its own
+#: guard now — `db.SCHEMA_VERSION` — and this remains for reading a directory
+#: written before there was one.
 LAYOUT_VERSION = 1
 
 
@@ -121,7 +134,7 @@ def create_project(directory: str | os.PathLike[str], name: str, description: st
     it recorded.
     """
     path = Path(directory)
-    if (path / PROJECT_FILE).exists():
+    if db.database_path(path).exists() or (path / PROJECT_FILE).exists():
         raise ProjectError(f"{path} is already a project. Open it instead of creating one over it.")
     if path.exists() and any(path.iterdir()):
         raise ProjectError(
@@ -133,7 +146,9 @@ def create_project(directory: str | os.PathLike[str], name: str, description: st
         raise ProjectError(f"cannot create a project at {path}: {error.strerror}") from error
 
     project = Project(name=name, description=description, directory=str(path.resolve()))
-    _write_project_file(path, project)
+    with _session(path, create=True) as session:
+        session.add(_project_row(project))
+        session.commit()
     _remember(path, project)
     return project
 
@@ -151,36 +166,26 @@ def open_project(directory: str | os.PathLike[str]) -> Project:
     if not path.is_dir():
         raise ProjectError(f"{path} is a file, not a project directory.")
 
-    project_file = path / PROJECT_FILE
-    if not project_file.exists():
-        raise ProjectError(f"{path} is not a project directory: it has no {PROJECT_FILE}.")
+    if not db.database_path(path).exists():
+        if not (path / PROJECT_FILE).exists():
+            raise ProjectError(f"{path} is not a project directory: it has no {db.DATABASE_FILE}.")
+        _import_json_project(path)
+
+    with _session(path) as session:
+        record = session.scalars(select(db.ProjectRow)).first()
+    if record is None:
+        raise ProjectError(f"{db.database_path(path)} holds no project record.")
 
     try:
-        record = json.loads(project_file.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError) as error:
-        raise ProjectError(f"cannot read {project_file}: {error}") from error
-    except json.JSONDecodeError as error:
-        raise ProjectError(
-            f"{project_file} is not valid JSON: {error.msg} at line {error.lineno}."
-        ) from error
-    if not isinstance(record, dict):
-        raise ProjectError(f"{project_file} should hold an object, not {type(record).__name__}.")
-
-    layout = record.get("layout_version")
-    if layout != LAYOUT_VERSION:
-        raise ProjectError(
-            f"{path} was written with layout version {layout!r} and this build reads "
-            f"version {LAYOUT_VERSION}. Upgrade the application rather than editing the file."
-        )
-
-    try:
-        project = Project.model_validate({**record.get("project", {}), "directory": str(path)})
+        project = Project.model_validate_json(record.document)
     except ValidationError as error:
         first = error.errors()[0]
         field = ".".join(str(part) for part in first["loc"]) or "project"
-        raise ProjectError(f"{project_file} is not a valid project: {field} {first['msg']}.") from (
-            error
-        )
+        raise ProjectError(
+            f"{db.database_path(path)} does not hold a valid project: {field} {first['msg']}."
+        ) from error
+    # The recorded directory is history; the one being opened is the truth.
+    project.directory = str(path)
 
     # An empty directory does not survive every zip tool, so a project whose
     # arrays are all still to come is repaired rather than rejected.
@@ -190,17 +195,219 @@ def open_project(directory: str | os.PathLike[str]) -> Project:
     return project
 
 
-def _write_project_file(path: Path, project: Project) -> None:
-    """Write `project.json`, deliberately without the directory it lives in.
+def _import_json_project(path: Path) -> None:
+    """Read a project written before the database existed, once.
+
+    Phase 1.2 kept the index in five JSON files. A directory holding those and
+    no `project.db` is read into a fresh database here, in one transaction, and
+    **the files are left where they are and never read again** - they are not a
+    second copy to keep in step, they are what this directory used to be.
+
+    Not a refusal, because the alternative was telling anyone with a project on
+    disk to import it again, and the seeded end-to-end projects are real users
+    of the old shape. Deleted when nothing can plausibly still be on 1.2.
+    """
+    record = _json_document(path / PROJECT_FILE)
+    if not isinstance(record, dict):
+        raise ProjectError(f"{path / PROJECT_FILE} should hold an object.")
+
+    written = record.get("layout_version")
+    if written != LAYOUT_VERSION:
+        raise ProjectError(
+            f"{path} was written with layout version {written!r} and this build reads "
+            f"version {LAYOUT_VERSION}. Upgrade the application rather than editing the file."
+        )
+
+    try:
+        project = Project.model_validate({**record.get("project", {}), "directory": str(path)})
+    except ValidationError as error:
+        first = error.errors()[0]
+        field = ".".join(str(part) for part in first["loc"]) or "project"
+        raise ProjectError(
+            f"{path / PROJECT_FILE} is not a valid project: {field} {first['msg']}."
+        ) from error
+
+    datasets = _json_document(path / DATASETS_FILE) or []
+    cache_record = _json_document(path / CACHE_FILE)
+    pipeline_record = _json_document(path / PIPELINE_FILE)
+    layout_record = _json_document(path / LAYOUT_FILE)
+    experiment_record = _json_document(path / EXPERIMENT_FILE)
+
+    try:
+        entries = [DatasetEntry.model_validate(entry) for entry in datasets]
+        pipeline = Pipeline.model_validate(pipeline_record) if pipeline_record else None
+        experiment = Experiment.model_validate(experiment_record) if experiment_record else None
+    except ValidationError as error:
+        raise ProjectError(f"the project at {path} could not be read: {error}") from error
+
+    # One transaction: a directory either has a database holding everything the
+    # files held, or it still has only the files and is read again next time.
+    with _session(path, create=True) as session:
+        session.add(_project_row(project))
+        for entry in entries:
+            session.add(_dataset_row(entry.dataset))
+            for version in entry.versions:
+                session.add(_version_row(version))
+        if pipeline is not None:
+            session.add(_pipeline_row(pipeline))
+            # Flushed before the layout that points at it: without a declared
+            # relationship between the two mappers, the unit of work is free to
+            # attempt the child insert first, and the foreign key refuses it.
+            session.flush()
+            # Layout is keyed on the pipeline, so a layout without one has
+            # nothing to hang from and is dropped rather than invented.
+            if isinstance(layout_record, dict):
+                session.add(_layout_row(pipeline.pipeline_id, layout_record))
+        # The executor's index comes too. Without it every node in a migrated
+        # project would recompute on the next run - correct, because the arrays
+        # are content-addressed and would be rewritten identically, but a
+        # pipeline's worth of work to arrive back where it started.
+        if isinstance(cache_record, dict):
+            for key, stored in cache_record.items():
+                if isinstance(key, str) and isinstance(stored, list):
+                    session.add(_cache_row(key, [str(entry) for entry in stored]))
+        if experiment is not None:
+            session.add(_experiment_row(experiment))
+        session.commit()
+
+
+def _json_document(path: Path) -> Any:
+    """One of the pre-database files, or `None` if it is not there.
+
+    A file that exists and cannot be parsed is an error rather than an absence:
+    a project whose pipeline is unreadable has lost work, and quietly starting
+    again from nothing is the wrong answer to that.
+    """
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise ProjectError(f"{path} could not be read: {error}") from error
+
+
+def _project_row(project: Project) -> db.ProjectRow:
+    """One place per row where a model becomes columns.
+
+    Each of these is used twice: once on the normal path, and once by
+    `_import_json_project` reading a directory written before the database.
+    Written out twice, a column added to `db.py` would reach the path with a
+    user and not the path with one test, and the two would disagree quietly.
+    """
+    return db.ProjectRow(
+        project_id=str(project.project_id),
+        name=project.name,
+        created_at=project.created_at.isoformat(),
+        document=_document(project),
+    )
+
+
+def _dataset_row(dataset: Dataset) -> db.DatasetRow:
+    return db.DatasetRow(
+        dataset_id=str(dataset.dataset_id),
+        name=dataset.name,
+        created_at=dataset.created_at.isoformat(),
+        document=dataset.model_dump_json(),
+    )
+
+
+def _version_row(version: DatasetVersion) -> db.DatasetVersionRow:
+    return db.DatasetVersionRow(
+        version_id=str(version.version_id),
+        dataset_id=str(version.dataset_id),
+        version=version.version,
+        content_hash=version.content_hash,
+        n_samples=version.n_samples,
+        n_variables=version.n_variables,
+        array_path=version.array_path,
+        created_at=version.created_at.isoformat(),
+        document=version.model_dump_json(),
+    )
+
+
+def _pipeline_row(pipeline: Pipeline) -> db.PipelineRow:
+    return db.PipelineRow(
+        pipeline_id=str(pipeline.pipeline_id),
+        name=pipeline.name,
+        content_hash=pipeline.content_hash(),
+        created_at=pipeline.created_at.isoformat(),
+        document=pipeline.model_dump_json(),
+    )
+
+
+def _layout_row(pipeline_id: object, layout: object) -> db.PipelineLayoutRow:
+    return db.PipelineLayoutRow(pipeline_id=str(pipeline_id), document=json.dumps(layout))
+
+
+def _experiment_row(experiment: Experiment) -> db.ExperimentRow:
+    return db.ExperimentRow(
+        experiment_id=str(experiment.experiment_id),
+        dataset_version_id=str(experiment.dataset_version_id),
+        status=experiment.status.value,
+        started_at=experiment.started_at.isoformat() if experiment.started_at else None,
+        finished_at=experiment.finished_at.isoformat() if experiment.finished_at else None,
+        document=experiment.model_dump_json(),
+    )
+
+
+def _cache_row(key: str, stored: list[str]) -> db.CacheEntryRow:
+    return db.CacheEntryRow(key=key, document=json.dumps(stored))
+
+
+def _document(project: Project) -> str:
+    """The project as JSON, deliberately without the directory it lives in.
 
     `Project.directory` is absolute and belongs to this machine. Recording it
     would make a zipped project carry a path that is wrong everywhere else, so
     it is dropped here and supplied by `open_project` from the directory the
-    caller actually opened.
+    caller actually opened. `Project` requires the field, so it is emptied
+    rather than omitted.
     """
-    record = project.model_dump(mode="json", exclude={"directory"})
-    document = {"layout_version": LAYOUT_VERSION, "project": record}
-    write_json(path / PROJECT_FILE, document)
+    return project.model_copy(update={"directory": ""}).model_dump_json()
+
+
+@contextlib.contextmanager
+def _session(path: Path, *, create: bool = False) -> Iterator[Session]:
+    """A session on this project's database, with database errors named.
+
+    Every failure arrives at the HTTP layer as `ProjectError`, which §6 turns
+    into a diagnostic rather than a stack trace. `db.DatabaseError` and
+    SQLAlchemy's own exceptions mean the same thing to a caller - this
+    directory cannot be read or written as a project - so they are one type
+    here.
+
+    Opening is not the only place that fails. A second application instance
+    holding the write lock makes the *commit* fail, and `database is locked` on
+    its own names neither the project nor the reason, so it is caught on the
+    way out as well.
+    """
+    if not create and not db.database_path(path).exists():
+        raise ProjectError(f"{path} is not a project directory: it has no {db.DATABASE_FILE}.")
+    try:
+        session = db.open_session(path, create=create)
+    except db.DatabaseError as error:
+        raise ProjectError(str(error)) from error
+    except SQLAlchemyError as error:
+        raise ProjectError(f"cannot open the database at {db.database_path(path)}: {error}") from (
+            error
+        )
+
+    try:
+        with session:
+            yield session
+    except OperationalError as error:
+        if "locked" in str(error.orig).lower() or "busy" in str(error.orig).lower():
+            raise ProjectError(
+                f"the project at {path} is busy: another instance held the write lock for longer "
+                f"than {db.BUSY_TIMEOUT_MS} ms. Close the other window and try again."
+            ) from error
+        raise ProjectError(f"cannot use the database at {db.database_path(path)}: {error}") from (
+            error
+        )
+    except SQLAlchemyError as error:
+        raise ProjectError(f"cannot use the database at {db.database_path(path)}: {error}") from (
+            error
+        )
 
 
 def write_json(path: Path, document: Any) -> None:
@@ -242,27 +449,39 @@ class DatasetEntry(Frozen):
 def read_datasets(directory: str | os.PathLike[str]) -> list[DatasetEntry]:
     """Every dataset imported into this project, oldest first.
 
-    A project with nothing imported has no `datasets.json` and returns an empty
+    A project with nothing imported holds no dataset rows and returns an empty
     list, which is the empty-project state arrived at honestly rather than by a
     query parameter.
     """
     path = Path(directory)
-    _require_project(path)
-    index = path / DATASETS_FILE
-    if not index.exists():
-        return []
+    with _session(path) as session:
+        datasets = session.scalars(
+            select(db.DatasetRow).order_by(db.DatasetRow.created_at, db.DatasetRow.dataset_id)
+        ).all()
+        versions = session.scalars(
+            select(db.DatasetVersionRow).order_by(
+                db.DatasetVersionRow.dataset_id, db.DatasetVersionRow.version
+            )
+        ).all()
 
+    by_dataset: dict[str, list[DatasetVersion]] = {}
     try:
-        document = json.loads(index.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as error:
-        raise ProjectError(f"the dataset index at {index} is not readable JSON: {error}") from error
-    if not isinstance(document, list):
-        raise ProjectError(f"the dataset index at {index} is not a list of datasets.")
-
-    try:
-        return [DatasetEntry.model_validate(entry) for entry in document]
+        for row in versions:
+            by_dataset.setdefault(row.dataset_id, []).append(
+                DatasetVersion.model_validate_json(row.document)
+            )
+        return [
+            DatasetEntry(
+                dataset=Dataset.model_validate_json(row.document),
+                versions=by_dataset[row.dataset_id],
+            )
+            for row in datasets
+            if row.dataset_id in by_dataset
+        ]
     except ValidationError as error:
-        raise ProjectError(f"the dataset index at {index} is not valid: {error}") from error
+        raise ProjectError(
+            f"the dataset index in {db.database_path(path)} is not valid: {error}"
+        ) from error
 
 
 def add_dataset(
@@ -276,7 +495,6 @@ def add_dataset(
     name: two files can be given the same name and remain two datasets.
     """
     path = Path(directory)
-    entries = read_datasets(path)
 
     if version.dataset_id != dataset.dataset_id:
         raise ProjectError(
@@ -284,18 +502,22 @@ def add_dataset(
             f"{version.dataset_id}, which is not {dataset.dataset_id}."
         )
 
-    updated: DatasetEntry | None = None
-    for position, entry in enumerate(entries):
-        if entry.dataset.dataset_id == dataset.dataset_id:
-            updated = DatasetEntry(dataset=entry.dataset, versions=[*entry.versions, version])
-            entries[position] = updated
-            break
-    if updated is None:
-        updated = DatasetEntry(dataset=dataset, versions=[version])
-        entries.append(updated)
+    # One insert in one transaction. The JSON index this replaced was a
+    # read-modify-write of the whole list with nothing holding the two halves
+    # together, so two imports at once could lose one.
+    with _session(path) as session:
+        existing = session.get(db.DatasetRow, str(dataset.dataset_id))
+        if existing is None:
+            session.add(_dataset_row(dataset))
+        session.add(_version_row(version))
+        session.commit()
 
-    write_json(path / DATASETS_FILE, [json.loads(entry.model_dump_json()) for entry in entries])
-    return updated
+    for entry in read_datasets(path):
+        if entry.dataset.dataset_id == dataset.dataset_id:
+            return entry
+    raise ProjectError(
+        f"dataset {dataset.dataset_id} was not recorded in {db.database_path(path)}."
+    )
 
 
 # --- The pipeline store ---------------------------------------------------
@@ -307,27 +529,49 @@ def add_dataset(
 
 
 def read_pipeline(directory: str | os.PathLike[str]) -> Pipeline | None:
-    """The project's pipeline, or `None` if nothing has been built yet."""
-    return _read_model(directory, PIPELINE_FILE, Pipeline)
+    """The project's pipeline, or `None` if nothing has been built yet.
+
+    Newest first, so a table that somehow holds two answers the same way the
+    single file it replaced did: the last write wins.
+    """
+    path = Path(directory)
+    with _session(path) as session:
+        row = session.scalars(
+            select(db.PipelineRow).order_by(
+                db.PipelineRow.created_at.desc(), db.PipelineRow.pipeline_id
+            )
+        ).first()
+    if row is None:
+        return None
+    try:
+        return Pipeline.model_validate_json(row.document)
+    except ValidationError as error:
+        raise ProjectError(
+            f"the pipeline in {db.database_path(path)} is not valid: {error}"
+        ) from error
 
 
 def write_pipeline(directory: str | os.PathLike[str], pipeline: Pipeline) -> None:
     path = Path(directory)
-    _require_project(path)
-    write_json(path / PIPELINE_FILE, json.loads(pipeline.model_dump_json()))
+    with _session(path) as session:
+        session.merge(_pipeline_row(pipeline))
+        session.commit()
 
 
 def read_layout(directory: str | os.PathLike[str]) -> dict[NodeId, dict[str, float]]:
     """Where the canvas put each node.
 
-    Kept in its own file, deliberately outside `Pipeline` and therefore outside
-    `Pipeline.content_hash()`: moving a node must not change the science, and
-    must not invalidate an executor cache entry either. `design/data-model.md`
-    says so and #83's keys depend on it.
+    Kept in its own table, deliberately outside `Pipeline` and therefore
+    outside `Pipeline.content_hash()`: moving a node must not change the
+    science, and must not invalidate an executor cache entry either.
+    `design/data-model.md` says so and #83's keys depend on it. A separate
+    table rather than a column on `pipeline` is the same argument in schema
+    form - writing a position touches a different row than the recipe.
     """
     path = Path(directory)
-    _require_project(path)
-    document = _read_json(path / LAYOUT_FILE)
+    with _session(path) as session:
+        row = session.scalars(select(db.PipelineLayoutRow)).first()
+        document = json.loads(row.document) if row is not None else None
     if not isinstance(document, dict):
         return {}
     return {
@@ -338,49 +582,86 @@ def read_layout(directory: str | os.PathLike[str]) -> dict[NodeId, dict[str, flo
 
 
 def write_layout(directory: str | os.PathLike[str], layout: dict[NodeId, dict[str, float]]) -> None:
+    """Record where the canvas put each node, against the project's pipeline.
+
+    A layout with no pipeline to belong to is refused rather than stored: the
+    row is keyed on the pipeline, and a position for a graph that does not
+    exist is a coordinate nobody can draw.
+    """
     path = Path(directory)
-    _require_project(path)
-    write_json(path / LAYOUT_FILE, layout)
+    pipeline = read_pipeline(path)
+    if pipeline is None:
+        raise ProjectError(f"{path} has no pipeline for a layout to belong to.")
+    with _session(path) as session:
+        session.merge(_layout_row(pipeline.pipeline_id, layout))
+        session.commit()
+
+
+# --- The executor's cache index -------------------------------------------
+
+
+def read_cache_index(directory: str | os.PathLike[str]) -> dict[str, list[str]]:
+    """Every cache key this project holds, against the arrays it produced.
+
+    References, which is why it is in the database rather than beside the
+    arrays it names: `PROPOSAL.md` §11 keeps contents in files and everything
+    that points at them here. One list per key, one entry per fold below a
+    split.
+    """
+    path = Path(directory)
+    with _session(path) as session:
+        rows = session.scalars(select(db.CacheEntryRow)).all()
+    index: dict[str, list[str]] = {}
+    for row in rows:
+        stored = json.loads(row.document)
+        if isinstance(stored, list):
+            index[row.key] = [str(entry) for entry in stored]
+    return index
+
+
+def write_cache_index(directory: str | os.PathLike[str], index: dict[str, list[str]]) -> None:
+    """Record every entry in `index`, replacing any it already holds.
+
+    ponytail: the index only grows - an edited-away node's entry stays, and so
+    does its array. Pruning wants a mark-and-sweep against the pipelines in the
+    project, which needs a list of them to sweep against.
+    """
+    path = Path(directory)
+    with _session(path) as session:
+        for key, stored in index.items():
+            session.merge(_cache_row(key, stored))
+        session.commit()
 
 
 def read_experiment(directory: str | os.PathLike[str]) -> Experiment | None:
-    """The last experiment recorded, or `None` if nothing has been run."""
-    return _read_model(directory, EXPERIMENT_FILE, Experiment)
+    """The last experiment recorded, or `None` if nothing has been run.
+
+    The file this replaced held exactly one; the table keeps every one it is
+    given and this returns the most recently started. An experiment *history*
+    is a screen that does not exist yet, so nothing else reads the rest.
+    """
+    path = Path(directory)
+    with _session(path) as session:
+        row = session.scalars(
+            select(db.ExperimentRow).order_by(
+                db.ExperimentRow.started_at.desc(), db.ExperimentRow.experiment_id
+            )
+        ).first()
+    if row is None:
+        return None
+    try:
+        return Experiment.model_validate_json(row.document)
+    except ValidationError as error:
+        raise ProjectError(
+            f"the experiment in {db.database_path(path)} is not valid: {error}"
+        ) from error
 
 
 def write_experiment(directory: str | os.PathLike[str], experiment: Experiment) -> None:
     path = Path(directory)
-    _require_project(path)
-    write_json(path / EXPERIMENT_FILE, json.loads(experiment.model_dump_json()))
-
-
-def _read_model[Model: BaseModel](
-    directory: str | os.PathLike[str], filename: str, model: type[Model]
-) -> Model | None:
-    path = Path(directory)
-    _require_project(path)
-    document = _read_json(path / filename)
-    if document is None:
-        return None
-    try:
-        return model.model_validate(document)
-    except ValidationError as error:
-        raise ProjectError(f"{path / filename} is not a valid {model.__name__}: {error}") from error
-
-
-def _read_json(path: Path) -> Any:
-    """Read one JSON document, or `None` if it is not there.
-
-    A file that exists and cannot be parsed is an error rather than an absence:
-    a project whose pipeline is unreadable has lost work, and quietly starting
-    again from nothing is the wrong answer to that.
-    """
-    if not path.exists():
-        return None
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as error:
-        raise ProjectError(f"{path} could not be read: {error}") from error
+    with _session(path) as session:
+        session.merge(_experiment_row(experiment))
+        session.commit()
 
 
 # --- The array store ------------------------------------------------------
@@ -454,9 +735,24 @@ def _npy_bytes(values: NDArray[np.float32]) -> bytes:
     return buffer.getvalue()
 
 
+def is_project(directory: str | os.PathLike[str]) -> bool:
+    """Whether this directory is a project - the database is the marker.
+
+    Public because `api.py` decides whether to create or open, and the answer
+    is a fact about the directory layout, which is this module's to know. It
+    asked for `project.json` by name until the database replaced it.
+    """
+    directory = Path(directory)
+    # A directory written before the database counts: `open_project` reads it
+    # into one on the way past, and answering "no" here would send `api.py` to
+    # `create_project`, which refuses over an existing project.
+    return db.database_path(directory).exists() or (directory / PROJECT_FILE).exists()
+
+
 def _require_project(path: Path) -> None:
-    if not (path / PROJECT_FILE).exists():
-        raise ProjectError(f"{path} is not a project directory: it has no {PROJECT_FILE}.")
+    """The database is the marker: a directory with one is a project."""
+    if not db.database_path(path).exists():
+        raise ProjectError(f"{path} is not a project directory: it has no {db.DATABASE_FILE}.")
 
 
 def _resolve_inside(root: Path, relative: str) -> Path:

@@ -1,6 +1,6 @@
 [project]
 name = "chemometrics-workbench"
-version = "0.2.0"
+version = "0.4.0"
 description = "Open-source, local-first chemometrics workbench"
 requires-python = ">=3.12"
 license = "MIT"
@@ -13,6 +13,7 @@ dependencies = [
     "uvicorn>=0.30",
     "openpyxl>=3.1.5",
     "python-multipart>=0.0.32",
+    "sqlalchemy>=2.0",
 ]
 
 [project.urls]

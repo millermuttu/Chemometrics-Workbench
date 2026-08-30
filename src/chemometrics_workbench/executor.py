@@ -41,12 +41,13 @@ nothing else's — which is the staleness rule stated as arithmetic rather than
 maintained as a separate flag.
 
 The key is derived from the same node JSON `Pipeline.content_hash` uses, and
-canvas coordinates live in `pipeline_state.json` outside the model entirely.
+canvas coordinates live outside the model entirely, in their own table.
 A node cannot be moved into a cache miss.
 
-The index from key to stored path is `cache.json` in the project directory.
-The arrays themselves are content-addressed by the store, so two nodes that
-compute the same values share one file.
+The index from key to stored path is a table in the project's database - it is
+a map of references, and `PROPOSAL.md` §11 puts those there. The arrays
+themselves are content-addressed files, so two nodes that compute the same
+values share one.
 
 ## Estimators
 
@@ -105,12 +106,18 @@ from chemometrics_workbench.models import (
     PipelineNode,
     ResolvedSplit,
 )
-from chemometrics_workbench.project import ProjectError, read_array, write_array, write_json
+from chemometrics_workbench.project import (
+    ProjectError,
+    read_array,
+    read_cache_index,
+    write_array,
+    write_cache_index,
+    write_json,
+)
 from chemometrics_workbench.validation import Fold, k_fold, leave_one_out, validate_partition
 
 __all__ = [
     "ALPHA",
-    "CACHE_FILE",
     "RESULTS_DIR",
     "EstimatorResult",
     "ExecutorError",
@@ -129,7 +136,6 @@ __all__ = [
     "stored_result",
 ]
 
-CACHE_FILE = "cache.json"
 RESULTS_DIR = "results"
 
 #: The confidence level every limit is quoted at. One number, in one place: a
@@ -335,7 +341,7 @@ def execute(
     path = Path(directory)
     axis = np.asarray(version.axis.values, dtype=np.float64)
     keys = node_keys(pipeline, version)
-    index = _load_index(path) if use_cache else {}
+    index = read_cache_index(path) if use_cache else {}
 
     states: dict[NodeId, _State] = {}
     outputs: dict[NodeId, NodeOutput] = {}
@@ -356,7 +362,7 @@ def execute(
     def check_cancelled() -> None:
         if is_cancelled is not None and is_cancelled():
             if index_changed:
-                _save_index(path, index)
+                write_cache_index(path, index)
             raise RunCancelled(f"the run was cancelled before node {node.id!r}")
 
     for node in ordered:
@@ -415,7 +421,7 @@ def execute(
         announce(node)
 
     if index_changed:
-        _save_index(path, index)
+        write_cache_index(path, index)
 
     return Run(
         pipeline_id=str(pipeline.pipeline_id),
@@ -792,7 +798,7 @@ def stored(directory: str | Path, pipeline: Pipeline, version: DatasetVersion) -
     """
     path = Path(directory)
     keys = node_keys(pipeline, version)
-    index = _load_index(path)
+    index = read_cache_index(path)
     by_id = {node.id: node for node in pipeline.nodes}
 
     present: dict[NodeId, str] = {}
@@ -817,7 +823,7 @@ def stored_display(
     keys = node_keys(pipeline, version)
     if node_id not in keys:
         return None
-    paths = _load_index(path).get(keys[node_id])
+    paths = read_cache_index(path).get(keys[node_id])
     if not paths:
         return None
 
@@ -883,29 +889,3 @@ def _from_cache(
     except ProjectError:
         return None
     return _State(arrays=arrays, folds=folds)
-
-
-def _load_index(directory: Path) -> dict[str, list[str]]:
-    """The key-to-paths index, or an empty one if it is absent or unreadable.
-
-    A corrupt index costs a recomputation, which is the cheapest possible
-    failure here and the reason it is not an error.
-    """
-    try:
-        document = json.loads((directory / CACHE_FILE).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    if not isinstance(document, dict):
-        return {}
-    return {
-        key: [str(path) for path in value]
-        for key, value in document.items()
-        if isinstance(key, str) and isinstance(value, list)
-    }
-
-
-def _save_index(directory: Path, index: dict[str, list[str]]) -> None:
-    # ponytail: the index only grows - an edited-away node's entry stays, and
-    # so does its array. Pruning wants a mark-and-sweep against the pipelines
-    # in the project, which is #89's business once there is a list of them.
-    write_json(directory / CACHE_FILE, index)

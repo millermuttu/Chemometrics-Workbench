@@ -69,3 +69,72 @@ test("a linear SNV to Savitzky-Golay to PCA pipeline is assembled through the st
   await page.getByRole("button", { name: "Remove PCA" }).click();
   await expect(page.locator(".react-flow__node")).toHaveCount(before + 2);
 });
+
+/** Drag a connection between two node ports.
+ *
+ * React Flow listens to pointer movement rather than to a drop event, so this
+ * is a real mouse path: down on the source port, several moves, up on the
+ * target. `dragTo` sends too few moves and the connection never starts.
+ */
+async function connect(page: Page, from: string, to: string) {
+  const port = (id: string, side: "right" | "left") =>
+    page.locator(`.react-flow__node[data-id="${id}"] .react-flow__handle-${side}`);
+  const source = (await port(from, "right").boundingBox())!;
+  const target = (await port(to, "left").boundingBox())!;
+  await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 12 });
+  await page.mouse.up();
+}
+
+/** #51's direct manipulation. These edit the canvas and never save, so the
+ * seeded project on 8765 is left as the other tests expect to find it. */
+
+test("dragging from an output port moves a branch onto a new parent", async ({ page }) => {
+  await openCanvas(page);
+  // An edge is an SVG <g> with no box of its own, so it is counted rather
+  // than asserted visible - Playwright calls every one of them hidden.
+  await expect(page.locator('.react-flow__edge[data-id="snv->centre_a"]')).toHaveCount(1);
+
+  await connect(page, "msc", "centre_a");
+
+  // Exactly one input, so the old edge is replaced rather than added to: the
+  // graph keeps its thirteen edges and centre_a now reads from msc.
+  await expect(page.locator('.react-flow__edge[data-id="msc->centre_a"]')).toHaveCount(1);
+  await expect(page.locator('.react-flow__edge[data-id="snv->centre_a"]')).toHaveCount(0);
+  await expect(page.locator(".react-flow__edge")).toHaveCount(13);
+});
+
+test("a connection that would make a cycle does not drop, and says why", async ({ page }) => {
+  await openCanvas(page);
+
+  // pca_a is downstream of snv, so this would close a loop.
+  await connect(page, "pca_a", "snv");
+
+  await expect(page.getByText(/would make a cycle/)).toBeVisible();
+  await expect(page.locator('.react-flow__edge[data-id="pca_a->snv"]')).toHaveCount(0);
+  await expect(page.locator('.react-flow__edge[data-id="source->snv"]')).toHaveCount(1);
+});
+
+test("removing a node reconnects its children to its parent", async ({ page }) => {
+  await openCanvas(page);
+  // The control is on the node because clicking a node opens its tab: anything
+  // in the side panel would be replaced by the tab before it could be used.
+  await page.locator('.react-flow__node[data-id="snv"] button[aria-label^="Remove node"]').click();
+
+  // snv fed centre_a and snv_savgol; both now read from snv's own parent.
+  await expect(page.locator('.react-flow__node[data-id="snv"]')).toHaveCount(0);
+  await expect(page.locator('.react-flow__edge[data-id="source->centre_a"]')).toHaveCount(1);
+  await expect(page.locator('.react-flow__edge[data-id="source->snv_savgol"]')).toHaveCount(1);
+  await expect(page.locator(".react-flow__node")).toHaveCount(13);
+});
+
+test("the source has no remove control, because it is where the data enters", async ({ page }) => {
+  await openCanvas(page);
+  await expect(
+    page.locator('.react-flow__node[data-id="source"] button[aria-label^="Remove node"]'),
+  ).toHaveCount(0);
+  await expect(
+    page.locator('.react-flow__node[data-id="snv"] button[aria-label^="Remove node"]'),
+  ).toHaveCount(1);
+});

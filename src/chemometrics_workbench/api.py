@@ -110,6 +110,7 @@ from chemometrics_workbench.project import (
     add_dataset,
     config_dir,
     create_project,
+    is_project,
     open_project,
     read_datasets,
     read_experiment,
@@ -186,11 +187,13 @@ def open_project_directory() -> Path:
     # A lock rather than a retry because the two cases a retry has to tell
     # apart - a winner halfway through and a directory that really is not a
     # project - look identical from outside, and only waiting distinguishes
-    # them. One server owns one project directory, so one lock is the whole of
-    # it; two processes over one directory is a database question, not this
-    # one, and it arrives with SQLite in Phase 1.3.
+    # them. This lock is about *this process*: it stops six requests on one
+    # page load racing each other. Two *processes* over one directory is the
+    # database's to arbitrate and it does - WAL lets a reader read while a
+    # write is in flight, writers take turns, and one that cannot get its turn
+    # inside the busy timeout is told which project is busy (#123).
     with _CREATE_LOCK:
-        if not (directory / "project.json").exists():
+        if not is_project(directory):
             create_project(directory, name=directory.name, description="")
     return directory
 

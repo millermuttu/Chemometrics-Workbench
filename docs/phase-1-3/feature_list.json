@@ -1,0 +1,130 @@
+{
+  "phase": "Phase 1.3 - the database: SQLite in each project directory",
+  "exit_criterion": "The five JSON indexes and the executor's cache index are gone from a project directory, replaced by project.db; the full suite and the Playwright walkthrough pass unchanged on all three platforms; and a project directory written by v0.3.0 still opens. Endpoints, payloads and the frontend are untouched - what the database unlocks (many pipelines, an experiment history, pagination, a project browser) is deliberately after this phase, not in it.",
+  "status_values": [
+    "not_started",
+    "in_progress",
+    "blocked",
+    "passing"
+  ],
+  "features": [
+    {
+      "id": "database-module",
+      "priority": 1,
+      "area": "backend",
+      "issue": 119,
+      "title": "The database module: one SQLite file per project directory",
+      "depends_on": [],
+      "user_visible_behavior": "A project directory holds a project.db. Opening one written by a newer version of the application is refused by name rather than misread.",
+      "status": "passing",
+      "verification": [
+        "A new project directory gets a project.db whose PRAGMA user_version reads back 1.",
+        "A database stamped user_version = 2 is refused, and the message names both numbers.",
+        "PRAGMA journal_mode reads back wal.",
+        "uv run ruff check && uv run ruff format --check && uv run mypy && uv run pytest"
+      ],
+      "evidence": "2026-08-29. `uv run pytest tests/test_db.py` - 9 passed: the database is created inside the project directory, a new one is stamped user_version 1, all seven tables are written, a database stamped user_version 2 is refused with both numbers and the path in the message, a directory with no database is an error rather than an empty project, PRAGMA journal_mode reads back wal with foreign_keys=1 and busy_timeout=5000, one engine serves a directory however its path is spelled, reopening does not rewrite, and a session round-trips a row. `CHEMOMETRICS_DOWNLOAD_DATASETS=1 uv run pytest` - 745 passed, 1 skipped. `uv run ruff check` and `uv run ruff format --check` clean; `uv run mypy` - no issues in 47 source files.",
+      "notes": "src/chemometrics_workbench/db.py, plus SQLAlchemy in [project.dependencies] - a runtime dependency, because the application cannot open a project without it. Four decisions come from docs/decisions/0002-phase-1-shape.md lines 57-67 and are not re-argued: one database per project at <project_dir>/project.db; tables hold identity, the queried columns and the Pydantic model as JSON, because models.py is the schema of record and mirroring twenty classes creates two sources of truth; no Alembic, create_all plus a user_version guard; the float32 store boundary unchanged. Nothing calls the module in this feature - project.py still writes JSON until #120. Implemented 2026-08-29: sqlalchemy>=2.0 in [project.dependencies] (2.0.52 locked, greenlet beside it). DatabaseError lives in db.py rather than reusing project.ProjectError, because project.py imports db and the reverse would be a cycle; both mean the same thing and both name the path. Timestamps are ISO-8601 strings and ids are strings, for the engine portability PROPOSAL.md section 12 commits to; the document column is the model's own JSON, so nothing is queried inside it. Layout is its own table rather than a column on pipeline, so moving a node writes a different row than the one the content hash is computed from."
+    },
+    {
+      "id": "project-through-the-database",
+      "priority": 2,
+      "area": "backend",
+      "issue": 120,
+      "title": "project.py reads and writes through the database",
+      "depends_on": [
+        "database-module"
+      ],
+      "user_visible_behavior": "The project's index is the database: datasets, the pipeline, its layout and the last experiment survive a restart from tables rather than from five JSON files. Nothing the user sees changes.",
+      "status": "passing",
+      "verification": [
+        "tests/test_project.py - the zip-and-open portability test passes unchanged.",
+        "tests/test_project.py - no absolute path is recorded anywhere in the project.",
+        "tests/test_api.py - the restart round-trip lists the identical dataset.",
+        "tests/test_server.py - the pipeline reads back after a module-reload restart.",
+        "cd frontend && npx playwright test - 38 tests over four seeded projects."
+      ],
+      "evidence": "2026-08-29. `uv run pytest` - 745 passed, 1 skipped, the same count as before the swap: the tests that named the five JSON files now name the database and assert the same invariants. The three that matter for portability pass unchanged - no absolute path anywhere in project.db's own bytes, the round trip through a subprocess, and zip the directory, extract it elsewhere, delete the original, open it. `cd frontend && npx playwright test` - 38 passed across seeded, empty, runs and walkthrough, against a backend whose index is now SQLite. `uv run ruff check`, `uv run ruff format --check` and `uv run mypy` all clean.",
+      "notes": "project.json, datasets.json, pipeline.json, pipeline_layout.json and experiment.json become tables. arrays/<sha256>.npy and results/<key>.json stay files - PROPOSAL.md section 11 says the database stores references, never contents, and a fitted result is contents. The config directory registry stays too: it is the one thing a project directory cannot know, that the user has it. Every public signature in project.py stays exactly as it is, so api.py, executor.py, server.py and tests/seed_e2e.py are untouched; a signature that has to change is a finding worth an issue, not a widened branch. add_dataset's unlocked read-modify-write (project.py:268-297) becomes one insert in one transaction - the first real bug the database fixes. Implemented 2026-08-29. Every public signature stayed as it was, so executor.py, server.py and tests/seed_e2e.py are untouched; api.py changed in one place only, and not a signature - it decided create-or-open by asking whether project.json existed, which is a fact about the directory layout, so it now asks project.is_project(). _read_model and _read_json were deleted with the last JSON reader; #121 brings back what it needs. read_experiment returns the most recently started row rather than the one file's contents, which gives an experiment history nothing reads yet. write_layout is keyed on the project's pipeline and refuses a layout with no pipeline to belong to. ExperimentRow.started_at became nullable, because Experiment types it so: a pending run has not started."
+    },
+    {
+      "id": "pre-database-directory-opens",
+      "priority": 3,
+      "area": "backend",
+      "issue": 121,
+      "title": "A project directory written before the database opens",
+      "depends_on": [
+        "project-through-the-database"
+      ],
+      "user_visible_behavior": "A project directory created by v0.3.0 opens and reads back identically, without the user re-importing anything.",
+      "status": "passing",
+      "verification": [
+        "A project directory seeded by v0.3.0's own code opens, and everything it held reads back.",
+        "cd frontend && npx playwright test - 38 passed, the seeded projects unaffected.",
+        "uv run pytest - the reader accepts the shape v0.3.0 wrote, twice over without importing twice."
+      ],
+      "evidence": "2026-08-29. Checked out v0.3.0 in a worktree and seeded a project with *its* code (PYTHONPATH ahead of the editable install, confirmed by the module path and by is_project being absent): the directory came out with project.json, datasets.json, pipeline.json, pipeline_layout.json, experiment.json, arrays/ and no database. Opening it with this branch read back the project (Tecator meat study), the dataset (tecator_raw, 240 x 100, its array_path intact), the 14-node pipeline with content hash sha256:62ece5b6d8424835..., the layout, and the succeeded experiment; project.db was created and all six JSON files were still on disk. `uv run pytest` - 753 passed, 1 skipped, including 8 new in tests/test_project_json_import.py. `cd frontend && npx playwright test` - 38 passed. ruff, format and mypy clean over 48 files.",
+      "notes": "open_project reads the five JSON files once into a fresh database in one transaction and leaves them in place, never read again. One function, one test, deleted in a later phase. Not a clean break, because the seeded e2e projects and any developer's directory are real users of the old shape; not a two-way sync either. Implemented 2026-08-29. is_project() had to count a JSON directory too, or api.py would have sent it to create_project, which refuses over an existing project. The import found a real ordering bug: without a declared relationship between the two mappers, SQLAlchemy's unit of work attempted the pipeline_layout insert before the pipeline it points at and the foreign key refused it - one flush between them, with the reason recorded. An unreadable file is named rather than skipped: a project whose pipeline will not parse has lost work, and starting again from nothing is the wrong answer to that."
+    },
+    {
+      "id": "cache-index-in-the-database",
+      "priority": 4,
+      "area": "backend",
+      "issue": 122,
+      "title": "The executor's cache index moves into the database",
+      "depends_on": [
+        "project-through-the-database"
+      ],
+      "user_visible_behavior": "Re-running an unchanged pipeline still recomputes nothing, and editing one node still recomputes only that node and its descendants - with no JSON index left in the project.",
+      "status": "passing",
+      "verification": [
+        "tests/test_executor.py - a second run recomputes nothing; an edit recomputes the node and its descendants only; an edit below a split leaves the branch above.",
+        "tests/test_executor.py - a pruned .npy is recomputed rather than refused; use_cache=False neither reads nor writes the index.",
+        "A cache entry naming a missing array costs a recomputation, which is what the corrupt-cache.json test becomes."
+      ],
+      "evidence": "2026-08-29. `uv run pytest` - 754 passed, 1 skipped. The executor's cache claims pass in table form: a second run recomputes nothing, an edit recomputes the node and its descendants only, an edit below a split leaves the branch above, a pruned .npy is recomputed rather than refused, and use_cache=False leaves read_cache_index empty. The corrupt-cache.json test became 'an index entry naming a missing array costs a recomputation', which is the failure that can still happen now the index is rows. Measured on a project seeded by v0.3.0's own code: its cache.json held 10 entries, the table held the identical 10 after opening, and a run on the migrated project reused all 10 and recomputed 0. `cd frontend && npx playwright test` - 38 passed. ruff, format and mypy clean over 48 files.",
+      "notes": "cache.json is a map from a node's cache key to the array paths it produced - pure references, which is what the database is for. The ponytail note at executor.py:908-910 (the index only grows, no mark-and-sweep) stays true and stays marked. One transaction per run rather than per node only if a measurement says the per-node cost matters. Implemented 2026-08-29. The accessors live in project.py as read_cache_index and write_cache_index, beside the other store functions, rather than in executor.py reaching into the database itself - the executor has always gone through project.py for storage. cache.json is also read across by #121's import: without it every node in a migrated project would recompute, which is correct but a pipeline's worth of work to arrive back where the project already was."
+    },
+    {
+      "id": "two-processes-one-directory",
+      "priority": 5,
+      "area": "backend",
+      "issue": 123,
+      "title": "Two processes over one project directory",
+      "depends_on": [
+        "project-through-the-database"
+      ],
+      "user_visible_behavior": "A second application instance on the same project directory reads without blocking and writes without corrupting; a write that cannot get the lock says which project it was waiting for.",
+      "status": "passing",
+      "verification": [
+        "Two engines on one directory, both writing, both sets of rows present afterwards.",
+        "A write held past busy_timeout produces the named error, not a bare 'database is locked'.",
+        "tests/test_server.py - concurrent reads never fail, still passes."
+      ],
+      "evidence": "2026-08-29. `uv run pytest` - 758 passed, 1 skipped, including 4 new in tests/test_two_processes.py: two writers on one directory both land; a reader is not blocked by an open write (asserted while another connection holds BEGIN IMMEDIATE); a writer that cannot get its turn raises ProjectError naming the project directory and saying it is busy, with 'database is locked' absent from the message (busy_timeout monkeypatched to 100 ms so the test waits as briefly as the claim allows); and a genuinely separate process writes a dataset this one then reads. tests/test_server.py's concurrent reads test still passes. `cd frontend && npx playwright test` - 38 passed. ruff, format and mypy clean over 49 files.",
+      "notes": "api.py:186-191 defers exactly this to 1.3, and docs/phase-1-2/feature_list.json:50 records it as undefined until a database can arbitrate. WAL plus busy_timeout is the answer. The in-process _CREATE_LOCK at api.py:168 stays: it guards a check-then-create inside one process, which is a different problem. Implemented 2026-08-29. The pragmas were already set in #119; what was missing was the error path. _session only converted failures at open, so a commit that timed out escaped as a raw OperationalError - a stack trace at the HTTP layer, which section 6 forbids. It is a context manager now and converts on the way out too, telling the user which project is busy and for how long it waited rather than 'database is locked'. api.py's deferral comment was replaced by what the database actually does."
+    },
+    {
+      "id": "phase-1-3-closes",
+      "priority": 6,
+      "area": "docs",
+      "issue": 124,
+      "title": "The phase closes: the documents match the repository, and a tag",
+      "depends_on": [
+        "database-module",
+        "project-through-the-database",
+        "pre-database-directory-opens",
+        "cache-index-in-the-database",
+        "two-processes-one-directory"
+      ],
+      "user_visible_behavior": "A reader of the documents finds the repository they describe, and the release line carries the phase.",
+      "status": "passing",
+      "verification": [
+        "The full suite green on all three platforms, which is the pull request's own CI.",
+        "By hand: open a project, run a pipeline, kill the server, start it again - datasets, pipeline and last experiment are all still there."
+      ],
+      "evidence": "2026-08-30. The by-hand check the issue asks for, run against a real server: started chemometrics_workbench.server on a fresh project directory, imported a 30 x 24 CSV over HTTP, saved a source -> SNV -> PCA(3) pipeline, ran it (explained variance [0.7484, 0.2223, 0.0175]), then killed the process with SIGKILL and confirmed it stopped answering. The directory held project.db, arrays/ and results/ and no JSON index. A second server on the same directory returned the same project id, the same dataset (spectra, 30 x 24, its array_path intact), the three-node pipeline, the succeeded experiment with the identical explained variance, every node reported complete from the database's cache, and the layout at its saved coordinates. Documents updated: CLAUDE.md, design/data-model.md (the tables recorded, and layout named as its own table), 0002-phase-1-shape.md (its four database decisions implemented as written), pyproject.toml 0.2.0 -> 0.4.0, and the last three references to pipeline_state.json - a file that never existed under that name.",
+      "notes": "CLAUDE.md loses the sentence about a restart losing the project list. design/data-model.md records the tables and fixes a filename mismatch: the documents say pipeline_state.json (session-handoff.md:240, executor.py:44), the code says pipeline_layout.json (project.py:90), and after this phase it is a table with neither name. 0002-phase-1-shape.md gets a note that its four database decisions were implemented as written. pyproject.toml still says 0.2.0 although v0.3.0 is tagged. Then dev into main, and v0.4.0. Closed 2026-08-30. The live feature_list.json returns to Phase 2, which holds #51's remaining half; this list moves to docs/phase-1-3/."
+    }
+  ]
+}

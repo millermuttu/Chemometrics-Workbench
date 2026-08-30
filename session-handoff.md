@@ -8,40 +8,97 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 ## Where things stand
 
-**Phase 0 is released and tagged `v0.1.0`. Phase 1.1 is released and tagged `v0.2.0`.**
+**Phase 1 is complete.** Phase 0 is tagged `v0.1.0`, 1.1 `v0.2.0`, 1.2 `v0.3.0`, and **1.3
+`v0.4.0`** — released 2026-08-30.
 
-**Phase 1.2 is complete: twenty-one features of twenty-one, all `passing`.** The sub-phase exit
-criterion — #50's walkthrough against the real backend with `stub/` deleted — is met and green on
-ubuntu, macOS and Windows. There is nothing left in the phase to build.
+A project directory is now `project.db`, `arrays/` and `results/`, with **no JSON index anywhere in
+it**. A killed server restarts onto its datasets, its pipeline, its layout and its last experiment,
+and every node reports `complete` from the database's own cache rather than recomputing.
 
-| | Feature | Issue | Status |
-| --- | --- | --- | --- |
-| A–M | Phase 1.2's backend, in order | #76–#88 | passing |
-| M′ | The import contract findings | #99 | passing |
-| N | HTTP surface complete, stub retired | #89 | passing |
-| N′ | The canvas can save a pipeline | #108 | passing |
-| O | The sub-phase exit criterion as a test | #90 | passing |
-| H′ | The fixture's `centre_d` array | #97 | passing |
-| M″ | Rank through the store | #101 | passing |
-| I′ | MSC above a split | #103 | passing |
-| N″ | The overloaded state | #109 | passing |
+Phase 1.3's list is `docs/phase-1-3/feature_list.json`, six of six passing. The live
+`feature_list.json` is **Phase 2's** again.
+
+| Feature | Issue | Status |
+| --- | --- | --- |
+| A branch is dragged on the canvas, and a node can be removed | #51 | passing |
+| Duplicate a subgraph, and compare two terminal nodes in one tab | #51 | not started |
 
 ## Current work
 
-**Nothing is `in_progress`.** `dev` is at `8c2ce14`, the tree is clean, no branches remain and no
-pull requests are open. Merged on 2026-08-29: #111 (#108), #112 (#90), #114 (#103 and the CI fix),
-#113 (#97), #115 (#101), #116 (#109).
+**Nothing is `in_progress`.** `dev` and `main` are level, `main` is tagged `v0.4.0`, the tree is
+clean, no branches remain and no pull requests are open. Merged on 2026-08-29 and 30: #125 (#119),
+#126 (#120), #127 (#121), #128 (#122), #129 (#123), and the phase's own merge into `main`.
 
 ## Next action
 
-**The phase ends.** Open a pull request from `dev` into `main`, merge it, and tag the release —
-`v0.3.0` is the obvious number, and nothing in the repository has claimed it. **This has not been
-done and is the first thing to pick up.** GitHub's default base is still `main`, so this is the one
-pull request that wants no explicit base override.
+**The rest of #51**, which is what the live list holds: duplicating a subgraph, and a comparison tab
+for two terminal nodes. The comparison tab has no artboard behind it and little to compare until PLS
+has a kernel in the executor — `Run.pending_estimators` names the estimator nodes the executor did
+not fit, and what a PLS result carries is #88's subject. That ordering is worth deciding before the
+branch is cut.
 
-Then Phase 1.3: SQLite in each project directory, and the two halves joined. It has no
-`feature_list.json` yet — the current one covers 1.2 and should be moved to `docs/phase-1-2/`
-alongside the two lists already there, and a new one written for 1.3.
+Phase 2's list has no exit criterion yet. It needs one written before it is more than two entries.
+
+## What Phase 1.3 settled
+
+**The storage split is now enforced by where things are, not by intention.** `PROPOSAL.md` §11 —
+the database holds references, files hold contents — decides every case: the five JSON indexes and
+the executor's `cache.json` became tables, while `arrays/<sha256>.npy` and `results/<key>.json`
+stayed files because they are numbers rather than pointers.
+
+Six things worth not rediscovering:
+
+- **One database per project directory, `project.db`.** A central one would stay behind when the
+  directory is zipped and sent to a colleague, which `test_project.py` still asserts by zipping,
+  extracting elsewhere, deleting the original and opening it.
+- **Tables hold identity, the queried columns, and the model's own JSON in a `document` column.**
+  `models.py` is the schema of record. Do not mirror it into columns — `0002-phase-1-shape.md:63`.
+- **No Alembic.** `create_all` plus a `PRAGMA user_version` stamp, and a database written by a newer
+  build is refused with both numbers in the message.
+- **Layout is its own table**, so writing a position touches a different row than the recipe. Moving
+  a node still cannot change a content hash or invalidate a cache entry.
+- **A directory written before the database is read into one on the way past** (#121), cache index
+  included — without that, every node in a migrated project would recompute. Measured against a
+  project seeded by `v0.3.0`'s own code: ten entries in, ten out, ten nodes reused, none recomputed.
+- **Two instances over one directory is defined**: WAL, `foreign_keys=ON`, `busy_timeout=5000`. A
+  reader is never blocked; a writer that cannot get its turn is told *which project* is busy rather
+  than `database is locked`. `_session` converts database failures on the way **out** as well as at
+  open, because a commit that times out would otherwise be a stack trace at the HTTP layer.
+
+**Jobs are still in memory, deliberately.** `jobs.py:31-36` argues that a half-persisted job table —
+surviving a restart with no worker behind it, reporting `running` for ever — is worse than one that
+admits it is gone. Persisting them needs a worker that can be re-attached, which is a design, not a
+table.
+
+**SQLAlchemy insert ordering bit once and will again**: with no declared `relationship()` between
+two mappers, the unit of work attempted the `pipeline_layout` insert before the `pipeline` it points
+at and the foreign key refused it. One `session.flush()` between them, and the comment saying why.
+
+## What #51's first half settled
+
+**Every non-source node holds exactly one input** — `models.py` types it as `tuple[NodeId]`. Two
+consequences shape the whole feature and should not be rediscovered:
+
+- **Connecting replaces the target's input rather than appending to it.** A branch is one node with
+  several *children*, which is what the artboard's fork of `corn_raw` into four paths actually is.
+- **An edge cannot be cut on its own** — the child would be left with no input, which is not a
+  pipeline. Edges are rewired, never deleted.
+
+Three more, each of which cost a cycle:
+
+- **`frontend/src/canvas/edits.ts` holds every rule, pure and tested**, beside `graph.ts`. Each
+  refusal is the client half of a `models.py` validator, enforced during the drag through React
+  Flow's `isValidConnection`. **Nothing in the canvas component computes a graph rule of its own** —
+  keep it that way, or the client and the server start disagreeing about what is legal.
+- **The remove control is on the node, not in the side panel.** Clicking a node opens its tab, which
+  replaces the panel before anything in it can be clicked. The first version put it in the step list
+  and four browser tests found that immediately.
+- **An edge is an SVG `<g>` with no layout box, so Playwright calls every one of them hidden.**
+  Assert `toHaveCount`, never `toBeVisible`, on `.react-flow__edge`.
+
+**Node positions are still not draggable.** Layout lives in its own table, outside
+`content_hash()`, and nothing writes it back — moving a node is a separate change with a server side
+to it.
 
 ## What #109 settled, so it is not re-argued
 
@@ -65,7 +122,7 @@ Two mechanics worth not rediscovering:
   `SpectraView.tsx` imports it at module scope. Past the envelope it is never called — the guard
   returns first. The stub replaces a browser global, not a project state.
 
-## A CI gotcha found this session
+## A CI gotcha worth not rediscovering
 
 **The github MCP server's `get_check_runs` served `in_progress` for about forty minutes after the
 jobs had finished.** The e2e matrix completed at 06:30:31–06:30:55 — around two and a half minutes,
@@ -115,11 +172,13 @@ Both found because a check was made stricter. This is the argument for `retries:
 ## Waiting on the user
 
 - **#71 — what a non-positive `h0` should do** in the Jackson–Mudholkar SPE limit. Gasoline's `h0` is −0.0190; our kernel uses it as computed, `mdatools` clamps it to 0.001. The divergence is recorded and proven; what the kernel *should* do is a specification decision, not a coding one.
-- **GitHub default branch is still `main`.** Any pull request opened without an explicit base targets the release line. Change it under Settings → Branches; it cannot be changed from here with the current tools. (The phase-end pull request is the one case where that default is what is wanted.)
+- **GitHub default branch is still `main`.** Any pull request opened without an explicit base targets the release line. Change it under Settings → Branches; it cannot be changed from here with the current tools. Every feature pull request must set `dev` as its base explicitly.
 - **Parity against a commercial package** — `PROPOSAL.md` §19 Q4 is unresolved. The EULA is not public; a licence would have to be confirmed and written permission sought before publishing a comparison.
 - Remaining open questions are in `PROPOSAL.md` §19 — team and pace, funding intent, project name.
 
 **Answered and recorded, so they are not re-opened:** whether Phase 1.1 warranted its own release (yes — `v0.2.0`, 2026-08-26), `MSC(reference="supplied")` (removed from the enum in #82, 2026-08-27), whether the import and empty-project screens needed artboards first (no), and where 1.2's persistence lands (project directory in 1.2, SQLite in 1.3).
+
+Phase 1.3's four database decisions were taken in 2026-08-23's session and recorded in `docs/decisions/0002-phase-1-shape.md`; all four were implemented as written and none was departed from, so that record stands rather than being superseded.
 
 Five more were settled on 2026-08-29, four of them in `docs/decisions/` so they are not re-argued from preference:
 
@@ -215,7 +274,7 @@ From #42–#50 (the frontend), which 1.3 must not disturb:
 - **No fixture file is imported by the frontend.** Everything arrives over HTTP. That is what let 1.2 swap handlers behind unchanged URLs.
 - **The tab model is a pure reducer** in `src/shell/tabs.ts`: one transient tab, replaced by the next preview, pinned by a double click. New screens open through it and do not need their own routing.
 - **Plotly is driven from the tokens**, read off the DOM at draw time so a theme switch repaints. `src/plot/theme.ts` is the bridge; a plot that keeps Plotly's defaults is how this drifts from the artboards.
-- **The canvas is React Flow with a custom node**, and its layout coordinates come from `pipeline_state.json`, outside `Pipeline.content_hash()`. Moving a node must not change the science — and must not invalidate an executor cache entry either.
+- **The canvas is React Flow with a custom node**, and its layout coordinates come from the `pipeline_layout` table, outside `Pipeline.content_hash()`. Moving a node must not change the science — and must not invalidate an executor cache entry either.
 
 From #41 and #53 (the fixtures and the stub server), which are the contract 1.2 honoured:
 

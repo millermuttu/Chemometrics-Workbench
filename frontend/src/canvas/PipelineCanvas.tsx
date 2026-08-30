@@ -1,11 +1,12 @@
 import { Background, BackgroundVariant, ReactFlow, type Node } from "@xyflow/react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { ApiError, api } from "@/api/client";
 import type { PipelineNode } from "@/api/queries";
 import { usePipeline, usePipelineState, useSavePipeline } from "@/api/queries";
 import { NodeCard } from "@/canvas/NodeCard";
 import { StepList } from "@/canvas/StepList";
+import { connect, connectionRefusal, remove } from "@/canvas/edits";
 import { draftGraph, toEdges, toNodes, type DraftStep } from "@/canvas/graph";
 import { nodeLabel } from "@/shell/Sidebar";
 
@@ -13,8 +14,19 @@ import "@xyflow/react/dist/style.css";
 
 /** The signature screen: the pipeline as a graph.
  *
- * Read-only in 1.1 - it renders and it selects, and the pipeline is built
- * through the step list beside it. Dragging nodes around is #51.
+ * Editable since #51: a branch is dragged from a node's output port, and a
+ * node is removed with its children reconnected to its parent. The step list
+ * beside it stays - appending a linear chain is what it is good at, and
+ * DESIGN_BRIEF.md section 5 wants the *branch* to be the direct-manipulation
+ * case.
+ *
+ * The rules live in `edits.ts` and are enforced **during the drag**: a
+ * connection that would make a cycle will not drop, rather than being refused
+ * by the server after a save. Nothing here computes a graph rule of its own.
+ *
+ * Edits are held locally until Save, which is the same whole-list `PUT` the
+ * step list uses (#108). Node positions are still not draggable: layout lives
+ * in `pipeline_state.json` and nothing writes it back yet.
  */
 
 const NODE_TYPES = { workbench: NodeCard };
@@ -64,15 +76,30 @@ export function PipelineCanvas({ onOpenNode }: { onOpenNode: (id: string, label:
   const save = useSavePipeline();
   const [steps, setSteps] = useState<DraftStep[]>([]);
   const [validation, setValidation] = useState<string | null>(null);
+  /** The edited graph, or null while it still matches what the server holds. */
+  const [edited, setEdited] = useState<PipelineNode[] | null>(null);
+  // React Flow asks whether a connection is valid many times during one drag
+  // and never reports the drop it refused. The reason for the last refusal is
+  // kept here so the end of the drag can say why nothing happened.
+  const refusal = useRef<string | null>(null);
 
-  const { nodes, edges } = useMemo(() => {
+  // Memoised because it feeds the graph's useMemo: a fresh [] every render
+  // would rebuild the whole graph on every keystroke elsewhere in the tab.
+  const nodes = useMemo(
+    () => edited ?? pipeline.data?.nodes ?? [],
+    [edited, pipeline.data],
+  );
+
+  const graph = useMemo(() => {
     if (!pipeline.data) return { nodes: [], edges: [] };
     const style = getComputedStyle(document.documentElement);
     const token = (name: string) => style.getPropertyValue(`--${name}`).trim() || "currentColor";
     const committed = {
-      nodes: toNodes(pipeline.data, state.data, nodeLabel),
+      nodes: toNodes({ ...pipeline.data, nodes }, state.data, nodeLabel, (id) =>
+        edit(() => remove(nodes, id)),
+      ),
       edges: toEdges(
-        pipeline.data,
+        { ...pipeline.data, nodes },
         state.data,
         { rule: token("rule"), accent: token("accent"), stale: token("stale") },
         usesMotion(),
@@ -81,19 +108,47 @@ export function PipelineCanvas({ onOpenNode }: { onOpenNode: (id: string, label:
     const lowest = Math.max(...committed.nodes.map((node) => node.position.y), 0);
     const draft = draftGraph(steps, { x: 40, y: lowest + 150 });
     return { nodes: [...committed.nodes, ...draft.nodes], edges: [...committed.edges, ...draft.edges] };
-  }, [pipeline.data, state.data, steps]);
+  }, [pipeline.data, state.data, steps, nodes]);
+
+  /** An edit that a rule refuses says so, rather than throwing into the void. */
+  const edit = (apply: () => PipelineNode[]) => {
+    try {
+      setEdited(apply());
+      setValidation(null);
+    } catch (error) {
+      setValidation(error instanceof Error ? error.message : "That edit is not allowed.");
+    }
+  };
 
   return (
     <div className="pane" style={{ flexDirection: "row" }}>
       <div style={{ flex: 1, minWidth: 0, background: "var(--surface)" }} data-testid="pipeline-canvas">
         <ReactFlow
-          nodes={nodes}
-          edges={edges}
+          nodes={graph.nodes}
+          edges={graph.edges}
           nodeTypes={NODE_TYPES}
           fitView
           nodesDraggable={false}
-          nodesConnectable={false}
+          nodesConnectable
           proOptions={{ hideAttribution: true }}
+          isValidConnection={(connection) => {
+            const { source, target } = connection;
+            if (!source || !target) return false;
+            // A draft belongs to the step list, which is where it is edited.
+            if (source.startsWith("draft-") || target.startsWith("draft-")) {
+              refusal.current = "A draft step is edited in the list until it is saved.";
+              return false;
+            }
+            refusal.current = connectionRefusal(nodes, source, target);
+            return refusal.current === null;
+          }}
+          onConnect={({ source, target }) => {
+            if (source && target) edit(() => connect(nodes, source, target));
+          }}
+          onConnectEnd={() => {
+            if (refusal.current) setValidation(refusal.current);
+            refusal.current = null;
+          }}
           onNodeClick={(_, node: Node) => {
             // Selecting a node focuses its tab - the mechanism that ties the
             // graph to the pages.
@@ -109,12 +164,15 @@ export function PipelineCanvas({ onOpenNode }: { onOpenNode: (id: string, label:
       <StepList
         steps={steps}
         saving={save.isPending}
+        edited={edited !== null}
         onSave={async () => {
           if (!pipeline.data) return;
           try {
-            await save.mutateAsync(withDrafts(pipeline.data.nodes, steps));
-            // The drafts are nodes now; keeping them would draw each one twice.
+            await save.mutateAsync(withDrafts(nodes, steps));
+            // The drafts are nodes now; keeping them would draw each one twice,
+            // and the edits are what the server holds.
             setSteps([]);
+            setEdited(null);
             setValidation(null);
           } catch (error) {
             setValidation(error instanceof ApiError ? error.message : "Could not save.");

@@ -19,6 +19,10 @@ export interface NodeData extends Record<string, unknown> {
   state: NodeState;
   progress?: number;
   draft?: boolean;
+  /** Removing a node happens on the node (#51): clicking one opens its tab,
+   * so a control in the side panel is replaced by the tab before it can be
+   * used. Absent on a draft and on the source, which cannot be removed. */
+  onRemove?: () => void;
 }
 
 export interface FlowNode {
@@ -80,6 +84,7 @@ export function toNodes(
   pipeline: Pipeline,
   state: PipelineState | undefined,
   labelOf: (node: PipelineNode) => string,
+  onRemove?: (id: string) => void,
 ): FlowNode[] {
   return pipeline.nodes.map((node) => {
     const status = nodeStateOf(node.id, state);
@@ -94,6 +99,8 @@ export function toNodes(
         state: status.state,
         progress: status.progress,
         footer: status.footer,
+        onRemove:
+          onRemove && node.type !== "source" ? () => onRemove(node.id) : undefined,
       },
     };
   });
