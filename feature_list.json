@@ -76,14 +76,14 @@
         "project-through-the-database"
       ],
       "user_visible_behavior": "Re-running an unchanged pipeline still recomputes nothing, and editing one node still recomputes only that node and its descendants - with no JSON index left in the project.",
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "tests/test_executor.py - a second run recomputes nothing; an edit recomputes the node and its descendants only; an edit below a split leaves the branch above.",
         "tests/test_executor.py - a pruned .npy is recomputed rather than refused; use_cache=False neither reads nor writes the index.",
         "A cache entry naming a missing array costs a recomputation, which is what the corrupt-cache.json test becomes."
       ],
-      "evidence": "",
-      "notes": "cache.json is a map from a node's cache key to the array paths it produced - pure references, which is what the database is for. The ponytail note at executor.py:908-910 (the index only grows, no mark-and-sweep) stays true and stays marked. One transaction per run rather than per node only if a measurement says the per-node cost matters."
+      "evidence": "2026-08-29. `uv run pytest` - 754 passed, 1 skipped. The executor's cache claims pass in table form: a second run recomputes nothing, an edit recomputes the node and its descendants only, an edit below a split leaves the branch above, a pruned .npy is recomputed rather than refused, and use_cache=False leaves read_cache_index empty. The corrupt-cache.json test became 'an index entry naming a missing array costs a recomputation', which is the failure that can still happen now the index is rows. Measured on a project seeded by v0.3.0's own code: its cache.json held 10 entries, the table held the identical 10 after opening, and a run on the migrated project reused all 10 and recomputed 0. `cd frontend && npx playwright test` - 38 passed. ruff, format and mypy clean over 48 files.",
+      "notes": "cache.json is a map from a node's cache key to the array paths it produced - pure references, which is what the database is for. The ponytail note at executor.py:908-910 (the index only grows, no mark-and-sweep) stays true and stays marked. One transaction per run rather than per node only if a measurement says the per-node cost matters. Implemented 2026-08-29. The accessors live in project.py as read_cache_index and write_cache_index, beside the other store functions, rather than in executor.py reaching into the database itself - the executor has always gone through project.py for storage. cache.json is also read across by #121's import: without it every node in a migrated project would recompute, which is correct but a pipeline's worth of work to arrive back where the project already was."
     },
     {
       "id": "two-processes-one-directory",
