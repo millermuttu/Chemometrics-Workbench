@@ -62,6 +62,7 @@ from chemometrics_workbench.models import (
 
 __all__ = [
     "ARRAYS_DIR",
+    "CACHE_FILE",
     "DATASETS_FILE",
     "EXPERIMENT_FILE",
     "LAYOUT_FILE",
@@ -78,11 +79,13 @@ __all__ = [
     "known_projects",
     "open_project",
     "read_array",
+    "read_cache_index",
     "read_datasets",
     "read_experiment",
     "read_layout",
     "read_pipeline",
     "write_array",
+    "write_cache_index",
     "write_experiment",
     "write_json",
     "write_layout",
@@ -96,6 +99,7 @@ DATASETS_FILE = "datasets.json"
 PIPELINE_FILE = "pipeline.json"
 LAYOUT_FILE = "pipeline_layout.json"
 EXPERIMENT_FILE = "experiment.json"
+CACHE_FILE = "cache.json"
 
 ARRAYS_DIR = "arrays"
 REGISTRY_FILE = "projects.json"
@@ -230,6 +234,7 @@ def _import_json_project(path: Path) -> None:
         ) from error
 
     datasets = _json_document(path / DATASETS_FILE) or []
+    cache_record = _json_document(path / CACHE_FILE)
     pipeline_record = _json_document(path / PIPELINE_FILE)
     layout_record = _json_document(path / LAYOUT_FILE)
     experiment_record = _json_document(path / EXPERIMENT_FILE)
@@ -298,6 +303,18 @@ def _import_json_project(path: Path) -> None:
                         document=json.dumps(layout_record),
                     )
                 )
+        # The executor's index comes too. Without it every node in a migrated
+        # project would recompute on the next run - correct, because the arrays
+        # are content-addressed and would be rewritten identically, but a
+        # pipeline's worth of work to arrive back where it started.
+        if isinstance(cache_record, dict):
+            for key, stored in cache_record.items():
+                if isinstance(key, str) and isinstance(stored, list):
+                    session.add(
+                        db.CacheEntryRow(
+                            key=key, document=json.dumps([str(entry) for entry in stored])
+                        )
+                    )
         if experiment is not None:
             session.add(
                 db.ExperimentRow(
@@ -579,6 +596,42 @@ def write_layout(directory: str | os.PathLike[str], layout: dict[NodeId, dict[st
                 document=json.dumps(layout),
             )
         )
+        session.commit()
+
+
+# --- The executor's cache index -------------------------------------------
+
+
+def read_cache_index(directory: str | os.PathLike[str]) -> dict[str, list[str]]:
+    """Every cache key this project holds, against the arrays it produced.
+
+    References, which is why it is in the database rather than beside the
+    arrays it names: `PROPOSAL.md` §11 keeps contents in files and everything
+    that points at them here. One list per key, one entry per fold below a
+    split.
+    """
+    path = Path(directory)
+    with _session(path) as session:
+        rows = session.scalars(select(db.CacheEntryRow)).all()
+    index: dict[str, list[str]] = {}
+    for row in rows:
+        stored = json.loads(row.document)
+        if isinstance(stored, list):
+            index[row.key] = [str(entry) for entry in stored]
+    return index
+
+
+def write_cache_index(directory: str | os.PathLike[str], index: dict[str, list[str]]) -> None:
+    """Record every entry in `index`, replacing any it already holds.
+
+    ponytail: the index only grows - an edited-away node's entry stays, and so
+    does its array. Pruning wants a mark-and-sweep against the pipelines in the
+    project, which needs a list of them to sweep against.
+    """
+    path = Path(directory)
+    with _session(path) as session:
+        for key, stored in index.items():
+            session.merge(db.CacheEntryRow(key=key, document=json.dumps(stored)))
         session.commit()
 
 

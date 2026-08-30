@@ -24,7 +24,6 @@ from chemometrics_workbench import preprocessing, validation
 from chemometrics_workbench.datasets import load_tecator
 from chemometrics_workbench.decomposition import PCA
 from chemometrics_workbench.executor import (
-    CACHE_FILE,
     ExecutorError,
     execute,
     node_keys,
@@ -49,7 +48,12 @@ from chemometrics_workbench.models import (
     SplitNode,
     TrainTestSplit,
 )
-from chemometrics_workbench.project import create_project, write_array
+from chemometrics_workbench.project import (
+    create_project,
+    read_cache_index,
+    write_array,
+    write_cache_index,
+)
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "contract"
 
@@ -398,14 +402,21 @@ def test_a_pruned_array_is_recomputed_rather_than_refused(
     np.testing.assert_allclose(run.displays["centre_a"], first.displays["centre_a"])
 
 
-def test_a_corrupt_index_costs_a_recomputation_and_nothing_more(
+def test_an_index_entry_naming_a_missing_array_costs_a_recomputation(
     project: tuple[Path, DatasetVersion],
 ) -> None:
+    """What a corrupt `cache.json` used to cost, in the form the table has.
+
+    The index cannot be malformed any more - it is rows, and a row that does
+    not parse as a list is skipped - so the failure worth testing is the one
+    that can still happen: an entry that points at an array nobody can read.
+    """
     directory, version = project
     pipeline = fixture_pipeline(version.version_id)
     first = execute(directory, pipeline, version)
 
-    (directory / CACHE_FILE).write_text("{ not json", encoding="utf-8")
+    index = read_cache_index(directory)
+    write_cache_index(directory, {key: ["arrays/gone.npy"] for key in index})
     run = execute(directory, pipeline, version)
 
     assert run.reused == []
@@ -419,7 +430,7 @@ def test_use_cache_false_neither_reads_nor_writes_the_index(
     run = execute(directory, fixture_pipeline(version.version_id), version, use_cache=False)
 
     assert run.reused == []
-    assert not (directory / CACHE_FILE).exists()
+    assert read_cache_index(directory) == {}
 
 
 # --------------------------------------------------------------------------

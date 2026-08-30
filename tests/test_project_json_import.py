@@ -34,6 +34,7 @@ from chemometrics_workbench.project import (
     ProjectError,
     is_project,
     open_project,
+    read_cache_index,
     read_datasets,
     read_experiment,
     read_layout,
@@ -111,6 +112,9 @@ def write_json_project(path: Path) -> Written:
     (path / "pipeline.json").write_text(pipeline.model_dump_json(), encoding="utf-8")
     (path / "pipeline_layout.json").write_text(json.dumps(layout), encoding="utf-8")
     (path / "experiment.json").write_text(experiment.model_dump_json(), encoding="utf-8")
+    (path / "cache.json").write_text(
+        json.dumps({"sha256:" + "9" * 64: ["arrays/" + "1" * 64 + ".npy"]}), encoding="utf-8"
+    )
 
     return Written(project, dataset, version, pipeline, layout, experiment)
 
@@ -136,6 +140,18 @@ def test_everything_the_files_held_reads_back(tmp_path: Path) -> None:
     assert read_pipeline(root) == held.pipeline
     assert read_layout(root) == held.layout
     assert read_experiment(root) == held.experiment
+
+
+def test_the_executors_cache_comes_across_so_nothing_recomputes(tmp_path: Path) -> None:
+    # Recomputing would be correct - the arrays are content-addressed and
+    # would be rewritten identically - but it is a pipeline's worth of work to
+    # arrive back where the project already was.
+    root = tmp_path / "corn"
+    write_json_project(root)
+
+    open_project(root)
+
+    assert read_cache_index(root) == {"sha256:" + "9" * 64: ["arrays/" + "1" * 64 + ".npy"]}
 
 
 def test_the_files_are_left_where_they_are(tmp_path: Path) -> None:
