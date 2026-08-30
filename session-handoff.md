@@ -8,8 +8,8 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 ## Where things stand
 
-**Phase 1 is complete.** Phase 0 is tagged `v0.1.0`, 1.1 `v0.2.0`, 1.2 `v0.3.0`, and **1.3
-`v0.4.0`** — released 2026-08-30.
+**Phase 1 is complete and released.** Phase 0 is tagged `v0.1.0`, 1.1 `v0.2.0`, 1.2 `v0.3.0`, and
+**1.3 `v0.4.0`** — merged into `main` and tagged on 2026-08-30 (`2277b5b`).
 
 A project directory is now `project.db`, `arrays/` and `results/`, with **no JSON index anywhere in
 it**. A killed server restarts onto its datasets, its pipeline, its layout and its last experiment,
@@ -22,12 +22,26 @@ Phase 1.3's list is `docs/phase-1-3/feature_list.json`, six of six passing. The 
 | --- | --- | --- |
 | A branch is dragged on the canvas, and a node can be removed | #51 | passing |
 | Duplicate a subgraph, and compare two terminal nodes in one tab | #51 | not started |
+| Each model-to-row mapping is written once | #131 | passing |
 
 ## Current work
 
 **Nothing is `in_progress`.** `dev` and `main` are level, `main` is tagged `v0.4.0`, the tree is
 clean, no branches remain and no pull requests are open. Merged on 2026-08-29 and 30: #125 (#119),
-#126 (#120), #127 (#121), #128 (#122), #129 (#123), and the phase's own merge into `main`.
+#126 (#120), #127 (#121), #128 (#122), #129 (#123), #130 (#124), #132 (#131 — the checkpoint
+cleanup), and #133, the phase into `main`.
+
+**One cleanup came out of the checkpoint** (#131, merged as #132): six model-to-row mappings were
+stated twice, once on the normal path and once in the import that reads a pre-database directory.
+The copy that would be forgotten when a column is added is the import path, which has one test and
+no user until someone opens an old project. One builder per row now. Two smaller things went with
+it — a test asserting a file that is no longer written either way, so it could not fail; and the
+server's lifespan leaving every SQLite engine holding its file, which is what locks a file on
+Windows.
+
+An unused-export scan flagged fourteen names and **none was deleted**: each is used inside its own
+module or is the type a caller receives. Worth not repeating — the scan's output is not a list of
+things to remove.
 
 ## Next action
 

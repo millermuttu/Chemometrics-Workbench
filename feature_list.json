@@ -41,6 +41,22 @@
       ],
       "evidence": "",
       "notes": "Items 2 and 3 of #51, deliberately left for a second pass. The comparison tab is a screen with no artboard behind it and no metrics to compare until PLS has a kernel in the executor (#88's subject), which is what makes 'compare two models' worth looking at. DESIGN_BRIEF.md section 5 is the reference."
+    },
+    {
+      "id": "row-mapping-said-once",
+      "priority": 0,
+      "area": "backend",
+      "issue": 131,
+      "title": "Each model-to-row mapping is written once, not twice",
+      "depends_on": [],
+      "user_visible_behavior": "Nothing changes for the user. A column added to the schema reaches both the normal path and the import that reads a pre-database directory, because there is one place to add it.",
+      "status": "passing",
+      "verification": [
+        "uv run pytest - unchanged in count and content, the import path's tests included.",
+        "cd frontend && npx playwright test - 38 passed."
+      ],
+      "evidence": "2026-08-30. `uv run pytest` - 758 passed, 1 skipped, the same suite as before the change. `cd frontend && npx playwright test` - 38 passed. ruff, format and mypy clean over 49 files. project.py is 38 lines shorter and the seven remaining db.*Row( constructions are the seven builders. Merged as #132.",
+      "notes": "Cleanup found at the Phase 1.3 checkpoint, filed as #131 rather than folded into a feature branch. Six mappings were stated twice - once on the normal path, once in _import_json_project - and the copy that would be forgotten when a column is added is the import path, which has one test and no user until someone opens an old project. Two smaller things went with it: a test asserting datasets.json does not exist, which could no longer fail because nothing writes that file; and the server's lifespan leaving every SQLite engine holding its file, which costs nothing on process exit and is what locks a file on Windows. An unused-export scan flagged fourteen names - executor.NodeOutput, checks.PipelineWarning, project.PROJECT_FILE among them - and none was deleted: each is used inside its own module or is the type a caller receives, so removing them would be churn dressed as cleanup."
     }
   ]
 }
