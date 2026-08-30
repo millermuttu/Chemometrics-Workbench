@@ -8,14 +8,15 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 ## Where things stand
 
-**Phase 0 is tagged `v0.1.0`, Phase 1.1 `v0.2.0`, and Phase 1.2 `v0.3.0` — released 2026-08-29.**
+**Phase 1 is complete.** Phase 0 is tagged `v0.1.0`, 1.1 `v0.2.0`, 1.2 `v0.3.0`, and **1.3
+`v0.4.0`** — released 2026-08-30.
 
-Phase 1.2 closed with twenty-one features of twenty-one passing; its list is now
-`docs/phase-1-2/feature_list.json`, kept as its record. The live `feature_list.json` is **Phase 2's**.
+A project directory is now `project.db`, `arrays/` and `results/`, with **no JSON index anywhere in
+it**. A killed server restarts onto its datasets, its pipeline, its layout and its last experiment,
+and every node reports `complete` from the database's own cache rather than recomputing.
 
-**Phase 1.3 — SQLite in each project directory, and the two halves joined — is unstarted**, and is
-still the next phase in `PROPOSAL.md`'s order. Phase 2's first feature was pulled ahead of it at the
-user's direction, not instead of it.
+Phase 1.3's list is `docs/phase-1-3/feature_list.json`, six of six passing. The live
+`feature_list.json` is **Phase 2's** again.
 
 | Feature | Issue | Status |
 | --- | --- | --- |
@@ -24,20 +25,54 @@ user's direction, not instead of it.
 
 ## Current work
 
-**Nothing is `in_progress`.** `dev` is at `c1e09ba`, `main` at `c2a51e2` and tagged `v0.3.0`, the
-tree is clean, no branches remain and no pull requests are open. Merged on 2026-08-29: #111 (#108),
-#112 (#90), #114 (#103), #113 (#97), #115 (#101), #116 (#109), #117 (the phase into `main`),
-#118 (#51's first half).
+**Nothing is `in_progress`.** `dev` and `main` are level, `main` is tagged `v0.4.0`, the tree is
+clean, no branches remain and no pull requests are open. Merged on 2026-08-29 and 30: #125 (#119),
+#126 (#120), #127 (#121), #128 (#122), #129 (#123), and the phase's own merge into `main`.
 
 ## Next action
 
-Two things are open, and **which comes first is a decision, not a default**:
+**The rest of #51**, which is what the live list holds: duplicating a subgraph, and a comparison tab
+for two terminal nodes. The comparison tab has no artboard behind it and little to compare until PLS
+has a kernel in the executor — `Run.pending_estimators` names the estimator nodes the executor did
+not fit, and what a PLS result carries is #88's subject. That ordering is worth deciding before the
+branch is cut.
 
-- **Phase 1.3**, which is where `PROPOSAL.md` says the project goes next. It has no
-  `feature_list.json` yet — one has to be written before a branch is cut.
-- **The rest of #51** — duplicating a subgraph, and a comparison tab for two terminal nodes. The
-  entry is in the live list. The comparison tab has no artboard behind it and little to compare
-  until PLS has a kernel in the executor, which is the argument for letting 1.3 go first.
+Phase 2's list has no exit criterion yet. It needs one written before it is more than two entries.
+
+## What Phase 1.3 settled
+
+**The storage split is now enforced by where things are, not by intention.** `PROPOSAL.md` §11 —
+the database holds references, files hold contents — decides every case: the five JSON indexes and
+the executor's `cache.json` became tables, while `arrays/<sha256>.npy` and `results/<key>.json`
+stayed files because they are numbers rather than pointers.
+
+Six things worth not rediscovering:
+
+- **One database per project directory, `project.db`.** A central one would stay behind when the
+  directory is zipped and sent to a colleague, which `test_project.py` still asserts by zipping,
+  extracting elsewhere, deleting the original and opening it.
+- **Tables hold identity, the queried columns, and the model's own JSON in a `document` column.**
+  `models.py` is the schema of record. Do not mirror it into columns — `0002-phase-1-shape.md:63`.
+- **No Alembic.** `create_all` plus a `PRAGMA user_version` stamp, and a database written by a newer
+  build is refused with both numbers in the message.
+- **Layout is its own table**, so writing a position touches a different row than the recipe. Moving
+  a node still cannot change a content hash or invalidate a cache entry.
+- **A directory written before the database is read into one on the way past** (#121), cache index
+  included — without that, every node in a migrated project would recompute. Measured against a
+  project seeded by `v0.3.0`'s own code: ten entries in, ten out, ten nodes reused, none recomputed.
+- **Two instances over one directory is defined**: WAL, `foreign_keys=ON`, `busy_timeout=5000`. A
+  reader is never blocked; a writer that cannot get its turn is told *which project* is busy rather
+  than `database is locked`. `_session` converts database failures on the way **out** as well as at
+  open, because a commit that times out would otherwise be a stack trace at the HTTP layer.
+
+**Jobs are still in memory, deliberately.** `jobs.py:31-36` argues that a half-persisted job table —
+surviving a restart with no worker behind it, reporting `running` for ever — is worse than one that
+admits it is gone. Persisting them needs a worker that can be re-attached, which is a design, not a
+table.
+
+**SQLAlchemy insert ordering bit once and will again**: with no declared `relationship()` between
+two mappers, the unit of work attempted the `pipeline_layout` insert before the `pipeline` it points
+at and the foreign key refused it. One `session.flush()` between them, and the comment saying why.
 
 ## What #51's first half settled
 
@@ -61,7 +96,7 @@ Three more, each of which cost a cycle:
 - **An edge is an SVG `<g>` with no layout box, so Playwright calls every one of them hidden.**
   Assert `toHaveCount`, never `toBeVisible`, on `.react-flow__edge`.
 
-**Node positions are still not draggable.** Layout lives in `pipeline_state.json`, outside
+**Node positions are still not draggable.** Layout lives in its own table, outside
 `content_hash()`, and nothing writes it back — moving a node is a separate change with a server side
 to it.
 
@@ -142,6 +177,8 @@ Both found because a check was made stricter. This is the argument for `retries:
 - Remaining open questions are in `PROPOSAL.md` §19 — team and pace, funding intent, project name.
 
 **Answered and recorded, so they are not re-opened:** whether Phase 1.1 warranted its own release (yes — `v0.2.0`, 2026-08-26), `MSC(reference="supplied")` (removed from the enum in #82, 2026-08-27), whether the import and empty-project screens needed artboards first (no), and where 1.2's persistence lands (project directory in 1.2, SQLite in 1.3).
+
+Phase 1.3's four database decisions were taken in 2026-08-23's session and recorded in `docs/decisions/0002-phase-1-shape.md`; all four were implemented as written and none was departed from, so that record stands rather than being superseded.
 
 Five more were settled on 2026-08-29, four of them in `docs/decisions/` so they are not re-argued from preference:
 
@@ -237,7 +274,7 @@ From #42–#50 (the frontend), which 1.3 must not disturb:
 - **No fixture file is imported by the frontend.** Everything arrives over HTTP. That is what let 1.2 swap handlers behind unchanged URLs.
 - **The tab model is a pure reducer** in `src/shell/tabs.ts`: one transient tab, replaced by the next preview, pinned by a double click. New screens open through it and do not need their own routing.
 - **Plotly is driven from the tokens**, read off the DOM at draw time so a theme switch repaints. `src/plot/theme.ts` is the bridge; a plot that keeps Plotly's defaults is how this drifts from the artboards.
-- **The canvas is React Flow with a custom node**, and its layout coordinates come from `pipeline_state.json`, outside `Pipeline.content_hash()`. Moving a node must not change the science — and must not invalidate an executor cache entry either.
+- **The canvas is React Flow with a custom node**, and its layout coordinates come from the `pipeline_layout` table, outside `Pipeline.content_hash()`. Moving a node must not change the science — and must not invalidate an executor cache entry either.
 
 From #41 and #53 (the fixtures and the stub server), which are the contract 1.2 honoured:
 

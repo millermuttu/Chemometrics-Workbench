@@ -58,6 +58,8 @@ Roughly one module. The fixtures are generated either way ([#41](https://github.
 
 Recorded here because they were taken in the same session and will otherwise be re-argued from preference. Neither rests on measurement yet; when one does, it earns its own numbered record.
 
+**All four database decisions below were implemented as written in Phase 1.3** (#119–#124, tagged `v0.4.0`), and none of them was departed from — so there is no later record to read instead of this one. `src/chemometrics_workbench/db.py` is the database per project directory, its tables carry identity plus queried columns plus a `document`, there is no Alembic, and the float32 store boundary is where #77 put it. What 1.3 added rather than changed: a directory written before the database is read into one on the way past (#121), and the executor's `cache.json` — a map of references — joined the database rather than staying a file (#122).
+
 **One SQLite database per project, inside the project directory** — `<project_dir>/project.db`. `PROPOSAL.md` §11 requires that a project directory can be zipped and sent to a colleague; a central application-level database breaks that, because the metadata would stay behind. Known project paths live in a small JSON registry in the user's config directory, not in a second database.
 
 **Tables hold identity, the columns that are actually queried, and the Pydantic model as JSON.** `models.py` is the schema of record and its invariants are tested. Mirroring twenty Pydantic classes into SQLAlchemy columns creates two sources of truth that drift.

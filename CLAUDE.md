@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-**Phase 0 is tagged `v0.1.0`, Phase 1.1 `v0.2.0`, and Phase 1.2 `v0.3.0`.** The kernels, the parity programme and the reproducibility schema are green in CI, and the React shell walks its screens over the **real** backend: readers, the array store, the executor, real jobs and the HTTP surface, with `stub/` deleted. What does not exist yet is the database — **Phase 1.3 is unstarted**: SQLite in each project directory, and the two halves joined. A restart still loses the project list, not the data.
+**Phase 1 is complete: Phase 0 is tagged `v0.1.0`, 1.1 `v0.2.0`, 1.2 `v0.3.0` and 1.3 `v0.4.0`.** The kernels, the parity programme and the reproducibility schema are green in CI, and the React shell walks its screens over the real backend: readers, the array store, the executor, real jobs, the HTTP surface, and **SQLite in each project directory**. A project directory is now `project.db`, `arrays/` and `results/` — no JSON index anywhere in it — and a killed server restarts onto its datasets, its pipeline, its layout and its last experiment. Phase 2 is next.
 
 - `PROPOSAL.md` — the specification. Read it before proposing or writing anything.
-- `feature_list.json` — the **live** task list. It covers Phase 2, which was started ahead of Phase 1.3 at the user's direction (#51); Phase 1.3 is still the next phase in `PROPOSAL.md`'s order and has no list yet.
-- `docs/phase-0/feature_list.json`, `docs/phase-1-1/feature_list.json`, `docs/phase-1-2/feature_list.json` — the completed lists, kept as their record. Do not add to them.
+- `feature_list.json` — the **live** task list. It covers Phase 2, whose first feature (#51's branch drag and node removal) was built ahead of 1.3 and whose second half is still open.
+- `docs/phase-0/`, `docs/phase-1-1/`, `docs/phase-1-2/`, `docs/phase-1-3/` — the completed lists, kept as their record. Do not add to them.
 - `design/DESIGN_BRIEF.md` — screens, states and plot rules for the UI.
 - `src/chemometrics_workbench/` — the kernels: preprocessing, PCA, PLS, validation, reference datasets.
 - `src/chemometrics_workbench/models.py` — the Pydantic schema for the reproducibility model; its invariants are exercised by `tests/test_models.py`.
@@ -22,7 +22,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **1.1 — walking skeleton, done and tagged `v0.2.0`.** The React shell and the core screens over a **stub server**: FastAPI on `127.0.0.1`, token-authenticated, serving fixtures generated from the real kernels at the endpoint paths 1.2 will implement. Jobs advance and can be cancelled and made to fail; there is no executor, no database and no persistence behind them. The frontend talks HTTP from its first commit, so 1.2 replaces handlers behind unchanged URLs rather than integrating in one moment.
 - **1.2 — backend, done and tagged `v0.3.0`.** The project directory and the array store, the CSV/TXT, XLSX and JCAMP-DX readers, the pipeline executor, real jobs and the HTTP surface, replacing the stub's handlers behind unchanged URLs. It ended when #50's walkthrough passed against the real backend on all three platforms with `stub/` deleted. **SQLite was not part of it** — a restart loses the project list, not the data.
-- **1.3 — database and integration, unstarted.** SQLite in each project directory, and the two halves joined.
+- **1.3 — database and integration, done and tagged `v0.4.0`.** SQLite in each project directory: `project.db` replaced `project.json`, `datasets.json`, `pipeline.json`, `pipeline_layout.json`, `experiment.json` and the executor's `cache.json`. Arrays and estimator results stay files, because the database holds references and never contents. A directory written before it is read into one on the way past.
 
 Everything below summarises decisions recorded in those documents that are easy to violate accidentally.
 
@@ -54,7 +54,7 @@ The recorded stack; deviating from it is a decision worth surfacing. The install
 
 - **`scikit-learn` and `chemotools` are development dependencies, not runtime ones**, and must not be added to `[project.dependencies]`. They are the open reference implementations the parity fixtures are generated against; a kernel that imported either would be a wrapper around the thing we claim parity with. `chemotools` was evaluated in Phase 0 (#13) and rejected for the runtime for that reason plus its weight — it requires scikit-learn and installs 20 MB, 17 MB of it bundled example data. It is adopted as a reference for SNV, MSC and the baselines, which have no other. The evidence is in `docs/decisions/0001-chemotools.md`.
 - **Frontend:** shadcn/ui is the component library — recorded, not yet installed.
-- **Data:** SQLite via SQLAlchemy for metadata, pipelines, experiments, metrics and lineage. Files (datasets, processed arrays, model artifacts, reports) live in the project directory on disk; the database stores references, never contents.
+- **Data:** SQLite via SQLAlchemy for metadata, pipelines, experiments, metrics and lineage — **installed, in `src/chemometrics_workbench/db.py`**, one database per project directory at `project.db`. Files (datasets, processed arrays, model artifacts, reports) live in the project directory on disk; the database stores references, never contents. The schema stays engine-portable, there is no Alembic (`create_all` plus a `PRAGMA user_version` guard), and jobs are deliberately **not** persisted.
 - **Packaging:** PyInstaller, three-platform GitHub Actions matrix.
 
 Docker is a developer-environment tool only. End users never see a container.
