@@ -51,6 +51,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
 from chemometrics_workbench.api import JOBS, router
+from chemometrics_workbench.db import dispose_all
 
 __all__ = ["BUNDLE", "TOKEN", "app", "main"]
 
@@ -77,9 +78,16 @@ def require_token(authorization: Annotated[str | None, Header()] = None) -> None
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    """Ask every unfinished run to stop before the process goes."""
+    """Ask every unfinished run to stop before the process goes, and let go of
+    the database.
+
+    Disposing matters least on the way out of a process and most on Windows,
+    where an undisposed handle is what keeps a file locked after the program
+    that held it has gone.
+    """
     yield
     JOBS.shutdown(wait=False)
+    dispose_all()
 
 
 app = FastAPI(title="Chemometrics Workbench", lifespan=lifespan)

@@ -147,14 +147,7 @@ def create_project(directory: str | os.PathLike[str], name: str, description: st
 
     project = Project(name=name, description=description, directory=str(path.resolve()))
     with _session(path, create=True) as session:
-        session.add(
-            db.ProjectRow(
-                project_id=str(project.project_id),
-                name=project.name,
-                created_at=project.created_at.isoformat(),
-                document=_document(project),
-            )
-        )
+        session.add(_project_row(project))
         session.commit()
     _remember(path, project)
     return project
@@ -250,47 +243,13 @@ def _import_json_project(path: Path) -> None:
     # One transaction: a directory either has a database holding everything the
     # files held, or it still has only the files and is read again next time.
     with _session(path, create=True) as session:
-        session.add(
-            db.ProjectRow(
-                project_id=str(project.project_id),
-                name=project.name,
-                created_at=project.created_at.isoformat(),
-                document=_document(project),
-            )
-        )
+        session.add(_project_row(project))
         for entry in entries:
-            session.add(
-                db.DatasetRow(
-                    dataset_id=str(entry.dataset.dataset_id),
-                    name=entry.dataset.name,
-                    created_at=entry.dataset.created_at.isoformat(),
-                    document=entry.dataset.model_dump_json(),
-                )
-            )
+            session.add(_dataset_row(entry.dataset))
             for version in entry.versions:
-                session.add(
-                    db.DatasetVersionRow(
-                        version_id=str(version.version_id),
-                        dataset_id=str(version.dataset_id),
-                        version=version.version,
-                        content_hash=version.content_hash,
-                        n_samples=version.n_samples,
-                        n_variables=version.n_variables,
-                        array_path=version.array_path,
-                        created_at=version.created_at.isoformat(),
-                        document=version.model_dump_json(),
-                    )
-                )
+                session.add(_version_row(version))
         if pipeline is not None:
-            session.add(
-                db.PipelineRow(
-                    pipeline_id=str(pipeline.pipeline_id),
-                    name=pipeline.name,
-                    content_hash=pipeline.content_hash(),
-                    created_at=pipeline.created_at.isoformat(),
-                    document=pipeline.model_dump_json(),
-                )
-            )
+            session.add(_pipeline_row(pipeline))
             # Flushed before the layout that points at it: without a declared
             # relationship between the two mappers, the unit of work is free to
             # attempt the child insert first, and the foreign key refuses it.
@@ -298,12 +257,7 @@ def _import_json_project(path: Path) -> None:
             # Layout is keyed on the pipeline, so a layout without one has
             # nothing to hang from and is dropped rather than invented.
             if isinstance(layout_record, dict):
-                session.add(
-                    db.PipelineLayoutRow(
-                        pipeline_id=str(pipeline.pipeline_id),
-                        document=json.dumps(layout_record),
-                    )
-                )
+                session.add(_layout_row(pipeline.pipeline_id, layout_record))
         # The executor's index comes too. Without it every node in a migrated
         # project would recompute on the next run - correct, because the arrays
         # are content-addressed and would be rewritten identically, but a
@@ -311,26 +265,9 @@ def _import_json_project(path: Path) -> None:
         if isinstance(cache_record, dict):
             for key, stored in cache_record.items():
                 if isinstance(key, str) and isinstance(stored, list):
-                    session.add(
-                        db.CacheEntryRow(
-                            key=key, document=json.dumps([str(entry) for entry in stored])
-                        )
-                    )
+                    session.add(_cache_row(key, [str(entry) for entry in stored]))
         if experiment is not None:
-            session.add(
-                db.ExperimentRow(
-                    experiment_id=str(experiment.experiment_id),
-                    dataset_version_id=str(experiment.dataset_version_id),
-                    status=experiment.status.value,
-                    started_at=(
-                        experiment.started_at.isoformat() if experiment.started_at else None
-                    ),
-                    finished_at=(
-                        experiment.finished_at.isoformat() if experiment.finished_at else None
-                    ),
-                    document=experiment.model_dump_json(),
-                )
-            )
+            session.add(_experiment_row(experiment))
         session.commit()
 
 
@@ -347,6 +284,74 @@ def _json_document(path: Path) -> Any:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
         raise ProjectError(f"{path} could not be read: {error}") from error
+
+
+def _project_row(project: Project) -> db.ProjectRow:
+    """One place per row where a model becomes columns.
+
+    Each of these is used twice: once on the normal path, and once by
+    `_import_json_project` reading a directory written before the database.
+    Written out twice, a column added to `db.py` would reach the path with a
+    user and not the path with one test, and the two would disagree quietly.
+    """
+    return db.ProjectRow(
+        project_id=str(project.project_id),
+        name=project.name,
+        created_at=project.created_at.isoformat(),
+        document=_document(project),
+    )
+
+
+def _dataset_row(dataset: Dataset) -> db.DatasetRow:
+    return db.DatasetRow(
+        dataset_id=str(dataset.dataset_id),
+        name=dataset.name,
+        created_at=dataset.created_at.isoformat(),
+        document=dataset.model_dump_json(),
+    )
+
+
+def _version_row(version: DatasetVersion) -> db.DatasetVersionRow:
+    return db.DatasetVersionRow(
+        version_id=str(version.version_id),
+        dataset_id=str(version.dataset_id),
+        version=version.version,
+        content_hash=version.content_hash,
+        n_samples=version.n_samples,
+        n_variables=version.n_variables,
+        array_path=version.array_path,
+        created_at=version.created_at.isoformat(),
+        document=version.model_dump_json(),
+    )
+
+
+def _pipeline_row(pipeline: Pipeline) -> db.PipelineRow:
+    return db.PipelineRow(
+        pipeline_id=str(pipeline.pipeline_id),
+        name=pipeline.name,
+        content_hash=pipeline.content_hash(),
+        created_at=pipeline.created_at.isoformat(),
+        document=pipeline.model_dump_json(),
+    )
+
+
+def _layout_row(pipeline_id: object, layout: object) -> db.PipelineLayoutRow:
+    return db.PipelineLayoutRow(pipeline_id=str(pipeline_id), document=json.dumps(layout))
+
+
+def _experiment_row(experiment: Experiment) -> db.ExperimentRow:
+    return db.ExperimentRow(
+        experiment_id=str(experiment.experiment_id),
+        dataset_version_id=str(experiment.dataset_version_id),
+        status=experiment.status.value,
+        started_at=experiment.started_at.isoformat() if experiment.started_at else None,
+        finished_at=experiment.finished_at.isoformat() if experiment.finished_at else None,
+        document=experiment.model_dump_json(),
+    )
+
+
+def _cache_row(key: str, stored: list[str]) -> db.CacheEntryRow:
+    return db.CacheEntryRow(key=key, document=json.dumps(stored))
 
 
 def _document(project: Project) -> str:
@@ -503,27 +508,8 @@ def add_dataset(
     with _session(path) as session:
         existing = session.get(db.DatasetRow, str(dataset.dataset_id))
         if existing is None:
-            session.add(
-                db.DatasetRow(
-                    dataset_id=str(dataset.dataset_id),
-                    name=dataset.name,
-                    created_at=dataset.created_at.isoformat(),
-                    document=dataset.model_dump_json(),
-                )
-            )
-        session.add(
-            db.DatasetVersionRow(
-                version_id=str(version.version_id),
-                dataset_id=str(version.dataset_id),
-                version=version.version,
-                content_hash=version.content_hash,
-                n_samples=version.n_samples,
-                n_variables=version.n_variables,
-                array_path=version.array_path,
-                created_at=version.created_at.isoformat(),
-                document=version.model_dump_json(),
-            )
-        )
+            session.add(_dataset_row(dataset))
+        session.add(_version_row(version))
         session.commit()
 
     for entry in read_datasets(path):
@@ -568,15 +554,7 @@ def read_pipeline(directory: str | os.PathLike[str]) -> Pipeline | None:
 def write_pipeline(directory: str | os.PathLike[str], pipeline: Pipeline) -> None:
     path = Path(directory)
     with _session(path) as session:
-        session.merge(
-            db.PipelineRow(
-                pipeline_id=str(pipeline.pipeline_id),
-                name=pipeline.name,
-                content_hash=pipeline.content_hash(),
-                created_at=pipeline.created_at.isoformat(),
-                document=pipeline.model_dump_json(),
-            )
-        )
+        session.merge(_pipeline_row(pipeline))
         session.commit()
 
 
@@ -615,12 +593,7 @@ def write_layout(directory: str | os.PathLike[str], layout: dict[NodeId, dict[st
     if pipeline is None:
         raise ProjectError(f"{path} has no pipeline for a layout to belong to.")
     with _session(path) as session:
-        session.merge(
-            db.PipelineLayoutRow(
-                pipeline_id=str(pipeline.pipeline_id),
-                document=json.dumps(layout),
-            )
-        )
+        session.merge(_layout_row(pipeline.pipeline_id, layout))
         session.commit()
 
 
@@ -656,7 +629,7 @@ def write_cache_index(directory: str | os.PathLike[str], index: dict[str, list[s
     path = Path(directory)
     with _session(path) as session:
         for key, stored in index.items():
-            session.merge(db.CacheEntryRow(key=key, document=json.dumps(stored)))
+            session.merge(_cache_row(key, stored))
         session.commit()
 
 
@@ -687,18 +660,7 @@ def read_experiment(directory: str | os.PathLike[str]) -> Experiment | None:
 def write_experiment(directory: str | os.PathLike[str], experiment: Experiment) -> None:
     path = Path(directory)
     with _session(path) as session:
-        session.merge(
-            db.ExperimentRow(
-                experiment_id=str(experiment.experiment_id),
-                dataset_version_id=str(experiment.dataset_version_id),
-                status=experiment.status.value,
-                started_at=(experiment.started_at.isoformat() if experiment.started_at else None),
-                finished_at=(
-                    experiment.finished_at.isoformat() if experiment.finished_at else None
-                ),
-                document=experiment.model_dump_json(),
-            )
-        )
+        session.merge(_experiment_row(experiment))
         session.commit()
 
 

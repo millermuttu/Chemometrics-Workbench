@@ -38,7 +38,6 @@ from chemometrics_workbench.datasets import load_tecator
 from chemometrics_workbench.executor import Run, execute
 from chemometrics_workbench.models import AxisKind, DatasetVersion, VariableAxis
 from chemometrics_workbench.project import (
-    DATASETS_FILE,
     create_project,
     open_project,
     read_array,
@@ -146,8 +145,8 @@ def test_preview_returns_the_readers_detection_in_the_published_shape(
     assert body["detected"]["delimiter"]["value"] == ","
     assert "alternatives" in body["detected"]["delimiter"]
 
-    # Nothing was committed, and nothing was left behind.
-    assert not (project / DATASETS_FILE).exists()
+    # Nothing was committed. Asserted against the dataset list rather than
+    # against a file that is no longer written either way.
     assert client.get(f"/api/projects/{project_id(client)}/datasets").json() == []
 
 
