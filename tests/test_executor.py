@@ -351,7 +351,7 @@ def test_the_cache_key_ignores_everything_that_is_not_the_recipe(
 ) -> None:
     """Moving a node on the canvas must not invalidate a result.
 
-    Layout coordinates live in `pipeline_state.json`, outside the model, so the
+    Layout coordinates live in their own table, outside the model, so the
     strongest statement available here is the one that makes that safe: the key
     is a function of the node's own JSON and its inputs' keys, and of nothing
     else the pipeline carries. A pipeline with a different id, name and
