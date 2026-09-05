@@ -23,7 +23,7 @@ The live list is Phase 2's, seven entries, and it now has an exit criterion — 
 
 | Priority | Feature | Issue | Status |
 | --- | --- | --- | --- |
-| 0 | A node under a range selection can be plotted | #134 | not started |
+| 0 | A node under a range selection can be plotted | #134 | passing |
 | 0 | Each model-to-row mapping is written once | #131 | passing |
 | 0 | The checklist's third check has a command | #138 | passing |
 | 1 | A branch is dragged on the canvas, and a node can be removed | #51 | passing |
@@ -35,9 +35,10 @@ The live list is Phase 2's, seven entries, and it now has an exit criterion — 
 ## Current work
 
 **Nothing is `in_progress`.** The tree is clean, no branches remain and no pull requests are open.
-`main` is tagged `v0.4.0`; `dev` is **five commits ahead of it** — four bookkeeping (`4a0d79e` the
-release, `b82b636` what the end-to-end run found, `79c9097` this note) and #139, merged 2026-09-05,
-which closed #138. Nothing to merge into `main` until Phase 2 ends. Merged on 2026-08-29 and 30: #125 (#119), #126 (#120), #127 (#121),
+`main` is tagged `v0.4.0`; `dev` is **seven commits ahead of it** — three bookkeeping (`4a0d79e`
+the release, `b82b636` what the end-to-end run found, `79c9097` this note) and two merges on
+2026-09-05: #139 closing #138, and #140 closing #134. Nothing to merge into `main` until Phase 2
+ends. Merged on 2026-08-29 and 30: #125 (#119), #126 (#120), #127 (#121),
 #128 (#122), #129 (#123), #130 (#124), #132 (#131 — the checkpoint cleanup), and #133, the phase
 into `main`.
 
@@ -55,20 +56,19 @@ things to remove.
 
 ## Next action
 
-**#134**, priority 0 and the smallest of the four the end-to-end run found. A range selection makes
-every node after it unplottable, and the axis it needs is already computed and thrown away —
-`RangeSelectTransformer.selected_axis()` at `preprocessing.py:478`. Fold the `range_select` masks
-down the node's ancestry in the HTTP layer: a pure function of the recipe, so nothing new is cached
-and no content hash moves. Doing it in the executor instead puts a second thing in the cached state
-that has to stay consistent with the arrays, which is the larger option.
-
-**#136** after it, or alongside — a warning at validate time naming the estimator nodes that will
-not be fitted. The `warnings` list is already in the payload and already rendered.
+**#136**, priority 1 and small: a warning at validate time naming the estimator nodes that will not
+be fitted. `Run.pending_estimators` (`executor.py:279`, populated at `:432`) already names them and
+the string appears nowhere in `api.py`; the `warnings` list is already in the validate payload and
+already rendered. Worth doing next because a PLS node currently validates clean, reports a
+successful run, and is left `not_run` — the same state it has before it has ever been run.
 
 Then **the rest of #51** (priority 2): duplicating a subgraph, and a comparison tab for two terminal
 nodes. The comparison tab still has no artboard and little to compare until PLS has a kernel in the
 executor (#88). That ordering is still worth deciding before the branch is cut, and the end-to-end
 run sharpened it: **#88 now blocks the phase's own exit criterion**, not just one screen.
+
+**#135** (priority 3) is waiting on a rule decision, below. **#137** (priority 4) is a documentation
+correction and can go any time.
 
 ## What an end-to-end run against a public dataset found
 
@@ -111,9 +111,22 @@ the parity fixtures cannot give, because they are generated from the same NumPy.
   reports ids that `/import` does not keep — two answers to one question.
 - **#137** — `data/tecator/README.md` is byte-identical to gasoline's.
 
+**#134 is fixed and merged as #140**, and it was one bug with two symptoms rather than one. The
+filed half was the spectra 500. The half found on picking it up was worse: `results_payload` built
+`loadings.axis` from `version.axis` unconditionally and **never raised**, so a PCA under a
+500-1000 nm selection served 167 loadings beside a 306-value axis. `frontend/src/plot/analysis.ts:55`
+hands that axis to Plotly as `x` against the components as `y`, and Plotly truncates to the shorter
+array — so the loadings were drawn against 285-783 nm instead of 501-999 nm, every peak displaced by
+about 216 nm. **A wrong plot does not announce itself the way a blank one does**, which is the
+general lesson: when one payload refuses a mismatch loudly, check whether its sibling serves the
+same mismatch quietly.
+
 **Worth not rediscovering:** the executor holds no per-node axis, deliberately and for a good reason
 (`executor.py:5-8` — a second thing beside the arrays would have to stay consistent with them).
-Anything that needs a node's real axis should derive it from the recipe rather than store it.
+`node_axis(pipeline, node_id, version)` in `api.py` is where a node's real axis comes from now, and
+it stays a pure function of the recipe for exactly that reason: it reads no array and cannot move a
+content hash. **Any future step that changes the variable count has to be added there**, and both
+payloads' refusal messages say so by name.
 
 **A fifth thing, found while writing that up and fixed in #139.** `clean-state-checklist.md` check 3
 said to pass "when it prints `feature_list.json consistent`", and nothing in the repository printed
