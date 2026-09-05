@@ -49,7 +49,7 @@ test("an accepted edit marks downstream nodes stale and offers a re-run", async 
   expect(await page.getByTestId("node-stale").count()).toBeGreaterThan(staleBefore);
 
   // A stale result dims; it does not vanish. Every node is still on the canvas.
-  await expect(page.locator(".react-flow__node")).toHaveCount(14);
+  await expect(page.locator(".react-flow__node")).toHaveCount(15);
 
   // The re-run is offered, and taking it clears what the edit made stale.
   //
@@ -62,7 +62,7 @@ test("an accepted edit marks downstream nodes stale and offers a re-run", async 
   await page.getByRole("button", { name: "Re-run" }).click();
   await expect(page.getByText("Downstream results are stale.")).toHaveCount(0);
   await expect(page.getByTestId("node-stale")).toHaveCount(0);
-  await expect(page.getByTestId("node-complete")).toHaveCount(14);
+  await expect(page.getByTestId("node-complete")).toHaveCount(15);
 });
 
 test("provenance is collapsed until asked for, and hashes are truncated in the middle", async ({

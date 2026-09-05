@@ -117,3 +117,21 @@ it("lists exactly the samples the served limits put outside", () => {
   expect(beyond.length).toBeGreaterThan(0);
   expect(beyond.length).toBeLessThan(pca.n_samples);
 });
+
+describe("the T² ellipse on a regression", () => {
+  /* A PLS node reaches this screen through the same payload a PCA node does -
+   * `task` differs and the shared half does not. The ellipse is drawn from
+   * `eigenvalues`, which #142 published as an empty array for a regression, so
+   * both radii were `Math.sqrt(limit * undefined)`. Nothing caught it: the
+   * frozen `pca.json` fixture is a decomposition and no demo had a PLS node to
+   * open. #146 publishes the score variances and this asserts the consequence
+   * rather than the cause - radii that are numbers. */
+  it("has finite semi-axes, which an absent eigenvalue would not give", () => {
+    const regression: PcaPayload = { ...pca, task: "regression" };
+    const ellipse = ellipseTrace(regression, 0, 1, theme);
+
+    expect((ellipse.x as number[]).every(Number.isFinite)).toBe(true);
+    expect((ellipse.y as number[]).every(Number.isFinite)).toBe(true);
+    expect(Math.max(...(ellipse.x as number[]))).toBeGreaterThan(0);
+  });
+});

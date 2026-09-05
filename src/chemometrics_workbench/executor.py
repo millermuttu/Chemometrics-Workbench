@@ -985,7 +985,12 @@ def _pls(
         rows=[int(row) for row in rows],
         scores=_rows(model.x_scores_),
         loadings=_rows(np.asarray(model.x_loadings_).T),
-        eigenvalues=[],
+        # The score variances, not a decomposition's spectrum of them - but the
+        # same quantity `PCA.eigenvalues_` carries and the same one the T2
+        # ellipse is drawn from. #142 published an empty list here on the
+        # reasoning that "a PLS model reports no rank of its own", which is
+        # true of `rank` and irrelevant to these; the ellipse came out NaN.
+        eigenvalues=_values(model.score_eigenvalues()),
         explained_variance_ratio=_values(model.explained_variance_ratio("x")),
         cumulative_explained_variance=_values(model.cumulative_explained_variance("x")),
         y_explained_variance_ratio=_values(model.explained_variance_ratio("y")),

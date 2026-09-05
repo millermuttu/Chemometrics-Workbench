@@ -360,7 +360,7 @@ class PLS:
         score matrix whose columns were correlated this sum would not be a
         Mahalanobis distance at all. Defaults to the calibration samples.
         """
-        eigenvalues = self._score_eigenvalues()
+        eigenvalues = self.score_eigenvalues()
         scores = self._fitted("x_scores_") if X is None else self.transform(X)
         t2: NDArray[np.float64] = ((scores**2) / eigenvalues).sum(axis=1)
         return t2
@@ -468,7 +468,15 @@ class PLS:
             raise self._unfitted()
         return self.n_components_
 
-    def _score_eigenvalues(self) -> NDArray[np.float64]:
+    def score_eigenvalues(self) -> NDArray[np.float64]:
+        """`lambda_a = t_a't_a / (n - 1)`, the variance each component's scores carry (§9).
+
+        Public because it is reported rather than internal: it is what
+        `hotelling_t2` divides by, and it is what a T-squared ellipse is drawn
+        from — `PCA.eigenvalues_` is the same quantity for the same purpose.
+        Publishing it was missed when #142 gave PLS a result, which left the
+        ellipse on a regression's scores plot with `NaN` radii (#146).
+        """
         scores = self._fitted("x_scores_")
         eigenvalues: NDArray[np.float64] = (scores**2).sum(axis=0) / (self._fitted_n_samples() - 1)
         return eigenvalues
