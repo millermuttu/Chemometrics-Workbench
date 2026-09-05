@@ -157,6 +157,34 @@ export interface PcaPayload {
     spe_limit: number;
     alpha: number;
   };
+  /** The held-out rows of the fitted fold, present only below a split. Its
+   * `observed` and `predicted` are there only for a regression. */
+  validation?: {
+    fold: number;
+    samples: { index: number; sample_id: string }[];
+    scores: number[][];
+    hotelling_t2: number[];
+    spe: number[];
+    observed?: number[];
+    predicted?: number[];
+  };
+  /** Present only when `task === "regression"`. The half of a PLS result that
+   * has no counterpart on a decomposition; everything above is shared. */
+  regression?: {
+    target: string | null;
+    observed: number[];
+    predicted: number[];
+    coefficients: number[];
+    vip: number[];
+    y_loadings: number[];
+    y_explained_variance_ratio: number[];
+  };
+  /** `metrics-and-validation.md` section 11's table, flat. **A metric that
+   * could not be computed is absent** - never zero, never NaN - so a reader
+   * must render `undefined` as an em dash rather than a number. */
+  metrics?: Partial<Record<string, number>>;
+  /** RMSECV against component count, one point per `A`. Empty above a split. */
+  rmsecv_curve?: number[];
 }
 
 export interface Job {

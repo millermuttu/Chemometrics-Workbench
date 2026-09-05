@@ -83,6 +83,11 @@ export function nodeLabel(node: PipelineNode): string {
       return `K-fold ${spec?.n_splits} · seed ${spec?.seed}`;
     case "pca":
       return `PCA ${spec?.n_components} PC`;
+    case "pls":
+      // Latent variables rather than PCs, and the response, because two PLS
+      // nodes on one branch differ by what they model rather than by their
+      // component count.
+      return `PLS ${spec?.n_components} LV · ${spec?.target}`;
     case "source":
       return "Source";
     default:

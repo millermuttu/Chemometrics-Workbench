@@ -18,6 +18,12 @@ export function Panel({
 }) {
   return (
     <section
+      // A `section` is only a landmark when it is named, so this is the markup
+      // the element already implied - and it makes a panel addressable by what
+      // it is called rather than by a chain of styles. Several panels repeat a
+      // word: "RMSECV" is a title, an axis label, a metric row and a header
+      // figure on one screen.
+      aria-label={title}
       style={{
         width: width ?? "auto",
         height,
