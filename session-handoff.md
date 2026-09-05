@@ -28,6 +28,8 @@ The live list is Phase 2's, seven entries, and it now has an exit criterion — 
 | 0 | The checklist's third check has a command | #138 | passing |
 | 1 | A branch is dragged on the canvas, and a node can be removed | #51 | passing |
 | 1 | A pipeline says which estimator nodes will not be fitted | #136 | passing |
+| 1 | The seeded demo walks the exit criterion | #146 | passing |
+| 1 | The analysis screen draws a regression | #148 | passing |
 | 2 | The executor fits PLS, and a PLS result has a shape | #142 | passing |
 | 2 | Duplicate a subgraph, and compare two terminal nodes in one tab | #51 | not started |
 | 3 | A numeric id column is not imported as a target | #135 | not started |
@@ -37,10 +39,10 @@ The live list is Phase 2's, seven entries, and it now has an exit criterion — 
 ## Current work
 
 **Nothing is `in_progress`.** The tree is clean, no branches remain and no pull requests are open.
-`main` is tagged `v0.4.0`; `dev` is **seventeen commits ahead of it** — bookkeeping and five merges
-on 2026-09-05: #139 closing #138, #140 closing #134, #141 closing #136, #143 (the correction that
-made #142 findable) and **#145 closing #142, which put PLS in the executor**. Nothing to merge into
-`main` until Phase 2 ends. Merged on 2026-08-29 and 30: #125 (#119), #126 (#120), #127 (#121),
+`main` is tagged `v0.4.0`; `dev` is **twenty-two commits ahead of it** — bookkeeping and seven
+merges on 2026-09-05: #139 (#138), #140 (#134), #141 (#136), #143 the correction that made #142
+findable, #145 (#142, PLS in the executor), #147 (#146, the demo walking it) and #149 (#148, the
+screen that draws it). Nothing to merge into `main` until Phase 2 ends. Merged on 2026-08-29 and 30: #125 (#119), #126 (#120), #127 (#121),
 #128 (#122), #129 (#123), #130 (#124), #132 (#131 — the checkpoint cleanup), and #133, the phase
 into `main`.
 
@@ -58,18 +60,16 @@ things to remove.
 
 ## Next action
 
-**The exit criterion is now reachable, and mostly demonstrated.** Every clause of it ran over HTTP
-on 2026-09-05 — a real NIR dataset imported, preprocessed, split, fitted with PLS, cross-validated
-and read back, without leaving the application. What is missing for the *claim* is the last part:
-agreement with reference software inside the tolerances `docs/parity-report.md` publishes, recorded
-as evidence, and a screen to read a regression on.
+**The demo walks the exit criterion, and the result can be read.** #146 put a PLS node in the seeded
+project the Playwright suite opens, and #148 drew it: opening `PLS 5 LV · fat` gives scores with a
+T² ellipse, loadings, explained variance and diagnostics, plus predicted versus measured, the
+RMSECV curve and the calibration metrics. CI walks that path on three platforms every run.
 
-**The screen is the honest next thing, and it is still unfiled** — deliberately, because #142 had to
-settle the payload shape first. It has. `results/{node}` now serves a `regression` key (target,
-observed, predicted, coefficients, VIP, y-loadings, y-variance), a flat `metrics` table and a
-`rmsecv_curve`, and `validation` carries the held-out observed and predicted. `DESIGN_BRIEF.md` §5
-is the reference and there is no artboard for a regression result, so that gap is the first
-question rather than a detail.
+**What is left of the exit criterion is the evidence, not the software.** §16 asks that the workflow
+"match reference software within stated tolerance". PLS is already parity-covered at the kernel
+level in `docs/parity-report.md`, so the honest remaining task is to *record* a run as evidence
+against that, not to build anything. Worth deciding whether the criterion is met by the parity
+report plus a walked demo, or whether it wants its own recorded comparison.
 
 **Then the rest of #51** (priority 2): duplicating a subgraph, and a comparison tab. It finally has
 something to compare.
@@ -145,6 +145,19 @@ The issue's better half was left, deliberately: `pipelines/{id}/state` telling *
 will be* needs `NodeState` in `frontend/src/canvas/graph.ts:12` widened, a `NodeCard` case and a
 visual treatment with no artboard behind it — and #142 makes it moot. `PipelineCanvas.tsx:190`
 already renders `problems` when `valid` is false, so the sentence reaches the canvas for free.
+
+**Two design questions that looked like blockers were already answered in the repository.** #148 was
+held up on "there is no artboard for a regression result" — and `AnalysisResults.tsx`'s docstring
+calls its grid "the layout Phase 2's predicted-vs-measured panel drops into rather than one that has
+to be torn up", with the second row carrying the slot in a literal comment. Phase 1.1 designed for
+it. Before treating a design gap as a blocker, read what the screen says about itself.
+
+**Three things about the frontend suite, learned the slow way.** Playwright serves `frontend/dist`,
+a **built** bundle, so an app-source change needs `npm run build` before the e2e suite sees it — a
+run that passes without it proves nothing about the change. `getByText` is a strict-mode violation
+on any word a screen repeats, and "RMSECV" appears four times on the analysis tab, so `Panel` now
+names its `<section>` with `aria-label` and panels are addressed by role and name. And a new
+estimator kind needs a case in the sidebar's label switch or it renders its own node id.
 
 **#142 landed, and the lesson is about the issue rather than the code.** It was filed as "a
 decision about what a PLS result carries". It largely was not: `metrics-and-validation.md` §11
