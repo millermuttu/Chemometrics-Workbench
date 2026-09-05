@@ -18,8 +18,8 @@ async function openCanvas(page: Page) {
 
 test("the branching pipeline renders with every node the executor ran", async ({ page }) => {
   await openCanvas(page);
-  await expect(page.locator(".react-flow__node")).toHaveCount(14);
-  await expect(page.locator(".react-flow__edge")).toHaveCount(13);
+  await expect(page.locator(".react-flow__node")).toHaveCount(15);
+  await expect(page.locator(".react-flow__edge")).toHaveCount(14);
 
   // The node bodies carry their parameters, which is what makes the graph
   // readable without opening anything.
@@ -30,7 +30,7 @@ test("the branching pipeline renders with every node the executor ran", async ({
 test("a node that has been run is complete, and says so by form", async ({ page }) => {
   await openCanvas(page);
   await expect(page.getByTestId("node-complete").first()).toBeVisible();
-  await expect(page.getByTestId("node-complete")).toHaveCount(14);
+  await expect(page.getByTestId("node-complete")).toHaveCount(15);
 
   // Form, not only colour: complete is a solid border, which is what the other
   // four states are distinguished *from*.
@@ -99,10 +99,10 @@ test("dragging from an output port moves a branch onto a new parent", async ({ p
   await connect(page, "msc", "centre_a");
 
   // Exactly one input, so the old edge is replaced rather than added to: the
-  // graph keeps its thirteen edges and centre_a now reads from msc.
+  // graph keeps its fourteen edges and centre_a now reads from msc.
   await expect(page.locator('.react-flow__edge[data-id="msc->centre_a"]')).toHaveCount(1);
   await expect(page.locator('.react-flow__edge[data-id="snv->centre_a"]')).toHaveCount(0);
-  await expect(page.locator(".react-flow__edge")).toHaveCount(13);
+  await expect(page.locator(".react-flow__edge")).toHaveCount(14);
 });
 
 test("a connection that would make a cycle does not drop, and says why", async ({ page }) => {
@@ -126,7 +126,7 @@ test("removing a node reconnects its children to its parent", async ({ page }) =
   await expect(page.locator('.react-flow__node[data-id="snv"]')).toHaveCount(0);
   await expect(page.locator('.react-flow__edge[data-id="source->centre_a"]')).toHaveCount(1);
   await expect(page.locator('.react-flow__edge[data-id="source->snv_savgol"]')).toHaveCount(1);
-  await expect(page.locator(".react-flow__node")).toHaveCount(13);
+  await expect(page.locator(".react-flow__node")).toHaveCount(14);
 });
 
 test("the source has no remove control, because it is where the data enters", async ({ page }) => {

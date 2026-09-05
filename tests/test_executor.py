@@ -876,6 +876,12 @@ def test_a_pls_node_is_fitted_and_its_result_is_a_regression(
     assert len(result.observed) == len(result.predicted) == version.n_samples
     assert len(result.coefficients) == version.n_variables
     assert len(result.vip) == version.n_variables
+    # One per component, because the T-squared ellipse is drawn from these and
+    # `analysis.ts` indexes them directly. #142 published an empty list and the
+    # ellipse came out with NaN radii; nothing caught it because no fixture or
+    # demo had a PLS node to draw (#146).
+    assert len(result.eigenvalues) == result.n_components
+    assert all(value > 0 for value in result.eigenvalues)
 
 
 def test_the_executor_computes_nothing_the_kernels_do_not(

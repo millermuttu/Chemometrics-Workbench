@@ -104,9 +104,14 @@ def synthetic_dataset(directory: Path, project, n_samples: int = 3000, n_variabl
     the slowest machine rather than the fastest is backwards.
 
     Generated, not measured, and **no number is claimed from it** - the same
-    footing as #86's decimation fixture. It is shaped like spectra (a smooth
-    baseline plus a few gaussian bands) so that SNV and Savitzky-Golay do the
-    work they would do on a real file rather than degenerating on noise.
+    footing as #86's decimation fixture. That covers the response as much as
+    the spectra: `fat` here is a linear combination of two band amplitudes
+    plus noise, so the PLS node in the demo pipeline models something real
+    rather than fitting noise, and it means nothing outside this file.
+
+    The spectra are shaped like spectra - a smooth baseline plus a few gaussian
+    bands - so that SNV and Savitzky-Golay do the work they would do on a real
+    file rather than degenerating on noise.
     """
     import numpy as np
 
@@ -122,12 +127,29 @@ def synthetic_dataset(directory: Path, project, n_samples: int = 3000, n_variabl
     axis = np.linspace(1000.0, 2500.0, n_variables)
     rng = np.random.default_rng(20260828)
     baseline = 0.6 + 0.25 * np.exp(-((axis - 1400.0) ** 2) / 90_000.0)
+    shapes = ((1210.0, 28.0), (1720.0, 41.0), (2100.0, 35.0), (2310.0, 22.0))
+    # Kept rather than summed away, because the response below is built from
+    # them: a target uncorrelated with the spectra would make the PLS node in
+    # the demo pipeline fit noise, and a run nobody can interpret is a worse
+    # demonstration than no run.
+    amplitudes = rng.uniform(0.05, 0.35, (len(shapes), n_samples, 1))
     bands = sum(
-        rng.uniform(0.05, 0.35, (n_samples, 1)) * np.exp(-((axis - centre) ** 2) / (2 * width**2))
-        for centre, width in ((1210.0, 28.0), (1720.0, 41.0), (2100.0, 35.0), (2310.0, 22.0))
+        amplitude * np.exp(-((axis - centre) ** 2) / (2 * width**2))
+        for amplitude, (centre, width) in zip(amplitudes, shapes, strict=True)
     )
     spectra = baseline + bands + rng.normal(0.0, 0.002, (n_samples, n_variables))
     spectra *= rng.uniform(0.9, 1.1, (n_samples, 1))  # the scatter SNV is for
+
+    # A response two of the bands genuinely drive, so PLS has something to
+    # find. Named `fat` because `demo_pipeline` is shared with the Tecator
+    # seed and a pipeline cannot name two different columns. **No number is
+    # claimed from it**, the same footing as the spectra above.
+    response = (
+        18.0
+        + 40.0 * amplitudes[1, :, 0]
+        + 15.0 * amplitudes[3, :, 0]
+        + rng.normal(0.0, 0.35, n_samples)
+    )
 
     array_path, content_hash = write_array(directory, spectra)
     dataset = Dataset(project_id=project.project_id, name="synthetic_wide", description="")
@@ -139,7 +161,7 @@ def synthetic_dataset(directory: Path, project, n_samples: int = 3000, n_variabl
         n_variables=n_variables,
         axis=VariableAxis(kind=AxisKind.WAVELENGTH_NM, values=[float(v) for v in axis], unit="nm"),
         sample_ids=[f"S{index + 1:04d}" for index in range(n_samples)],
-        targets={},
+        targets={"fat": [float(value) for value in response]},
         source=SourceFile(
             filename="synthetic_wide.npy",
             file_hash=content_hash,
@@ -169,6 +191,7 @@ def build_pipeline(project_id: UUID, version_id: UUID):  # type: ignore[no-untyp
         MeanCentre,
         PCASpec,
         Pipeline,
+        PLSRegressionSpec,
         PreprocessNode,
         SavitzkyGolay,
         SourceNode,
@@ -198,6 +221,16 @@ def build_pipeline(project_id: UUID, version_id: UUID):  # type: ignore[no-untyp
             SplitNode(id="split_d", inputs=("snv_savgol",), spec=KFoldSplit(n_splits=10, seed=42)),
             PreprocessNode(id="centre_d", inputs=("split_d",), step=MeanCentre()),
             EstimatorNode(id="pca_d", inputs=("centre_d",), spec=PCASpec(n_components=5)),
+            # ...and the calibration the criterion actually asks for. Until
+            # #146 the branch called "the path the exit criterion walks" ended
+            # at a decomposition, so nothing in the demo cross-validated
+            # anything. Tecator carries `fat`, the CSV above writes it and the
+            # reader classifies it, so this needs no new dataset.
+            EstimatorNode(
+                id="pls_d",
+                inputs=("centre_d",),
+                spec=PLSRegressionSpec(n_components=5, target="fat"),
+            ),
         ],
     )
 

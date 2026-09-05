@@ -77,6 +77,27 @@
       "notes": "Items 1 and 4 of #51. The rules live in frontend/src/canvas/edits.ts, pure and tested, and are enforced during the drag through React Flow's isValidConnection - each refusal is the client half of a models.py validator. Every non-source node holds exactly one input (tuple[NodeId]), so connecting replaces rather than appends and a branch is one node with several children; an edge cannot be cut on its own because the child would be left dangling. The remove control is on the node rather than in the side panel: clicking a node opens its tab, which replaces the panel before it could be used. Edits are held locally and saved by the existing whole-list PUT (#108). Node positions are still not draggable - layout lives in pipeline_state.json and nothing writes it back."
     },
     {
+      "id": "demo-walks-the-exit-criterion",
+      "priority": 1,
+      "area": "backend",
+      "issue": 146,
+      "title": "The seeded demo walks the exit criterion, and the ellipse it exposed",
+      "depends_on": [
+        "pls-in-the-executor"
+      ],
+      "user_visible_behavior": "The demo project the Playwright suite walks now cross-validates a PLS calibration, so the path the exit criterion names runs in CI on three platforms rather than once by hand.",
+      "status": "passing",
+      "verification": [
+        "A seeded project holds a pls_d node that runs, with pending_estimators empty.",
+        "GET /api/results/pls_d serves task 'regression' with eigenvalues as long as n_components, and the metrics table.",
+        "The T2 ellipse radii are finite for a regression - asserted in the frontend unit tests.",
+        "npx playwright test - the whole suite, including the failing-branch tests.",
+        "uv run ruff check && uv run ruff format --check && uv run mypy && uv run pytest"
+      ],
+      "evidence": "2026-09-05. `uv run python tests/seed_e2e.py --fresh <dir>` seeded '240 x 100, 15 nodes' (14 before) and every estimator produced a result: pca_a..pca_d task=decomposition, pls_d task=regression with eig=5. Served over HTTP from the seeded project: task regression, target fat, A=5, eigenvalues 5, RMSEC 2.2432, R2 0.9755, SEC 2.2750, RMSECV 2.3909, Q2 0.9722, rmsecv_std 0.4744, RMSEP 2.2122, SEP 2.2049, curve [4.863, 3.183, 2.762, 2.463, 2.391], 100 VIP and 100 coefficients on a 100-point axis. `npx playwright test` - 38 passed, having first caught two real failures: the runs seed uses the synthetic dataset, which carried no targets, so pls_d failed there with \"models target 'fat', which this dataset does not carry. It has: none.\" `npx vitest run` - 10 files, 78 tests (77 before). `uv run pytest` - 799 passed, 1 skipped. ruff check, ruff format --check (77 files), mypy (53 source files), tsc -b --noEmit and eslint all exit 0.",
+      "notes": "The seed's branch D was commented 'the path the exit criterion walks' and ended at a PCA, so nothing in the demo cross-validated anything. Adding pls_d needed no new dataset: Tecator carries fat and the seed already writes it. Two things fell out. First, a bug from #142: eigenvalues were published as an empty list for a regression, and analysis.ts:37 draws the T2 ellipse as sqrt(limit * eigenvalues[x]), so both radii were NaN. Unreachable until now because no fixture or demo had a PLS node to open - which is the argument for the demo covering the whole path. PLS.score_eigenvalues() is public now; the formula stays in one place. Second, the runs seed uses synthetic_dataset for a run slow enough to watch, and it had targets={}, so the shared pipeline could not fit there. It now carries a response built from two of its own band amplitudes, so PLS models something real rather than noise; no number is claimed from it, the same footing as the spectra. Playwright's hard-coded node and edge counts moved 14/13 to 15/14."
+    },
+    {
       "id": "pending-estimator-is-announced",
       "priority": 1,
       "area": "backend",
