@@ -6,14 +6,25 @@ import { expect, test, type Page } from "@playwright/test";
  * The stub could show all five node states at once because its fixture said
  * so. A real state is a fact about the project: every node here has its arrays
  * on disk, so every node is `complete`. `running`, `failed` and `not_run` are
- * asserted in `runs.spec.ts`, where a run really runs, and `stale` in
- * `inspector.spec.ts`, where an edit really invalidates one. */
+ * asserted in `runs.spec.ts`, where a run really runs. `stale` is asserted
+ * nowhere: the server never reports it (`api.py:955-958`) and #159 removed the
+ * client-side marking that used to, so a node edited but not re-run comes back
+ * `not_run`. The state stays defined and styled against the day it is
+ * derivable. */
 
 async function openCanvas(page: Page) {
   await page.goto("/?token=e2e-token");
   await page.getByRole("button", { name: "Pipeline", exact: true }).click();
   await expect(page.getByTestId("pipeline-canvas")).toBeVisible();
   await expect(page.locator(".react-flow__node").first()).toBeVisible();
+}
+
+/** `getComputedStyle` reports a border colour as `rgb(r, g, b)`; the token is
+ * a hex string. One of them has to be converted, and the hex is the shorter
+ * trip. */
+function hexOf(rgb: string): string {
+  const [r, g, b] = rgb.match(/\d+/g)!.map(Number);
+  return `#${[r, g, b].map((part) => part.toString(16).padStart(2, "0")).join("")}`;
 }
 
 test("the branching pipeline renders with every node the executor ran", async ({ page }) => {
@@ -43,6 +54,21 @@ test("a node that has been run is complete, and says so by form", async ({ page 
     });
   expect(drawn.style).toBe("solid");
   expect(drawn.opacity).toBe(1);
+
+  // Colour as well as form: a node holding a result reads green, and green is
+  // its own token rather than the accent - the accent means *running*, and a
+  // finished node must not be the same colour as one still working.
+  const paint = await page.evaluate(() => {
+    const style = getComputedStyle(document.querySelector(".app")!);
+    const complete = document.querySelector('[data-testid="node-complete"]')!;
+    return {
+      border: getComputedStyle(complete).borderTopColor,
+      ok: style.getPropertyValue("--ok").trim(),
+      accent: style.getPropertyValue("--accent").trim(),
+    };
+  });
+  expect(hexOf(paint.border)).toBe(paint.ok.toLowerCase());
+  expect(paint.ok).not.toBe(paint.accent);
 });
 
 test("selecting a node focuses its tab", async ({ page }) => {

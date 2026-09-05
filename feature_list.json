@@ -247,6 +247,23 @@
         "By hand against a real server: window_length 11 to 9, one press, then reload."
       ],
       "evidence": "2026-09-05. Two commits, merged as #158 and #159. Diagnosis: `ParameterForm.apply()` POSTed to /steps/validate - which only validates - and marked the node stale in the cache; PUT /pipelines/current was never called from the inspector, so a re-run recomputed the old spec. Second half: only ['pipeline-state'] was invalidated on a job, never ['spectra', nodeId] / ['results', nodeId], both of which carry staleTime: Infinity. The backend was never involved - driven over HTTP on a seeded project, GET /api/spectra/savgol digest 392e2b377d89657e at window_length 11, PUT 200 at 9, state 'not_run', run 'succeeded', digest f0c7544b7b2191da. `npx playwright test` - 44 passed (1.4m). `npm run test` - 99 passed, 11 files. `npm run typecheck` and `npm run lint` clean. The new e2e test was run against a bundle built from the pre-fix source and failed there (Expected 9, Received 11), then passed after. Driven by hand in Chrome against 127.0.0.1: window_length 11 to 9, one press; after the run the node reads 'SG d1 w9', 'complete', the form shows 9 and the plot is drawn from the recomputed arrays, surviving a reload. Confirmed working by the reporter."
+    },
+    {
+      "id": "complete-reads-green",
+      "priority": 1,
+      "area": "frontend",
+      "issue": 161,
+      "title": "A finished node reads green, and a queued one is not a never-run one",
+      "depends_on": [],
+      "user_visible_behavior": "A node holding a result is bordered green, solid, in both themes; a node waiting its turn during a run is dashed in the accent with an empty progress track, so a run visibly sweeps the graph instead of only the one node the executor is inside.",
+      "status": "passing",
+      "verification": [
+        "pnpm test - tokens.test.ts proves design/canvas/_base.css and frontend/src/styles/tokens.css still agree, with `ok` in both palettes.",
+        "pnpm typecheck && pnpm lint && pnpm build",
+        "pnpm exec playwright test - the whole suite, including the new assertion that node-complete's border resolves to --ok and that --ok is not --accent.",
+        "By eye on a seeded project, both themes."
+      ],
+      "evidence": "2026-09-05. `--ok` added to design/canvas/_base.css first (it is the token source) as #1E7A3C light / #63C67E dark, then ported verbatim to frontend/src/styles/tokens.css and added to the Run state group in tokens.ts. Neither value collides with --accent (#0B6B62 / #54BFAB, which means *running*) nor with the Okabe-Ito series, and tokens.test.ts's 'keeps the accent off the data palette' check now covers `ok` too. `pnpm test` - 99 passed, 11 files, including the two drift checks that compare the artboard palette against the ported one. `pnpm typecheck` and `pnpm lint` clean; `pnpm build` succeeded. `pnpm exec playwright test` - 44 passed (1.4m); the '[WebServer] job ... failed' line in that log is runs.spec.ts's deliberate failing-run fixture, not a test failure. The new assertion in pipeline.spec.ts reads borderTopColor off node-complete, converts it from rgb() to hex and asserts it equals --ok resolved from .app, and separately that --ok is not --accent; it passed as test 14 of 44. Confirmed by eye on a seeded 15-node project served at 127.0.0.1:8793: every node carries a solid green border where all fifteen were previously the same grey as an unrun node. complete stays *solid* while every other state is dashed, hatched or striped, so pipeline.spec.ts's existing form assertion (borderTopStyle 'solid', opacity 1) passed unchanged and the greyscale reading still works."
     }
   ]
 }
