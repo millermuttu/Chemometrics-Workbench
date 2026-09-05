@@ -41,11 +41,19 @@ function frame(state: NodeData["state"]): React.CSSProperties {
         borderLeft: "3px solid var(--fail)",
         background: "var(--surface)",
       };
-    case "not_run":
     case "queued":
+      // Dashed like `not_run`, because it has produced nothing either - but in
+      // the accent, so a run visibly sweeps the graph instead of only the one
+      // node the executor happens to be inside.
+      return { border: "1px dashed var(--accent)", background: "var(--surface)" };
+    case "not_run":
       return { border: "1px dashed var(--rule)", background: "var(--surface)" };
     default:
-      return { border: "1px solid var(--rule)", background: "var(--surface)" };
+      // Complete. Solid *and* green: the brief asks for form as well as
+      // colour, and solid is what the other five states are distinguished
+      // from - a canvas read in greyscale still says which nodes hold a
+      // result.
+      return { border: "1px solid var(--ok)", background: "var(--surface)" };
   }
 }
 
@@ -146,9 +154,9 @@ export function NodeCard({ data, selected }: NodeProps) {
         <div className="mono" style={{ fontSize: 9.5, color: "var(--ink3)", marginTop: 2 }}>
           {node.parameters}
         </div>
-        {node.state === "running" && typeof node.progress === "number" ? (
+        {node.state === "running" || node.state === "queued" ? (
           <div className="prog" style={{ width: "100%", marginTop: 6 }}>
-            <i style={{ width: `${Math.round(node.progress * 100)}%` }} />
+            <i style={{ width: `${Math.round((node.progress ?? 0) * 100)}%` }} />
           </div>
         ) : null}
       </div>
