@@ -215,6 +215,71 @@ def test_node_state_is_derived_from_what_is_on_disk(client: TestClient) -> None:
     assert after["nodes"]["source"]["state"] == "complete"
 
 
+def test_a_moved_node_is_remembered_and_the_recipe_is_untouched(client: TestClient) -> None:
+    """Moving a node must not change the science.
+
+    The whole reason layout has its own table and its own route: a position is
+    written without touching `Pipeline.content_hash()`, so an executor cache
+    entry keyed on that hash still matches and a node that was `complete` stays
+    `complete`. Asserting the recipe is byte-identical either side of the move
+    is what proves it - a layout folded into `PipelineWrite` would pass every
+    other assertion here and fail this one.
+    """
+    imported(client)
+    recipe = client.get("/api/pipelines/current", headers=AUTH).json()
+
+    written = client.put(
+        "/api/pipelines/current/layout",
+        json={"layout": {"source": {"x": 500, "y": 300}}},
+        headers=AUTH,
+    )
+    assert written.status_code == 200, written.text
+    assert written.json()["layout"] == {"source": {"x": 500.0, "y": 300.0}}
+
+    state = client.get("/api/pipelines/current/state", headers=AUTH).json()
+    assert state["layout"]["source"] == {"x": 500.0, "y": 300.0}
+    assert client.get("/api/pipelines/current", headers=AUTH).json() == recipe
+
+
+def test_a_position_for_a_node_that_is_gone_is_dropped(client: TestClient) -> None:
+    """A drag can land after another tab deleted the node it moved.
+
+    Refusing the whole write there would be an error about a race the user
+    cannot see, and would lose the positions that *are* valid. Dropping is also
+    the cheapest garbage collection available: a removed node's coordinates go
+    with it instead of accumulating in a table nothing prunes.
+    """
+    imported(client)
+    written = client.put(
+        "/api/pipelines/current/layout",
+        json={"layout": {"source": {"x": 10, "y": 20}, "ghost": {"x": 1, "y": 2}}},
+        headers=AUTH,
+    )
+    assert written.status_code == 200, written.text
+    assert written.json()["layout"] == {"source": {"x": 10.0, "y": 20.0}}
+    assert "ghost" not in client.get("/api/pipelines/current/state", headers=AUTH).json()["layout"]
+
+
+def test_a_coordinate_that_is_not_a_number_is_refused(client: TestClient) -> None:
+    imported(client)
+    refused = client.put(
+        "/api/pipelines/current/layout",
+        json={"layout": {"source": {"x": "left", "y": 0}}},
+        headers=AUTH,
+    )
+    assert refused.status_code == 422, refused.text
+
+
+def test_an_unknown_pipeline_has_no_layout_to_write(client: TestClient) -> None:
+    imported(client)
+    missing = client.put(
+        "/api/pipelines/00000000-0000-0000-0000-000000000000/layout",
+        json={"layout": {}},
+        headers=AUTH,
+    )
+    assert missing.status_code == 404, missing.text
+
+
 def test_a_run_is_submitted_and_answers_before_it_has_finished(client: TestClient) -> None:
     imported(client)
     job = client.post("/api/experiments/current/run", headers=AUTH).json()

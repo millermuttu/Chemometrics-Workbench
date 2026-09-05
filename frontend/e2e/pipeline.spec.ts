@@ -215,3 +215,64 @@ test("picking two terminal nodes opens a comparison tab", async ({ page }) => {
   await expect(page.getByRole("region", { name: "Metrics" })).toBeVisible();
   await expect(page.getByTestId("delta-RMSECV")).toHaveText("—");
 });
+
+/** Dragging a node writes its position through on the drop, without waiting on
+ * Save - a position is not part of the recipe.
+ *
+ * The survival of a reload is asserted against the layout the server holds,
+ * not against a screen coordinate: `fitView` re-fits the viewport on every
+ * mount, so a node that has not moved an inch in the graph still lands on a
+ * different pixel. Reading the box either side of a reload compares two
+ * different zoom levels and fails on a change that did not happen. That the
+ * canvas draws what the layout says is `graph.test.ts`'s job, and it has one.
+ *
+ * Unlike the edits above, this one *does* change the seeded project on 8765.
+ * Safe because every other spec there asserts node counts, edges and states,
+ * never coordinates - said out loud so the next person to assert a position
+ * knows why theirs might move.
+ */
+test("a dragged node is written through on the drop, and not opened by the drag", async ({
+  page,
+}) => {
+  await openCanvas(page);
+  const node = page.locator('.react-flow__node[data-id="snv"]');
+  const before = (await node.boundingBox())!;
+
+  // A real mouse path, for the same reason `connect` uses one: React Flow
+  // follows pointer movement rather than a drop event.
+  await page.mouse.move(before.x + before.width / 2, before.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(before.x + before.width / 2 + 160, before.y + 130, { steps: 12 });
+  await page.mouse.up();
+
+  // Within one mount the viewport is fixed, so the box is a fair comparison.
+  const after = (await node.boundingBox())!;
+  expect(Math.round(after.x - before.x)).toBeGreaterThan(100);
+
+  // The drag consumed the click that ends it: moving a node must not open it.
+  await expect(page.getByRole("tab", { name: /SNV/ })).toHaveCount(0);
+
+  // The claim: the server holds it, so it outlives this page.
+  await expect
+    .poll(async () => {
+      const state = await page.request.get("/api/pipelines/current/state", {
+        headers: { Authorization: "Bearer e2e-token" },
+      });
+      return (await state.json()).layout.snv;
+    })
+    .not.toEqual({ x: 40, y: 170 });
+
+  const moved = await (
+    await page.request.get("/api/pipelines/current/state", {
+      headers: { Authorization: "Bearer e2e-token" },
+    })
+  ).json();
+
+  await openCanvas(page);
+  const reloaded = await (
+    await page.request.get("/api/pipelines/current/state", {
+      headers: { Authorization: "Bearer e2e-token" },
+    })
+  ).json();
+  expect(reloaded.layout.snv).toEqual(moved.layout.snv);
+});

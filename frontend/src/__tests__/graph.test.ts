@@ -12,7 +12,15 @@ import { describe, expect, it } from "vitest";
 
 import type { Pipeline, PipelineNode, PipelineState } from "@/api/queries";
 import { withDrafts } from "@/canvas/PipelineCanvas";
-import { draftGraph, nodeStateOf, parameterLine, toEdges, toNodes, type DraftStep } from "@/canvas/graph";
+import {
+  draftGraph,
+  nodeStateOf,
+  parameterLine,
+  placements,
+  toEdges,
+  toNodes,
+  type DraftStep,
+} from "@/canvas/graph";
 
 const FIXTURES = path.resolve(import.meta.dirname, "../../../tests/fixtures/contract");
 const read = <T,>(name: string) =>
@@ -168,5 +176,32 @@ describe("withDrafts", () => {
   it("returns the saved nodes untouched when there is nothing drafted", () => {
     const saved = [source];
     expect(withDrafts(saved, [])).toBe(saved);
+  });
+});
+
+describe("a node the server has never placed", () => {
+  // A duplicate, or a step added to a branch, exists on the canvas before the
+  // server has seen it. It used to fall back to the origin, so every new node
+  // appeared in the same spot and copies stacked on top of each other.
+  const added: PipelineNode = { id: "msc_2", type: "preprocess", inputs: ["snv"], step: { kind: "msc" } };
+  const extended: Pipeline = { ...pipeline, nodes: [...pipeline.nodes, added] };
+
+  it("lands beside its parent, not at the origin", () => {
+    const placed = placements(extended, state.layout);
+    expect(placed.msc_2).not.toEqual({ x: 0, y: 0 });
+    expect(placed.msc_2.x).toBe(placed.snv.x + 170);
+  });
+
+  it("leaves every placed node exactly where the server put it", () => {
+    const placed = placements(extended, state.layout);
+    for (const [id, position] of Object.entries(state.layout)) {
+      expect(placed[id]).toEqual(position);
+    }
+  });
+
+  it("does not stack two new children of the same parent", () => {
+    const second: PipelineNode = { id: "msc_3", type: "preprocess", inputs: ["snv"], step: { kind: "msc" } };
+    const placed = placements({ ...extended, nodes: [...extended.nodes, second] }, state.layout);
+    expect(placed.msc_2).not.toEqual(placed.msc_3);
   });
 });

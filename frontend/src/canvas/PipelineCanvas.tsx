@@ -1,9 +1,15 @@
-import { Background, BackgroundVariant, ReactFlow, type Node } from "@xyflow/react";
+import {
+  Background,
+  BackgroundVariant,
+  ReactFlow,
+  type Node,
+  type NodeChange,
+} from "@xyflow/react";
 import { useCallback, useMemo, useRef, useState } from "react";
 
 import { ApiError, api } from "@/api/client";
 import type { PipelineNode } from "@/api/queries";
-import { usePipeline, usePipelineState, useSavePipeline } from "@/api/queries";
+import { usePipeline, usePipelineState, useSaveLayout, useSavePipeline } from "@/api/queries";
 import { NodeCard } from "@/canvas/NodeCard";
 import { StepList } from "@/canvas/StepList";
 import { connect, connectionRefusal, duplicate, remove, terminals } from "@/canvas/edits";
@@ -92,6 +98,15 @@ export function PipelineCanvas({
   /** The nodes picked for a comparison. Two opens the tab and clears it, so
    * the control is a toggle with a very short memory rather than a mode. */
   const [picked, setPicked] = useState<string[]>([]);
+  /** Where the user has dragged nodes since the last fetch, laid over the
+   * layout the server sent. Local because a position is not part of the
+   * recipe: it is written by its own request and must not wait on Save. */
+  const [moved, setMoved] = useState<Record<string, { x: number; y: number }>>({});
+  const saveLayout = useSaveLayout();
+  // A drag ends with a click on the same node, and a click opens its tab. The
+  // drag is recorded here so the click that follows it can be ignored - one
+  // gesture should not both move a node and open it.
+  const dragged = useRef(false);
 
   // Memoised because it feeds the graph's useMemo: a fresh [] every render
   // would rebuild the whole graph on every keystroke elsewhere in the tab.
@@ -146,10 +161,13 @@ export function PipelineCanvas({
         usesMotion(),
       ),
     };
+    committed.nodes = committed.nodes.map((node) =>
+      moved[node.id] ? { ...node, position: moved[node.id] } : node,
+    );
     const lowest = Math.max(...committed.nodes.map((node) => node.position.y), 0);
     const draft = draftGraph(steps, { x: 40, y: lowest + 150 });
     return { nodes: [...committed.nodes, ...draft.nodes], edges: [...committed.edges, ...draft.edges] };
-  }, [pipeline.data, state.data, steps, nodes, picked, onCompare, pick]);
+  }, [pipeline.data, state.data, steps, nodes, picked, onCompare, pick, moved]);
 
   /** An edit that a rule refuses says so, rather than throwing into the void. */
   const edit = (apply: () => PipelineNode[]) => {
@@ -169,8 +187,29 @@ export function PipelineCanvas({
           edges={graph.edges}
           nodeTypes={NODE_TYPES}
           fitView
-          nodesDraggable={false}
           nodesConnectable
+          onNodesChange={(changes: NodeChange[]) => {
+            // Only positions. React Flow also reports selection, dimensions
+            // and removal here, and this canvas derives all three from the
+            // pipeline rather than from React Flow's own node state.
+            const positions = changes.filter(
+              (change): change is Extract<NodeChange, { type: "position" }> =>
+                change.type === "position" && change.position !== undefined,
+            );
+            if (positions.length === 0) return;
+            setMoved((current) => {
+              const next = { ...current };
+              for (const change of positions) next[change.id] = change.position!;
+              return next;
+            });
+          }}
+          onNodeDragStop={(_event, node) => {
+            dragged.current = true;
+            // A draft has no node on the server to hang a position on; it gets
+            // one when Save turns it into a real node.
+            if (String(node.id).startsWith("draft-")) return;
+            saveLayout.mutate({ ...moved, [node.id]: node.position });
+          }}
           proOptions={{ hideAttribution: true }}
           isValidConnection={(connection) => {
             const { source, target } = connection;
@@ -191,6 +230,13 @@ export function PipelineCanvas({
             refusal.current = null;
           }}
           onNodeClick={(_, node: Node) => {
+            // A drag ends with a click on the node it moved. Opening its tab
+            // there would mean no node could be moved without also being
+            // opened, so the drag consumes the click that follows it.
+            if (dragged.current) {
+              dragged.current = false;
+              return;
+            }
             // Selecting a node focuses its tab - the mechanism that ties the
             // graph to the pages.
             if (String(node.id).startsWith("draft-")) return;

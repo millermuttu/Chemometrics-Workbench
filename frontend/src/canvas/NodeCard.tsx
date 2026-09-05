@@ -108,7 +108,7 @@ export function NodeCard({ data, selected }: NodeProps) {
               Offered only where there is something to compare. */}
           {node.onCompare ? (
             <button
-              className="tabx"
+              className="tabx nodrag"
               aria-label={`${node.comparing ? "Unpick" : "Pick"} ${node.label} for comparison`}
               aria-pressed={node.comparing}
               style={{ color: node.comparing ? "var(--accentInk)" : undefined }}
@@ -122,7 +122,7 @@ export function NodeCard({ data, selected }: NodeProps) {
           ) : null}
           {node.onDuplicate ? (
             <button
-              className="tabx"
+              className="tabx nodrag"
               aria-label={`Duplicate node ${node.label}`}
               onClick={(event) => {
                 event.stopPropagation();
@@ -134,7 +134,7 @@ export function NodeCard({ data, selected }: NodeProps) {
           ) : null}
           {node.onRemove ? (
             <button
-              className="tabx"
+              className="tabx nodrag"
               aria-label={`Remove node ${node.label}`}
               onClick={(event) => {
                 event.stopPropagation();

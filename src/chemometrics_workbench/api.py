@@ -1054,6 +1054,66 @@ def put_pipeline(pipeline_id: str, body: PipelineWrite) -> Any:
     return json.loads(updated.model_dump_json())
 
 
+class Position(BaseModel):
+    """One node's place on the canvas.
+
+    Typed rather than a bare dict so a coordinate that is not a number is
+    refused at the boundary, where the message can say which node and which
+    field - `write_layout` would coerce it and store something undrawable.
+    """
+
+    x: float
+    y: float
+
+
+class LayoutWrite(BaseModel):
+    """Where the canvas put each node.
+
+    Its own body and its own endpoint, for the reason `PipelineWrite` gives for
+    not carrying it: a position lives outside `Pipeline.content_hash()` so that
+    moving a node cannot invalidate an executor cache entry, and a field on the
+    recipe's body would undo that in one line. Separate table, separate route,
+    separate write.
+    """
+
+    layout: dict[str, Position]
+
+
+@router.put("/pipelines/{pipeline_id}/layout")
+def put_layout(pipeline_id: str, body: LayoutWrite) -> Any:
+    """Replace the stored layout with the one sent.
+
+    **The whole map, not a patch**, for the same reason `put_pipeline` takes
+    the whole node list: one project holds one pipeline and one person moves
+    its nodes, so last-write-wins needs no conflict rules and the canvas
+    already knows where everything is.
+
+    **A position for a node that is not in the pipeline is dropped, not
+    refused.** The canvas and the recipe are written by two different requests,
+    so a drag can land after another tab has deleted the node it moved; a 422
+    there would be an error message about a race the user cannot see. Dropping
+    is also the only garbage collection in this codebase that costs nothing -
+    a removed node's coordinates go with it rather than accumulating in a table
+    nobody prunes.
+    """
+    directory, _ = _project()
+    pipeline = _current_pipeline(directory)
+    if pipeline_id not in ("current", str(pipeline.pipeline_id)):
+        raise _fail(404, "not_found", f"no pipeline {pipeline_id}.", pipeline_id=pipeline_id)
+
+    known = {node.id for node in pipeline.nodes}
+    placed = {
+        node_id: {"x": float(place.x), "y": float(place.y)}
+        for node_id, place in body.layout.items()
+        if node_id in known
+    }
+    try:
+        write_layout(directory, placed)
+    except ProjectError as error:
+        raise _fail(500, "project_unavailable", str(error)) from error
+    return {"pipeline_id": str(pipeline.pipeline_id), "layout": placed}
+
+
 @router.post("/pipelines/{pipeline_id}/validate")
 def validate_pipeline(pipeline_id: str) -> Any:
     directory, _ = _project()
