@@ -16,6 +16,8 @@ import {
   ellipseTrace,
   loadingsTraces,
   outliers,
+  predictedTraces,
+  rmsecvTrace,
   scoresTrace,
   varianceFigure,
 } from "@/plot/analysis";
@@ -133,5 +135,65 @@ describe("the T² ellipse on a regression", () => {
     expect((ellipse.x as number[]).every(Number.isFinite)).toBe(true);
     expect((ellipse.y as number[]).every(Number.isFinite)).toBe(true);
     expect(Math.max(...(ellipse.x as number[]))).toBeGreaterThan(0);
+  });
+});
+
+describe("a regression's own panels", () => {
+  /* `results/{node}` serves these only when `task === "regression"`. The
+   * fixture is a decomposition, so a regression payload is built from it -
+   * the shared half is genuinely identical, which is the point of #142's
+   * additive shape. */
+  const pls: PcaPayload = {
+    ...pca,
+    task: "regression",
+    regression: {
+      target: "fat",
+      observed: [10, 20, 30, 40],
+      predicted: [11, 19, 31, 39],
+      coefficients: [0.1, 0.2],
+      vip: [1.0, 0.9],
+      y_loadings: [0.5],
+      y_explained_variance_ratio: [0.8],
+    },
+    metrics: { rmsec: 1.0, rmsecv: 1.2, r2: 0.99 },
+    rmsecv_curve: [4.9, 3.2, 2.8, 2.5],
+  };
+
+  it("draws calibration against a 1:1 line, and held-out separately", () => {
+    const withHeld: PcaPayload = {
+      ...pls,
+      validation: {
+        fold: 0,
+        samples: [],
+        scores: [],
+        hotelling_t2: [],
+        spe: [],
+        observed: [15, 25],
+        predicted: [14, 26],
+      },
+    };
+    const traces = predictedTraces(withHeld, theme);
+
+    expect(traces).toHaveLength(3);
+    const [line, calibration, heldOut] = traces as Record<string, unknown>[];
+    // y = x across the full extent of both sets, not a fit of either.
+    expect(line.x).toEqual([10, 40]);
+    expect(line.y).toEqual([10, 40]);
+    expect(calibration.name).toBe("calibration");
+    expect(heldOut.name).toBe("held out");
+  });
+
+  it("omits the held-out trace when the node is not below a split", () => {
+    expect(predictedTraces(pls, theme)).toHaveLength(2);
+  });
+
+  it("draws nothing at all for a decomposition", () => {
+    expect(predictedTraces(pca, theme)).toEqual([]);
+  });
+
+  it("plots RMSECV against component count starting at one", () => {
+    const trace = rmsecvTrace(pls, theme) as Record<string, unknown>;
+    expect(trace.x).toEqual([1, 2, 3, 4]);
+    expect(trace.y).toEqual([4.9, 3.2, 2.8, 2.5]);
   });
 });

@@ -120,3 +120,72 @@ export function outliers(pca: PcaPayload): { sample: string; t2: number; spe: nu
         row.t2 > pca.diagnostics.hotelling_t2_limit || row.spe > pca.diagnostics.spe_limit,
     );
 }
+
+/** Predicted against measured, with the 1:1 line a reader judges it against.
+ *
+ * Calibration and held-out rows are separate traces rather than one coloured
+ * series: they are different claims — a residual on a row the model was fitted
+ * on and one on a row it never saw — and `metrics-and-validation.md` §9 keeps
+ * them apart for that reason. Held-out rows take a second *series* colour and
+ * an open marker, deliberately not `stale`: that token is a warning about an
+ * outlier, and a validation row is not one.
+ *
+ * The line is drawn from the extremes of the data rather than from a
+ * regression of it: it is `y = x`, not a fit, and fitting one here would be
+ * deciding something rather than drawing it. */
+export function predictedTraces(pca: PcaPayload, theme: PlotTheme) {
+  const regression = pca.regression;
+  if (!regression) return [];
+
+  const held = pca.validation;
+  const all = [
+    ...regression.observed,
+    ...regression.predicted,
+    ...(held?.observed ?? []),
+    ...(held?.predicted ?? []),
+  ];
+  const low = Math.min(...all);
+  const high = Math.max(...all);
+
+  const points = (x: number[], y: number[], name: string, colour: string, open: boolean) => ({
+    type: "scattergl",
+    mode: "markers",
+    name,
+    x,
+    y,
+    marker: { size: 5, color: open ? "transparent" : colour, line: { width: 1, color: colour } },
+    hovertemplate: `${name}<br>measured %{x:.4g}<br>predicted %{y:.4g}<extra></extra>`,
+  });
+
+  return [
+    {
+      type: "scattergl",
+      mode: "lines",
+      name: "1:1",
+      x: [low, high],
+      y: [low, high],
+      line: { width: 1, dash: "dot", color: theme.grid },
+      hoverinfo: "skip",
+      showlegend: false,
+    },
+    points(regression.observed, regression.predicted, "calibration", theme.series[0], false),
+    ...(held?.observed && held.predicted
+      ? [points(held.observed, held.predicted, "held out", theme.series[1], true)]
+      : []),
+  ];
+}
+
+/** RMSECV against component count. One trace, because §9's curve is one
+ * experiment over one fold assignment rather than `A` unrelated ones. */
+export function rmsecvTrace(pca: PcaPayload, theme: PlotTheme) {
+  const curve = pca.rmsecv_curve ?? [];
+  return {
+    type: "scattergl",
+    mode: "lines+markers",
+    x: curve.map((_, index) => index + 1),
+    y: curve,
+    line: { width: 1.5, color: theme.series[0] },
+    marker: { size: 5, color: theme.series[0] },
+    hovertemplate: "A = %{x}<br>RMSECV %{y:.4g}<extra></extra>",
+  };
+}

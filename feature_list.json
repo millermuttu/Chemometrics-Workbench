@@ -61,6 +61,27 @@
       "notes": "Cleanup found at the Phase 1.3 checkpoint, filed as #131 rather than folded into a feature branch. Six mappings were stated twice - once on the normal path, once in _import_json_project - and the copy that would be forgotten when a column is added is the import path, which has one test and no user until someone opens an old project. Two smaller things went with it: a test asserting datasets.json does not exist, which could no longer fail because nothing writes that file; and the server's lifespan leaving every SQLite engine holding its file, which costs nothing on process exit and is what locks a file on Windows. An unused-export scan flagged fourteen names - executor.NodeOutput, checks.PipelineWarning, project.PROJECT_FILE among them - and none was deleted: each is used inside its own module or is the type a caller receives, so removing them would be churn dressed as cleanup."
     },
     {
+      "id": "analysis-draws-a-regression",
+      "priority": 1,
+      "area": "frontend",
+      "issue": 148,
+      "title": "The analysis screen draws a regression, not only a decomposition",
+      "depends_on": [
+        "demo-walks-the-exit-criterion"
+      ],
+      "user_visible_behavior": "Opening a PLS node shows predicted versus measured, the RMSECV curve and the calibration metrics beside the scores and loadings it already showed. A metric the run could not compute renders as an em dash.",
+      "status": "passing",
+      "verification": [
+        "A PLS node's tab shows the three regression panels; a PCA node's tab shows none of them.",
+        "A metric the payload omits renders as an em dash rather than a zero.",
+        "Held-out points are a separate trace from calibration points.",
+        "npx vitest run, npx tsc -b --noEmit, npx eslint .",
+        "npx playwright test - the walkthrough and the analysis tab."
+      ],
+      "evidence": "2026-09-05. `npx playwright test` - 40 passed (38 before), including two new cases in e2e/analysis.spec.ts: the regression tab renders Scores, Loadings, Explained variance, Diagnostics, Predicted vs measured, RMSECV and Calibration metrics, with the header reading 'PLS on fat 5 components' and RMSECV and Q2 as its headline figures and neither showing an em dash; and a decomposition tab showing none of the three. `npx vitest run` - 10 files, 82 tests (78 before, +4 on the new traces: the 1:1 line spans both sets, held-out is its own trace, it is omitted above a split, and nothing is drawn for a decomposition). `npx tsc -b --noEmit` and `npx eslint .` exit 0. Backend untouched: uv run pytest 799 passed, 1 skipped; ruff check, ruff format --check (77 files) and mypy (53 source files) exit 0.",
+      "notes": "The design question that looked like a blocker was already answered: AnalysisResults.tsx's docstring calls the grid 'the layout Phase 2's predicted-vs-measured panel drops into rather than one that has to be torn up', and the second row carried the slot in a comment. No new screen, no artboard round-trip - the panels dropped into a grid built to take them. Three things were found on the way. The Playwright config serves frontend/dist, a built bundle, so an app-source change needs npm run build before the e2e suite sees it - an earlier run passed only because the changes were test-side. 'RMSECV' appears four times on one screen (header figure, panel title, axis title, metric row), so getByText was a strict-mode violation; Panel's section now carries aria-label={title}, which is the markup a named section already implied and makes panels addressable by name. And a pls node had no case in the sidebar's label switch, so it rendered its own id; it now reads 'PLS 5 LV / fat', latent variables rather than PCs because two PLS nodes differ by what they model. VIP and the coefficient plot are deliberately left: both are served, neither is needed to read a calibration, and the second row is full."
+    },
+    {
       "id": "canvas-direct-editing",
       "priority": 1,
       "area": "frontend",
