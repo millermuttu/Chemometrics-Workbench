@@ -8,78 +8,59 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 ## Where things stand
 
-**Phase 1 is complete and released.** Phase 0 is tagged `v0.1.0`, 1.1 `v0.2.0`, 1.2 `v0.3.0`, and
-**1.3 `v0.4.0`** — merged into `main` and tagged on 2026-08-30 (`2277b5b`).
+**Phase 1 is complete and released** — `v0.1.0`, `v0.2.0`, `v0.3.0`, `v0.4.0`, the last merged into
+`main` and tagged on 2026-08-30 (`2277b5b`).
 
-A project directory is now `project.db`, `arrays/` and `results/`, with **no JSON index anywhere in
-it**. A killed server restarts onto its datasets, its pipeline, its layout and its last experiment,
-and every node reports `complete` from the database's own cache rather than recomputing.
-
-Phase 1.3's list is `docs/phase-1-3/feature_list.json`, six of six passing. The live
-`feature_list.json` is **Phase 2's** again.
-
-The live list is Phase 2's, seven entries, and it now has an exit criterion — taken from
-`PROPOSAL.md` §16 rather than invented, and naming the §16 scope that still has no entry.
+**Every entry on the live Phase 2 list is `passing`, and one issue is open.** The list is twelve
+entries; the twelve are done. That is not the same as the phase being finished — see *Next action*.
 
 | Priority | Feature | Issue | Status |
 | --- | --- | --- | --- |
 | 0 | A node under a range selection can be plotted | #134 | passing |
 | 0 | Each model-to-row mapping is written once | #131 | passing |
 | 0 | The checklist's third check has a command | #138 | passing |
-| 1 | A branch is dragged on the canvas, and a node can be removed | #51 | passing |
+| 1 | A branch is dragged on the canvas, and a node removed | #51 | passing |
 | 1 | A pipeline says which estimator nodes will not be fitted | #136 | passing |
 | 1 | The seeded demo walks the exit criterion | #146 | passing |
 | 1 | The analysis screen draws a regression | #148 | passing |
 | 2 | The executor fits PLS, and a PLS result has a shape | #142 | passing |
-| 2 | Duplicate a subgraph, and compare two terminal nodes in one tab | #51 | not started |
-| 3 | A numeric id column is not imported as a target | #135 | not started |
-| 3 | Coefficients readable against the raw axis | #144 | not started |
-| 4 | `data/tecator/README.md` records tecator's terms | #137 | not started |
+| 2 | Duplicate a subgraph, compare two terminal nodes | #51 | passing |
+| 3 | Coefficients readable against the raw axis | #144 | passing |
+| 3 | A numeric id column is not imported as a target | #135 | passing |
+| 4 | `data/tecator/README.md` records tecator's terms | #137 | passing |
 
 ## Current work
 
 **Nothing is `in_progress`.** The tree is clean, no branches remain and no pull requests are open.
-`main` is tagged `v0.4.0`; `dev` is **twenty-two commits ahead of it** — bookkeeping and seven
-merges on 2026-09-05: #139 (#138), #140 (#134), #141 (#136), #143 the correction that made #142
-findable, #145 (#142, PLS in the executor), #147 (#146, the demo walking it) and #149 (#148, the
-screen that draws it). Nothing to merge into `main` until Phase 2 ends. Merged on 2026-08-29 and 30: #125 (#119), #126 (#120), #127 (#121),
-#128 (#122), #129 (#123), #130 (#124), #132 (#131 — the checkpoint cleanup), and #133, the phase
-into `main`.
+`main` is tagged `v0.4.0`; `dev` is **thirty-one commits ahead of it** — nothing merges to `main`
+until the phase closes. Merged on 2026-09-05: #139 (#138), #140 (#134), #141 (#136), #143 the
+stale-reference correction, #145 (#142), #147 (#146), #149 (#148), #150 (#137), #151 (#135),
+#152 (#144) and #153 (#51).
 
-**One cleanup came out of the checkpoint** (#131, merged as #132): six model-to-row mappings were
-stated twice, once on the normal path and once in the import that reads a pre-database directory.
-The copy that would be forgotten when a column is added is the import path, which has one test and
-no user until someone opens an old project. One builder per row now. Two smaller things went with
-it — a test asserting a file that is no longer written either way, so it could not fail; and the
-server's lifespan leaving every SQLite engine holding its file, which is what locks a file on
-Windows.
-
-An unused-export scan flagged fourteen names and **none was deleted**: each is used inside its own
-module or is the type a caller receives. Worth not repeating — the scan's output is not a list of
-things to remove.
+**The demo runs the whole path.** Import, preprocess, split, fit PLS, cross-validate, read the
+result — on the seeded Tecator project, walked by CI on three platforms. Opening `PLS 5 LV · fat`
+gives scores with a T² ellipse, loadings, explained variance, diagnostics, predicted versus
+measured, the RMSECV curve and the calibration metrics. Terminal nodes can be picked in pairs and
+compared, and a branch can be duplicated and edited rather than rebuilt.
 
 ## Next action
 
-**The demo walks the exit criterion, and the result can be read.** #146 put a PLS node in the seeded
-project the Playwright suite opens, and #148 drew it: opening `PLS 5 LV · fat` gives scores with a
-T² ellipse, loadings, explained variance and diagnostics, plus predicted versus measured, the
-RMSECV curve and the calibration metrics. CI walks that path on three platforms every run.
+**Two decisions, neither of them coding, and they are the only things left.**
 
-**What is left of the exit criterion is the evidence, not the software.** §16 asks that the workflow
-"match reference software within stated tolerance". PLS is already parity-covered at the kernel
-level in `docs/parity-report.md`, so the honest remaining task is to *record* a run as evidence
-against that, not to build anything. Worth deciding whether the criterion is met by the parity
-report plus a walked demo, or whether it wants its own recorded comparison.
+**1. Is the exit criterion met?** §16 asks that the workflow "match reference software within stated
+tolerance". PLS is parity-covered at kernel level in `docs/parity-report.md`, and the workflow now
+runs end to end in the application. Whether that combination *is* the criterion, or whether it wants
+its own recorded comparison as evidence, has not been decided. Nothing is blocked on it; the phase's
+close is.
 
-**Then the rest of #51** (priority 2): duplicating a subgraph, and a comparison tab. It finally has
-something to compare.
+**2. #71 — what a non-positive `h0` should do** in the Jackson–Mudholkar SPE limit. Gasoline's `h0`
+is −0.0190; this kernel uses it as computed, `mdatools` clamps it to 0.001. The divergence is
+recorded and proven. It is a specification decision and has been waiting since Phase 0.
 
-**#135** (priority 3) is waiting on a rule decision, below. **#144** (priority 3) needs a decision
-too — three options in the issue, none obviously right. **#137** (priority 4) is a documentation
-correction and can go any time.
-
-**Everything the end-to-end run found is now closed** — #134 as #140 and #136 as #141 — except
-those two.
+**And the list is not the phase.** §16 also names **PLS-DA, VIP and contribution plots, a train/test
+splitting UI, and the Bruker OPUS reader**. None has an entry. The exit criterion text says so, and
+it stays true: the twelve entries being green means the list is finished, not the phase. Writing
+those five entries is the natural next session's first job.
 
 ## What an end-to-end run against a public dataset found
 
