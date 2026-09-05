@@ -381,3 +381,85 @@ def test_a_preview_does_not_read_the_whole_file(tmp_path: Path) -> None:
     payload = preview(path)
     assert payload["detected"]["n_samples"] == 5000
     assert len(payload["head"]["rows"]) == 6
+
+
+# --------------------------------------------------------------------------
+# Identifiers, #135
+# --------------------------------------------------------------------------
+
+
+def test_a_numbered_id_column_names_the_samples_rather_than_measuring_them(
+    tmp_path: Path,
+) -> None:
+    """The case that prompted #135: ids that happen to be integers.
+
+    They used to fail `all_text` and be classified as a target, so a row number
+    became a response a user could pick for PLS and every sample lost its name.
+    """
+    path = tmp_path / "numbered.csv"
+    path.write_text(
+        "sample_id,850.0,900.0,950.0,fat\n"
+        "1,0.1,0.2,0.3,22.5\n"
+        "2,0.2,0.3,0.4,18.1\n"
+        "3,0.3,0.4,0.5,22.5\n",
+        encoding="utf-8",
+    )
+    imported = read(path)
+
+    assert list(imported.sample_ids) == ["1", "2", "3"]
+    assert list(imported.targets) == ["fat"]
+    assert "sample_id" not in imported.targets
+    assert imported.values.shape == (3, 3)
+
+
+def test_the_preview_and_the_import_name_the_same_samples(tmp_path: Path) -> None:
+    """Two answers to one question was the sharper half of #135."""
+    path = tmp_path / "numbered.csv"
+    path.write_text(
+        "sample_id,850.0,900.0\n1,0.1,0.2\n2,0.2,0.3\n",
+        encoding="utf-8",
+    )
+    assert preview(path)["head"]["sample_ids"] == list(read(path).sample_ids)
+
+
+def test_a_first_column_that_repeats_is_a_measurement_not_an_identifier(
+    tmp_path: Path,
+) -> None:
+    """The guard on the rule. Uniqueness is the test, and a target repeats."""
+    path = tmp_path / "batch.csv"
+    path.write_text(
+        "moisture,850.0,900.0\n60.5,0.1,0.2\n60.5,0.2,0.3\n72.1,0.3,0.4\n",
+        encoding="utf-8",
+    )
+    imported = read(path)
+
+    assert imported.sample_ids == ()
+    assert list(imported.targets) == ["moisture"]
+    assert imported.values.shape == (3, 2)
+
+
+def test_text_identifiers_still_work_and_need_not_be_unique_to_be_text(
+    tmp_path: Path,
+) -> None:
+    """A text first column was already an identifier and stays one."""
+    path = tmp_path / "named.csv"
+    path.write_text(
+        "name,850.0,900.0\nC001,0.1,0.2\nC002,0.2,0.3\n",
+        encoding="utf-8",
+    )
+    assert list(read(path).sample_ids) == ["C001", "C002"]
+
+
+def test_a_file_with_no_identifiers_previews_a_visible_placeholder(tmp_path: Path) -> None:
+    """`1` and `2` were indistinguishable from a column of numbered samples.
+
+    An all-numeric first line is data rather than a header, so this file has
+    three rows and no names for any of them.
+    """
+    path = tmp_path / "bare.csv"
+    path.write_text(
+        "850.0,900.0\n0.1,0.2\n0.2,0.3\n",
+        encoding="utf-8",
+    )
+    assert preview(path)["head"]["sample_ids"] == ["row 1", "row 2", "row 3"]
+    assert read(path).sample_ids == ()
