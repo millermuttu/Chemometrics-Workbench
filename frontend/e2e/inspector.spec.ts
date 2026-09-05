@@ -1,13 +1,26 @@
 import { expect, test, type Page } from "@playwright/test";
 
 /** The inspector: a typed form built from the schema, a message that comes
- * from the model, and an edit that marks downstream results stale. */
+ * from the model, and an edit that recomputes on the press that made it. */
 
 async function selectNode(page: Page, name: RegExp) {
   await page.goto("/?token=e2e-token");
   const outline = page.getByRole("complementary", { name: "Project outline" });
   await outline.getByRole("button", { name }).first().dblclick();
   return page.getByRole("complementary", { name: "Inspector" });
+}
+
+/** The window length the server holds for `savgol`, which is the claim an edit
+ * makes: what is on disk, not what the form is showing. */
+async function savedWindow(page: Page): Promise<number | undefined> {
+  const response = await page.request.get("/api/pipelines/current", {
+    headers: { Authorization: "Bearer e2e-token" },
+  });
+  const nodes = (await response.json()).nodes as {
+    id: string;
+    step?: { window_length?: number };
+  }[];
+  return nodes.find((node) => node.id === "savgol")?.step?.window_length;
 }
 
 test("a preprocessing node gets a typed form with the schema's own bounds", async ({ page }) => {
@@ -20,7 +33,7 @@ test("a preprocessing node gets a typed form with the schema's own bounds", asyn
   // The bound comes from models.py: deriv is ge=0, le=2.
   await inspector.getByLabel("Deriv").fill("5");
   await expect(inspector.getByRole("alert")).toHaveText("Deriv must be at most 2");
-  await expect(inspector.getByRole("button", { name: "Apply" })).toBeDisabled();
+  await expect(inspector.getByRole("button", { name: "Apply and re-run" })).toBeDisabled();
 });
 
 test("a rule the schema cannot express is answered by the model itself", async ({ page }) => {
@@ -29,40 +42,36 @@ test("a rule the schema cannot express is answered by the model itself", async (
   // An even window is legal JSON Schema and illegal chemometrics. The form
   // does not know that; models.py does, and its sentence is what appears.
   await inspector.getByLabel("Window Length").fill("10");
-  await expect(inspector.getByRole("button", { name: "Apply" })).toBeEnabled();
-  await inspector.getByRole("button", { name: "Apply" }).click();
+  await expect(inspector.getByRole("button", { name: "Apply and re-run" })).toBeEnabled();
+  await inspector.getByRole("button", { name: "Apply and re-run" }).click();
   await expect(inspector.getByRole("alert")).toHaveText("window_length must be odd");
 });
 
-test("an accepted edit marks downstream nodes stale and offers a re-run", async ({ page }) => {
+test("an accepted edit recomputes on the one press, and nothing is left dimmed", async ({
+  page,
+}) => {
   const inspector = await selectNode(page, /^MSC/);
-  await page.getByRole("button", { name: "Pipeline", exact: true }).click();
-  const staleBefore = await page.getByTestId("node-stale").count();
-
   await page.getByRole("tab", { name: /MSC/ }).click();
   await inspector.getByLabel("Reference").selectOption("median");
-  await inspector.getByRole("button", { name: "Apply" }).click();
+  await inspector.getByRole("button", { name: "Apply and re-run" }).click();
 
-  await expect(page.getByText("Downstream results are stale.")).toBeVisible();
-
-  await page.getByRole("tab", { name: "Pipeline" }).click();
-  expect(await page.getByTestId("node-stale").count()).toBeGreaterThan(staleBefore);
-
-  // A stale result dims; it does not vanish. Every node is still on the canvas.
-  await expect(page.locator(".react-flow__node")).toHaveCount(15);
-
-  // The re-run is offered, and taking it clears what the edit made stale.
-  //
   // The outcome rather than a frame of the middle: the edited node is the only
   // one whose arrays have to be recomputed and every other node is already in
   // the store, so this run is over in milliseconds - well inside one poll of
   // the job. Asserting "Queued" or even "Done" here asserts that the machine
   // was slow enough to be caught looking, which is why this test was flaky.
   // `runs.spec.ts` watches a run advance, on a project seeded large enough.
-  await page.getByRole("button", { name: "Re-run" }).click();
-  await expect(page.getByText("Downstream results are stale.")).toHaveCount(0);
-  await expect(page.getByTestId("node-stale")).toHaveCount(0);
+  await page.getByRole("button", { name: "Pipeline", exact: true }).click();
   await expect(page.getByTestId("node-complete")).toHaveCount(15);
+  await expect(page.getByTestId("node-stale")).toHaveCount(0);
+
+  // Nothing is left asking to be pressed: the edit ran, so there is no banner
+  // and no second button to find.
+  await expect(page.getByText("Downstream results are stale.")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Re-run" })).toHaveCount(0);
+
+  // A run does not cost anyone a node. Every one is still on the canvas.
+  await expect(page.locator(".react-flow__node")).toHaveCount(15);
 });
 
 test("provenance is collapsed until asked for, and hashes are truncated in the middle", async ({
@@ -100,26 +109,16 @@ test("an accepted edit is written to the pipeline, not only to the screen", asyn
 
   await expect(inspector.getByLabel("Window Length")).toHaveValue("11");
   await inspector.getByLabel("Window Length").fill("9");
-  await inspector.getByRole("button", { name: "Apply" }).click();
-  await expect(page.getByText("Downstream results are stale.")).toBeVisible();
+  await inspector.getByRole("button", { name: "Apply and re-run" }).click();
 
-  const saved = await page.request.get("/api/pipelines/current", {
-    headers: { Authorization: "Bearer e2e-token" },
-  });
-  const nodes = (await saved.json()).nodes as { id: string; step?: { window_length?: number } }[];
-  expect(nodes.find((node) => node.id === "savgol")?.step?.window_length).toBe(9);
+  // Polled, not read once: the press validates, saves and starts a run, and
+  // nothing on screen has to change before the save lands - so a single read
+  // races the PUT it is checking for.
+  await expect.poll(() => savedWindow(page)).toBe(9);
 
   // Put it back: the project outlives this test, and the file above opens by
   // asserting the seeded 11.
   await inspector.getByLabel("Window Length").fill("11");
-  await inspector.getByRole("button", { name: "Apply" }).click();
-  await expect
-    .poll(async () => {
-      const back = await page.request.get("/api/pipelines/current", {
-        headers: { Authorization: "Bearer e2e-token" },
-      });
-      const list = (await back.json()).nodes as { id: string; step?: { window_length?: number } }[];
-      return list.find((node) => node.id === "savgol")?.step?.window_length;
-    })
-    .toBe(11);
+  await inspector.getByRole("button", { name: "Apply and re-run" }).click();
+  await expect.poll(() => savedWindow(page)).toBe(11);
 });
