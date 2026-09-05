@@ -4,16 +4,33 @@ import {
   ReactFlow,
   type Node,
   type NodeChange,
+  type ReactFlowInstance,
 } from "@xyflow/react";
 import { useCallback, useMemo, useRef, useState } from "react";
 
 import { ApiError, api } from "@/api/client";
 import type { PipelineNode } from "@/api/queries";
 import { usePipeline, usePipelineState, useSaveLayout, useSavePipeline } from "@/api/queries";
+import { STEP_MENU } from "@/canvas/catalogue";
 import { NodeCard } from "@/canvas/NodeCard";
 import { StepList } from "@/canvas/StepList";
-import { connect, connectionRefusal, duplicate, remove, terminals } from "@/canvas/edits";
-import { draftGraph, toEdges, toNodes, type DraftStep } from "@/canvas/graph";
+import {
+  add,
+  connect,
+  connectionRefusal,
+  duplicate,
+  numberedId,
+  remove,
+  terminals,
+} from "@/canvas/edits";
+import {
+  draftGraph,
+  toEdges,
+  toNodes,
+  type DraftStep,
+  type FlowEdge,
+  type FlowNode,
+} from "@/canvas/graph";
 import { nodeLabel } from "@/shell/Sidebar";
 
 import "@xyflow/react/dist/style.css";
@@ -63,9 +80,9 @@ export function withDrafts(saved: PipelineNode[], drafts: DraftStep[]): Pipeline
   let parent = (saved.find((node) => !consumed.has(node.id)) ?? saved[saved.length - 1]).id;
 
   const added = drafts.map((draft) => {
-    const stem = draft.kind.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
-    let id = stem;
-    for (let suffix = 2; taken.has(id); suffix += 1) id = `${stem}_${suffix}`;
+    // `numberedId` rather than a third copy of the same loop: `edits.ts`
+    // already mints ids for duplicates and for nodes added from the menu.
+    const id = numberedId(taken, draft.kind);
     taken.add(id);
 
     const node: PipelineNode = { id, type: draft.type, inputs: [parent], ...draft.payload };
@@ -107,6 +124,14 @@ export function PipelineCanvas({
   // drag is recorded here so the click that follows it can be ignored - one
   // gesture should not both move a node and open it.
   const dragged = useRef(false);
+  /** Where a connector was dropped on empty canvas, and which node it came
+   * from. Non-null while the menu of steps to add is open. */
+  const [dropped, setDropped] = useState<
+    { parent: string; at: { x: number; y: number }; screen: { x: number; y: number } } | null
+  >(null);
+  // Captured from onInit rather than useReactFlow(), which would need this
+  // component wrapped in a provider it does not currently have.
+  const flow = useRef<ReactFlowInstance<FlowNode, FlowEdge> | null>(null);
 
   // Memoised because it feeds the graph's useMemo: a fresh [] every render
   // would rebuild the whole graph on every keystroke elsewhere in the tab.
@@ -225,9 +250,28 @@ export function PipelineCanvas({
           onConnect={({ source, target }) => {
             if (source && target) edit(() => connect(nodes, source, target));
           }}
-          onConnectEnd={() => {
+          onInit={(instance) => {
+            flow.current = instance;
+          }}
+          onConnectEnd={(event, state) => {
             if (refusal.current) setValidation(refusal.current);
             refusal.current = null;
+            // A connector dropped on empty canvas is an offer to add a step
+            // there. The parent is the node it was dragged from and the
+            // position is where it was let go, so neither has to be guessed -
+            // which is what `withDrafts` could not do and says so.
+            if (state.isValid !== null) return;
+            const parent = state.fromNode?.id;
+            if (!parent || !flow.current || String(parent).startsWith("draft-")) return;
+            const point =
+              "clientX" in event
+                ? { x: event.clientX, y: event.clientY }
+                : { x: event.changedTouches[0].clientX, y: event.changedTouches[0].clientY };
+            setDropped({
+              parent,
+              at: flow.current.screenToFlowPosition(point),
+              screen: point,
+            });
           }}
           onNodeClick={(_, node: Node) => {
             // A drag ends with a click on the node it moved. Opening its tab
@@ -247,6 +291,52 @@ export function PipelineCanvas({
           <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="var(--grid)" />
         </ReactFlow>
       </div>
+
+      {dropped ? (
+        <div
+          role="menu"
+          aria-label="Add a step"
+          data-testid="add-step-menu"
+          style={{
+            position: "fixed",
+            left: dropped.screen.x,
+            top: dropped.screen.y,
+            zIndex: 10,
+            background: "var(--surface)",
+            border: "1px solid var(--rule)",
+            borderRadius: 3,
+            padding: 4,
+            boxShadow: "0 6px 18px rgb(0 0 0 / 0.16)",
+            minWidth: 150,
+          }}
+        >
+          <div className="ilabel" style={{ padding: "2px 8px 4px" }}>
+            Add after {dropped.parent}
+          </div>
+          {STEP_MENU.map((step) => (
+            <button
+              key={step.kind}
+              role="menuitem"
+              className="srow"
+              style={{ display: "block", width: "100%", textAlign: "left", padding: "3px 8px" }}
+              onClick={() => {
+                // Minted once and used twice: `add` derives the same id from
+                // the same set, and the position has to be filed under it.
+                const id = numberedId(new Set(nodes.map((node) => node.id)), step.kind);
+                edit(() =>
+                  add(nodes, dropped.parent, { type: step.type, ...step.payload }, step.kind),
+                );
+                // Placed where the connector was let go. #162's layout write
+                // carries it to the server when the pipeline is saved.
+                setMoved((current) => ({ ...current, [id]: dropped.at }));
+                setDropped(null);
+              }}
+            >
+              {step.kind}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       <StepList
         steps={steps}

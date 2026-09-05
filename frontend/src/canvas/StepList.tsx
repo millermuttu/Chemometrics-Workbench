@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import type { DraftStep } from "@/canvas/graph";
+import { STEPS } from "@/canvas/catalogue";
 
 /** The pipeline builder beside the canvas: appending, and what a drag cannot do.
  *
@@ -22,46 +23,6 @@ import type { DraftStep } from "@/canvas/graph";
  * default that changed in the schema should change the label beside it.
  * Editing them is the inspector's job once the node is saved.
  */
-const STEPS: (Pick<DraftStep, "kind" | "type" | "parameters" | "payload">)[] = [
-  {
-    kind: "SNV",
-    type: "preprocess",
-    parameters: "population statistics per row",
-    payload: { step: { kind: "snv" } },
-  },
-  {
-    kind: "MSC",
-    type: "preprocess",
-    parameters: "reference: mean",
-    payload: { step: { kind: "msc", reference: "mean" } },
-  },
-  {
-    kind: "SG d1 w11",
-    type: "preprocess",
-    parameters: "window 11 · poly 2 · deriv 1",
-    payload: {
-      step: { kind: "savgol", window_length: 11, polyorder: 2, deriv: 1 },
-    },
-  },
-  {
-    kind: "Mean centre",
-    type: "preprocess",
-    parameters: "column means",
-    payload: { step: { kind: "mean_centre" } },
-  },
-  {
-    kind: "Autoscale",
-    type: "preprocess",
-    parameters: "ddof 1",
-    payload: { step: { kind: "autoscale", ddof: 1 } },
-  },
-  {
-    kind: "PCA",
-    type: "estimator",
-    parameters: "5 components",
-    payload: { spec: { kind: "pca", n_components: 5 } },
-  },
-];
 
 interface Props {
   steps: DraftStep[];

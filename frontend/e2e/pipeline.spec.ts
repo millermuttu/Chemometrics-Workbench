@@ -276,3 +276,51 @@ test("a dragged node is written through on the drop, and not opened by the drag"
   ).json();
   expect(reloaded.layout.snv).toEqual(moved.layout.snv);
 });
+
+/** Dropping a connector on empty canvas offers the steps this build can run,
+ * and the one that is picked hangs off the node the drag started from.
+ *
+ * This is the answer to the parent `withDrafts` has to guess: it appends to
+ * the first terminal node and says in its own docstring that choosing a branch
+ * was left undone. Here the parent is not chosen at all - it is wherever the
+ * connector came from.
+ *
+ * Edits and never saves, so the seeded project on 8765 is left as the other
+ * specs expect.
+ */
+test("a connector dropped on empty canvas adds a step onto the node it came from", async ({
+  page,
+}) => {
+  await openCanvas(page);
+  const before = await page.locator(".react-flow__node").count();
+
+  const port = page.locator('.react-flow__node[data-id="msc"] .react-flow__handle-right');
+  const source = (await port.boundingBox())!;
+  await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
+  await page.mouse.down();
+  // Into empty space well below the graph, so the drop lands on nothing.
+  await page.mouse.move(source.x + 220, source.y + 300, { steps: 12 });
+  await page.mouse.up();
+
+  const menu = page.getByTestId("add-step-menu");
+  await expect(menu).toBeVisible();
+  await expect(menu).toContainText("msc");
+
+  // Only what the executor can actually fit: PLS-DA has no kernel, and
+  // train/test, repeated k-fold and external splits raise at run time.
+  await expect(menu.getByRole("menuitem", { name: "PLS-DA" })).toHaveCount(0);
+  await expect(menu.getByRole("menuitem", { name: "PLS 5 LV" })).toHaveCount(1);
+
+  await menu.getByRole("menuitem", { name: "Autoscale" }).click();
+  await expect(page.getByTestId("add-step-menu")).toHaveCount(0);
+  await expect(page.locator(".react-flow__node")).toHaveCount(before + 1);
+
+  // Hung off the node the connector came from, not off a terminal node.
+  await expect(page.locator('.react-flow__edge[data-id="msc->autoscale"]')).toHaveCount(1);
+
+  // And placed where it was dropped rather than at the origin, where every
+  // unplaced node used to land on top of every other.
+  const added = (await page.locator('.react-flow__node[data-id="autoscale"]').boundingBox())!;
+  expect(added.x).toBeGreaterThan(source.x);
+  expect(added.y).toBeGreaterThan(source.y);
+});
