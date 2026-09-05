@@ -1,6 +1,6 @@
 {
   "phase": "Phase 2 - comparison and direct manipulation",
-  "exit_criterion": "Not yet written. This list holds the Phase 2 work started ahead of Phase 1.3 at the user's direction (#51). Phase 1.3 - SQLite in each project directory, and the two halves joined - is unstarted and has no list of its own yet; it is still the next phase in PROPOSAL.md's order.",
+  "exit_criterion": "PROPOSAL.md section 16: \"A complete calibration workflow on a real NIR dataset matches reference software within stated tolerance.\" Concretely, and demonstrated rather than reasoned: a real NIR dataset is imported, preprocessed, split, fitted with PLS, cross-validated and read back - the metrics, the predicted-versus-actual plot and the residuals - without leaving the application, and the numbers agree with the parity programme's reference within the tolerances docs/parity-report.md publishes. The phase ends when that run is recorded with its evidence, not when every entry below is passing. Section 16 also names PLS regression and PLS-DA, the full validation suite, Hotelling T2, SPE, VIP and contribution plots, predicted-versus-actual and residual plots, a train/test splitting UI, and the Bruker OPUS reader. Of those only PLS has a kernel (#88 is the executor half); the rest have no entry on this list yet, and the list is not complete until they do.",
   "status_values": [
     "not_started",
     "in_progress",
@@ -8,6 +8,39 @@
     "passing"
   ],
   "features": [
+    {
+      "id": "range-select-axis-follows-data",
+      "priority": 0,
+      "area": "backend",
+      "issue": 134,
+      "title": "A node under a range selection can be plotted",
+      "depends_on": [],
+      "user_visible_behavior": "Selecting a wavelength range no longer empties the spectra plot for the rest of the branch. Every node downstream of a range_select draws against the axis it actually has.",
+      "status": "not_started",
+      "verification": [
+        "GET /api/spectra/{node} returns a payload for a node under a range_select, with axis.values matching the selection rather than the dataset.",
+        "The axis is correct for two chained range selections, and for a sibling branch that has none.",
+        "uv run pytest - the existing suite, plus a case asserting the axis a selected node reports."
+      ],
+      "evidence": "",
+      "notes": "Found running the application end to end against the mango dry-matter set (Anderson et al. 2020, 285-1200 nm, 7413 x 306), whose first necessary step is a range selection because 285-500 nm and 1191-1200 nm are zero-padded dark channels. The axis is computed and discarded, not unknown: RangeSelectTransformer.selected_axis() exists at preprocessing.py:478, the executor deliberately keeps no per-node axis (executor.py:5-8), and spectra_payload reads only version.axis.values (api.py:588) before raising at api.py:595. The fix that keeps the executor's guarantees is to fold the range_select masks down the node's ancestry in the HTTP layer - a pure function of the recipe, so no new cached state and no content hash moves. Carrying an axis beside each node's array in the executor is the other option and the larger one."
+    },
+    {
+      "id": "row-mapping-said-once",
+      "priority": 0,
+      "area": "backend",
+      "issue": 131,
+      "title": "Each model-to-row mapping is written once, not twice",
+      "depends_on": [],
+      "user_visible_behavior": "Nothing changes for the user. A column added to the schema reaches both the normal path and the import that reads a pre-database directory, because there is one place to add it.",
+      "status": "passing",
+      "verification": [
+        "uv run pytest - unchanged in count and content, the import path's tests included.",
+        "cd frontend && npx playwright test - 38 passed."
+      ],
+      "evidence": "2026-08-30. `uv run pytest` - 758 passed, 1 skipped, the same suite as before the change. `cd frontend && npx playwright test` - 38 passed. ruff, format and mypy clean over 49 files. project.py is 38 lines shorter and the seven remaining db.*Row( constructions are the seven builders. Merged as #132.",
+      "notes": "Cleanup found at the Phase 1.3 checkpoint, filed as #131 rather than folded into a feature branch. Six mappings were stated twice - once on the normal path, once in _import_json_project - and the copy that would be forgotten when a column is added is the import path, which has one test and no user until someone opens an old project. Two smaller things went with it: a test asserting datasets.json does not exist, which could no longer fail because nothing writes that file; and the server's lifespan leaving every SQLite engine holding its file, which costs nothing on process exit and is what locks a file on Windows. An unused-export scan flagged fourteen names - executor.NodeOutput, checks.PipelineWarning, project.PROJECT_FILE among them - and none was deleted: each is used inside its own module or is the type a caller receives, so removing them would be churn dressed as cleanup."
+    },
     {
       "id": "canvas-direct-editing",
       "priority": 1,
@@ -23,6 +56,23 @@
       ],
       "evidence": "2026-08-29. `npx vitest run` - 10 files, 77 tests passed, including src/__tests__/edits.test.ts (14 tests: connect replaces the target's input, a fork gives one node two children, cycle/self/source-target/duplicate/unknown are refused, removal reconnects every child, the source is refused). `npx playwright test` - 38 passed across all four projects, including the four new cases in e2e/pipeline.spec.ts: msc->centre_a rewires and the edge count stays 13, pca_a->snv is refused with 'would make a cycle' and no edge appears, removing snv leaves source->centre_a and source->snv_savgol with 13 nodes, and the source node carries no remove control. `npx tsc -b --noEmit` and `npx eslint .` both exit 0.",
       "notes": "Items 1 and 4 of #51. The rules live in frontend/src/canvas/edits.ts, pure and tested, and are enforced during the drag through React Flow's isValidConnection - each refusal is the client half of a models.py validator. Every non-source node holds exactly one input (tuple[NodeId]), so connecting replaces rather than appends and a branch is one node with several children; an edge cannot be cut on its own because the child would be left dangling. The remove control is on the node rather than in the side panel: clicking a node opens its tab, which replaces the panel before it could be used. Edits are held locally and saved by the existing whole-list PUT (#108). Node positions are still not draggable - layout lives in pipeline_state.json and nothing writes it back."
+    },
+    {
+      "id": "pending-estimator-is-announced",
+      "priority": 1,
+      "area": "backend",
+      "issue": 136,
+      "title": "A pipeline says which estimator nodes will not be fitted",
+      "depends_on": [],
+      "user_visible_behavior": "A pipeline holding a PLS or PLS-DA node is told so before it is run, rather than reporting a successful run with a node that silently never fitted.",
+      "status": "not_started",
+      "verification": [
+        "POST /api/pipelines/{id}/validate returns a warning naming every PLS and PLS-DA node; a pipeline without one still returns warnings: [].",
+        "A run over such a pipeline still succeeds - what is said changes, what is executed does not.",
+        "uv run pytest"
+      ],
+      "evidence": "",
+      "notes": "Not #88, which is the kernel. This is the silence around it, found end to end: validate returned valid: true with no warnings, the job reported succeeded and 'Done', and the PLS node was left 'not_run' - the same state a node has before it has ever been run, so a screen cannot tell 'not yet' from 'never will be'. Run.pending_estimators (executor.py:279, populated at :432) already names the declined nodes and the string 'pending_estimators' appears nowhere in api.py. The warnings list is already in the validate payload and already rendered. This should become redundant when #88 lands."
     },
     {
       "id": "canvas-compare-and-duplicate",
@@ -43,20 +93,40 @@
       "notes": "Items 2 and 3 of #51, deliberately left for a second pass. The comparison tab is a screen with no artboard behind it and no metrics to compare until PLS has a kernel in the executor (#88's subject), which is what makes 'compare two models' worth looking at. DESIGN_BRIEF.md section 5 is the reference."
     },
     {
-      "id": "row-mapping-said-once",
-      "priority": 0,
+      "id": "import-column-roles-and-sample-ids",
+      "priority": 3,
       "area": "backend",
-      "issue": 131,
-      "title": "Each model-to-row mapping is written once, not twice",
+      "issue": 135,
+      "title": "A numeric id column is not imported as a target, and preview matches import",
       "depends_on": [],
-      "user_visible_behavior": "Nothing changes for the user. A column added to the schema reaches both the normal path and the import that reads a pre-database directory, because there is one place to add it.",
-      "status": "passing",
+      "user_visible_behavior": "A CSV whose leading identifier column happens to hold integers imports with its sample ids kept, and without offering a row number as a response variable. The preview reports the same sample ids the import stores.",
+      "status": "not_started",
       "verification": [
-        "uv run pytest - unchanged in count and content, the import path's tests included.",
-        "cd frontend && npx playwright test - 38 passed."
+        "A CSV with an integer id column imports with sample_ids populated and no spurious target.",
+        "/import/preview and /import report the same sample ids for the same bytes.",
+        "A file whose first column is genuinely a numeric measurement is still read as a target.",
+        "uv run pytest - the tests/fixtures/contract/ inputs read unchanged."
       ],
-      "evidence": "2026-08-30. `uv run pytest` - 758 passed, 1 skipped, the same suite as before the change. `cd frontend && npx playwright test` - 38 passed. ruff, format and mypy clean over 49 files. project.py is 38 lines shorter and the seven remaining db.*Row( constructions are the seven builders. Merged as #132.",
-      "notes": "Cleanup found at the Phase 1.3 checkpoint, filed as #131 rather than folded into a feature branch. Six mappings were stated twice - once on the normal path, once in _import_json_project - and the copy that would be forgotten when a column is added is the import path, which has one test and no user until someone opens an old project. Two smaller things went with it: a test asserting datasets.json does not exist, which could no longer fail because nothing writes that file; and the server's lifespan leaving every SQLite engine holding its file, which costs nothing on process exit and is what locks a file on Windows. An unused-export scan flagged fourteen names - executor.NodeOutput, checks.PipelineWarning, project.PROJECT_FILE among them - and none was deleted: each is used inside its own module or is the type a caller receives, so removing them would be churn dressed as cleanup."
+      "evidence": "",
+      "notes": "Found end to end on the mango set, whose CSV is 'sample_id, 285.0, ..., 1200.0, target_DM': the import recorded targets {sample_id, target_DM} and sample_ids [] for 7413 samples, so sample_id is selectable as a PLS response and every trace falls back to 'row N'. This is readers/delimited.py:34-35 doing exactly what it documents, so the rule is what needs deciding, not the code. The sharper half is that /import/preview reports head.sample_ids ['1','2',...] for the same file the import keeps none for - two answers to one question. corrections is an object of strings covering delimiter, decimal and orientation only (api.py:333), so a user who sees the wrong role in the preview cannot overrule it, which is the one guess the reader does not offer a Choice for. Needs a decision before a branch: detect better, add column role to the Choice set, or both."
+    },
+    {
+      "id": "tecator-readme-records-tecator",
+      "priority": 4,
+      "area": "docs",
+      "issue": 137,
+      "title": "data/tecator/README.md records tecator's terms, not gasoline's",
+      "depends_on": [],
+      "user_visible_behavior": "The tecator dataset directory documents the dataset it holds: its permission note, its publication obligation, its source and its checksum.",
+      "status": "not_started",
+      "verification": [
+        "diff src/chemometrics_workbench/data/tecator/README.md src/chemometrics_workbench/data/gasoline/README.md differs.",
+        "The README quotes the permission note from the committed tecator.txt and states the obligation to name the instrument and company when publishing a result.",
+        "No table row in it carries a gasoline URL or hash.",
+        "uv run pytest tests/test_datasets.py"
+      ],
+      "evidence": "",
+      "notes": "Found while choosing a dataset for an end-to-end run: data/tecator/README.md is byte-identical to data/gasoline/README.md, so it is titled 'Gasoline / octane' and asserts tecator is NOT committed, is GPL-2 and comes from CRAN - all four false, and the two SHA-256 rows are gasoline's. Nothing is redistributed wrongly: tecator.txt carries its own permission note ('can be redistributed as long as this permission note is attached') and that file is committed. What is wrong is the record. Three places designate that README as where the terms live - datasets.py:308-310 says the note is 'reproduced in data/tecator/README.md', CONTRIBUTING.md:78, session-handoff.md:313 - and for tecator it reproduces another dataset's. The publication obligation currently survives only in a docstring and in session-handoff.md, which is overwritten every session."
     }
   ]
 }
