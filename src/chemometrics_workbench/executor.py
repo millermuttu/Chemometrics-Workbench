@@ -144,6 +144,7 @@ __all__ = [
     "capture_environment",
     "execute",
     "experiment_for",
+    "governing_folds",
     "has_kernel",
     "node_keys",
     "node_label",
@@ -1076,7 +1077,7 @@ def stored_display(
         return None
 
     by_id = {node.id: node for node in pipeline.nodes}
-    folds = _governing_folds(node_id, by_id, version.n_samples)
+    folds = governing_folds(node_id, by_id, version.n_samples)
     state = _from_cache(path, paths, folds)
     return None if state is None else state.display
 
@@ -1097,7 +1098,7 @@ def stored_result(
         return None
 
 
-def _governing_folds(
+def governing_folds(
     node_id: NodeId, by_id: dict[NodeId, PipelineNode], n_samples: int
 ) -> list[Fold] | None:
     """The split above a node, resolved again from its spec.

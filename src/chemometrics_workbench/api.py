@@ -90,7 +90,12 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from chemometrics_workbench import preprocessing, readers
 from chemometrics_workbench.checks import PipelineWarning, check_pipeline
-from chemometrics_workbench.executor import EstimatorResult, has_kernel, stored
+from chemometrics_workbench.executor import (
+    EstimatorResult,
+    governing_folds,
+    has_kernel,
+    stored,
+)
 from chemometrics_workbench.executor import stored_display as _stored_display
 from chemometrics_workbench.executor import stored_result as _stored_result
 from chemometrics_workbench.jobs import Job, Jobs, submit_run
@@ -113,6 +118,7 @@ from chemometrics_workbench.project import (
     create_project,
     is_project,
     open_project,
+    read_array,
     read_datasets,
     read_experiment,
     read_layout,
@@ -121,12 +127,14 @@ from chemometrics_workbench.project import (
     write_layout,
     write_pipeline,
 )
+from chemometrics_workbench.regression import coefficients_original_units
 
 __all__ = [
     "ESTIMATOR_NOT_FITTED",
     "MAX_POINTS",
     "MAX_TRACES",
     "MAX_UPLOAD_BYTES",
+    "folded_coefficients",
     "node_axis",
     "open_project_directory",
     "results_payload",
@@ -705,6 +713,108 @@ def node_axis(pipeline: Pipeline, node_id: NodeId, version: DatasetVersion) -> N
     return axis
 
 
+def _preprocess_chain(pipeline: Pipeline, node_id: NodeId) -> tuple[list[PipelineNode], NodeId]:
+    """The preprocess nodes from the source down to `node_id`, and the source's id."""
+    by_id = {node.id: node for node in pipeline.nodes}
+    chain: list[PipelineNode] = []
+    current = node_id
+    while True:
+        node = by_id[current]
+        if node.type == "preprocess":
+            chain.append(node)
+        if not node.inputs:
+            return list(reversed(chain)), node.id
+        current = node.inputs[0]
+
+
+def folded_coefficients(
+    directory: Path,
+    pipeline: Pipeline,
+    node_id: NodeId,
+    version: DatasetVersion,
+    result: EstimatorResult,
+) -> dict[str, Any]:
+    """A regression's coefficients against the dataset's own axis (#144).
+
+    `PROPOSAL.md` §9 promises a portable model — a coefficient vector and a
+    NumPy-only snippet — and `result.coefficients` is not that: it is `b` on
+    whatever the last preprocessing node produced. `regression.py` already does
+    the arithmetic, by measuring the chain rather than restating its rules. What
+    it needs is the **fitted** chain, and the executor has none to give:
+    `_transform` builds a transformer, uses it and drops it, and a node whose
+    key hits the cache never builds one at all.
+
+    **So the chain is refitted here, from the recipe.** That is #134's shape
+    again, and for the same reason: a pure function of the pipeline and the
+    stored source array cannot disagree with the cache, cannot move a content
+    hash, and works identically whether the run was hot or cold. Keeping the
+    transformers beside the cached arrays would put a second thing there that
+    has to stay consistent with them, which `executor.py:5-8` refuses.
+
+    **The estimator's own centring is folded in too.** `_pls` centres `X` by the
+    fit rows' mean, which is not a pipeline node and so is not in the measured
+    chain. Since the model computes `(chain(X) - x̄)·b + ȳ` and the helper
+    returns an intercept of `y_mean + offset·b`, passing `ȳ - x̄·b` as `y_mean`
+    puts it exactly where it belongs.
+    """
+    chain, source_id = _preprocess_chain(pipeline, node_id)
+    if source_id not in {node.id for node in pipeline.nodes}:  # pragma: no cover - defensive
+        raise _fail(404, "not_found", f"node {node_id!r} has no source above it.", node_id=node_id)
+
+    try:
+        values = read_array(directory, version.array_path)
+    except ProjectError as error:
+        raise _fail(500, "project_unavailable", str(error)) from error
+
+    # Fold zero's training rows below a split, every row above one - the rows
+    # `_pls` fitted the model on, so the parameters folded here are the
+    # parameters the coefficients were produced with.
+    by_id = {node.id: node for node in pipeline.nodes}
+    folds = governing_folds(NodeId(node_id), by_id, version.n_samples)
+    rows = folds[0].train if folds else np.arange(version.n_samples, dtype=np.intp)
+
+    axis = np.asarray(version.axis.values, dtype=np.float64)
+    transformers: list[preprocessing.Transformer] = []
+    for node in chain:
+        assert node.type == "preprocess"
+        transformer = preprocessing.from_spec(node.step, axis=axis)
+        transformer.fit(values[rows])
+        values = transformer.transform(values)
+        if isinstance(transformer, preprocessing.RangeSelectTransformer):
+            axis = transformer.selected_axis()
+        transformers.append(transformer)
+
+    observed = np.asarray(result.observed, dtype=np.float64)
+    x_mean = values[rows].mean(axis=0)
+    coefficients = np.asarray(result.coefficients, dtype=np.float64)
+
+    try:
+        folded, intercept = coefficients_original_units(
+            coefficients,
+            transformers,
+            n_variables=version.n_variables,
+            y_mean=float(observed.mean()) - float(x_mean @ coefficients),
+        )
+    except ValueError as error:
+        # §7's "says so when it is not available". Not an error: a chain with an
+        # SNV in it genuinely has no fixed linear map, and the honest answer is
+        # the sentence naming the step rather than an approximation.
+        return {"node_id": node_id, "available": False, "reason": str(error)}
+
+    return {
+        "node_id": node_id,
+        "available": True,
+        "target": result.target,
+        "intercept": float(intercept),
+        "coefficients": [float(value) for value in folded],
+        "axis": {
+            "kind": version.axis.kind,
+            "unit": version.axis.unit,
+            "values": [float(value) for value in version.axis.values],
+        },
+    }
+
+
 def spectra_payload(
     node_id: str,
     values: NDArray[np.float64],
@@ -1104,6 +1214,25 @@ def get_results(node_id: str) -> Any:
             node_id=node_id,
         )
     return results_payload(result, version, axis=node_axis(pipeline, NodeId(node_id), version))
+
+
+@router.get("/results/{node_id}/coefficients")
+def get_coefficients(node_id: str) -> Any:
+    """The model as `y_hat = intercept + X_raw @ b`, or why it cannot be one."""
+    directory, pipeline, version = _runnable()
+    result = _stored_result(directory, pipeline, version, node_id)
+    if result is None:
+        raise _fail(
+            404, "not_found", f"node {node_id!r} has no fitted result yet.", node_id=node_id
+        )
+    if result.task != "regression":
+        raise _fail(
+            422,
+            "not_a_regression",
+            f"node {node_id!r} is a {result.task}, which has no coefficient vector.",
+            node_id=node_id,
+        )
+    return folded_coefficients(directory, pipeline, NodeId(node_id), version, result)
 
 
 def _indices(raw: str | None) -> list[int]:
