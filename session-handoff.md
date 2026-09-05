@@ -2,7 +2,7 @@
 
 Compact state for the next session. **Overwrite this file at the end of every session** — it is a snapshot, not a log. Read it first, then `feature_list.json`, `git log` on `dev`, and the open issues.
 
-**Updated:** 2026-08-29
+**Updated:** 2026-09-05
 
 ---
 
@@ -18,18 +18,27 @@ and every node reports `complete` from the database's own cache rather than reco
 Phase 1.3's list is `docs/phase-1-3/feature_list.json`, six of six passing. The live
 `feature_list.json` is **Phase 2's** again.
 
-| Feature | Issue | Status |
-| --- | --- | --- |
-| A branch is dragged on the canvas, and a node can be removed | #51 | passing |
-| Duplicate a subgraph, and compare two terminal nodes in one tab | #51 | not started |
-| Each model-to-row mapping is written once | #131 | passing |
+The live list is Phase 2's, seven entries, and it now has an exit criterion — taken from
+`PROPOSAL.md` §16 rather than invented, and naming the §16 scope that still has no entry.
+
+| Priority | Feature | Issue | Status |
+| --- | --- | --- | --- |
+| 0 | A node under a range selection can be plotted | #134 | not started |
+| 0 | Each model-to-row mapping is written once | #131 | passing |
+| 1 | A branch is dragged on the canvas, and a node can be removed | #51 | passing |
+| 1 | A pipeline says which estimator nodes will not be fitted | #136 | not started |
+| 2 | Duplicate a subgraph, and compare two terminal nodes in one tab | #51 | not started |
+| 3 | A numeric id column is not imported as a target | #135 | not started |
+| 4 | `data/tecator/README.md` records tecator's terms | #137 | not started |
 
 ## Current work
 
-**Nothing is `in_progress`.** `dev` and `main` are level, `main` is tagged `v0.4.0`, the tree is
-clean, no branches remain and no pull requests are open. Merged on 2026-08-29 and 30: #125 (#119),
-#126 (#120), #127 (#121), #128 (#122), #129 (#123), #130 (#124), #132 (#131 — the checkpoint
-cleanup), and #133, the phase into `main`.
+**Nothing is `in_progress`.** The tree is clean, no branches remain and no pull requests are open.
+`main` is tagged `v0.4.0`; `dev` is **two commits ahead of it**, both bookkeeping — `4a0d79e`
+recording the release, and `b82b636` recording what the end-to-end run found. Nothing to merge into
+`main` until Phase 2 ends. Merged on 2026-08-29 and 30: #125 (#119), #126 (#120), #127 (#121),
+#128 (#122), #129 (#123), #130 (#124), #132 (#131 — the checkpoint cleanup), and #133, the phase
+into `main`.
 
 **One cleanup came out of the checkpoint** (#131, merged as #132): six model-to-row mappings were
 stated twice, once on the normal path and once in the import that reads a pre-database directory.
@@ -45,13 +54,65 @@ things to remove.
 
 ## Next action
 
-**The rest of #51**, which is what the live list holds: duplicating a subgraph, and a comparison tab
-for two terminal nodes. The comparison tab has no artboard behind it and little to compare until PLS
-has a kernel in the executor — `Run.pending_estimators` names the estimator nodes the executor did
-not fit, and what a PLS result carries is #88's subject. That ordering is worth deciding before the
-branch is cut.
+**#134**, priority 0 and the smallest of the four the end-to-end run found. A range selection makes
+every node after it unplottable, and the axis it needs is already computed and thrown away —
+`RangeSelectTransformer.selected_axis()` at `preprocessing.py:478`. Fold the `range_select` masks
+down the node's ancestry in the HTTP layer: a pure function of the recipe, so nothing new is cached
+and no content hash moves. Doing it in the executor instead puts a second thing in the cached state
+that has to stay consistent with the arrays, which is the larger option.
 
-Phase 2's list has no exit criterion yet. It needs one written before it is more than two entries.
+**#136** after it, or alongside — a warning at validate time naming the estimator nodes that will
+not be fitted. The `warnings` list is already in the payload and already rendered.
+
+Then **the rest of #51** (priority 2): duplicating a subgraph, and a comparison tab for two terminal
+nodes. The comparison tab still has no artboard and little to compare until PLS has a kernel in the
+executor (#88). That ordering is still worth deciding before the branch is cut, and the end-to-end
+run sharpened it: **#88 now blocks the phase's own exit criterion**, not just one screen.
+
+## What an end-to-end run against a public dataset found
+
+2026-09-05. The application was driven end to end over HTTP — no frontend, no test harness — against
+an external dataset it had never seen, to check the Phase 1 claim independently of the suite that
+was written alongside it.
+
+**The dataset: mango dry matter** (Anderson et al. 2020, CC-BY 4.0), 285–1200 nm at 3 nm, 306
+channels, 7413 calibration / 2830 tuning / 1448 validation, with a real reference value per sample.
+One curl from a GitHub release. Worth keeping in mind as an option: it is the only openly licensed
+set to hand that reaches below 1000 nm, and unlike corn and gasoline its licence is unambiguous.
+**No public benchmark spans 500–10000 nm** — that window crosses VIS, NIR and mid-IR detectors and
+no instrument records it continuously, so no dataset does either.
+
+**What held.** The 31 MB CSV was detected correctly on every axis the reader guesses — delimiter,
+decimal, orientation, and a `wavelength_nm` axis read rather than reconstructed — and imported in
+1.67 s to an 8.7 MB float32 array. A twelve-node branched pipeline validated and ran, three PCAs
+fitted, and the numbers are chemically right: SNV plus a first derivative puts 96.5 % of variance in
+three components against 83.7 % on the raw matrix. Decimation gave 60 traces plus a 5/50/95 band
+over 7413 spectra. **The restart claim holds under a real load**: killed and reopened on the same
+directory, eleven of twelve nodes came back `complete` from cache with identical explained variance
+and the layout intact, and a clean shutdown checkpointed the WAL away.
+
+**The PLS kernel corroborated against an outside implementation.** Scored on the paper's own tuning
+set, where its published PLS predictions exist: 0.9198 RMSE and R² 0.8119, against their 0.8281 and
+0.8475. Within 11 % with an untuned chain and no component search — external corroboration of a kind
+the parity fixtures cannot give, because they are generated from the same NumPy.
+
+**What it found**, all four filed and entered on the list:
+
+- **#134** — a range selection makes every node after it unplottable. High impact rather than niche:
+  trimming dead detector edges is the first thing anyone does with VIS-NIR, and this dataset needs it
+  (285–500 nm and 1191–1200 nm are zero-padded dark channels).
+- **#136** — a PLS node validates clean, the run reports `succeeded` and `"Done"`, and the node is
+  left `not_run`, which is the same state it has before it has ever been run. A screen cannot tell
+  "not yet" from "never will be". `Run.pending_estimators` names it and never reaches `api.py`.
+- **#135** — a numeric id column is imported as a target and the sample ids are dropped, so
+  `sample_id` is selectable as a PLS response and every trace falls back to `"row N"`. The reader is
+  obeying its documented rule, so the rule is what needs deciding. Sharper half: `/import/preview`
+  reports ids that `/import` does not keep — two answers to one question.
+- **#137** — `data/tecator/README.md` is byte-identical to gasoline's.
+
+**Worth not rediscovering:** the executor holds no per-node axis, deliberately and for a good reason
+(`executor.py:5-8` — a second thing beside the arrays would have to stay consistent with them).
+Anything that needs a node's real axis should derive it from the recipe rather than store it.
 
 ## What Phase 1.3 settled
 
@@ -185,6 +246,10 @@ Both found because a check was made stricter. This is the argument for `retries:
 
 ## Waiting on the user
 
+- **#135 — what a leading numeric id column is.** Three readings: an identifier whatever its type;
+  a column role added to the reader's `Choice` set so `corrections` can overrule it; or both. The
+  second matches how the reader already treats every other guess. A rule decision, not a coding one,
+  and the branch is not worth cutting before it is made.
 - **#71 — what a non-positive `h0` should do** in the Jackson–Mudholkar SPE limit. Gasoline's `h0` is −0.0190; our kernel uses it as computed, `mdatools` clamps it to 0.001. The divergence is recorded and proven; what the kernel *should* do is a specification decision, not a coding one.
 - **GitHub default branch is still `main`.** Any pull request opened without an explicit base targets the release line. Change it under Settings → Branches; it cannot be changed from here with the current tools. Every feature pull request must set `dev` as its base explicitly.
 - **Parity against a commercial package** — `PROPOSAL.md` §19 Q4 is unresolved. The EULA is not public; a licence would have to be confirmed and written permission sought before publishing a comparison.
