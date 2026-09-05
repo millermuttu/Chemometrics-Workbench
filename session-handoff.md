@@ -35,10 +35,10 @@ The live list is Phase 2's, seven entries, and it now has an exit criterion — 
 ## Current work
 
 **Nothing is `in_progress`.** The tree is clean, no branches remain and no pull requests are open.
-`main` is tagged `v0.4.0`; `dev` is **eleven commits ahead of it** — bookkeeping (`4a0d79e` the
-release, `b82b636` what the end-to-end run found, `79c9097` and `719c430` these notes) and three
-merges on 2026-09-05: #139 closing #138, #140 closing #134, and #141 closing #136. Nothing to merge
-into `main` until Phase 2 ends. Merged on 2026-08-29 and 30: #125 (#119), #126 (#120), #127 (#121),
+`main` is tagged `v0.4.0`; `dev` is **fourteen commits ahead of it** — bookkeeping (`4a0d79e` the
+release, `b82b636` what the end-to-end run found, `79c9097` and `719c430` these notes) and four
+merges on 2026-09-05: #139 closing #138, #140 closing #134, #141 closing #136, and #143, the
+correction that made #142 findable. Nothing to merge into `main` until Phase 2 ends. Merged on 2026-08-29 and 30: #125 (#119), #126 (#120), #127 (#121),
 #128 (#122), #129 (#123), #130 (#124), #132 (#131 — the checkpoint cleanup), and #133, the phase
 into `main`.
 
