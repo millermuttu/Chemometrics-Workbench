@@ -106,6 +106,42 @@ export function remove(nodes: PipelineNode[], id: string): PipelineNode[] {
     .map((node) => (parentOf(node) === id ? { ...node, inputs: [inherited] } : node));
 }
 
+/** A new node hung off `parentId`.
+ *
+ * The parent is not guessed. `withDrafts` appends to the first terminal node
+ * and its own docstring admits that choosing which branch to extend was left
+ * undone; here the parent is the node whose connector was dragged, so the
+ * question never arises.
+ *
+ * The id is derived from the step rather than random - `snv`, then `snv 2` -
+ * because a pipeline is read by a person, and `msc` beside `snv` says what
+ * happened where a uuid says only that something did.
+ */
+export function add(
+  nodes: PipelineNode[],
+  parentId: string,
+  step: Pick<PipelineNode, "type"> & { step?: unknown; spec?: unknown },
+  stem: string,
+): PipelineNode[] {
+  if (!nodes.some((node) => node.id === parentId)) {
+    throw new Error("That node is not in this pipeline.");
+  }
+  const id = numberedId(new Set(nodes.map((node) => node.id)), stem);
+  return [...nodes, { ...step, id, inputs: [parentId] } as PipelineNode];
+}
+
+/** An unused id derived from `stem`: `msc`, then `msc_2`. Distinct from
+ * `freeId`, which reads as a copy of something; a node added from the menu is
+ * not a copy of anything. */
+export function numberedId(taken: Set<string>, stem: string): string {
+  const base = stem.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+  if (!taken.has(base)) return base;
+  for (let n = 2; ; n += 1) {
+    const candidate = `${base}_${n}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
+
 /** Why this subgraph cannot be duplicated, or null. */
 export function duplicationRefusal(nodes: PipelineNode[], id: string): string | null {
   const node = nodes.find((candidate) => candidate.id === id);

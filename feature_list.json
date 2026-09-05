@@ -282,6 +282,24 @@
         "uv run ruff check && uv run ruff format --check && uv run mypy; pnpm typecheck && pnpm lint && pnpm build"
       ],
       "evidence": "2026-09-05. `PUT /pipelines/{id}/layout` added beside put_pipeline, with its own LayoutWrite body and a typed Position, so layout still never touches Pipeline.content_hash() - the reason it has its own table. Positions for unknown node ids are filtered rather than refused, which also collects a removed node's coordinates instead of leaving them in a table nothing prunes. Frontend: nodesDraggable={false} removed, onNodesChange narrowed to position changes only (React Flow will not move a controlled node without it), onNodeDragStop writes through useSaveLayout with no debounce because it already fires once per drag. Two regressions were anticipated and handled: the click that ends a drag is consumed so moving a node does not also open its tab, and the three header buttons got React Flow's `nodrag` class or they would have become drag handles. graph.ts gained `placements`, which puts an unplaced node beside its parent at the same 170/130 step the server uses - previously graph.ts:104 fell back to {x:0,y:0} and duplicates stacked at the origin. `uv run pytest` exit 0. `uv run ruff check` and `uv run mypy` (54 files) clean; ruff format reformatted one file, then clean. `pnpm test` - 102 passed, 11 files (99 before, +3 for placements). `pnpm typecheck` and `pnpm lint` clean after fixing a real exhaustive-deps warning: `moved` was read inside the graph useMemo but missing from its deps, so a drag would not have redrawn. `pnpm exec playwright test` - 45 passed (2.2m), 44 before plus the new drag test. One test failure along the way was the test's own fault and worth recording: the first version compared the node's screen bounding box either side of a reload and failed 529 vs 383, because `fitView` re-fits the viewport on every mount - a node that has not moved in the graph still lands on a different pixel. It now asserts the layout the server holds, which is the actual claim; that the canvas draws what the layout says is graph.test.ts's job and it has one."
+    },
+    {
+      "id": "step-added-from-the-canvas",
+      "priority": 1,
+      "area": "frontend",
+      "issue": 163,
+      "title": "A step is added onto the node it was dragged from",
+      "depends_on": [
+        "canvas-nodes-are-dragged"
+      ],
+      "user_visible_behavior": "Dragging a connector from a node's output port and dropping it on empty canvas opens a menu of the steps this build can run. The chosen step becomes a node hung off the node the connector came from, placed where it was dropped.",
+      "verification": [
+        "pnpm test - add() hangs the node off the parent it was given, derives a non-colliding id, refuses an unknown parent, and can create a split.",
+        "pnpm exec playwright test - the whole suite, including the drop menu appearing, offering PLS but not PLS-DA, attaching to the node dragged from, and landing near the drop point.",
+        "pnpm typecheck && pnpm lint && pnpm build"
+      ],
+      "status": "passing",
+      "evidence": "2026-09-05. The parent is no longer guessed. `withDrafts` appends to the first terminal node and its own docstring admits choosing a branch was left to #51; the menu's parent is the node whose connector was dragged, so the question does not arise. Built on onConnectEnd, which was already wired for refusals: a drop where `state.isValid` is null landed on nothing, and that is the offer to add a step. The React Flow instance is captured from onInit rather than useReactFlow(), which would have needed a provider this component does not have. The catalogue moved out of StepList.tsx into canvas/catalogue.ts so the list and the menu share one set; PLS 5 LV and K-fold 10 were added to the menu, and PLS-DA, train_test, repeated_kfold and external deliberately left out because executor.py cannot run them - a shorter menu beats a pipeline that looks fine and dies on Run. `numberedId` was added to edits.ts and withDrafts now calls it, removing the second copy of the same id-minting loop. `pnpm test` - 106 passed, 11 files (102 before, +4 for add()). `pnpm typecheck` and `pnpm lint` clean. `pnpm exec playwright test` - 46 passed (1.5m), 45 before plus the drop-menu test, which asserts the menu appears, contains PLS 5 LV and not PLS-DA, that picking Autoscale creates edge msc->autoscale, and that the node lands right and below the drop point rather than at the origin. DraftStep's `type` had to stay narrow: it knows only the two kinds the side list can draw as a draft chain, so CatalogueStep widens it to include `split` for the menu, which creates real nodes directly."
     }
   ]
 }
