@@ -12,6 +12,7 @@ export type TabKind =
   | "pipeline"
   | "spectra"
   | "results"
+  | "compare"
   | "experiment"
   | "model";
 

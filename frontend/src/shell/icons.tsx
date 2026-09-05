@@ -89,12 +89,23 @@ export const ImportIcon = () => (
   </Icon>
 );
 
+/** Two paths side by side: a comparison is two models on one screen. */
+export const CompareIcon = () => (
+  <Icon>
+    <path d="M4 20V8" />
+    <path d="M10 20V4" />
+    <path d="M16 20v-9" />
+    <path d="M22 20V6" />
+  </Icon>
+);
+
 export const KIND_ICONS = {
   dataset: DatasetIcon,
   import: ImportIcon,
   pipeline: NodeIcon,
   spectra: PlotIcon,
   results: PlotIcon,
+  compare: CompareIcon,
   experiment: FlaskIcon,
   model: ModelIcon,
 } as const;

@@ -138,3 +138,54 @@ test("the source has no remove control, because it is where the data enters", as
     page.locator('.react-flow__node[data-id="snv"] button[aria-label^="Remove node"]'),
   ).toHaveCount(1);
 });
+
+test("duplicating a branch copies it and everything below it", async ({ page }) => {
+  await openCanvas(page);
+  const before = await page.locator(".react-flow__node").count();
+
+  // snv feeds centre_a and snv_savgol, so duplicating it copies a whole branch
+  // rather than a node.
+  await page
+    .locator('.react-flow__node[data-id="snv"] button[aria-label^="Duplicate node"]')
+    .click();
+
+  await expect(page.locator('.react-flow__node[data-id="snv copy"]')).toHaveCount(1);
+  await expect(page.locator('.react-flow__node[data-id="centre_a copy"]')).toHaveCount(1);
+  await expect(page.locator('.react-flow__node[data-id="pca_a copy"]')).toHaveCount(1);
+  // The copy is a sibling branch: it reads from snv's own parent, not from snv.
+  await expect(page.locator('.react-flow__edge[data-id="source->snv copy"]')).toHaveCount(1);
+  expect(await page.locator(".react-flow__node").count()).toBeGreaterThan(before);
+});
+
+test("the source offers no duplicate control, because it cannot be copied", async ({ page }) => {
+  await openCanvas(page);
+  await expect(
+    page.locator('.react-flow__node[data-id="source"] button[aria-label^="Duplicate node"]'),
+  ).toHaveCount(0);
+});
+
+test("picking two terminal nodes opens a comparison tab", async ({ page }) => {
+  await openCanvas(page);
+
+  // Offered on terminal estimators only: pca_a is one, snv is not.
+  await expect(
+    page.locator('.react-flow__node[data-id="snv"] button[aria-label*="for comparison"]'),
+  ).toHaveCount(0);
+
+  const armed = page.locator('.react-flow__node[data-id="pca_a"] button[aria-label^="Pick"]');
+  await expect(armed).toHaveCount(1);
+  await armed.click();
+  // The first pick arms rather than opening anything, and says it is armed.
+  await expect(
+    page.locator('.react-flow__node[data-id="pca_a"] button[aria-label^="Unpick"]'),
+  ).toHaveCount(1);
+
+  await page.locator('.react-flow__node[data-id="pls_d"] button[aria-label^="Pick"]').click();
+
+  await expect(page.getByRole("tab", { name: /pca_a vs pls_d/ })).toBeVisible();
+  await expect(page.getByTestId("compare-view")).toBeVisible();
+  // Only pls_d carries regression metrics, so every row is one-sided and the
+  // difference column is an em dash rather than a number.
+  await expect(page.getByRole("region", { name: "Metrics" })).toBeVisible();
+  await expect(page.getByTestId("delta-RMSECV")).toHaveText("—");
+});

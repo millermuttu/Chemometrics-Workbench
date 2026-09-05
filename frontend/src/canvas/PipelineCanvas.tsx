@@ -1,12 +1,12 @@
 import { Background, BackgroundVariant, ReactFlow, type Node } from "@xyflow/react";
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import { ApiError, api } from "@/api/client";
 import type { PipelineNode } from "@/api/queries";
 import { usePipeline, usePipelineState, useSavePipeline } from "@/api/queries";
 import { NodeCard } from "@/canvas/NodeCard";
 import { StepList } from "@/canvas/StepList";
-import { connect, connectionRefusal, remove } from "@/canvas/edits";
+import { connect, connectionRefusal, duplicate, remove, terminals } from "@/canvas/edits";
 import { draftGraph, toEdges, toNodes, type DraftStep } from "@/canvas/graph";
 import { nodeLabel } from "@/shell/Sidebar";
 
@@ -70,7 +70,14 @@ export function withDrafts(saved: PipelineNode[], drafts: DraftStep[]): Pipeline
 }
 
 
-export function PipelineCanvas({ onOpenNode }: { onOpenNode: (id: string, label: string) => void }) {
+export function PipelineCanvas({
+  onOpenNode,
+  onCompare,
+}: {
+  onOpenNode: (id: string, label: string) => void;
+  /** Opens the comparison tab once two terminal estimators are picked (#51). */
+  onCompare?: (left: string, right: string) => void;
+}) {
   const pipeline = usePipeline();
   const state = usePipelineState();
   const save = useSavePipeline();
@@ -82,6 +89,9 @@ export function PipelineCanvas({ onOpenNode }: { onOpenNode: (id: string, label:
   // and never reports the drop it refused. The reason for the last refusal is
   // kept here so the end of the drag can say why nothing happened.
   const refusal = useRef<string | null>(null);
+  /** The nodes picked for a comparison. Two opens the tab and clears it, so
+   * the control is a toggle with a very short memory rather than a mode. */
+  const [picked, setPicked] = useState<string[]>([]);
 
   // Memoised because it feeds the graph's useMemo: a fresh [] every render
   // would rebuild the whole graph on every keystroke elsewhere in the tab.
@@ -90,13 +100,44 @@ export function PipelineCanvas({ onOpenNode }: { onOpenNode: (id: string, label:
     [edited, pipeline.data],
   );
 
+  /** Pick a node for comparison; the second pick opens the tab.
+   *
+   * Two clicks rather than a multi-select because a click on a node body
+   * already means "open this", so a selection would need a modifier nobody is
+   * told about. The armed node saying so is the affordance instead.
+   *
+   * Memoised for the same reason `nodes` is: it feeds the graph's useMemo, and
+   * a fresh function each render would rebuild the whole graph.
+   */
+  const pick = useCallback(
+    (id: string) => {
+      setPicked((current) => {
+        if (current.includes(id)) return current.filter((other) => other !== id);
+        const next = [...current, id];
+        if (next.length < 2) return next;
+        onCompare?.(next[0], next[1]);
+        return [];
+      });
+    },
+    [onCompare],
+  );
+
   const graph = useMemo(() => {
     if (!pipeline.data) return { nodes: [], edges: [] };
     const style = getComputedStyle(document.documentElement);
     const token = (name: string) => style.getPropertyValue(`--${name}`).trim() || "currentColor";
     const committed = {
-      nodes: toNodes({ ...pipeline.data, nodes }, state.data, nodeLabel, (id) =>
-        edit(() => remove(nodes, id)),
+      nodes: toNodes(
+        { ...pipeline.data, nodes },
+        state.data,
+        nodeLabel,
+        (id) => edit(() => remove(nodes, id)),
+        onCompare && {
+          ids: picked,
+          terminals: new Set(terminals(nodes).map((node) => node.id)),
+          onCompare: pick,
+        },
+        (id) => edit(() => duplicate(nodes, id)),
       ),
       edges: toEdges(
         { ...pipeline.data, nodes },
@@ -108,7 +149,7 @@ export function PipelineCanvas({ onOpenNode }: { onOpenNode: (id: string, label:
     const lowest = Math.max(...committed.nodes.map((node) => node.position.y), 0);
     const draft = draftGraph(steps, { x: 40, y: lowest + 150 });
     return { nodes: [...committed.nodes, ...draft.nodes], edges: [...committed.edges, ...draft.edges] };
-  }, [pipeline.data, state.data, steps, nodes]);
+  }, [pipeline.data, state.data, steps, nodes, picked, onCompare, pick]);
 
   /** An edit that a rule refuses says so, rather than throwing into the void. */
   const edit = (apply: () => PipelineNode[]) => {

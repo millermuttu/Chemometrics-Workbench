@@ -8,7 +8,15 @@
 import { describe, expect, it } from "vitest";
 
 import type { PipelineNode } from "@/api/queries";
-import { connect, connectionRefusal, remove, removalRefusal } from "@/canvas/edits";
+import {
+  connect,
+  connectionRefusal,
+  duplicate,
+  duplicationRefusal,
+  remove,
+  removalRefusal,
+  terminals,
+} from "@/canvas/edits";
 
 /** source → snv → pca, the shape the walkthrough builds. */
 const chain: PipelineNode[] = [
@@ -98,5 +106,87 @@ describe("removing", () => {
 
   it("refuses a node that is not in the pipeline", () => {
     expect(removalRefusal(chain, "pls")).toContain("not in this pipeline");
+  });
+});
+
+describe("duplicating a subgraph", () => {
+  /** source → snv → centre → pca, plus a second branch, so a copy has to take
+   * only what is below its root. */
+  const forked: PipelineNode[] = [
+    { id: "source", type: "source", inputs: [], version_id: "v1" },
+    { id: "snv", type: "preprocess", inputs: ["source"], step: { kind: "snv" } },
+    { id: "centre", type: "preprocess", inputs: ["snv"], step: { kind: "mean_centre" } },
+    { id: "pca", type: "estimator", inputs: ["centre"], spec: { kind: "pca", n_components: 5 } },
+    { id: "msc", type: "preprocess", inputs: ["source"], step: { kind: "msc" } },
+  ];
+
+  it("copies the root and everything below it, and nothing beside it", () => {
+    const after = duplicate(forked, "snv");
+    const added = after.filter((node) => !forked.some((original) => original.id === node.id));
+
+    expect(added.map((node) => node.id)).toEqual(["snv copy", "centre copy", "pca copy"]);
+    // msc is a sibling of snv, not a descendant, so it is untouched.
+    expect(added.some((node) => node.id.startsWith("msc"))).toBe(false);
+  });
+
+  it("hangs the copy off the original's parent, making a branch not a chain", () => {
+    const after = duplicate(forked, "snv");
+
+    expect(after.find((node) => node.id === "snv copy")!.inputs).toEqual(["source"]);
+    // Everything below points at its own copy, never back at the original.
+    expect(after.find((node) => node.id === "centre copy")!.inputs).toEqual(["snv copy"]);
+    expect(after.find((node) => node.id === "pca copy")!.inputs).toEqual(["centre copy"]);
+  });
+
+  it("leaves the original branch exactly as it was", () => {
+    const after = duplicate(forked, "snv");
+    for (const original of forked) {
+      expect(after.find((node) => node.id === original.id)).toEqual(original);
+    }
+  });
+
+  it("numbers a second copy rather than colliding with the first", () => {
+    const ids = duplicate(duplicate(forked, "snv"), "snv").map((node) => node.id);
+
+    expect(ids).toContain("snv copy");
+    expect(ids).toContain("snv copy 2");
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("copies a leaf on its own", () => {
+    const after = duplicate(forked, "pca");
+    expect(after.find((node) => node.id === "pca copy")!.inputs).toEqual(["centre"]);
+    expect(after).toHaveLength(forked.length + 1);
+  });
+
+  it("refuses the source, and says why", () => {
+    expect(duplicationRefusal(forked, "source")).toMatch(/data enters/);
+    expect(() => duplicate(forked, "source")).toThrow(/data enters/);
+  });
+
+  it("refuses a node that is not in the pipeline", () => {
+    expect(duplicationRefusal(forked, "ghost")).toMatch(/not in this pipeline/);
+  });
+
+  it("allows every other node", () => {
+    for (const id of ["snv", "centre", "pca", "msc"]) {
+      expect(duplicationRefusal(forked, id)).toBeNull();
+    }
+  });
+});
+
+describe("terminal nodes", () => {
+  it("are the ones nothing reads from", () => {
+    const forked: PipelineNode[] = [
+      { id: "source", type: "source", inputs: [], version_id: "v1" },
+      { id: "snv", type: "preprocess", inputs: ["source"], step: { kind: "snv" } },
+      { id: "pca_a", type: "estimator", inputs: ["snv"], spec: { kind: "pca", n_components: 5 } },
+      { id: "pca_b", type: "estimator", inputs: ["snv"], spec: { kind: "pca", n_components: 3 } },
+    ];
+    expect(terminals(forked).map((node) => node.id)).toEqual(["pca_a", "pca_b"]);
+  });
+
+  it("is the last node of a plain chain", () => {
+    expect(terminals(chain).map((node) => node.id)).toEqual(["pca"]);
   });
 });
