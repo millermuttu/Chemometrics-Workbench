@@ -40,6 +40,7 @@ from chemometrics_workbench.models import (
     MeanCentre,
     PCASpec,
     Pipeline,
+    PLSDASpec,
     PLSRegressionSpec,
     PreprocessNode,
     RangeSelect,
@@ -50,10 +51,13 @@ from chemometrics_workbench.models import (
 )
 from chemometrics_workbench.project import (
     create_project,
+    read_array,
     read_cache_index,
     write_array,
     write_cache_index,
 )
+from chemometrics_workbench.regression import PLS
+from chemometrics_workbench.validation import bias, k_fold, r2, rmse, sec
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "contract"
 
@@ -100,6 +104,10 @@ def project(tmp_path: Path, tecator: Any) -> tuple[Path, DatasetVersion]:
         n_variables=tecator.n_variables,
         axis=tecator.axis,
         sample_ids=list(tecator.sample_ids),
+        # The reference values, so a regression node has something to model.
+        # A decomposition ignores them and every test above was written before
+        # they were here.
+        targets={name: [float(v) for v in values] for name, values in tecator.targets.items()},
         array_path=array_path,
     )
     return directory, version
@@ -763,21 +771,22 @@ def test_an_unreadable_result_is_refitted_rather_than_refused(
     assert again.results["pca_a"].rank == first.results["pca_a"].rank
 
 
-def test_pls_has_no_kernel_here_and_is_named_rather_than_skipped(
+def test_pls_da_has_no_kernel_here_and_is_named_rather_than_skipped(
     project: tuple[Path, DatasetVersion],
 ) -> None:
+    """PLS itself is fitted since #142. PLS-DA still needs a second result shape."""
     directory, version = project
     pipeline = _pipeline(
         version.version_id,
         PreprocessNode(id="centre", inputs=("source",), step=MeanCentre()),
         EstimatorNode(
-            id="pls", inputs=("centre",), spec=PLSRegressionSpec(n_components=4, target="fat")
+            id="plsda", inputs=("centre",), spec=PLSDASpec(n_components=4, class_column="grade")
         ),
     )
     run = execute(directory, pipeline, version)
 
-    assert run.pending_estimators == ["pls"]
-    assert "pls" not in run.results
+    assert run.pending_estimators == ["plsda"]
+    assert "plsda" not in run.results
 
 
 def test_a_pca_that_cannot_be_fitted_names_its_node(
@@ -839,3 +848,160 @@ def test_the_reported_rank_is_the_fixtures_now_that_the_tolerance_knows_the_prec
     np.testing.assert_allclose(
         run.results["pca_a"].spe_limit, expected["diagnostics"]["spe_limit"], rtol=1e-6
     )
+
+
+# --------------------------------------------------------------------------
+# PLS, #142
+# --------------------------------------------------------------------------
+
+
+def test_a_pls_node_is_fitted_and_its_result_is_a_regression(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(id="centre", inputs=("source",), step=MeanCentre()),
+        EstimatorNode(
+            id="pls", inputs=("centre",), spec=PLSRegressionSpec(n_components=6, target="fat")
+        ),
+    )
+    run = execute(directory, pipeline, version)
+
+    assert run.pending_estimators == []
+    result = run.results["pls"]
+    assert result.task == "regression"
+    assert result.target == "fat"
+    assert result.n_components == 6
+    assert len(result.observed) == len(result.predicted) == version.n_samples
+    assert len(result.coefficients) == version.n_variables
+    assert len(result.vip) == version.n_variables
+
+
+def test_the_executor_computes_nothing_the_kernels_do_not(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    """The executor orchestrates. Every number it reports is reproduced here by
+    calling `regression.py` and `validation.py` on the same array."""
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(id="centre", inputs=("source",), step=MeanCentre()),
+        EstimatorNode(
+            id="pls", inputs=("centre",), spec=PLSRegressionSpec(n_components=5, target="fat")
+        ),
+    )
+    run = execute(directory, pipeline, version)
+    result = run.results["pls"]
+
+    matrix = read_array(directory, run.outputs["centre"].array_path)
+    y = np.asarray(version.targets["fat"], dtype=np.float64)
+    x_mean, y_mean = matrix.mean(axis=0), float(y.mean())
+    model = PLS(5).fit(matrix - x_mean, y - y_mean)
+    predicted = model.predict(matrix - x_mean) + y_mean
+
+    assert result.predicted == pytest.approx([float(v) for v in predicted])
+    assert model.coefficients_ is not None
+    assert result.coefficients == pytest.approx([float(v) for v in model.coefficients_])
+    assert result.vip == pytest.approx([float(v) for v in model.vip()])
+    assert result.metrics["rmsec"] == pytest.approx(rmse(y, predicted))
+    assert result.metrics["r2"] == pytest.approx(r2(y, predicted))
+    assert result.metrics["bias"] == pytest.approx(bias(y, predicted))
+    assert result.metrics["sec"] == pytest.approx(sec(y, predicted, n_components=5))
+
+
+def test_below_a_split_the_curve_is_every_folds_and_the_model_is_fold_zeros(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    """The one design call in #142, asserted rather than left in a docstring."""
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=5, seed=42)),
+        PreprocessNode(id="centre", inputs=("split",), step=MeanCentre()),
+        EstimatorNode(
+            id="pls", inputs=("centre",), spec=PLSRegressionSpec(n_components=4, target="fat")
+        ),
+    )
+    run = execute(directory, pipeline, version)
+    result = run.results["pls"]
+
+    # The model is fold zero's: its rows are that fold's training rows.
+    assert result.fold == 0
+    folds = k_fold(version.n_samples, 5, seed=42)
+    assert result.rows == [int(row) for row in folds[0].train]
+    assert result.held_out == [int(row) for row in folds[0].test]
+
+    # The curve is every fold's, one entry per component count, and the
+    # reported RMSECV is the curve's last point rather than its minimum.
+    curve = [result.metrics[f"rmsecv_a{a}"] for a in range(1, 5)]
+    assert len(curve) == 4
+    assert result.metrics["rmsecv"] == pytest.approx(curve[-1])
+    assert all(f"rmsecv_fold_{k}" in result.metrics for k in range(5))
+    assert "q2" in result.metrics and "rmsecv_std" in result.metrics
+
+
+def test_a_pls_node_above_a_split_reports_no_cross_validated_metric(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    """§11: a metric that could not be computed is absent, never zero."""
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(id="centre", inputs=("source",), step=MeanCentre()),
+        EstimatorNode(
+            id="pls", inputs=("centre",), spec=PLSRegressionSpec(n_components=3, target="fat")
+        ),
+    )
+    result = execute(directory, pipeline, version).results["pls"]
+
+    assert "rmsec" in result.metrics
+    for absent in ("rmsecv", "q2", "rmsep", "sep", "rmsecv_std"):
+        assert absent not in result.metrics
+
+
+def test_a_target_the_dataset_does_not_carry_names_itself(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(id="centre", inputs=("source",), step=MeanCentre()),
+        EstimatorNode(
+            id="pls", inputs=("centre",), spec=PLSRegressionSpec(n_components=3, target="octane")
+        ),
+    )
+    with pytest.raises(ExecutorError, match="does not carry"):
+        execute(directory, pipeline, version)
+
+
+def test_sep_and_rmsep_satisfy_the_identity_the_specification_names(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    """`metrics-and-validation.md` §5 offers this as a cheap unit test, so take it.
+
+    `RMSEP^2 = bias^2 + (n_p - 1)/n_p * SEP^2` ties the two exactly on a
+    prediction set. It holds only if both were computed on the same residuals
+    with the denominators §5 specifies, so it catches a SEP wired to the wrong
+    rows or divided by the wrong `n` — which no amount of "the number looks
+    plausible" would.
+    """
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=5, seed=42)),
+        PreprocessNode(id="centre", inputs=("split",), step=MeanCentre()),
+        EstimatorNode(
+            id="pls", inputs=("centre",), spec=PLSRegressionSpec(n_components=4, target="fat")
+        ),
+    )
+    result = execute(directory, pipeline, version).results["pls"]
+
+    observed = np.asarray(result.held_out_observed)
+    predicted = np.asarray(result.held_out_predicted)
+    n_p = observed.size
+    held_out_bias = bias(observed, predicted)
+
+    left = result.metrics["rmsep"] ** 2
+    right = held_out_bias**2 + ((n_p - 1) / n_p) * result.metrics["sep"] ** 2
+    assert left == pytest.approx(right)

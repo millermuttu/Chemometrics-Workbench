@@ -498,6 +498,35 @@ def results_payload(
             "hotelling_t2": result.held_out_hotelling_t2,
             "spe": result.held_out_spe,
         }
+        if result.task == "regression":
+            payload["validation"]["observed"] = result.held_out_observed
+            payload["validation"]["predicted"] = result.held_out_predicted
+
+    # A regression's own half, added rather than substituted: `scores`,
+    # `loadings`, the x-variances and both diagnostics above mean the same
+    # thing for both tasks, so a screen that draws those draws either. What is
+    # here is what has no counterpart on a decomposition.
+    if result.task == "regression":
+        payload["regression"] = {
+            "target": result.target,
+            "observed": result.observed,
+            "predicted": result.predicted,
+            # On the node's own axis, like `loadings` — #134. Folding the
+            # preprocessing back out to the raw axis is #144.
+            "coefficients": result.coefficients,
+            "vip": result.vip,
+            "y_loadings": result.y_loadings,
+            "y_explained_variance_ratio": result.y_explained_variance_ratio,
+        }
+        # §11: a metric that could not be computed is absent, never zero. The
+        # curve is lifted out of the flat table so a screen plots it without
+        # parsing key names, and the table keeps every key regardless.
+        payload["metrics"] = dict(result.metrics)
+        payload["rmsecv_curve"] = [
+            result.metrics[key]
+            for key in (f"rmsecv_a{a}" for a in range(1, result.n_components + 1))
+            if key in result.metrics
+        ]
     return payload
 
 

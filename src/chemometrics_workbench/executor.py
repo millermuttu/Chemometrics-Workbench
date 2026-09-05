@@ -65,17 +65,19 @@ result, and the held-out rows are projected through the fitted model and stored
 beside the calibration ones, because §9's rule is that they are pushed through
 the training fold's parameters rather than left out of the picture.
 
-`PLSRegressionSpec` and `PLSDASpec` have no result here. They are reported in
-`Run.pending_estimators` rather than fitted, and #142 is where that changes.
+A `PLSRegressionSpec` node is fitted too, since #142. **The model is fold
+zero's and the cross-validated numbers are every fold's**, which is not a
+contradiction: §13's reported quantities belong to one fitted model, and
+RMSECV is a property of the *split* rather than of any model — which is why §7
+pools residuals across folds instead of averaging per-fold errors. Taking the
+curve from fold zero alone would be a worse estimate from the same work.
 
-This used to say the quantities a PLS result carries — RMSECV over a fold
-assignment, SEC, SEP, `coefficients_original_units` — were #88's subject.
-**They stopped being, on 2026-08-27**: #88 merged as #105 and all four are in
-`validation.py` and `regression.py` now, with PLS parity-covered in
-`docs/parity-report.md`. The sentence outlived its reason by nine days because
-no issue tracked the work it deferred to. What is actually left is a decision
-about what a regression's `EstimatorResult` holds — this dataclass is shaped
-for a decomposition — and that is #142's subject rather than a missing kernel.
+The response is centred by the estimator rather than by a node, because `y` is
+not on the canvas and no `MeanCentre` can reach it. Predictions come back in
+the response's original units.
+
+`PLSDASpec` is still not fitted and is reported in `Run.pending_estimators`. It
+needs a class column and a confusion matrix, which is a second result shape.
 
 ## What is not here
 
@@ -97,7 +99,7 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
-from chemometrics_workbench import preprocessing
+from chemometrics_workbench import preprocessing, validation
 from chemometrics_workbench.decomposition import PCA
 from chemometrics_workbench.models import (
     DatasetVersion,
@@ -112,6 +114,7 @@ from chemometrics_workbench.models import (
     PCASpec,
     Pipeline,
     PipelineNode,
+    PLSRegressionSpec,
     ResolvedSplit,
 )
 from chemometrics_workbench.project import (
@@ -121,6 +124,11 @@ from chemometrics_workbench.project import (
     write_array,
     write_cache_index,
     write_json,
+)
+from chemometrics_workbench.regression import (
+    PLS,
+    cross_validated_predictions,
+    rmsecv_curve,
 )
 from chemometrics_workbench.validation import Fold, k_fold, leave_one_out, validate_partition
 
@@ -157,9 +165,9 @@ def has_kernel(spec: EstimatorSpec) -> bool:
     return isinstance(spec, _FITTED)
 
 
-#: What `_estimator` can fit. `PLSRegressionSpec` and `PLSDASpec` are absent,
-#: which is #142.
-_FITTED: tuple[type, ...] = (PCASpec,)
+#: What `_estimator` can fit. `PLSDASpec` is absent: it needs a class column
+#: and a confusion matrix, which is a second result shape.
+_FITTED: tuple[type, ...] = (PCASpec, PLSRegressionSpec)
 
 
 RESULTS_DIR = "results"
@@ -278,6 +286,50 @@ class EstimatorResult:
     held_out_scores: list[list[float]] = field(default_factory=list)
     held_out_hotelling_t2: list[float] = field(default_factory=list)
     held_out_spe: list[float] = field(default_factory=list)
+
+    # --- The regression half (#142) ---------------------------------------
+    #
+    # Additive, and absent on a decomposition. This dataclass was shaped for
+    # PCA and the obvious move was a second one; but the two share `task`,
+    # `rows`, `fold`, the scores, the loadings, the x-variances and both
+    # diagnostics, which is most of it. A second type would restate all of that
+    # so the two could differ in the last third, and every reader would grow a
+    # branch to tell them apart. `task` already distinguishes them.
+
+    target: str | None = None
+    """Which target column was modelled. `None` on a decomposition."""
+
+    observed: list[float] = field(default_factory=list)
+    """The reference values for `rows`, so a predicted-versus-actual plot needs
+    this record alone and not the dataset beside it."""
+
+    predicted: list[float] = field(default_factory=list)
+    """Calibration predictions, in the response's original units."""
+
+    held_out_observed: list[float] = field(default_factory=list)
+    held_out_predicted: list[float] = field(default_factory=list)
+
+    coefficients: list[float] = field(default_factory=list)
+    """`b` on the matrix the model was fitted on — the node's own axis, not the
+    dataset's. Folding the preprocessing back out needs the fitted chain, which
+    the executor does not keep; that is #144."""
+
+    y_loadings: list[float] = field(default_factory=list)
+    vip: list[float] = field(default_factory=list)
+
+    y_explained_variance_ratio: list[float] = field(default_factory=list)
+    """`pls-regression.md` §8's YVar. The x-block's stays in
+    `explained_variance_ratio`, shared with PCA, because a screen plotting
+    "variance captured" wants both blocks."""
+
+    metrics: dict[str, float] = field(default_factory=dict)
+    """`metrics-and-validation.md` §11's table, flattened.
+
+    **A metric that could not be computed is absent**, never `0.0` and never
+    `NaN` — §11 is explicit, and the UI renders absence as an em dash. So
+    RMSECV and Q² are missing entirely when the node is not under a split, and
+    SEC is missing when `n - A - 1 <= 0` rather than falling back to a
+    denominator that would silently produce something that is not SEC."""
 
     def as_json(self) -> dict[str, Any]:
         return asdict(self)
@@ -399,7 +451,7 @@ def execute(
                 announce(node)
                 continue
             results[node.id] = _estimator(
-                node, states[node.inputs[0]], keys[node.id], path, use_cache
+                node, states[node.inputs[0]], keys[node.id], path, use_cache, version
             )
             announce(node)
             continue
@@ -718,9 +770,19 @@ def result_path(directory: str | Path, key: str) -> Path:
 
 
 def _estimator(
-    node: PipelineNode, parent: _State, key: str, directory: Path, use_cache: bool
+    node: PipelineNode,
+    parent: _State,
+    key: str,
+    directory: Path,
+    use_cache: bool,
+    version: DatasetVersion,
 ) -> EstimatorResult:
-    """Fit one estimator node, or read back the result of having done so."""
+    """Fit one estimator node, or read back the result of having done so.
+
+    `version` is here for the response: a regression needs a `y`, and the
+    reference values live on the `DatasetVersion` rather than in any array the
+    pipeline produced. A decomposition ignores it.
+    """
     assert node.type == "estimator"
     stored = result_path(directory, key)
     if use_cache and stored.exists():
@@ -743,6 +805,12 @@ def _estimator(
         matrix = parent.arrays[0]
         rows = parent.folds[0].train
         held_out = parent.folds[0].test
+
+    if isinstance(node.spec, PLSRegressionSpec):
+        result = _pls(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
+        stored.parent.mkdir(parents=True, exist_ok=True)
+        write_json(stored, result.as_json())
+        return result
 
     assert isinstance(node.spec, PCASpec)
     try:
@@ -792,6 +860,155 @@ def _estimator(
     stored.parent.mkdir(parents=True, exist_ok=True)
     write_json(stored, result.as_json())
     return result
+
+
+def _response(version: DatasetVersion, node: PipelineNode, name: str) -> NDArray[np.float64]:
+    """The reference values a regression is fitted against.
+
+    Refused here rather than at the kernel, with the columns the dataset does
+    have, because "target 'moisture' not found" a screen can act on beats a
+    `KeyError` from three frames down.
+    """
+    if name not in version.targets:
+        available = ", ".join(sorted(version.targets)) or "none"
+        raise ExecutorError(
+            f"node {node.id!r} (pls) models target {name!r}, which this dataset does not "
+            f"carry. It has: {available}.",
+            node.id,
+        )
+    return np.asarray(version.targets[name], dtype=np.float64)
+
+
+def _pls(
+    node: PipelineNode,
+    spec: PLSRegressionSpec,
+    parent: _State,
+    key: str,
+    matrix: NDArray[np.float64],
+    rows: NDArray[np.intp],
+    held_out: NDArray[np.intp],
+    fold: int | None,
+    version: DatasetVersion,
+) -> EstimatorResult:
+    """Fit one PLS node and measure it, per `metrics-and-validation.md` §4-§9.
+
+    **The model is fold zero's; the cross-validated numbers are every fold's.**
+    Those are not in tension. §13's reported quantities — weights, loadings,
+    coefficients, VIP — belong to one fitted model, and fold zero is the one
+    PCA already uses, so a regression and a decomposition below the same split
+    describe the same samples. RMSECV is not a property of a model at all but
+    of the split, which is exactly why §7 pools residuals across every fold
+    rather than averaging per-fold errors. Taking the curve from fold zero
+    alone would be a worse estimate calculated from the same work.
+
+    **The response is centred here, not by a pipeline node.** `y` is not on the
+    canvas, so no `MeanCentre` can reach it; PLS fits what it is given and
+    centres nothing of its own (`pls-regression.md` §3), and predictions are
+    returned in the response's original units by adding the training mean back.
+    `checks.py` warns separately when `X` has no centring above it.
+    """
+    response = _response(version, node, spec.target)
+    if response.size != matrix.shape[0]:
+        raise ExecutorError(
+            f"node {node.id!r} (pls) has {matrix.shape[0]} samples and target "
+            f"{spec.target!r} has {response.size} values.",
+            node.id,
+        )
+
+    train_x, train_y = matrix[rows], response[rows]
+    x_mean = train_x.mean(axis=0)
+    y_mean = float(train_y.mean())
+
+    try:
+        model = PLS(spec.n_components).fit(train_x - x_mean, train_y - y_mean)
+    except (ValueError, RuntimeError) as error:
+        raise ExecutorError(f"node {node.id!r} (pls) failed: {error}", node.id) from error
+
+    predicted = model.predict(train_x - x_mean) + y_mean
+    a = model.n_components_ or spec.n_components
+
+    metrics: dict[str, float] = {
+        "rmsec": validation.rmse(train_y, predicted),
+        "r2": validation.r2(train_y, predicted),
+        "bias": validation.bias(train_y, predicted),
+        "r2_pearson": float(np.corrcoef(train_y, predicted)[0, 1] ** 2),
+    }
+    # §5: `n - A - 1 <= 0` makes SEC undefined. Absent, and never a fallback
+    # denominator - that would be a number which is not SEC.
+    if train_y.size - a - 1 > 0:
+        metrics["sec"] = validation.sec(train_y, predicted, n_components=a)
+
+    held_x = matrix[held_out]
+    held_y = response[held_out]
+    held_predicted = (
+        model.predict(held_x - x_mean) + y_mean if held_out.size else np.array([], dtype=np.float64)
+    )
+    if held_out.size:
+        metrics["rmsep"] = validation.rmse(held_y, held_predicted)
+        metrics["sep"] = validation.sep(held_y, held_predicted)
+
+    # §9: one split, one pass, one curve. The whole fold assignment, not fold
+    # zero's, and `A` is never re-selected inside a fold - every fold model is
+    # fitted with the same `A` and the curve is a property of the split.
+    if parent.folds is not None:
+        folds = parent.folds
+        curve = rmsecv_curve(matrix, response, folds, a)
+        for index, value in enumerate(curve, start=1):
+            metrics[f"rmsecv_a{index}"] = float(value)
+        metrics["rmsecv"] = float(curve[-1])
+
+        cross_validated = cross_validated_predictions(matrix, response, folds, a)
+        # §6: PRESS over the whole calibration set, against the full
+        # calibration mean. Never a per-fold mean - packages differ on this and
+        # it is what keeps Q2 and R2 on a common denominator.
+        metrics["q2"] = validation.q2(response, cross_validated)
+        for index, one in enumerate(folds):
+            metrics[f"rmsecv_fold_{index}"] = validation.rmse(
+                response[one.test], cross_validated[one.test]
+            )
+        # §8.5: the spread across folds, so a curve's minimum can be read
+        # against how much it moves.
+        per_fold = [metrics[f"rmsecv_fold_{i}"] for i in range(len(folds))]
+        metrics["rmsecv_std"] = float(np.std(per_fold, ddof=1)) if len(per_fold) > 1 else 0.0
+
+    return EstimatorResult(
+        node_id=node.id,
+        key=key,
+        task="regression",
+        n_components=a,
+        n_samples=int(train_x.shape[0]),
+        n_variables=int(train_x.shape[1]),
+        # A PLS model reports no rank of its own; `A` is the user's parameter
+        # and `stopped_early_` is how the kernel says the response ran out.
+        rank=a,
+        fold=fold,
+        rows=[int(row) for row in rows],
+        scores=_rows(model.x_scores_),
+        loadings=_rows(np.asarray(model.x_loadings_).T),
+        eigenvalues=[],
+        explained_variance_ratio=_values(model.explained_variance_ratio("x")),
+        cumulative_explained_variance=_values(model.cumulative_explained_variance("x")),
+        y_explained_variance_ratio=_values(model.explained_variance_ratio("y")),
+        hotelling_t2=_values(model.hotelling_t2()),
+        hotelling_t2_limit=float(model.hotelling_t2_limit(ALPHA)),
+        spe=_values(model.spe(train_x - x_mean)),
+        spe_limit=float(model.spe_limit(ALPHA)),
+        target=spec.target,
+        observed=_values(train_y),
+        predicted=_values(predicted),
+        coefficients=_values(model.coefficients_),
+        y_loadings=_values(model.y_loadings_),
+        vip=_values(model.vip()),
+        metrics=metrics,
+        held_out=[int(row) for row in held_out],
+        held_out_observed=_values(held_y) if held_out.size else [],
+        held_out_predicted=_values(held_predicted) if held_out.size else [],
+        held_out_scores=_rows(model.transform(held_x - x_mean)) if held_out.size else [],
+        held_out_hotelling_t2=(
+            _values(model.hotelling_t2(held_x - x_mean)) if held_out.size else []
+        ),
+        held_out_spe=_values(model.spe(held_x - x_mean)) if held_out.size else [],
+    )
 
 
 def _values(array: object) -> list[float]:
