@@ -163,7 +163,7 @@ export function ParameterForm({ spec, values, onChange, onApply }: Props) {
       {spec.fields.length > 0 ? (
         <div style={{ padding: "8px 12px 0" }}>
           <button className="btn" style={{ height: 24 }} disabled={blocked || checking} onClick={apply}>
-            {checking ? "Checking…" : "Apply"}
+            {checking ? "Checking…" : "Apply and re-run"}
           </button>
         </div>
       ) : null}

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 
 import { useQueryClient } from "@tanstack/react-query";
 
-import type { DatasetEntry, PipelineState } from "@/api/queries";
+import type { DatasetEntry } from "@/api/queries";
 import {
   useCancelJob,
   useDatasets,
@@ -27,7 +27,6 @@ import { Sidebar } from "@/shell/Sidebar";
 import { StatusBar } from "@/shell/StatusBar";
 import { TabStrip } from "@/shell/TabStrip";
 import { FlaskIcon, KIND_ICONS } from "@/shell/icons";
-import { downstreamOf } from "@/inspector/stale";
 import { emptyTabs, tabsReducer, type Tab } from "@/shell/tabs";
 
 /** The frame every screen opens inside. The measurements are the artboard's -
@@ -163,7 +162,6 @@ export function Shell() {
   const pipelineState = usePipelineState();
   const experiment = useExperiment();
 
-  const [staleFrom, setStaleFrom] = useState<string | null>(null);
   const [dismissedFailure, setDismissedFailure] = useState(false);
   const [jobId, setJobId] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
@@ -243,14 +241,18 @@ export function Shell() {
     [open],
   );
 
-  /** Editing a parameter invalidates everything computed from it. The results
-   * stay on screen, dimmed - a stale result must not vanish.
+  /** Applying a parameter writes it through and runs it.
    *
-   * The edit is written through before it is marked. Marking alone was #157:
-   * the node went stale, the run that followed read the pipeline from disk,
-   * and the disk still held the old number - so re-running produced the same
-   * curve and the edit looked ignored. Which field it lands in follows the
-   * node: preprocessing carries `step`, estimators and splits carry `spec`. */
+   * It used to take two presses: Apply marked the node stale and a banner
+   * offered a re-run, which is one press more than an edit is worth and read
+   * as an application refusing its own form. Only the edited node and what is
+   * below it are recomputed - everything else is still in the store under an
+   * unchanged key - so the second press was buying a saving nobody asked for.
+   *
+   * Which field the step lands in follows the node: preprocessing carries
+   * `step`, estimators and splits carry `spec`. The run is started from the
+   * saved pipeline rather than the sent one, because #157 was exactly the gap
+   * between what was on screen and what was on disk. */
   const applyEdit = useCallback(
     async (nodeId: string, step: Record<string, unknown>) => {
       if (!pipeline.data) return;
@@ -260,37 +262,11 @@ export function Shell() {
           : node,
       );
       await save.mutateAsync(nodes);
-      // The save invalidates `pipeline-state`, and that refetch would land on
-      // top of the marking below. The server never reports `stale` - it says
-      // `not_run`, deliberately, because a flag beside the graph can disagree
-      // with the arrays - so the reason for the staleness is the client's to
-      // hold, and the in-flight refetch has to be stood down before it is
-      // written.
-      await queryClient.cancelQueries({ queryKey: ["pipeline-state"] });
-      const affected = [nodeId, ...downstreamOf(pipeline.data, nodeId)];
-      queryClient.setQueryData<PipelineState>(["pipeline-state"], (current) =>
-        current
-          ? {
-              ...current,
-              nodes: {
-                ...current.nodes,
-                ...Object.fromEntries(
-                  affected.map((id) => [
-                    id,
-                    {
-                      ...current.nodes[id],
-                      state: "stale",
-                      reason: id === nodeId ? "edited - downstream stale" : "upstream changed",
-                    },
-                  ]),
-                ),
-              },
-            }
-          : current,
-      );
-      setStaleFrom(nodeId);
+      const started = await run.mutateAsync();
+      setJobId(started.job_id);
+      setStartedAt(Date.now());
     },
-    [pipeline.data, queryClient, save],
+    [pipeline.data, run, save],
   );
 
   const activeTab = state.tabs.find((tab) => tab.id === state.activeId);
@@ -458,41 +434,6 @@ export function Shell() {
         </div>
       </div>
 
-      {staleFrom ? (
-        <div
-          role="status"
-          style={{
-            position: "absolute",
-            right: 304,
-            bottom: 36,
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "6px 10px",
-            borderRadius: 3,
-            border: "1px solid var(--stale)",
-            background: "var(--staleSoft)",
-            fontSize: 11.5,
-          }}
-        >
-          <span style={{ color: "var(--stale)" }}>Downstream results are stale.</span>
-          <button
-            className="btn"
-            style={{ height: 22 }}
-            onClick={async () => {
-              const started = await run.mutateAsync();
-              setJobId(started.job_id);
-              setStartedAt(Date.now());
-              setStaleFrom(null);
-            }}
-          >
-            Re-run
-          </button>
-          <button className="tabx" aria-label="Dismiss" onClick={() => setStaleFrom(null)}>
-            ×
-          </button>
-        </div>
-      ) : null}
 
       <StatusBar
         job={job.data}
