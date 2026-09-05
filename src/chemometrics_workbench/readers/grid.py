@@ -101,9 +101,11 @@ def classify(header: list[str] | None, body: list[list[str]], decimal: str) -> d
         index: [row[index] if index < len(row) else "" for row in body] for index in range(width)
     }
     names = header if header is not None else [""] * width
+    if len(names) < width:
+        names = [*names, *[""] * (width - len(names))]
 
     ids: int | None = None
-    if all_text(column[0]) and header is not None:
+    if header is not None and looks_like_identifiers(column[0], names[0], decimal):
         ids = 0
 
     spectra: list[int] = []
@@ -318,6 +320,33 @@ def all_text(cells: list[str]) -> bool:
     return bool(cells) and all(cell and not is_number(cell, ".") for cell in cells)
 
 
+def looks_like_identifiers(cells: list[str], name: str, decimal: str) -> bool:
+    """Whether a leading column names the samples rather than measuring them.
+
+    **Type is not the test; uniqueness is.** This used to be `all_text`, which
+    made a column of `S001, S002` identifiers and a column of `1, 2, 3` a
+    response variable — so a file whose ids happen to be integers imported a
+    row number as a target a user could select for PLS, and lost every sample
+    name (#135). Most files number their samples.
+
+    A measurement repeats: two meat samples have the same fat content often
+    enough that a real target is almost never distinct across every row, while
+    an identifier is distinct by definition. So the test is that no value
+    appears twice, whatever the values look like.
+
+    The header still settles it first. A numeric header name is a wavelength
+    and `classify` has already taken it as one, so this is only asked about a
+    column headed with a word.
+    """
+    if not cells or any(not cell for cell in cells):
+        return False
+    if is_number(name, decimal):
+        return False
+    if all_text(cells):
+        return True
+    return len(set(cells)) == len(cells)
+
+
 def monotonic(values: list[float]) -> bool:
     if len(values) < 2:
         return False
@@ -361,6 +390,12 @@ def head_payload(
         if columns["ids"] is not None:
             ids.append(row[columns["ids"]])
         else:
-            ids.append(f"{index + 1}")
+            # A placeholder, and it has to look like one. This was
+            # `f"{index + 1}"`, which is indistinguishable from a column of
+            # numbered samples - on the file that prompted #135 the preview
+            # showed "1", "2", "3" and the import stored nothing, and the two
+            # were impossible to tell apart. `api.py` already says `row N`
+            # where it has no id, so say the same thing here.
+            ids.append(f"row {index + 1}")
         rows.append([parse_number(row[i], decimal, source, index) for i in spectra if i < len(row)])
     return {"sample_ids": ids, "rows": rows}
