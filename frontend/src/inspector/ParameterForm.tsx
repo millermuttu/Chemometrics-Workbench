@@ -14,7 +14,7 @@ interface Props {
   spec: StepSpec;
   values: Record<string, string>;
   onChange: (values: Record<string, string>) => void;
-  onApply: () => void;
+  onApply: (step: Record<string, unknown>) => void;
 }
 
 function Field({
@@ -115,7 +115,9 @@ export function ParameterForm({ spec, values, onChange, onApply }: Props) {
     setChecking(false);
     if (result.valid) {
       setServerProblems({});
-      onApply();
+      // The payload the server just accepted is the one that gets saved: a
+      // second coercion of `values` could differ from the one validated.
+      onApply(payload);
       return;
     }
     // A field-level complaint lands on its field; a cross-field one - which

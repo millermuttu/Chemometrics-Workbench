@@ -78,3 +78,48 @@ test("provenance is collapsed until asked for, and hashes are truncated in the m
   // it belonged to the fixture before #89 and belongs to the imported file now.
   await expect(inspector.getByText(/^sha256:[0-9a-f]{4}…[0-9a-f]{4}$/)).toBeVisible();
 });
+
+test("an accepted edit is written to the pipeline, not only to the screen", async ({ page }) => {
+  // #157. Apply validated the step, marked the node stale and sent nothing, so
+  // the run that followed read the old number back off disk and the edit
+  // looked ignored - the same curve, however many times it was re-run.
+  //
+  // Asserted against the pipeline the server holds rather than against a
+  // reopened form. A node's label is built from its parameters, so the moment
+  // this edit lands the node stops being called "SG d1 w11" and becomes "SG d1
+  // w9" - and `snv_savgol`, which carries the same window, inherits the old
+  // label alone. Looking the node up a second time by the name it used to have
+  // finds the wrong node and reads 11 off it, which is a passing bug rather
+  // than a failing one. "Written to the pipeline" is the claim; ask the
+  // pipeline.
+  const outline = page.goto("/?token=e2e-token").then(() =>
+    page.getByRole("complementary", { name: "Project outline" }),
+  );
+  await (await outline).getByRole("button", { name: /SG d1 w11/ }).first().dblclick();
+  const inspector = page.getByRole("complementary", { name: "Inspector" });
+
+  await expect(inspector.getByLabel("Window Length")).toHaveValue("11");
+  await inspector.getByLabel("Window Length").fill("9");
+  await inspector.getByRole("button", { name: "Apply" }).click();
+  await expect(page.getByText("Downstream results are stale.")).toBeVisible();
+
+  const saved = await page.request.get("/api/pipelines/current", {
+    headers: { Authorization: "Bearer e2e-token" },
+  });
+  const nodes = (await saved.json()).nodes as { id: string; step?: { window_length?: number } }[];
+  expect(nodes.find((node) => node.id === "savgol")?.step?.window_length).toBe(9);
+
+  // Put it back: the project outlives this test, and the file above opens by
+  // asserting the seeded 11.
+  await inspector.getByLabel("Window Length").fill("11");
+  await inspector.getByRole("button", { name: "Apply" }).click();
+  await expect
+    .poll(async () => {
+      const back = await page.request.get("/api/pipelines/current", {
+        headers: { Authorization: "Bearer e2e-token" },
+      });
+      const list = (await back.json()).nodes as { id: string; step?: { window_length?: number } }[];
+      return list.find((node) => node.id === "savgol")?.step?.window_length;
+    })
+    .toBe(11);
+});

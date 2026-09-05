@@ -12,6 +12,7 @@ import {
   usePipelineState,
   useProjects,
   useRunExperiment,
+  useSavePipeline,
 } from "@/api/queries";
 import { DatasetView } from "@/screens/DatasetView";
 import { EmptyProject } from "@/screens/EmptyProject";
@@ -168,6 +169,7 @@ export function Shell() {
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const job = useJob(jobId);
   const run = useRunExperiment();
+  const save = useSavePipeline();
   const cancel = useCancelJob();
 
   /** A run moves the canvas, so the canvas has to be asked again.
@@ -187,6 +189,22 @@ export function Shell() {
     if (!jobId) return;
     void queryClient.invalidateQueries({ queryKey: ["pipeline-state"] });
   }, [advanced, jobId, queryClient]);
+
+  /** A run rewrites the arrays every open tab is drawing, and #157 was that
+   * nothing said so: only `pipeline-state` was invalidated, so a tab kept
+   * drawing what it fetched before the run and a re-run read as a run that
+   * did nothing.
+   *
+   * Once it has settled, not on every advance. A node whose arrays are being
+   * recomputed has none under its new key, so refetching mid-run asks for
+   * something that does not exist yet, takes a 404 and leaves the tab holding
+   * an error instead of the stale plot it is supposed to keep showing. */
+  const settled = job.data?.status === "succeeded" || job.data?.status === "failed";
+  useEffect(() => {
+    if (!jobId || !settled) return;
+    void queryClient.invalidateQueries({ queryKey: ["spectra"] });
+    void queryClient.invalidateQueries({ queryKey: ["results"] });
+  }, [settled, jobId, queryClient]);
 
   const open = useCallback(
     (tab: Omit<Tab, "transient">, transient: boolean) =>
@@ -226,10 +244,29 @@ export function Shell() {
   );
 
   /** Editing a parameter invalidates everything computed from it. The results
-   * stay on screen, dimmed - a stale result must not vanish. */
-  const markStale = useCallback(
-    (nodeId: string) => {
+   * stay on screen, dimmed - a stale result must not vanish.
+   *
+   * The edit is written through before it is marked. Marking alone was #157:
+   * the node went stale, the run that followed read the pipeline from disk,
+   * and the disk still held the old number - so re-running produced the same
+   * curve and the edit looked ignored. Which field it lands in follows the
+   * node: preprocessing carries `step`, estimators and splits carry `spec`. */
+  const applyEdit = useCallback(
+    async (nodeId: string, step: Record<string, unknown>) => {
       if (!pipeline.data) return;
+      const nodes = pipeline.data.nodes.map((node) =>
+        node.id === nodeId
+          ? { ...node, [node.step ? "step" : "spec"]: step as { kind: string } }
+          : node,
+      );
+      await save.mutateAsync(nodes);
+      // The save invalidates `pipeline-state`, and that refetch would land on
+      // top of the marking below. The server never reports `stale` - it says
+      // `not_run`, deliberately, because a flag beside the graph can disagree
+      // with the arrays - so the reason for the staleness is the client's to
+      // hold, and the in-flight refetch has to be stood down before it is
+      // written.
+      await queryClient.cancelQueries({ queryKey: ["pipeline-state"] });
       const affected = [nodeId, ...downstreamOf(pipeline.data, nodeId)];
       queryClient.setQueryData<PipelineState>(["pipeline-state"], (current) =>
         current
@@ -253,7 +290,7 @@ export function Shell() {
       );
       setStaleFrom(nodeId);
     },
-    [pipeline.data, queryClient],
+    [pipeline.data, queryClient, save],
   );
 
   const activeTab = state.tabs.find((tab) => tab.id === state.activeId);
@@ -415,7 +452,7 @@ export function Shell() {
               state={pipelineState.data}
               metrics={metricsFor(activeTab)}
               collapsed={inspectorCollapsed}
-              onEdit={markStale}
+              onEdit={applyEdit}
             />
           </div>
         </div>
