@@ -88,7 +88,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from numpy.typing import NDArray
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from chemometrics_workbench import readers
+from chemometrics_workbench import preprocessing, readers
 from chemometrics_workbench.checks import check_pipeline
 from chemometrics_workbench.executor import EstimatorResult, stored
 from chemometrics_workbench.executor import stored_display as _stored_display
@@ -102,6 +102,7 @@ from chemometrics_workbench.models import (
     PipelineNode,
     PreprocessStep,
     Project,
+    RangeSelect,
     SourceNode,
 )
 from chemometrics_workbench.project import (
@@ -125,6 +126,7 @@ __all__ = [
     "MAX_POINTS",
     "MAX_TRACES",
     "MAX_UPLOAD_BYTES",
+    "node_axis",
     "open_project_directory",
     "results_payload",
     "router",
@@ -418,7 +420,12 @@ class _uploaded:
 # --- Results --------------------------------------------------------------
 
 
-def results_payload(result: EstimatorResult, version: DatasetVersion) -> dict[str, Any]:
+def results_payload(
+    result: EstimatorResult,
+    version: DatasetVersion,
+    *,
+    axis: NDArray[np.float64] | None = None,
+) -> dict[str, Any]:
     """What `results/{node_id}` serves: a fitted estimator, ready to draw.
 
     The kernel's numbers come from the executor unrounded; the sample ids and
@@ -426,11 +433,34 @@ def results_payload(result: EstimatorResult, version: DatasetVersion) -> dict[st
     know what its rows and columns were called. The shape is the one
     `stub/fixtures/pca.json` publishes and the analysis screen already renders.
 
+    **`axis` is the node's own**, from `node_axis`, because a model fitted
+    under a range selection has fewer loadings than the dataset has variables.
+    This used to publish `version.axis` unconditionally and say nothing: a PCA
+    on a 500-1000 nm selection served 167 loadings beside a 306-value axis, so
+    every peak on the loadings plot was attributed to the wrong wavelength. It
+    is checked rather than trusted now — a mismatch here is silent in a way the
+    spectra payload's never was.
+
     A split branch adds `validation`: the held-out rows of the fitted fold,
     projected through the model that never saw them. It is an addition rather
     than a change — the calibration arrays keep the lengths the fixture has, so
     a screen that ignores the new key renders exactly what it rendered before.
     """
+    values = (
+        [float(value) for value in version.axis.values]
+        if axis is None
+        else [float(value) for value in np.asarray(axis, dtype=np.float64)]
+    )
+    if len(values) != result.n_variables:
+        raise _fail(
+            500,
+            "shape_mismatch",
+            f"node {result.node_id!r} was fitted on {result.n_variables} variables and its "
+            f"axis has {len(values)}. Every step that changes the variable count has to be "
+            "in `node_axis`, and this one is not.",
+            node_id=result.node_id,
+        )
+
     payload: dict[str, Any] = {
         "node_id": result.node_id,
         "task": result.task,
@@ -444,7 +474,7 @@ def results_payload(result: EstimatorResult, version: DatasetVersion) -> dict[st
             "axis": {
                 "kind": version.axis.kind,
                 "unit": version.axis.unit,
-                "values": list(version.axis.values),
+                "values": values,
             },
             "components": result.loadings,
         },
@@ -560,11 +590,56 @@ def decimate(
     return kept, axis[kept]
 
 
+def node_axis(pipeline: Pipeline, node_id: NodeId, version: DatasetVersion) -> NDArray[np.float64]:
+    """The axis a node's output is on, which is not always the dataset's.
+
+    `RangeSelect` is the one step that changes the variable count, so a node
+    under one is on a shorter axis than the `DatasetVersion` records and every
+    payload that pairs the two has to know it. `executor.py` deliberately keeps
+    no per-node axis — a second thing beside the cached arrays would have to
+    stay consistent with them — so this derives it instead, from the recipe.
+
+    That derivation is free of the executor's guarantees precisely because it
+    is a pure function of the pipeline: it reads no array, writes nothing, and
+    cannot move a content hash or invalidate a cache entry.
+
+    Every non-source node holds exactly one input, so the ancestry is a chain
+    rather than a tree and the selections apply in order down it. The mask is
+    taken from `RangeSelectTransformer` rather than restated here, so the
+    interval's meaning — inclusive bounds, either axis direction, an empty
+    selection refused — is stated once.
+    """
+    by_id = {node.id: node for node in pipeline.nodes}
+    chain: list[PipelineNode] = []
+    current = node_id
+    while True:
+        node = by_id[current]
+        chain.append(node)
+        if not node.inputs:
+            break
+        current = node.inputs[0]
+
+    axis = np.asarray(version.axis.values, dtype=np.float64)
+    for node in reversed(chain):
+        if node.type != "preprocess" or not isinstance(node.step, RangeSelect):
+            continue
+        transformer = preprocessing.from_spec(node.step, axis=axis)
+        assert isinstance(transformer, preprocessing.RangeSelectTransformer)
+        # Fitting a range selection needs the axis and the variable count, not
+        # the data: `_fit` reads `X.shape[1]` and nothing else. One empty row
+        # supplies the width without loading an array this function has no
+        # reason to read.
+        transformer.fit(np.zeros((1, axis.size)))
+        axis = transformer.selected_axis()
+    return axis
+
+
 def spectra_payload(
     node_id: str,
     values: NDArray[np.float64],
     version: DatasetVersion,
     *,
+    axis: NDArray[np.float64] | None = None,
     label: str | None = None,
     ordinate: str = "Absorbance",
     highlight: Sequence[int] = (),
@@ -585,14 +660,22 @@ def spectra_payload(
     remainder: it describes the distribution, and leaving out the drawn ones
     would make it describe a subset nobody asked about.
     """
-    axis = np.asarray(version.axis.values, dtype=np.float64)
+    # `axis` is the node's own, from `node_axis`. It falls back to the
+    # dataset's for a caller that has no pipeline to hand — which is every
+    # caller that draws the source node, where the two are the same thing.
+    axis = (
+        np.asarray(version.axis.values, dtype=np.float64)
+        if axis is None
+        else np.asarray(axis, dtype=np.float64)
+    )
     n_spectra, n_variables = values.shape
     if axis.size != n_variables:
         raise _fail(
             500,
             "shape_mismatch",
-            f"node {node_id!r} produced {n_variables} variables and the dataset's axis has "
-            f"{axis.size}. A range selection changes the axis and the payload cannot guess it.",
+            f"node {node_id!r} produced {n_variables} variables and its axis has "
+            f"{axis.size}. Every step that changes the variable count has to be in "
+            "`node_axis`, and this one is not.",
             node_id=node_id,
         )
 
@@ -929,7 +1012,13 @@ def get_spectra(node_id: str, highlight: Annotated[str | None, Query()] = None) 
             f"node {node_id!r} has no result yet. Run the pipeline, or pick a node that has.",
             node_id=node_id,
         )
-    return spectra_payload(node_id, values, version, highlight=_indices(highlight))
+    return spectra_payload(
+        node_id,
+        values,
+        version,
+        axis=node_axis(pipeline, NodeId(node_id), version),
+        highlight=_indices(highlight),
+    )
 
 
 @router.get("/results/{node_id}")
@@ -943,7 +1032,7 @@ def get_results(node_id: str) -> Any:
             f"node {node_id!r} has no fitted result yet.",
             node_id=node_id,
         )
-    return results_payload(result, version)
+    return results_payload(result, version, axis=node_axis(pipeline, NodeId(node_id), version))
 
 
 def _indices(raw: str | None) -> list[int]:
