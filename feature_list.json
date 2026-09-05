@@ -228,6 +228,25 @@
       ],
       "evidence": "2026-09-05. `diff src/chemometrics_workbench/data/tecator/README.md src/chemometrics_workbench/data/gasoline/README.md` reports the files differ; it reported them identical before. The README now names tecator, quotes the permission note from the committed tecator.txt verbatim, states the obligation to name the instrument and company when publishing, and carries tecator's own SHA-256 (e435c053...) and StatLib source rather than gasoline's CRAN URL and two gasoline hashes. datasets.py's load_tecator docstring now points at the note where it actually is - tecator.txt - with the README as the record of the rest. uv run pytest - 799 passed, 1 skipped, including tests/test_datasets.py (19 tests). ruff check, ruff format --check (77 files) and mypy (53 source files) exit 0.",
       "notes": "Found while choosing a dataset for an end-to-end run: data/tecator/README.md is byte-identical to data/gasoline/README.md, so it is titled 'Gasoline / octane' and asserts tecator is NOT committed, is GPL-2 and comes from CRAN - all four false, and the two SHA-256 rows are gasoline's. Nothing is redistributed wrongly: tecator.txt carries its own permission note ('can be redistributed as long as this permission note is attached') and that file is committed. What is wrong is the record. Three places designate that README as where the terms live - datasets.py:308-310 says the note is 'reproduced in data/tecator/README.md', CONTRIBUTING.md:78, session-handoff.md:313 - and for tecator it reproduces another dataset's. The publication obligation currently survives only in a docstring and in session-handoff.md, which is overwritten every session. The source URL was checked rather than copied: lib.stat.cmu.edu/datasets/tecator answers 301 on http and 403 on https, so the host and path exist but the page refuses a direct fetch - the table says exactly that rather than claiming a clean verification. The CRLF paragraph was kept and sharpened because it is the reason this file's bytes matter: .gitattributes marks *.txt as -text and test_the_committed_data_is_checked_out_byte_for_byte asserts it."
+    },
+    {
+      "id": "apply-saves-and-runs",
+      "priority": 0,
+      "area": "frontend",
+      "issue": 157,
+      "title": "Applying a parameter saves it and recomputes on the one press",
+      "depends_on": [
+        "pls-in-the-executor"
+      ],
+      "user_visible_behavior": "Changing a preprocessing parameter and pressing 'Apply and re-run' writes the step through PUT /pipelines/current, starts the run, and redraws the open plot when it settles. No banner, and no second press.",
+      "status": "passing",
+      "verification": [
+        "npx playwright test - the whole suite, including 'an accepted edit recomputes on the one press, and nothing is left dimmed' and 'an accepted edit is written to the pipeline, not only to the screen'.",
+        "The regression test fails against a bundle built before the fix.",
+        "npm run test && npm run typecheck && npm run lint",
+        "By hand against a real server: window_length 11 to 9, one press, then reload."
+      ],
+      "evidence": "2026-09-05. Two commits, merged as #158 and #159. Diagnosis: `ParameterForm.apply()` POSTed to /steps/validate - which only validates - and marked the node stale in the cache; PUT /pipelines/current was never called from the inspector, so a re-run recomputed the old spec. Second half: only ['pipeline-state'] was invalidated on a job, never ['spectra', nodeId] / ['results', nodeId], both of which carry staleTime: Infinity. The backend was never involved - driven over HTTP on a seeded project, GET /api/spectra/savgol digest 392e2b377d89657e at window_length 11, PUT 200 at 9, state 'not_run', run 'succeeded', digest f0c7544b7b2191da. `npx playwright test` - 44 passed (1.4m). `npm run test` - 99 passed, 11 files. `npm run typecheck` and `npm run lint` clean. The new e2e test was run against a bundle built from the pre-fix source and failed there (Expected 9, Received 11), then passed after. Driven by hand in Chrome against 127.0.0.1: window_length 11 to 9, one press; after the run the node reads 'SG d1 w9', 'complete', the form shows 9 and the plot is drawn from the recomputed arrays, surviving a reload. Confirmed working by the reporter."
     }
   ]
 }
