@@ -56,14 +56,19 @@ things to remove.
 
 ## Next action
 
-**The rest of #51** (priority 2): duplicating a subgraph, and a comparison tab for two terminal
-nodes. The comparison tab still has no artboard and little to compare until PLS has a kernel in the
-executor (#88). That ordering is still worth deciding before the branch is cut, and the end-to-end
-run sharpened it: **#88 now blocks the phase's own exit criterion**, not just one screen.
+**#142 — the executor fits PLS.** It is the critical path to this list's own exit criterion, it
+unblocks #51's second half, and it makes #136 redundant as that issue predicted. It is not a kernel
+problem: the kernel exists and is parity-covered. It is a decision about what a regression's
+`EstimatorResult` holds, because that dataclass is shaped for a decomposition — scores, loadings,
+eigenvalues, T², SPE — and a regression carries a different set. PLS-DA is deliberately out of its
+scope. Read the issue before cutting the branch; the shape is the work.
+
+**Then the rest of #51** (priority 2): duplicating a subgraph, and a comparison tab for two terminal
+nodes. The tab still has no artboard, and after #142 it finally has something to compare.
 
 **#135** (priority 3) is waiting on a rule decision, below. **#137** (priority 4) is a documentation
-correction and can go any time. Either is a reasonable thing to take instead of #51 if the PLS
-ordering is not settled yet.
+correction and can go any time. Either is a reasonable thing to take first if #142's shape needs
+thinking about.
 
 **Everything the end-to-end run found is now closed** — #134 as #140 and #136 as #141 — except
 those two.
@@ -123,15 +128,24 @@ same mismatch quietly.
 `checks.py`: that module's docstring draws its own line — every warning there catches a mistake
 whose symptom is a plausible result, with a document behind it — and a node the build cannot fit is
 neither. The recipe is right and the application is short a kernel, so filing it there would blame
-the user for #88. It is built in `validation_payload` instead: two sources, one list, told apart by
+the user for #142. It is built in `validation_payload` instead: two sources, one list, told apart by
 `code` and by `severity` (`info` rather than `warning`). **`executor.has_kernel(spec)` is now the
 one place that knows what can be fitted**, asked by the executor's routing and by the warning, so
-#88 adds to one tuple rather than to two files that have to be remembered together.
+#142 adds to one tuple rather than to two files that have to be remembered together.
 
 The issue's better half was left, deliberately: `pipelines/{id}/state` telling *not yet* from *never
 will be* needs `NodeState` in `frontend/src/canvas/graph.ts:12` widened, a `NodeCard` case and a
-visual treatment with no artboard behind it — and #88 makes it moot. `PipelineCanvas.tsx:190`
+visual treatment with no artboard behind it — and #142 makes it moot. `PipelineCanvas.tsx:190`
 already renders `problems` when `valid` is false, so the sentence reaches the canvas for free.
+
+**A stale issue reference outlived its reason by nine days, and nothing noticed.** `executor.py`
+said PLS was not fitted "because what a PLS result carries … is #88's subject". #88 closed on
+2026-08-27 as #105 — it *was* the metrics gap, and SEC, SEP, Q² and `coefficients_original_units`
+have existed ever since. `session-handoff.md` and `feature_list.json` both inherited the claim, and
+it was repeated into two pull request bodies on 2026-09-05 before being caught. **The reason it
+survived is that no issue tracked the work it deferred to** — a pointer to a closed issue is not a
+plan, and nothing was watching the pointer. That work is #142 now. When a comment defers to an
+issue, the deferral needs its own issue, or the comment becomes the only record and rots quietly.
 
 **Worth not rediscovering:** the executor holds no per-node axis, deliberately and for a good reason
 (`executor.py:5-8` — a second thing beside the arrays would have to stay consistent with them).
@@ -351,7 +365,7 @@ From #87 (the estimators), which #86 and #90 draw on:
 - **`validation` is an additive payload key**, so every array the 1.1 screen reads keeps the length the fixture has. A screen that ignores it renders exactly what it rendered before.
 - **`pca_d` is the second casualty of #97** — 3.8e-05 on explained variance, 1.8e-01 on T². Regenerating the fixtures means regenerating `spectra.json` **and** `pca.json`.
 - **The reported rank was one too high for any centred matrix** — #101, now fixed. A centred array read back as float32 has columns that no longer sum to zero, and the SVD finds a hundredth singular value. Only the displayed integer moved; the limits move in the ninth decimal.
-- **PLS and PLS-DA have no kernel in the executor** and are reported in `Run.pending_estimators`. What a PLS result carries is #88's subject.
+- **PLS and PLS-DA are not fitted by the executor** and are reported in `Run.pending_estimators`. This said "what a PLS result carries is #88's subject" until 2026-09-05, and #88 had closed on 2026-08-27. **The kernel and its metrics exist**; what is missing is the executor branch and the result shape, which is #142.
 
 From #81 (the import endpoints), which #89 finished:
 

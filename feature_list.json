@@ -1,6 +1,6 @@
 {
   "phase": "Phase 2 - comparison and direct manipulation",
-  "exit_criterion": "PROPOSAL.md section 16: \"A complete calibration workflow on a real NIR dataset matches reference software within stated tolerance.\" Concretely, and demonstrated rather than reasoned: a real NIR dataset is imported, preprocessed, split, fitted with PLS, cross-validated and read back - the metrics, the predicted-versus-actual plot and the residuals - without leaving the application, and the numbers agree with the parity programme's reference within the tolerances docs/parity-report.md publishes. The phase ends when that run is recorded with its evidence, not when every entry below is passing. Section 16 also names PLS regression and PLS-DA, the full validation suite, Hotelling T2, SPE, VIP and contribution plots, predicted-versus-actual and residual plots, a train/test splitting UI, and the Bruker OPUS reader. Of those only PLS has a kernel (#88 is the executor half); the rest have no entry on this list yet, and the list is not complete until they do.",
+  "exit_criterion": "PROPOSAL.md section 16: \"A complete calibration workflow on a real NIR dataset matches reference software within stated tolerance.\" Concretely, and demonstrated rather than reasoned: a real NIR dataset is imported, preprocessed, split, fitted with PLS, cross-validated and read back - the metrics, the predicted-versus-actual plot and the residuals - without leaving the application, and the numbers agree with the parity programme's reference within the tolerances docs/parity-report.md publishes. The phase ends when that run is recorded with its evidence, not when every entry below is passing. Section 16 also names PLS regression and PLS-DA, the full validation suite, Hotelling T2, SPE, VIP and contribution plots, predicted-versus-actual and residual plots, a train/test splitting UI, and the Bruker OPUS reader. Of those PLS has a kernel and is parity-covered, but the executor does not fit it - that is #142, the critical path to this criterion and untracked until 2026-09-05. The rest have no entry on this list yet, and the list is not complete until they do.",
   "status_values": [
     "not_started",
     "in_progress",
@@ -91,7 +91,7 @@
         "uv run pytest"
       ],
       "evidence": "2026-09-05. Against the live mango pipeline, which holds a PLS node on a mean-centred branch: POST /api/pipelines/current/validate returned valid: false with one warning - code 'estimator_not_fitted', node_id 'pls_dm', severity 'info', and the sentence \"'pls' at 'pls_dm' has no kernel in this build and will not be fitted. The run will report success and this node will stay unrun; every other node is unaffected.\" It returned valid: true, problems: [], warnings: [] before. Node states are unchanged: 11 of 12 complete, pls_dm not_run. uv run pytest - 793 passed, 1 skipped (787 before, +6 in tests/test_not_fitted_warning.py). uv run ruff check, ruff format --check (77 files) and mypy (53 source files) exit 0. Frontend npx tsc -b --noEmit and npx vitest run - 10 files, 77 tests passed, unchanged.",
-      "notes": "Not #88, which is the kernel. This is the silence around it, found end to end: validate returned valid: true with no warnings, the job reported succeeded and 'Done', and the PLS node was left 'not_run' - the same state a node has before it has ever been run, so a screen cannot tell 'not yet' from 'never will be'. Run.pending_estimators (executor.py:279, populated at :432) already names the declined nodes and the string 'pending_estimators' appears nowhere in api.py. The warnings list is already in the validate payload and already rendered. This should become redundant when #88 lands. Built in api.py's validation_payload rather than in checks.py, deliberately: that module's docstring states its contract - every warning there catches a mistake whose symptom is a plausible result, with a document behind it - and this is neither. Nothing is wrong with the recipe; the build is short a kernel. Filing it under 'what is wrong with your pipeline' would blame the user for #88. Two sources, one list, told apart by code and severity ('info' rather than 'warning'). executor.has_kernel(spec) is now the one place that knows what can be fitted, asked by the executor's routing and by the warning, so #88 adds to one tuple rather than editing two files. The state half of the issue - pipelines/{id}/state telling 'not yet' from 'never will be' - was left: frontend NodeState is a closed union in canvas/graph.ts:12, so it needs a type change, a NodeCard switch case and a visual treatment with no artboard behind it, and #88 makes it moot. PipelineCanvas.tsx:190 already renders problems.join(' . ') when valid is false, so the sentence reaches the canvas with no frontend change and nothing blocks the run."
+      "notes": "Not the kernel, which exists and is parity-covered; #142 is the executor half. This is the silence around it, found end to end: validate returned valid: true with no warnings, the job reported succeeded and 'Done', and the PLS node was left 'not_run' - the same state a node has before it has ever been run, so a screen cannot tell 'not yet' from 'never will be'. Run.pending_estimators (executor.py:279, populated at :432) already names the declined nodes and the string 'pending_estimators' appears nowhere in api.py. The warnings list is already in the validate payload and already rendered. This should become redundant when #142 lands. Built in api.py's validation_payload rather than in checks.py, deliberately: that module's docstring states its contract - every warning there catches a mistake whose symptom is a plausible result, with a document behind it - and this is neither. Nothing is wrong with the recipe; the build is short a kernel. Filing it under 'what is wrong with your pipeline' would blame the user for #142. Two sources, one list, told apart by code and severity ('info' rather than 'warning'). executor.has_kernel(spec) is now the one place that knows what can be fitted, asked by the executor's routing and by the warning, so #142 adds to one tuple rather than editing two files. The state half of the issue - pipelines/{id}/state telling 'not yet' from 'never will be' - was left: frontend NodeState is a closed union in canvas/graph.ts:12, so it needs a type change, a NodeCard switch case and a visual treatment with no artboard behind it, and #142 makes it moot. PipelineCanvas.tsx:190 already renders problems.join(' . ') when valid is false, so the sentence reaches the canvas with no frontend change and nothing blocks the run."
     },
     {
       "id": "canvas-compare-and-duplicate",
@@ -100,7 +100,8 @@
       "issue": 51,
       "title": "Duplicate a subgraph, and compare two terminal nodes in one tab",
       "depends_on": [
-        "canvas-direct-editing"
+        "canvas-direct-editing",
+        "pls-in-the-executor"
       ],
       "user_visible_behavior": "A subgraph can be duplicated so a variant is built from an existing path rather than from scratch, and selecting two terminal nodes opens a tab comparing their results.",
       "status": "not_started",
@@ -109,7 +110,27 @@
         "Two terminal nodes open one comparison tab showing both models' metrics."
       ],
       "evidence": "",
-      "notes": "Items 2 and 3 of #51, deliberately left for a second pass. The comparison tab is a screen with no artboard behind it and no metrics to compare until PLS has a kernel in the executor (#88's subject), which is what makes 'compare two models' worth looking at. DESIGN_BRIEF.md section 5 is the reference."
+      "notes": "Items 2 and 3 of #51, deliberately left for a second pass. The comparison tab is a screen with no artboard behind it and no metrics to compare until the executor fits PLS (#142), which is what makes 'compare two models' worth looking at. DESIGN_BRIEF.md section 5 is the reference."
+    },
+    {
+      "id": "pls-in-the-executor",
+      "priority": 2,
+      "area": "backend",
+      "issue": 142,
+      "title": "The executor fits PLS, and a PLS result has a defined shape",
+      "depends_on": [],
+      "user_visible_behavior": "A PLS node in a pipeline is fitted like a PCA node is, and its result is readable: the RMSECV curve, the metrics, predicted versus actual, and coefficients on the original axis where the chain allows it.",
+      "status": "not_started",
+      "verification": [
+        "A pipeline with a PLS node under a split runs and Run.pending_estimators is empty.",
+        "The result's metrics match regression.py and validation.py called directly on the same arrays - the executor orchestrates and computes nothing of its own.",
+        "GET /api/results/{node} serves it, on node_axis's axis (#134).",
+        "The mango calibration reproduces the recorded numbers: RMSECV 0.9193 at A=30 over 10 folds, R2cv 0.8638.",
+        "validate stops warning estimator_not_fitted for a PLS node, and still warns for PLS-DA.",
+        "uv run ruff check && uv run ruff format --check && uv run mypy && uv run pytest"
+      ],
+      "evidence": "",
+      "notes": "The critical path to this list's exit criterion, and untracked until 2026-09-05. Everything cited it as blocked on #88 - executor.py's docstring, session-handoff.md, this file - and #88 closed on 2026-08-27 as #105. SEC, SEP, Q2 and coefficients_original_units all exist, the PLS kernel exists and is parity-covered, and 10-fold CV over 7413 mango spectra ran on 2026-09-05 scoring 0.9198 RMSE against the paper's published 0.8281. The sentence outlived its reason by nine days because no issue tracked what it deferred to. What is actually left is not a kernel but a decision: EstimatorResult is shaped for a decomposition - scores, loadings, eigenvalues, T2, SPE - and a regression's result is a different set. PLS-DA is deliberately out of scope, needing a class column and a confusion matrix. The screen that renders it is a follow-up not yet filed, because an issue written before the payload shape is decided would be guessing; DESIGN_BRIEF.md section 5 is the reference and there is no artboard for a regression result."
     },
     {
       "id": "import-column-roles-and-sample-ids",

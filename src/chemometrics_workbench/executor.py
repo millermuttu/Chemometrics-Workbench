@@ -66,9 +66,16 @@ beside the calibration ones, because §9's rule is that they are pushed through
 the training fold's parameters rather than left out of the picture.
 
 `PLSRegressionSpec` and `PLSDASpec` have no result here. They are reported in
-`Run.pending_estimators` rather than fitted, because what a PLS result carries
-— RMSECV over a fold assignment, SEC, SEP, `coefficients_original_units` — is
-#88's subject and is not in the 1.1 fixture to be checked against.
+`Run.pending_estimators` rather than fitted, and #142 is where that changes.
+
+This used to say the quantities a PLS result carries — RMSECV over a fold
+assignment, SEC, SEP, `coefficients_original_units` — were #88's subject.
+**They stopped being, on 2026-08-27**: #88 merged as #105 and all four are in
+`validation.py` and `regression.py` now, with PLS parity-covered in
+`docs/parity-report.md`. The sentence outlived its reason by nine days because
+no issue tracked the work it deferred to. What is actually left is a decision
+about what a regression's `EstimatorResult` holds — this dataclass is shaped
+for a decomposition — and that is #142's subject rather than a missing kernel.
 
 ## What is not here
 
@@ -142,16 +149,16 @@ __all__ = [
 def has_kernel(spec: EstimatorSpec) -> bool:
     """Whether this build can actually fit that estimator.
 
-    **The one place that knows.** The routing below and `checks.py`'s warning
-    both ask here, so #88 adds `PLSRegressionSpec` to the tuple once rather
-    than in two files that have to be remembered together — which is the shape
-    #131 was about.
+    **The one place that knows.** The routing below and the `estimator_not_fitted`
+    warning both ask here, so #142 adds `PLSRegressionSpec` to the tuple once
+    rather than in two files that have to be remembered together — which is the
+    shape #131 was about.
     """
     return isinstance(spec, _FITTED)
 
 
 #: What `_estimator` can fit. `PLSRegressionSpec` and `PLSDASpec` are absent,
-#: which is #88.
+#: which is #142.
 _FITTED: tuple[type, ...] = (PCASpec,)
 
 
@@ -296,7 +303,7 @@ class Run:
     resolved_splits: list[ResolvedSplit]
     results: dict[NodeId, EstimatorResult]
     pending_estimators: list[NodeId]
-    """Estimator nodes this build has no kernel for: PLS and PLS-DA, in #88."""
+    """Estimator nodes this build has no kernel for: PLS and PLS-DA, in #142."""
 
     @property
     def computed(self) -> list[NodeId]:
