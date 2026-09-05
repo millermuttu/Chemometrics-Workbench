@@ -14,7 +14,10 @@ cd "$(dirname "$0")"
 uv sync
 
 if [ "${1:-}" = "--build" ] || [ ! -f frontend/dist/index.html ]; then
-    (cd frontend && npm ci && npm run build)
+    # pnpm, and --frozen-lockfile, because that is what CI installs with:
+    # frontend/pnpm-lock.yaml is the only lockfile here, and `npm ci` refuses a
+    # project it cannot find a package-lock.json in.
+    (cd frontend && pnpm install --frozen-lockfile && pnpm build)
 fi
 
 exec uv run python -m chemometrics_workbench.server

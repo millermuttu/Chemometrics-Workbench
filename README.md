@@ -30,7 +30,7 @@ Working on the interface is two processes instead, so Vite can serve its own:
 
 ```bash
 WORKBENCH_PORT=8000 WORKBENCH_TOKEN=dev uv run python -m chemometrics_workbench.server
-cd frontend && npm run dev          # http://localhost:5173
+cd frontend && pnpm dev             # http://localhost:5173
 ```
 
 The port is pinned because the Vite proxy has to be told a target in advance, and the token
