@@ -94,19 +94,49 @@ export function NodeCard({ data, selected }: NodeProps) {
             that rule, and the source has no control at all because it is where
             the data enters. The click is stopped here: it would otherwise also
             open the node's tab, which is what a click on the body means. */}
-        {node.onRemove ? (
-          <button
-            className="tabx"
-            aria-label={`Remove node ${node.label}`}
-            style={{ marginLeft: "auto" }}
-            onClick={(event) => {
-              event.stopPropagation();
-              node.onRemove!();
-            }}
-          >
-            ×
-          </button>
-        ) : null}
+        <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 2 }}>
+          {/* Comparing is a toggle, not a verb: the first click arms it and the
+              second node opens the tab, so an armed node has to say it is armed.
+              Offered only where there is something to compare. */}
+          {node.onCompare ? (
+            <button
+              className="tabx"
+              aria-label={`${node.comparing ? "Unpick" : "Pick"} ${node.label} for comparison`}
+              aria-pressed={node.comparing}
+              style={{ color: node.comparing ? "var(--accentInk)" : undefined }}
+              onClick={(event) => {
+                event.stopPropagation();
+                node.onCompare!();
+              }}
+            >
+              ⇄
+            </button>
+          ) : null}
+          {node.onDuplicate ? (
+            <button
+              className="tabx"
+              aria-label={`Duplicate node ${node.label}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                node.onDuplicate!();
+              }}
+            >
+              ⧉
+            </button>
+          ) : null}
+          {node.onRemove ? (
+            <button
+              className="tabx"
+              aria-label={`Remove node ${node.label}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                node.onRemove!();
+              }}
+            >
+              ×
+            </button>
+          ) : null}
+        </span>
       </div>
 
       <div style={{ flex: 1, padding: "5px 8px 0", minHeight: 0 }}>

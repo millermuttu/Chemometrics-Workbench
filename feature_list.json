@@ -146,13 +146,13 @@
         "pls-in-the-executor"
       ],
       "user_visible_behavior": "A subgraph can be duplicated so a variant is built from an existing path rather than from scratch, and selecting two terminal nodes opens a tab comparing their results.",
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "The duplicate produces an independent branch with fresh node ids, asserted in the browser.",
         "Two terminal nodes open one comparison tab showing both models' metrics."
       ],
-      "evidence": "",
-      "notes": "Items 2 and 3 of #51, deliberately left for a second pass. The comparison tab is a screen with no artboard behind it and no metrics to compare until the executor fits PLS (#142), which is what makes 'compare two models' worth looking at. DESIGN_BRIEF.md section 5 is the reference."
+      "evidence": "2026-09-05. npx playwright test - 43 passed (40 before), including three new cases in e2e/pipeline.spec.ts: duplicating snv produces 'snv copy', 'centre_a copy' and 'pca_a copy' with an edge source->'snv copy', so the copy is a sibling branch; the source offers no duplicate control; and picking pca_a then pls_d opens a tab titled 'pca_a vs pls_d' whose difference column reads an em dash, because only pls_d carries regression metrics. The compare control is absent on snv, which is not terminal. npx vitest run - 11 files, 99 tests (92 before, +7 on compareRows and +8 on duplicate and terminals). npx tsc -b --noEmit and npx eslint . exit 0. Backend untouched: uv run pytest 809 passed, 1 skipped.",
+      "notes": "Items 2 and 3 of #51, deliberately left for a second pass. The comparison tab is a screen with no artboard behind it and no metrics to compare until the executor fits PLS (#142), which is what makes 'compare two models' worth looking at. DESIGN_BRIEF.md section 5 is the reference. Duplicate and terminals are pure functions in edits.ts, tested without a browser like the first half's rules. A copy hangs off the original's parent rather than below it, because a chain is not what 'duplicate' means on a graph whose point is comparison, and ids are derived ('snv copy', then 'snv copy 2') rather than random: a pipeline is read by a person and 'snv copy' beside 'snv' says what happened. Comparison is two clicks rather than a multi-select, because a click on a node body already means 'open this' and selection would need a modifier nobody is told about; the armed node saying so is the affordance. The tab id carries both nodes so picking the same pair twice reuses the tab. The difference column is a subtraction of two served numbers, never a statistic, and it points an arrow without declaring a winner - which model is better depends on what is being calibrated for. A metric only one side carries is kept because that is itself the finding; one neither carries is dropped rather than shown as two dashes."
     },
     {
       "id": "pls-in-the-executor",

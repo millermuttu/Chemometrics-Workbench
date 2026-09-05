@@ -19,6 +19,7 @@ import { CannotLoad } from "@/states/CannotLoad";
 import { Import } from "@/screens/Import";
 import { PipelineCanvas } from "@/canvas/PipelineCanvas";
 import { AnalysisResults } from "@/screens/analysis/AnalysisResults";
+import { CompareResults } from "@/screens/analysis/CompareResults";
 import { SpectraView } from "@/screens/SpectraView";
 import { Inspector } from "@/shell/Inspector";
 import { Sidebar } from "@/shell/Sidebar";
@@ -70,10 +71,12 @@ function Pane({
   onImported,
   onCloseImport,
   onOpenNode,
+  onCompare,
 }: {
   tab: Tab | undefined;
   datasets: DatasetEntry[] | undefined;
   onOpenNode: (id: string, label: string) => void;
+  onCompare: (left: string, right: string) => void;
   onImported: (versionId: string, name: string) => void;
   onCloseImport: () => void;
 }) {
@@ -81,7 +84,8 @@ function Pane({
     return <Import onImported={onImported} onCancel={onCloseImport} />;
   }
 
-  if (tab?.kind === "pipeline") return <PipelineCanvas onOpenNode={onOpenNode} />;
+  if (tab?.kind === "pipeline")
+    return <PipelineCanvas onOpenNode={onOpenNode} onCompare={onCompare} />;
   if (tab?.kind === "spectra") {
     const shape = datasets?.[0]?.versions.at(-1);
     return (
@@ -94,6 +98,12 @@ function Pane({
     );
   }
   if (tab?.kind === "results") return <AnalysisResults nodeId={tab.id} title={tab.title} />;
+  if (tab?.kind === "compare") {
+    // The id carries both nodes, so this tab is stable across opens the way
+    // every other one is: picking the same pair twice reuses it.
+    const [left, right] = tab.id.split("|");
+    return <CompareResults left={left} right={right} />;
+  }
 
   const found = datasets
     ?.flatMap((entry) => entry.versions.map((version) => ({ entry, version })))
@@ -205,6 +215,14 @@ export function Shell() {
       );
     },
     [open, pipeline.data],
+  );
+
+  const openCompare = useCallback(
+    // Pinned rather than transient: a comparison took two deliberate picks, so
+    // replacing it with the next preview would throw away what was just built.
+    (left: string, right: string) =>
+      open({ id: `${left}|${right}`, kind: "compare", title: `${left} vs ${right}` }, false),
+    [open],
   );
 
   /** Editing a parameter invalidates everything computed from it. The results
@@ -376,11 +394,11 @@ export function Shell() {
             <EmptyProject onImport={openImport} />
           ) : state.splitId ? (
             <div className="split">
-              <Pane tab={activeTab} datasets={datasets.data} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} />
-              <Pane tab={splitTab} datasets={datasets.data} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} />
+              <Pane tab={activeTab} datasets={datasets.data} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} />
+              <Pane tab={splitTab} datasets={datasets.data} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} />
             </div>
           ) : (
-            <Pane tab={activeTab} datasets={datasets.data} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} />
+            <Pane tab={activeTab} datasets={datasets.data} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} />
           )}
         </main>
 
