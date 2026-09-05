@@ -22,7 +22,7 @@ interface Props {
   state: PipelineState | undefined;
   metrics: Record<string, number | null> | undefined;
   collapsed: boolean;
-  onEdit: (nodeId: string) => void;
+  onEdit: (nodeId: string, step: Record<string, unknown>) => void;
 }
 
 function Kv({ label, value }: { label: string; value: string | number }) {
@@ -136,7 +136,7 @@ export function Inspector({
           spec={spec}
           values={values}
           onChange={setValues}
-          onApply={() => onEdit(node!.id)}
+          onApply={(step) => onEdit(node!.id, step)}
         />
       ) : node ? (
         <div style={{ padding: "8px 0", borderBottom: "1px solid var(--rule)" }}>
