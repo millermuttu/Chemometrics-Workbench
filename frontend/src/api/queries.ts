@@ -278,6 +278,25 @@ export function usePipelineState() {
  * arrays under the new key and comes back `not_run`. Nothing here writes
  * staleness; it is read back out of the store.
  */
+/** Where the canvas put its nodes.
+ *
+ * Its own mutation against its own endpoint, mirroring the split the server
+ * makes: a position lives outside `Pipeline.content_hash()`, so writing one
+ * must not go through the body that carries the recipe. Nothing is
+ * invalidated afterwards - the canvas already holds the position it just
+ * sent, and the next `pipeline-state` fetch will echo the same value back.
+ */
+export function useSaveLayout() {
+  return useMutation({
+    mutationFn: (layout: Record<string, { x: number; y: number }>) =>
+      api<{ layout: Record<string, { x: number; y: number }> }>("/pipelines/current/layout", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ layout }),
+      }),
+  });
+}
+
 export function useSavePipeline() {
   const client = useQueryClient();
   return useMutation({

@@ -264,6 +264,24 @@
         "By eye on a seeded project, both themes."
       ],
       "evidence": "2026-09-05. `--ok` added to design/canvas/_base.css first (it is the token source) as #1E7A3C light / #63C67E dark, then ported verbatim to frontend/src/styles/tokens.css and added to the Run state group in tokens.ts. Neither value collides with --accent (#0B6B62 / #54BFAB, which means *running*) nor with the Okabe-Ito series, and tokens.test.ts's 'keeps the accent off the data palette' check now covers `ok` too. `pnpm test` - 99 passed, 11 files, including the two drift checks that compare the artboard palette against the ported one. `pnpm typecheck` and `pnpm lint` clean; `pnpm build` succeeded. `pnpm exec playwright test` - 44 passed (1.4m); the '[WebServer] job ... failed' line in that log is runs.spec.ts's deliberate failing-run fixture, not a test failure. The new assertion in pipeline.spec.ts reads borderTopColor off node-complete, converts it from rgb() to hex and asserts it equals --ok resolved from .app, and separately that --ok is not --accent; it passed as test 14 of 44. Confirmed by eye on a seeded 15-node project served at 127.0.0.1:8793: every node carries a solid green border where all fifteen were previously the same grey as an unrun node. complete stays *solid* while every other state is dashed, hatched or striped, so pipeline.spec.ts's existing form assertion (borderTopStyle 'solid', opacity 1) passed unchanged and the greyscale reading still works."
+    },
+    {
+      "id": "canvas-nodes-are-dragged",
+      "priority": 1,
+      "area": "frontend",
+      "issue": 162,
+      "title": "A node is dragged, and stays where it is put",
+      "depends_on": [],
+      "user_visible_behavior": "A node on the canvas is dragged to a new place and stays there, across a reload and across a restart. The drag writes through on the drop rather than waiting on Save, and does not open the node's tab. A node the server has never placed lands beside its parent instead of at the origin.",
+      "status": "passing",
+      "verification": [
+        "uv run pytest - PUT /api/pipelines/current/layout stores a position, GET .../state reports it, and GET /api/pipelines/current is byte-identical either side, so the cache key does not move.",
+        "A position for a node not in the pipeline is dropped rather than refused; a non-numeric coordinate is 422; an unknown pipeline id is 404.",
+        "pnpm test - a node absent from the layout lands beside its parent, and two new children of one parent do not stack.",
+        "pnpm exec playwright test - the whole suite, including the drag writing through and not opening the tab.",
+        "uv run ruff check && uv run ruff format --check && uv run mypy; pnpm typecheck && pnpm lint && pnpm build"
+      ],
+      "evidence": "2026-09-05. `PUT /pipelines/{id}/layout` added beside put_pipeline, with its own LayoutWrite body and a typed Position, so layout still never touches Pipeline.content_hash() - the reason it has its own table. Positions for unknown node ids are filtered rather than refused, which also collects a removed node's coordinates instead of leaving them in a table nothing prunes. Frontend: nodesDraggable={false} removed, onNodesChange narrowed to position changes only (React Flow will not move a controlled node without it), onNodeDragStop writes through useSaveLayout with no debounce because it already fires once per drag. Two regressions were anticipated and handled: the click that ends a drag is consumed so moving a node does not also open its tab, and the three header buttons got React Flow's `nodrag` class or they would have become drag handles. graph.ts gained `placements`, which puts an unplaced node beside its parent at the same 170/130 step the server uses - previously graph.ts:104 fell back to {x:0,y:0} and duplicates stacked at the origin. `uv run pytest` exit 0. `uv run ruff check` and `uv run mypy` (54 files) clean; ruff format reformatted one file, then clean. `pnpm test` - 102 passed, 11 files (99 before, +3 for placements). `pnpm typecheck` and `pnpm lint` clean after fixing a real exhaustive-deps warning: `moved` was read inside the graph useMemo but missing from its deps, so a drag would not have redrawn. `pnpm exec playwright test` - 45 passed (2.2m), 44 before plus the new drag test. One test failure along the way was the test's own fault and worth recording: the first version compared the node's screen bounding box either side of a reload and failed 529 vs 383, because `fitView` re-fits the viewport on every mount - a node that has not moved in the graph still lands on a different pixel. It now asserts the layout the server holds, which is the actual claim; that the canvas draws what the layout says is graph.test.ts's job and it has one."
     }
   ]
 }
