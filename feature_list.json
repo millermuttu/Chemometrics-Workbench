@@ -9,6 +9,24 @@
   ],
   "features": [
     {
+      "id": "feature-list-checker",
+      "priority": 0,
+      "area": "process",
+      "issue": 138,
+      "title": "The clean-state checklist's third check has a command behind it",
+      "depends_on": [],
+      "user_visible_behavior": "`uv run python -m tests.check_feature_list` prints `feature_list.json consistent`, or one line per problem and a non-zero exit.",
+      "status": "passing",
+      "verification": [
+        "uv run python -m tests.check_feature_list - prints the sentence and exits 0.",
+        "The same, on each of the four archived lists under docs/phase-*/.",
+        "uv run pytest tests/test_check_feature_list.py - every rule shown failing.",
+        "uv run ruff check && uv run ruff format --check && uv run mypy && uv run pytest"
+      ],
+      "evidence": "2026-09-05. `uv run python -m tests.check_feature_list` printed 'feature_list.json consistent', exit 0, and did the same on all four of docs/phase-0, phase-1-1, phase-1-2, phase-1-3. Run against a deliberately broken copy of the live list it printed three problems and exited 1: \"'row-mapping-said-once' is passing with empty evidence\", \"'canvas-compare-and-duplicate' depends on 'ghost', which is not in this list\", \"2 features are in_progress (pending-estimator-is-announced, range-select-axis-follows-data). At most one may be.\" `uv run pytest` - 775 passed, 1 skipped (758 before, +17 in tests/test_check_feature_list.py). `uv run ruff check`, `uv run ruff format --check` (75 files) and `uv run mypy` (51 source files) all exit 0.",
+      "notes": "clean-state-checklist.md:29 asked check 3 to pass 'when it prints feature_list.json consistent' and nothing in the repository printed it - no script, no test, no scripts/ or tools/ directory. The one check whose purpose is catching a passing with nothing behind it passed by being read, which is #131's second item one level up. The module checks only the mechanical half and the checklist now says so explicitly: whether an evidence string records a real run or a description of one is a person reading it, and a command claiming otherwise would be the same failure again. tests/parity_report.py is the precedent for a runnable module under tests/ that is not a test. Deliberately not wired into CI - that is a separate decision and one line if it is wanted."
+    },
+    {
       "id": "range-select-axis-follows-data",
       "priority": 0,
       "area": "backend",

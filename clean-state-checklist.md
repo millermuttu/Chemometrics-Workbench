@@ -26,7 +26,13 @@ Run the project's full verification suite as documented — lint, formatting, ty
 
 The failure this catches: a feature marked `passing` because the code looked right, with no evidence behind it.
 
-**Pass when** it prints `feature_list.json consistent`, **and** you have read the `evidence` of every feature changed this session and confirmed it records a real command with its real output and a date — not a description of what would happen.
+```bash
+uv run python -m tests.check_feature_list
+```
+
+It checks the mechanical half — statuses, unique ids, dependencies that exist and are finished, `passing` with evidence, `blocked` with a reason, at most one `in_progress` — and prints the problems it finds, one per line.
+
+**Pass when** it prints `feature_list.json consistent`, **and** you have read the `evidence` of every feature changed this session and confirmed it records a real command with its real output and a date — not a description of what would happen. **The command cannot do that second half**, which is the half that catches the failure above: only a person reading the string can tell a recorded run from a description of one.
 
 ## 4. No half-finished work left unrecorded
 
