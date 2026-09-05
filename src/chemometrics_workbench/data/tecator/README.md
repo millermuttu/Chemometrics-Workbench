@@ -1,63 +1,83 @@
-# Gasoline / octane
+# Tecator meat
 
-**Status: NOT committed. Downloaded on demand and checksum-verified.**
+**Status: committed.** The only one of the three reference datasets this
+repository carries, because it is the only one whose terms permit it.
 
-Two reasons, either of which is sufficient.
+## The permission, quoted from the file itself
 
-The data originates with Kalivas (1997), published by Elsevier, and no
-licence or public-domain declaration accompanies it. The R packages that
-carry it thank Prof. Kalivas for making it available — an acknowledgement,
-not a grant.
+`tecator.txt` opens with the statement below, and the committed file is the
+copy of it. Redistribution is conditional on the note travelling with the data,
+so **the note must not be stripped from `tecator.txt`** — reformatting or
+trimming that header would remove the thing the licence depends on.
 
-The copy this loader uses travels inside the R package `pls`, which is
-licensed **GPL-2**. This repository is MIT. Committing a GPL-2 file into it
-would put part of an MIT distribution under a copyleft licence, which is a
-licensing decision this project has not made and does not need to make.
-Downloading avoids the question entirely: the user fetches GPL-2 material
-from its own distributor, under its own terms.
+> These data are recorded on a Tecator Infratec Food and Feed Analyzer working
+> in the wavelength range 850 - 1050 nm by the Near Infrared Transmission (NIT)
+> principle. Each sample contains finely chopped pure meat with different
+> moisture, fat and protein contents.
+>
+> If results from these data are used in a publication we want you to mention
+> the instrument and company name (Tecator) in the publication. In addition,
+> please send a preprint of your article to
+>
+>     Karin Thente, Tecator AB,
+>     Box 70, S-263 21 Hoganas, Sweden
+>
+> The data are available in the public domain with no responsability from the
+> original data source. The data can be redistributed as long as this
+> permission note is attached.
+>
+> For more information about the instrument - call Perstorp Analytical's
+> representative in your area.
+
+## The obligation this puts on a published result
+
+**If you publish a result from this dataset you must name the instrument and
+company (Tecator).** That is a condition of use rather than a courtesy, and it
+applies to `docs/parity-report.md` as much as to a paper.
+
+It is stated here because this file is where the terms live. `datasets.py`
+repeats it on `load_tecator` for whoever is reading the loader.
 
 | | |
 | --- | --- |
-| Download URL | <https://cran.r-project.org/src/contrib/Archive/pls/pls_2.8-5.tar.gz> |
-| Archive SHA-256 | `8029018d4c8921fa4c7ec5081551afdcc55d53271d9920db828483b442a033cf` |
-| Member `pls/data/gasoline.RData` SHA-256 | `fdfd17ff9a407d9ee04d0c966aab3e4f2e0390c39724cab99334c74b842acbdd` |
-| Checked | 2026-08-22 |
-| Loader | `chemometrics_workbench.datasets.load_gasoline()` |
+| Source | StatLib, <http://lib.stat.cmu.edu/datasets/tecator> |
+| File | `tecator.txt`, committed |
+| SHA-256 | `e435c0538cd706473d87525da595d75dbff43a58bf2694104bd948081c3790d7` |
+| Checked | 2026-09-05 — host and path resolve; the page itself refuses a direct fetch |
+| Loader | `chemometrics_workbench.datasets.load_tecator()` |
 
-**The URL points at CRAN's `Archive/`, deliberately.** `src/contrib/` holds
-only the current release, so a pinned hash there breaks the day CRAN
-publishes a new version. Archive URLs are permanent. Version 2.8-5 is pinned
-because the gasoline data has not changed across `pls` releases; a newer
-`pls` would give the same numbers and a different archive hash.
+The checksum is verified on every read, the same as for the two downloaded
+datasets. It is pinned in `datasets.py` as `TECATOR_SHA256` and repeated in
+`SHA256SUMS` beside this file.
 
-## Reading `.RData` from Python
-
-Requires the `rdata` package, which is in the `dev` dependency group rather
-than the runtime dependencies — the application does not read R files, only
-the parity work does. `load_gasoline()` imports it lazily and says so if it
-is missing.
-
-`rdata`'s default conversion fails on this file: the `gasoline` object is an
-R data frame whose `NIR` column is a 60 × 401 `AsIs` matrix, and pandas
-refuses a two-dimensional column. The loader converts with an empty
-`constructor_dict` instead, which yields the raw arrays and skips the data
-frame constructor.
-
-## Cache location
-
-`$CHEMOMETRICS_DATA_HOME`, or `$XDG_CACHE_HOME/chemometrics-workbench/datasets`,
-or `~/.cache/chemometrics-workbench/datasets`. Delete the file to force a
-re-download.
+**The file is stored with LF endings and the hash is of those bytes.** A
+checkout that rewrites them to CRLF changes every line and therefore the
+digest, and the loader refuses the file — on Windows only, which is what made
+it expensive to find. `.gitattributes` marks `*.txt` as `-text` to stop git
+rewriting them, and `test_the_committed_data_is_checked_out_byte_for_byte`
+asserts it. The check was not relaxed: a checksum that tolerates a
+transformation is not checking anything.
 
 ## What the loader returns
 
-60 gasoline samples × 401 wavelengths, diffuse reflectance as log(1/R), from
-900 nm to 1700 nm in 2 nm steps. The axis is parsed from the matrix's own
-dimnames (`"900 nm"`, `"902 nm"`, …), not reconstructed.
+240 meat samples, 100 near-infrared transmission absorbance channels over
+850–1050 nm, with reference moisture, fat and protein in percent.
 
-The single target is `octane`, ranging 83.4 to 89.6.
+**The wavelength axis is reconstructed, not read.** The file gives a range and
+a channel count and carries no axis vector, so `load_tecator` builds
+`linspace(850, 1050, 100)`. If a reference value ever disagrees at the fourth
+digit on Tecator alone, suspect the axis before suspecting the kernel — corn
+and gasoline both read theirs from the file.
+
+**The 22 principal components in the file are discarded.** They are the
+original authors' preprocessing rather than raw data, and a kernel compared
+against them would be compared against someone else's decomposition.
+
+The 240 samples appear in five contiguous groups — C (129), M (43), T (43),
+E1 (8) and E2 (17) — which the loader encodes into sample ids so the published
+split survives any later reordering of rows.
 
 ## Reference
 
-Kalivas, John H. (1997), "Two data sets of near infrared spectra",
-*Chemometrics and Intelligent Laboratory Systems* 37, 255–259.
+Tecator Infratec Food and Feed Analyzer, Tecator AB (later Perstorp
+Analytical). Distributed through StatLib.
