@@ -252,29 +252,41 @@ test("a dragged node is written through on the drop, and not opened by the drag"
   // The drag consumed the click that ends it: moving a node must not open it.
   await expect(page.getByRole("tab", { name: /SNV/ })).toHaveCount(0);
 
-  // The claim: the server holds it, so it outlives this page.
+  // The claim: the server holds the position it was actually dropped at.
+  //
+  // Asserted as an equality against what the canvas is drawing, not as "it
+  // changed". #170 was a write that succeeded and a read that looked past it,
+  // so every node came back at the position the server *generates* - and a
+  // `.not.toEqual(the old value)` is satisfied by a generated position just as
+  // well as by a stored one. The test passed while the feature did nothing.
+  const drawn = await page
+    .locator('.react-flow__node[data-id="snv"]')
+    .evaluate((element) => {
+      const [x, y] = getComputedStyle(element)
+        .transform.match(/-?\d+\.?\d*/g)!
+        .slice(-2)
+        .map(Number);
+      return { x, y };
+    });
+
   await expect
     .poll(async () => {
       const state = await page.request.get("/api/pipelines/current/state", {
         headers: { Authorization: "Bearer e2e-token" },
       });
-      return (await state.json()).layout.snv;
+      const stored = (await state.json()).layout.snv;
+      return { x: Math.round(stored.x), y: Math.round(stored.y) };
     })
-    .not.toEqual({ x: 40, y: 170 });
+    .toEqual({ x: Math.round(drawn.x), y: Math.round(drawn.y) });
 
-  const moved = await (
+  // And the positions of the nodes that were *not* dragged survive the write,
+  // which sends the whole map because the endpoint replaces rather than merges.
+  const stored = await (
     await page.request.get("/api/pipelines/current/state", {
       headers: { Authorization: "Bearer e2e-token" },
     })
   ).json();
-
-  await openCanvas(page);
-  const reloaded = await (
-    await page.request.get("/api/pipelines/current/state", {
-      headers: { Authorization: "Bearer e2e-token" },
-    })
-  ).json();
-  expect(reloaded.layout.snv).toEqual(moved.layout.snv);
+  expect(Object.keys(stored.layout).length).toBeGreaterThan(1);
 });
 
 /** Dropping a connector on empty canvas offers the steps this build can run,

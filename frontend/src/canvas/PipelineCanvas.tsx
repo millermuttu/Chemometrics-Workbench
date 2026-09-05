@@ -233,7 +233,14 @@ export function PipelineCanvas({
             // A draft has no node on the server to hang a position on; it gets
             // one when Save turns it into a real node.
             if (String(node.id).startsWith("draft-")) return;
-            saveLayout.mutate({ ...moved, [node.id]: node.position });
+            // The whole map, because the endpoint replaces rather than merges:
+            // sending only what moved this session would drop every position
+            // the server already holds for the nodes that did not.
+            saveLayout.mutate({
+              ...(state.data?.layout ?? {}),
+              ...moved,
+              [node.id]: node.position,
+            });
           }}
           proOptions={{ hideAttribution: true }}
           isValidConnection={(connection) => {
