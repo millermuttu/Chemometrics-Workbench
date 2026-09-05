@@ -526,7 +526,7 @@ def _not_fitted(pipeline: Pipeline) -> list[PipelineWarning]:
     plausible result, and has a document behind it saying what the consequence
     is. This is neither. Nothing is wrong with the recipe; the build has no
     kernel for part of it, which is a fact about the application. Filing it
-    under "what is wrong with your pipeline" would blame the user for #88.
+    under "what is wrong with your pipeline" would blame the user for #142.
 
     What made this worth saying at all: a PLS node validated clean, the run
     reported `succeeded` and `"Done"`, and the node was left `not_run` — which
