@@ -189,7 +189,7 @@ to be torn up", with the second row carrying the slot in a literal comment. Phas
 it. Before treating a design gap as a blocker, read what the screen says about itself.
 
 **Three things about the frontend suite, learned the slow way.** Playwright serves `frontend/dist`,
-a **built** bundle, so an app-source change needs `npm run build` before the e2e suite sees it — a
+a **built** bundle, so an app-source change needs `pnpm build` before the e2e suite sees it — a
 run that passes without it proves nothing about the change. `getByText` is a strict-mode violation
 on any word a screen repeats, and "RMSECV" appears four times on the analysis tab, so `Panel` now
 names its `<section>` with `aria-label` and panels are addressed by role and name. And a new
