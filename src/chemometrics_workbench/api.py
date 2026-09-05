@@ -88,9 +88,14 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from numpy.typing import NDArray
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from chemometrics_workbench import readers
-from chemometrics_workbench.checks import check_pipeline
-from chemometrics_workbench.executor import EstimatorResult, stored
+from chemometrics_workbench import preprocessing, readers
+from chemometrics_workbench.checks import PipelineWarning, check_pipeline
+from chemometrics_workbench.executor import (
+    EstimatorResult,
+    governing_folds,
+    has_kernel,
+    stored,
+)
 from chemometrics_workbench.executor import stored_display as _stored_display
 from chemometrics_workbench.executor import stored_result as _stored_result
 from chemometrics_workbench.jobs import Job, Jobs, submit_run
@@ -102,6 +107,7 @@ from chemometrics_workbench.models import (
     PipelineNode,
     PreprocessStep,
     Project,
+    RangeSelect,
     SourceNode,
 )
 from chemometrics_workbench.project import (
@@ -112,6 +118,7 @@ from chemometrics_workbench.project import (
     create_project,
     is_project,
     open_project,
+    read_array,
     read_datasets,
     read_experiment,
     read_layout,
@@ -120,11 +127,15 @@ from chemometrics_workbench.project import (
     write_layout,
     write_pipeline,
 )
+from chemometrics_workbench.regression import coefficients_original_units
 
 __all__ = [
+    "ESTIMATOR_NOT_FITTED",
     "MAX_POINTS",
     "MAX_TRACES",
     "MAX_UPLOAD_BYTES",
+    "folded_coefficients",
+    "node_axis",
     "open_project_directory",
     "results_payload",
     "router",
@@ -418,7 +429,12 @@ class _uploaded:
 # --- Results --------------------------------------------------------------
 
 
-def results_payload(result: EstimatorResult, version: DatasetVersion) -> dict[str, Any]:
+def results_payload(
+    result: EstimatorResult,
+    version: DatasetVersion,
+    *,
+    axis: NDArray[np.float64] | None = None,
+) -> dict[str, Any]:
     """What `results/{node_id}` serves: a fitted estimator, ready to draw.
 
     The kernel's numbers come from the executor unrounded; the sample ids and
@@ -426,11 +442,34 @@ def results_payload(result: EstimatorResult, version: DatasetVersion) -> dict[st
     know what its rows and columns were called. The shape is the one
     `stub/fixtures/pca.json` publishes and the analysis screen already renders.
 
+    **`axis` is the node's own**, from `node_axis`, because a model fitted
+    under a range selection has fewer loadings than the dataset has variables.
+    This used to publish `version.axis` unconditionally and say nothing: a PCA
+    on a 500-1000 nm selection served 167 loadings beside a 306-value axis, so
+    every peak on the loadings plot was attributed to the wrong wavelength. It
+    is checked rather than trusted now — a mismatch here is silent in a way the
+    spectra payload's never was.
+
     A split branch adds `validation`: the held-out rows of the fitted fold,
     projected through the model that never saw them. It is an addition rather
     than a change — the calibration arrays keep the lengths the fixture has, so
     a screen that ignores the new key renders exactly what it rendered before.
     """
+    values = (
+        [float(value) for value in version.axis.values]
+        if axis is None
+        else [float(value) for value in np.asarray(axis, dtype=np.float64)]
+    )
+    if len(values) != result.n_variables:
+        raise _fail(
+            500,
+            "shape_mismatch",
+            f"node {result.node_id!r} was fitted on {result.n_variables} variables and its "
+            f"axis has {len(values)}. Every step that changes the variable count has to be "
+            "in `node_axis`, and this one is not.",
+            node_id=result.node_id,
+        )
+
     payload: dict[str, Any] = {
         "node_id": result.node_id,
         "task": result.task,
@@ -444,7 +483,7 @@ def results_payload(result: EstimatorResult, version: DatasetVersion) -> dict[st
             "axis": {
                 "kind": version.axis.kind,
                 "unit": version.axis.unit,
-                "values": list(version.axis.values),
+                "values": values,
             },
             "components": result.loadings,
         },
@@ -467,6 +506,35 @@ def results_payload(result: EstimatorResult, version: DatasetVersion) -> dict[st
             "hotelling_t2": result.held_out_hotelling_t2,
             "spe": result.held_out_spe,
         }
+        if result.task == "regression":
+            payload["validation"]["observed"] = result.held_out_observed
+            payload["validation"]["predicted"] = result.held_out_predicted
+
+    # A regression's own half, added rather than substituted: `scores`,
+    # `loadings`, the x-variances and both diagnostics above mean the same
+    # thing for both tasks, so a screen that draws those draws either. What is
+    # here is what has no counterpart on a decomposition.
+    if result.task == "regression":
+        payload["regression"] = {
+            "target": result.target,
+            "observed": result.observed,
+            "predicted": result.predicted,
+            # On the node's own axis, like `loadings` — #134. Folding the
+            # preprocessing back out to the raw axis is #144.
+            "coefficients": result.coefficients,
+            "vip": result.vip,
+            "y_loadings": result.y_loadings,
+            "y_explained_variance_ratio": result.y_explained_variance_ratio,
+        }
+        # §11: a metric that could not be computed is absent, never zero. The
+        # curve is lifted out of the flat table so a screen plots it without
+        # parsing key names, and the table keeps every key regardless.
+        payload["metrics"] = dict(result.metrics)
+        payload["rmsecv_curve"] = [
+            result.metrics[key]
+            for key in (f"rmsecv_a{a}" for a in range(1, result.n_components + 1))
+            if key in result.metrics
+        ]
     return payload
 
 
@@ -479,6 +547,44 @@ def _samples(rows: list[int], version: DatasetVersion) -> list[dict[str, Any]]:
 
 
 # --- Validation -----------------------------------------------------------
+
+
+#: A node this build cannot fit. Not a `checks.py` code, because that module
+#: catches mistakes whose symptom is a plausible result and this is not one:
+#: the recipe is right and the application is short. #136.
+ESTIMATOR_NOT_FITTED = "estimator_not_fitted"
+
+
+def _not_fitted(pipeline: Pipeline) -> list[PipelineWarning]:
+    """The estimator nodes a run will skip, said before the run rather than after.
+
+    **Deliberately not in `checks.py`.** That module's contract is written at
+    the top of it — every warning there catches a mistake whose symptom is a
+    plausible result, and has a document behind it saying what the consequence
+    is. This is neither. Nothing is wrong with the recipe; the build has no
+    kernel for part of it, which is a fact about the application. Filing it
+    under "what is wrong with your pipeline" would blame the user for #142.
+
+    What made this worth saying at all: a PLS node validated clean, the run
+    reported `succeeded` and `"Done"`, and the node was left `not_run` — which
+    is the same state it has before it has ever been run. Nothing anywhere
+    distinguished "not yet" from "never will be", though `Run.pending_estimators`
+    had named it the whole time.
+    """
+    return [
+        PipelineWarning(
+            code=ESTIMATOR_NOT_FITTED,
+            node_id=node.id,
+            message=(
+                f"{node.spec.kind!r} at {node.id!r} has no kernel in this build and will not "
+                "be fitted. The run will report success and this node will stay unrun; every "
+                "other node is unaffected."
+            ),
+            severity="info",
+        )
+        for node in pipeline.nodes
+        if node.type == "estimator" and not has_kernel(node.spec)
+    ]
 
 
 def validation_payload(pipeline: Pipeline) -> dict[str, Any]:
@@ -495,7 +601,10 @@ def validation_payload(pipeline: Pipeline) -> dict[str, Any]:
     reporting `valid: true` while holding a warning would mean the screen said
     "valid" and dropped the sentence.
     """
-    warnings = check_pipeline(pipeline)
+    # Two sources, one list: what is wrong with the recipe (`checks.py`) and
+    # what this build cannot run (#136). A screen tells them apart by `code`
+    # and by `severity`, which is why both are on the wire.
+    warnings = [*check_pipeline(pipeline), *_not_fitted(pipeline)]
     return {
         "pipeline_id": str(pipeline.pipeline_id),
         "valid": not warnings,
@@ -560,11 +669,158 @@ def decimate(
     return kept, axis[kept]
 
 
+def node_axis(pipeline: Pipeline, node_id: NodeId, version: DatasetVersion) -> NDArray[np.float64]:
+    """The axis a node's output is on, which is not always the dataset's.
+
+    `RangeSelect` is the one step that changes the variable count, so a node
+    under one is on a shorter axis than the `DatasetVersion` records and every
+    payload that pairs the two has to know it. `executor.py` deliberately keeps
+    no per-node axis — a second thing beside the cached arrays would have to
+    stay consistent with them — so this derives it instead, from the recipe.
+
+    That derivation is free of the executor's guarantees precisely because it
+    is a pure function of the pipeline: it reads no array, writes nothing, and
+    cannot move a content hash or invalidate a cache entry.
+
+    Every non-source node holds exactly one input, so the ancestry is a chain
+    rather than a tree and the selections apply in order down it. The mask is
+    taken from `RangeSelectTransformer` rather than restated here, so the
+    interval's meaning — inclusive bounds, either axis direction, an empty
+    selection refused — is stated once.
+    """
+    by_id = {node.id: node for node in pipeline.nodes}
+    chain: list[PipelineNode] = []
+    current = node_id
+    while True:
+        node = by_id[current]
+        chain.append(node)
+        if not node.inputs:
+            break
+        current = node.inputs[0]
+
+    axis = np.asarray(version.axis.values, dtype=np.float64)
+    for node in reversed(chain):
+        if node.type != "preprocess" or not isinstance(node.step, RangeSelect):
+            continue
+        transformer = preprocessing.from_spec(node.step, axis=axis)
+        assert isinstance(transformer, preprocessing.RangeSelectTransformer)
+        # Fitting a range selection needs the axis and the variable count, not
+        # the data: `_fit` reads `X.shape[1]` and nothing else. One empty row
+        # supplies the width without loading an array this function has no
+        # reason to read.
+        transformer.fit(np.zeros((1, axis.size)))
+        axis = transformer.selected_axis()
+    return axis
+
+
+def _preprocess_chain(pipeline: Pipeline, node_id: NodeId) -> tuple[list[PipelineNode], NodeId]:
+    """The preprocess nodes from the source down to `node_id`, and the source's id."""
+    by_id = {node.id: node for node in pipeline.nodes}
+    chain: list[PipelineNode] = []
+    current = node_id
+    while True:
+        node = by_id[current]
+        if node.type == "preprocess":
+            chain.append(node)
+        if not node.inputs:
+            return list(reversed(chain)), node.id
+        current = node.inputs[0]
+
+
+def folded_coefficients(
+    directory: Path,
+    pipeline: Pipeline,
+    node_id: NodeId,
+    version: DatasetVersion,
+    result: EstimatorResult,
+) -> dict[str, Any]:
+    """A regression's coefficients against the dataset's own axis (#144).
+
+    `PROPOSAL.md` §9 promises a portable model — a coefficient vector and a
+    NumPy-only snippet — and `result.coefficients` is not that: it is `b` on
+    whatever the last preprocessing node produced. `regression.py` already does
+    the arithmetic, by measuring the chain rather than restating its rules. What
+    it needs is the **fitted** chain, and the executor has none to give:
+    `_transform` builds a transformer, uses it and drops it, and a node whose
+    key hits the cache never builds one at all.
+
+    **So the chain is refitted here, from the recipe.** That is #134's shape
+    again, and for the same reason: a pure function of the pipeline and the
+    stored source array cannot disagree with the cache, cannot move a content
+    hash, and works identically whether the run was hot or cold. Keeping the
+    transformers beside the cached arrays would put a second thing there that
+    has to stay consistent with them, which `executor.py:5-8` refuses.
+
+    **The estimator's own centring is folded in too.** `_pls` centres `X` by the
+    fit rows' mean, which is not a pipeline node and so is not in the measured
+    chain. Since the model computes `(chain(X) - x̄)·b + ȳ` and the helper
+    returns an intercept of `y_mean + offset·b`, passing `ȳ - x̄·b` as `y_mean`
+    puts it exactly where it belongs.
+    """
+    chain, source_id = _preprocess_chain(pipeline, node_id)
+    if source_id not in {node.id for node in pipeline.nodes}:  # pragma: no cover - defensive
+        raise _fail(404, "not_found", f"node {node_id!r} has no source above it.", node_id=node_id)
+
+    try:
+        values = read_array(directory, version.array_path)
+    except ProjectError as error:
+        raise _fail(500, "project_unavailable", str(error)) from error
+
+    # Fold zero's training rows below a split, every row above one - the rows
+    # `_pls` fitted the model on, so the parameters folded here are the
+    # parameters the coefficients were produced with.
+    by_id = {node.id: node for node in pipeline.nodes}
+    folds = governing_folds(NodeId(node_id), by_id, version.n_samples)
+    rows = folds[0].train if folds else np.arange(version.n_samples, dtype=np.intp)
+
+    axis = np.asarray(version.axis.values, dtype=np.float64)
+    transformers: list[preprocessing.Transformer] = []
+    for node in chain:
+        assert node.type == "preprocess"
+        transformer = preprocessing.from_spec(node.step, axis=axis)
+        transformer.fit(values[rows])
+        values = transformer.transform(values)
+        if isinstance(transformer, preprocessing.RangeSelectTransformer):
+            axis = transformer.selected_axis()
+        transformers.append(transformer)
+
+    observed = np.asarray(result.observed, dtype=np.float64)
+    x_mean = values[rows].mean(axis=0)
+    coefficients = np.asarray(result.coefficients, dtype=np.float64)
+
+    try:
+        folded, intercept = coefficients_original_units(
+            coefficients,
+            transformers,
+            n_variables=version.n_variables,
+            y_mean=float(observed.mean()) - float(x_mean @ coefficients),
+        )
+    except ValueError as error:
+        # §7's "says so when it is not available". Not an error: a chain with an
+        # SNV in it genuinely has no fixed linear map, and the honest answer is
+        # the sentence naming the step rather than an approximation.
+        return {"node_id": node_id, "available": False, "reason": str(error)}
+
+    return {
+        "node_id": node_id,
+        "available": True,
+        "target": result.target,
+        "intercept": float(intercept),
+        "coefficients": [float(value) for value in folded],
+        "axis": {
+            "kind": version.axis.kind,
+            "unit": version.axis.unit,
+            "values": [float(value) for value in version.axis.values],
+        },
+    }
+
+
 def spectra_payload(
     node_id: str,
     values: NDArray[np.float64],
     version: DatasetVersion,
     *,
+    axis: NDArray[np.float64] | None = None,
     label: str | None = None,
     ordinate: str = "Absorbance",
     highlight: Sequence[int] = (),
@@ -585,14 +841,22 @@ def spectra_payload(
     remainder: it describes the distribution, and leaving out the drawn ones
     would make it describe a subset nobody asked about.
     """
-    axis = np.asarray(version.axis.values, dtype=np.float64)
+    # `axis` is the node's own, from `node_axis`. It falls back to the
+    # dataset's for a caller that has no pipeline to hand — which is every
+    # caller that draws the source node, where the two are the same thing.
+    axis = (
+        np.asarray(version.axis.values, dtype=np.float64)
+        if axis is None
+        else np.asarray(axis, dtype=np.float64)
+    )
     n_spectra, n_variables = values.shape
     if axis.size != n_variables:
         raise _fail(
             500,
             "shape_mismatch",
-            f"node {node_id!r} produced {n_variables} variables and the dataset's axis has "
-            f"{axis.size}. A range selection changes the axis and the payload cannot guess it.",
+            f"node {node_id!r} produced {n_variables} variables and its axis has "
+            f"{axis.size}. Every step that changes the variable count has to be in "
+            "`node_axis`, and this one is not.",
             node_id=node_id,
         )
 
@@ -929,7 +1193,13 @@ def get_spectra(node_id: str, highlight: Annotated[str | None, Query()] = None) 
             f"node {node_id!r} has no result yet. Run the pipeline, or pick a node that has.",
             node_id=node_id,
         )
-    return spectra_payload(node_id, values, version, highlight=_indices(highlight))
+    return spectra_payload(
+        node_id,
+        values,
+        version,
+        axis=node_axis(pipeline, NodeId(node_id), version),
+        highlight=_indices(highlight),
+    )
 
 
 @router.get("/results/{node_id}")
@@ -943,7 +1213,26 @@ def get_results(node_id: str) -> Any:
             f"node {node_id!r} has no fitted result yet.",
             node_id=node_id,
         )
-    return results_payload(result, version)
+    return results_payload(result, version, axis=node_axis(pipeline, NodeId(node_id), version))
+
+
+@router.get("/results/{node_id}/coefficients")
+def get_coefficients(node_id: str) -> Any:
+    """The model as `y_hat = intercept + X_raw @ b`, or why it cannot be one."""
+    directory, pipeline, version = _runnable()
+    result = _stored_result(directory, pipeline, version, node_id)
+    if result is None:
+        raise _fail(
+            404, "not_found", f"node {node_id!r} has no fitted result yet.", node_id=node_id
+        )
+    if result.task != "regression":
+        raise _fail(
+            422,
+            "not_a_regression",
+            f"node {node_id!r} is a {result.task}, which has no coefficient vector.",
+            node_id=node_id,
+        )
+    return folded_coefficients(directory, pipeline, NodeId(node_id), version, result)
 
 
 def _indices(raw: str | None) -> list[int]:

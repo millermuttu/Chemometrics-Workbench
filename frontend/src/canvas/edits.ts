@@ -105,3 +105,77 @@ export function remove(nodes: PipelineNode[], id: string): PipelineNode[] {
     .filter((node) => node.id !== id)
     .map((node) => (parentOf(node) === id ? { ...node, inputs: [inherited] } : node));
 }
+
+/** Why this subgraph cannot be duplicated, or null. */
+export function duplicationRefusal(nodes: PipelineNode[], id: string): string | null {
+  const node = nodes.find((candidate) => candidate.id === id);
+  if (!node) return "That node is not in this pipeline.";
+  if (node.type === "source") {
+    return "The source is where the data enters — duplicating it would copy the whole pipeline.";
+  }
+  return null;
+}
+
+/** An unused id derived from `base`: `snv copy`, then `snv copy 2`, and so on. */
+function freeId(taken: Set<string>, base: string): string {
+  const first = `${base} copy`;
+  if (!taken.has(first)) return first;
+  for (let n = 2; ; n += 1) {
+    const candidate = `${first} ${n}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
+
+/** Copy `id` and everything below it, hanging the copy off the same parent.
+ *
+ * **This is what the canvas is for.** DESIGN_BRIEF.md section 5 draws one
+ * dataset forked into four competing preprocessing paths, and building the
+ * fourth by hand when it differs from the third by one parameter is the work
+ * this removes: duplicate the branch, then edit the copy.
+ *
+ * The copy reads from the original's parent, so it is a sibling branch rather
+ * than a continuation - attaching it below the original would make a chain,
+ * which is not what "duplicate" means on a graph whose point is comparison.
+ *
+ * Ids are derived rather than random. A pipeline is read by a person, and
+ * `snv copy` beside `snv` says what happened; a uuid says only that something
+ * did. `models.py` types `NodeId` as a plain string, so a space is legal.
+ */
+export function duplicate(nodes: PipelineNode[], id: string): PipelineNode[] {
+  const refusal = duplicationRefusal(nodes, id);
+  if (refusal) throw new Error(refusal);
+
+  const copied = descendants(nodes, id);
+  const taken = new Set(nodes.map((node) => node.id));
+  const renamed = new Map<string, string>();
+  // In the pipeline's own order, so a parent is always renamed before the
+  // child that has to point at its new name.
+  for (const node of nodes) {
+    if (!copied.has(node.id)) continue;
+    const fresh = freeId(taken, node.id);
+    taken.add(fresh);
+    renamed.set(node.id, fresh);
+  }
+
+  const copies = nodes
+    .filter((node) => copied.has(node.id))
+    .map((node) => {
+      const parent = parentOf(node);
+      return {
+        ...node,
+        id: renamed.get(node.id)!,
+        // The root of the copy keeps the original's parent; everything below
+        // it points at its own copied parent.
+        inputs: parent ? [renamed.get(parent) ?? parent] : [],
+      };
+    });
+
+  return [...nodes, ...copies];
+}
+
+/** The nodes nothing reads from — what DESIGN_BRIEF.md section 5 calls
+ * terminal, and what a comparison is offered between. */
+export function terminals(nodes: PipelineNode[]): PipelineNode[] {
+  const consumed = new Set(nodes.flatMap((node) => node.inputs));
+  return nodes.filter((node) => !consumed.has(node.id));
+}

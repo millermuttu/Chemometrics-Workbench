@@ -6,6 +6,8 @@ import {
   ellipseTrace,
   loadingsTraces,
   outliers,
+  predictedTraces,
+  rmsecvTrace,
   scoresTrace,
   varianceFigure,
 } from "@/plot/analysis";
@@ -237,6 +239,92 @@ function Diagnostics({ pca }: { pca: PcaPayload }) {
   );
 }
 
+/** `metrics-and-validation.md` §11: a metric that could not be computed is
+ * absent, never zero and never NaN, and absence renders as an em dash. RMSECV
+ * and Q² really are missing above a split and SEC really is missing when
+ * `n - A - 1 <= 0`, so printing 0.0000 would assert something false. */
+function metric(value: number | undefined, digits = 4) {
+  return value === undefined ? "—" : value.toFixed(digits);
+}
+
+function PredictedVsMeasured({ pca }: { pca: PcaPayload }) {
+  const host = usePlot(
+    (theme) => ({
+      data: predictedTraces(pca, theme),
+      layout: {
+        xaxis: axisLayout(theme, `Measured ${pca.regression?.target ?? ""}`),
+        yaxis: axisLayout(theme, "Predicted"),
+        margin: { l: 48, r: 12, t: 8, b: 38 },
+        showlegend: true,
+        legend: { orientation: "h", y: 1.02, yanchor: "bottom", x: 0, font: { size: 9.5 } },
+      },
+    }),
+    [pca],
+  );
+  const held = pca.validation?.observed?.length ?? 0;
+  return (
+    <Panel
+      title="Predicted vs measured"
+      note={held ? `${pca.n_samples} calibration · ${held} held out` : `${pca.n_samples} samples`}
+    >
+      <div ref={host} data-testid="predicted-plot" style={{ flex: 1, minHeight: 0 }} />
+    </Panel>
+  );
+}
+
+function RmsecvCurve({ pca }: { pca: PcaPayload }) {
+  const curve = pca.rmsecv_curve ?? [];
+  const host = usePlot(
+    (theme) => ({
+      data: [rmsecvTrace(pca, theme)],
+      layout: {
+        xaxis: { ...axisLayout(theme, "Components"), dtick: 1 },
+        yaxis: { ...axisLayout(theme, "RMSECV"), rangemode: "tozero" },
+        margin: { l: 48, r: 12, t: 8, b: 38 },
+      },
+    }),
+    [pca],
+  );
+  // The minimum is reported, never chosen: §9 says picking A there and then
+  // quoting that minimum as the model's expected error is optimistic, and that
+  // it is the user's call rather than the application's.
+  const best = curve.length ? curve.indexOf(Math.min(...curve)) + 1 : undefined;
+  return (
+    <Panel title="RMSECV" note={best ? `lowest at A = ${best}` : "needs a split"} width={340}>
+      <div ref={host} data-testid="rmsecv-plot" style={{ flex: 1, minHeight: 0 }} />
+    </Panel>
+  );
+}
+
+function RegressionMetrics({ pca }: { pca: PcaPayload }) {
+  const m = pca.metrics ?? {};
+  const rows: [string, string][] = [
+    ["RMSEC", metric(m.rmsec)],
+    ["RMSECV", metric(m.rmsecv)],
+    ["RMSEP", metric(m.rmsep)],
+    ["R²", metric(m.r2)],
+    ["Q²", metric(m.q2)],
+    ["Bias", metric(m.bias)],
+    ["SEC", metric(m.sec)],
+    ["SEP", metric(m.sep)],
+    ["RMSECV spread", metric(m.rmsecv_std)],
+  ];
+  return (
+    <Panel title="Calibration metrics" note={pca.regression?.target ?? ""} width={260}>
+      <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "6px 0" }}>
+        {rows.map(([label, value]) => (
+          <div className="kv" key={label}>
+            <b>{label}</b>
+            <span className="mono" data-testid={`metric-${label}`}>
+              {value}
+            </span>
+          </div>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
 export function AnalysisResults({ nodeId, title }: { nodeId: string; title: string }) {
   const results = useResults(nodeId);
 
@@ -251,6 +339,7 @@ export function AnalysisResults({ nodeId, title }: { nodeId: string; title: stri
   }
 
   const pca = results.data;
+  const regression = pca.task === "regression";
   return (
     <div className="pane">
       <div
@@ -268,14 +357,23 @@ export function AnalysisResults({ nodeId, title }: { nodeId: string; title: stri
         <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
           <span style={{ fontWeight: 600, fontSize: 13.5 }}>{title}</span>
           <span className="mono" style={{ fontSize: 11, color: "var(--ink3)" }}>
-            PCA {pca.n_components} components · {pca.n_samples} × {pca.n_variables}
+            {regression ? `PLS on ${pca.regression?.target ?? "?"}` : "PCA"} {pca.n_components}{" "}
+            components · {pca.n_samples} × {pca.n_variables}
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "stretch" }}>
-          {[
-            ["PC1", `${(pca.explained_variance_ratio[0] * 100).toFixed(1)}%`],
-            ["CUMULATIVE", `${(pca.cumulative_explained_variance.at(-1)! * 100).toFixed(1)}%`],
-          ].map(([label, value]) => (
+          {(regression
+            ? // What a reader of a calibration looks at first, and the pair
+              // that says whether it generalises. Absent renders as an em dash.
+              ([
+                ["RMSECV", metric(pca.metrics?.rmsecv)],
+                ["Q²", metric(pca.metrics?.q2, 3)],
+              ] as [string, string][])
+            : ([
+                ["PC1", `${(pca.explained_variance_ratio[0] * 100).toFixed(1)}%`],
+                ["CUMULATIVE", `${(pca.cumulative_explained_variance.at(-1)! * 100).toFixed(1)}%`],
+              ] as [string, string][])
+          ).map(([label, value]) => (
             <div
               key={label}
               style={{
@@ -317,9 +415,18 @@ export function AnalysisResults({ nodeId, title }: { nodeId: string; title: stri
         <div style={{ display: "flex", gap: 12, flex: 1, minHeight: 0 }}>
           <Variance pca={pca} />
           <Diagnostics pca={pca} />
-          {/* Predicted vs measured belongs here, and is Phase 2. The row is
-              laid out so it arrives beside these rather than replacing them. */}
         </div>
+        {/* The row this comment reserved in Phase 1.1, now filled. It arrives
+            beside the two above rather than replacing them, exactly as the
+            layout was drawn for - and only for a regression, because these
+            three have no counterpart on a decomposition. */}
+        {regression && (
+          <div style={{ display: "flex", gap: 12, flex: 1, minHeight: 0 }}>
+            <PredictedVsMeasured pca={pca} />
+            <RmsecvCurve pca={pca} />
+            <RegressionMetrics pca={pca} />
+          </div>
+        )}
       </div>
     </div>
   );

@@ -23,6 +23,14 @@ export interface NodeData extends Record<string, unknown> {
    * so a control in the side panel is replaced by the tab before it can be
    * used. Absent on a draft and on the source, which cannot be removed. */
   onRemove?: () => void;
+  /** Copy this node and everything below it into a sibling branch (#51).
+   * Absent on the source, which cannot be duplicated. */
+  onDuplicate?: () => void;
+  /** Pick this node for a comparison, or unpick it. Offered only on terminal
+   * estimator nodes: comparing anything else has nothing to put side by side. */
+  onCompare?: () => void;
+  /** Already picked, so the control reads as a toggle rather than a verb. */
+  comparing?: boolean;
 }
 
 export interface FlowNode {
@@ -85,6 +93,8 @@ export function toNodes(
   state: PipelineState | undefined,
   labelOf: (node: PipelineNode) => string,
   onRemove?: (id: string) => void,
+  compare?: { ids: string[]; terminals: Set<string>; onCompare: (id: string) => void },
+  onDuplicate?: (id: string) => void,
 ): FlowNode[] {
   return pipeline.nodes.map((node) => {
     const status = nodeStateOf(node.id, state);
@@ -101,6 +111,13 @@ export function toNodes(
         footer: status.footer,
         onRemove:
           onRemove && node.type !== "source" ? () => onRemove(node.id) : undefined,
+        onDuplicate:
+          onDuplicate && node.type !== "source" ? () => onDuplicate(node.id) : undefined,
+        onCompare:
+          compare && node.type === "estimator" && compare.terminals.has(node.id)
+            ? () => compare.onCompare(node.id)
+            : undefined,
+        comparing: compare?.ids.includes(node.id) ?? false,
       },
     };
   });

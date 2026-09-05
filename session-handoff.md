@@ -2,42 +2,193 @@
 
 Compact state for the next session. **Overwrite this file at the end of every session** — it is a snapshot, not a log. Read it first, then `feature_list.json`, `git log` on `dev`, and the open issues.
 
-**Updated:** 2026-08-29
+**Updated:** 2026-09-05
 
 ---
 
 ## Where things stand
 
-**Phase 1 is complete.** Phase 0 is tagged `v0.1.0`, 1.1 `v0.2.0`, 1.2 `v0.3.0`, and **1.3
-`v0.4.0`** — released 2026-08-30.
+**Phase 1 is complete and released** — `v0.1.0`, `v0.2.0`, `v0.3.0`, `v0.4.0`, the last merged into
+`main` and tagged on 2026-08-30 (`2277b5b`).
 
-A project directory is now `project.db`, `arrays/` and `results/`, with **no JSON index anywhere in
-it**. A killed server restarts onto its datasets, its pipeline, its layout and its last experiment,
-and every node reports `complete` from the database's own cache rather than recomputing.
+**Every entry on the live Phase 2 list is `passing`, and one issue is open.** The list is twelve
+entries; the twelve are done. That is not the same as the phase being finished — see *Next action*.
 
-Phase 1.3's list is `docs/phase-1-3/feature_list.json`, six of six passing. The live
-`feature_list.json` is **Phase 2's** again.
-
-| Feature | Issue | Status |
-| --- | --- | --- |
-| A branch is dragged on the canvas, and a node can be removed | #51 | passing |
-| Duplicate a subgraph, and compare two terminal nodes in one tab | #51 | not started |
+| Priority | Feature | Issue | Status |
+| --- | --- | --- | --- |
+| 0 | A node under a range selection can be plotted | #134 | passing |
+| 0 | Each model-to-row mapping is written once | #131 | passing |
+| 0 | The checklist's third check has a command | #138 | passing |
+| 1 | A branch is dragged on the canvas, and a node removed | #51 | passing |
+| 1 | A pipeline says which estimator nodes will not be fitted | #136 | passing |
+| 1 | The seeded demo walks the exit criterion | #146 | passing |
+| 1 | The analysis screen draws a regression | #148 | passing |
+| 2 | The executor fits PLS, and a PLS result has a shape | #142 | passing |
+| 2 | Duplicate a subgraph, compare two terminal nodes | #51 | passing |
+| 3 | Coefficients readable against the raw axis | #144 | passing |
+| 3 | A numeric id column is not imported as a target | #135 | passing |
+| 4 | `data/tecator/README.md` records tecator's terms | #137 | passing |
 
 ## Current work
 
-**Nothing is `in_progress`.** `dev` and `main` are level, `main` is tagged `v0.4.0`, the tree is
-clean, no branches remain and no pull requests are open. Merged on 2026-08-29 and 30: #125 (#119),
-#126 (#120), #127 (#121), #128 (#122), #129 (#123), and the phase's own merge into `main`.
+**Nothing is `in_progress`.** The tree is clean, no branches remain and no pull requests are open.
+`main` is tagged `v0.4.0`; `dev` is **thirty-one commits ahead of it** — nothing merges to `main`
+until the phase closes. Merged on 2026-09-05: #139 (#138), #140 (#134), #141 (#136), #143 the
+stale-reference correction, #145 (#142), #147 (#146), #149 (#148), #150 (#137), #151 (#135),
+#152 (#144) and #153 (#51).
+
+**The demo runs the whole path.** Import, preprocess, split, fit PLS, cross-validate, read the
+result — on the seeded Tecator project, walked by CI on three platforms. Opening `PLS 5 LV · fat`
+gives scores with a T² ellipse, loadings, explained variance, diagnostics, predicted versus
+measured, the RMSECV curve and the calibration metrics. Terminal nodes can be picked in pairs and
+compared, and a branch can be duplicated and edited rather than rebuilt.
 
 ## Next action
 
-**The rest of #51**, which is what the live list holds: duplicating a subgraph, and a comparison tab
-for two terminal nodes. The comparison tab has no artboard behind it and little to compare until PLS
-has a kernel in the executor — `Run.pending_estimators` names the estimator nodes the executor did
-not fit, and what a PLS result carries is #88's subject. That ordering is worth deciding before the
-branch is cut.
+**Two decisions, neither of them coding, and they are the only things left.**
 
-Phase 2's list has no exit criterion yet. It needs one written before it is more than two entries.
+**1. Is the exit criterion met?** §16 asks that the workflow "match reference software within stated
+tolerance". PLS is parity-covered at kernel level in `docs/parity-report.md`, and the workflow now
+runs end to end in the application. Whether that combination *is* the criterion, or whether it wants
+its own recorded comparison as evidence, has not been decided. Nothing is blocked on it; the phase's
+close is.
+
+**2. #71 — what a non-positive `h0` should do** in the Jackson–Mudholkar SPE limit. Gasoline's `h0`
+is −0.0190; this kernel uses it as computed, `mdatools` clamps it to 0.001. The divergence is
+recorded and proven. It is a specification decision and has been waiting since Phase 0.
+
+**And the list is not the phase.** §16 also names **PLS-DA, VIP and contribution plots, a train/test
+splitting UI, and the Bruker OPUS reader**. None has an entry. The exit criterion text says so, and
+it stays true: the twelve entries being green means the list is finished, not the phase. Writing
+those five entries is the natural next session's first job.
+
+## What an end-to-end run against a public dataset found
+
+2026-09-05. The application was driven end to end over HTTP — no frontend, no test harness — against
+an external dataset it had never seen, to check the Phase 1 claim independently of the suite that
+was written alongside it.
+
+**The dataset: mango dry matter** (Anderson et al. 2020, CC-BY 4.0), 285–1200 nm at 3 nm, 306
+channels, 7413 calibration / 2830 tuning / 1448 validation, with a real reference value per sample.
+One curl from a GitHub release. Worth keeping in mind as an option: it is the only openly licensed
+set to hand that reaches below 1000 nm, and unlike corn and gasoline its licence is unambiguous.
+**No public benchmark spans 500–10000 nm** — that window crosses VIS, NIR and mid-IR detectors and
+no instrument records it continuously, so no dataset does either.
+
+**What held.** The 31 MB CSV was detected correctly on every axis the reader guesses — delimiter,
+decimal, orientation, and a `wavelength_nm` axis read rather than reconstructed — and imported in
+1.67 s to an 8.7 MB float32 array. A twelve-node branched pipeline validated and ran, three PCAs
+fitted, and the numbers are chemically right: SNV plus a first derivative puts 96.5 % of variance in
+three components against 83.7 % on the raw matrix. Decimation gave 60 traces plus a 5/50/95 band
+over 7413 spectra. **The restart claim holds under a real load**: killed and reopened on the same
+directory, eleven of twelve nodes came back `complete` from cache with identical explained variance
+and the layout intact, and a clean shutdown checkpointed the WAL away.
+
+**The PLS kernel corroborated against an outside implementation.** Scored on the paper's own tuning
+set, where its published PLS predictions exist: 0.9198 RMSE and R² 0.8119, against their 0.8281 and
+0.8475. Within 11 % with an untuned chain and no component search — external corroboration of a kind
+the parity fixtures cannot give, because they are generated from the same NumPy.
+
+**What it found**, all four filed and entered on the list:
+
+- **#134** — a range selection makes every node after it unplottable. High impact rather than niche:
+  trimming dead detector edges is the first thing anyone does with VIS-NIR, and this dataset needs it
+  (285–500 nm and 1191–1200 nm are zero-padded dark channels).
+- **#136** — a PLS node validates clean, the run reports `succeeded` and `"Done"`, and the node is
+  left `not_run`, which is the same state it has before it has ever been run. A screen cannot tell
+  "not yet" from "never will be". `Run.pending_estimators` names it and never reaches `api.py`.
+- **#135** — a numeric id column is imported as a target and the sample ids are dropped, so
+  `sample_id` is selectable as a PLS response and every trace falls back to `"row N"`. The reader is
+  obeying its documented rule, so the rule is what needs deciding. Sharper half: `/import/preview`
+  reports ids that `/import` does not keep — two answers to one question.
+- **#137** — `data/tecator/README.md` is byte-identical to gasoline's.
+
+**#134 is fixed and merged as #140**, and it was one bug with two symptoms rather than one. The
+filed half was the spectra 500. The half found on picking it up was worse: `results_payload` built
+`loadings.axis` from `version.axis` unconditionally and **never raised**, so a PCA under a
+500-1000 nm selection served 167 loadings beside a 306-value axis. `frontend/src/plot/analysis.ts:55`
+hands that axis to Plotly as `x` against the components as `y`, and Plotly truncates to the shorter
+array — so the loadings were drawn against 285-783 nm instead of 501-999 nm, every peak displaced by
+about 216 nm. **A wrong plot does not announce itself the way a blank one does**, which is the
+general lesson: when one payload refuses a mismatch loudly, check whether its sibling serves the
+same mismatch quietly.
+
+**#136 is fixed and merged as #141**, and where it went is the part worth keeping. It is *not* in
+`checks.py`: that module's docstring draws its own line — every warning there catches a mistake
+whose symptom is a plausible result, with a document behind it — and a node the build cannot fit is
+neither. The recipe is right and the application is short a kernel, so filing it there would blame
+the user for #142. It is built in `validation_payload` instead: two sources, one list, told apart by
+`code` and by `severity` (`info` rather than `warning`). **`executor.has_kernel(spec)` is now the
+one place that knows what can be fitted**, asked by the executor's routing and by the warning, so
+#142 adds to one tuple rather than to two files that have to be remembered together.
+
+The issue's better half was left, deliberately: `pipelines/{id}/state` telling *not yet* from *never
+will be* needs `NodeState` in `frontend/src/canvas/graph.ts:12` widened, a `NodeCard` case and a
+visual treatment with no artboard behind it — and #142 makes it moot. `PipelineCanvas.tsx:190`
+already renders `problems` when `valid` is false, so the sentence reaches the canvas for free.
+
+**Two design questions that looked like blockers were already answered in the repository.** #148 was
+held up on "there is no artboard for a regression result" — and `AnalysisResults.tsx`'s docstring
+calls its grid "the layout Phase 2's predicted-vs-measured panel drops into rather than one that has
+to be torn up", with the second row carrying the slot in a literal comment. Phase 1.1 designed for
+it. Before treating a design gap as a blocker, read what the screen says about itself.
+
+**Three things about the frontend suite, learned the slow way.** Playwright serves `frontend/dist`,
+a **built** bundle, so an app-source change needs `npm run build` before the e2e suite sees it — a
+run that passes without it proves nothing about the change. `getByText` is a strict-mode violation
+on any word a screen repeats, and "RMSECV" appears four times on the analysis tab, so `Panel` now
+names its `<section>` with `aria-label` and panels are addressed by role and name. And a new
+estimator kind needs a case in the sidebar's label switch or it renders its own node id.
+
+**#142 landed, and the lesson is about the issue rather than the code.** It was filed as "a
+decision about what a PLS result carries". It largely was not: `metrics-and-validation.md` §11
+already names every metric and whether it is a `Metrics` field or an `extra` key, `Metrics` already
+had them, §9 prescribes the `rmsecv_a<A>` key format, and `pls-regression.md` §13 lists the reported
+quantities. **Reading the documents was most of the work**, and almost nothing was invented. Worth
+remembering before framing the next feature as an open design question — this repository has
+specifications, and they are usually ahead of the code.
+
+The one call the documents left open, now asserted in a test: **the model is fold zero's and the
+cross-validated numbers are every fold's.** §13's quantities belong to one fitted model; RMSECV is a
+property of the split, which is why §7 pools residuals. Two smaller ones: the response is centred by
+the estimator rather than by a node, because `y` is not on the canvas; and §11's "a metric that could
+not be computed is absent" is followed literally, so RMSECV and Q² are missing above a split and SEC
+is missing when `n − A − 1 ≤ 0`.
+
+**The strongest evidence available was free.** The executor's RMSECV curve came back identical to a
+standalone script written hours earlier, before any of the executor code existed, and that script's
+R²cv is the executor's Q². When a feature reimplements something already scripted by hand, compare
+the two rather than only asserting the new one is plausible.
+
+**A stale issue reference outlived its reason by nine days, and nothing noticed.** `executor.py`
+said PLS was not fitted "because what a PLS result carries … is #88's subject". #88 closed on
+2026-08-27 as #105 — it *was* the metrics gap, and SEC, SEP, Q² and `coefficients_original_units`
+have existed ever since. `session-handoff.md` and `feature_list.json` both inherited the claim, and
+it was repeated into two pull request bodies on 2026-09-05 before being caught. **The reason it
+survived is that no issue tracked the work it deferred to** — a pointer to a closed issue is not a
+plan, and nothing was watching the pointer. That work is #142 now. When a comment defers to an
+issue, the deferral needs its own issue, or the comment becomes the only record and rots quietly.
+
+**Worth not rediscovering:** the executor holds no per-node axis, deliberately and for a good reason
+(`executor.py:5-8` — a second thing beside the arrays would have to stay consistent with them).
+`node_axis(pipeline, node_id, version)` in `api.py` is where a node's real axis comes from now, and
+it stays a pure function of the recipe for exactly that reason: it reads no array and cannot move a
+content hash. **Any future step that changes the variable count has to be added there**, and both
+payloads' refusal messages say so by name.
+
+**A fifth thing, found while writing that up and fixed in #139.** `clean-state-checklist.md` check 3
+said to pass "when it prints `feature_list.json consistent`", and nothing in the repository printed
+it — no script, no test, no directory for one. The check whose stated purpose is catching a
+`passing` with nothing behind it had been passing by being read. `uv run python -m
+tests.check_feature_list` is that command now; it checks the mechanical half and the checklist says
+so, because whether an `evidence` string records a real run or a description of one is a person
+reading it. Its own test shows each rule failing rather than only that the current list passes —
+a checker that cannot fail is the same failure one level up, which is what this was.
+
+**And a method note worth repeating.** Waiting on CI with a polling loop that counts unfinished
+checks will report success the moment the API answers with something it cannot parse — an
+unauthenticated request returning no `check_runs` counts as zero remaining. Treat an unparseable or
+empty response as *keep waiting*, never as *done*.
 
 ## What Phase 1.3 settled
 
@@ -171,6 +322,10 @@ Both found because a check was made stricter. This is the argument for `retries:
 
 ## Waiting on the user
 
+- **#135 — what a leading numeric id column is.** Three readings: an identifier whatever its type;
+  a column role added to the reader's `Choice` set so `corrections` can overrule it; or both. The
+  second matches how the reader already treats every other guess. A rule decision, not a coding one,
+  and the branch is not worth cutting before it is made.
 - **#71 — what a non-positive `h0` should do** in the Jackson–Mudholkar SPE limit. Gasoline's `h0` is −0.0190; our kernel uses it as computed, `mdatools` clamps it to 0.001. The divergence is recorded and proven; what the kernel *should* do is a specification decision, not a coding one.
 - **GitHub default branch is still `main`.** Any pull request opened without an explicit base targets the release line. Change it under Settings → Branches; it cannot be changed from here with the current tools. Every feature pull request must set `dev` as its base explicitly.
 - **Parity against a commercial package** — `PROPOSAL.md` §19 Q4 is unresolved. The EULA is not public; a licence would have to be confirmed and written permission sought before publishing a comparison.
@@ -232,7 +387,7 @@ From #87 (the estimators), which #86 and #90 draw on:
 - **`validation` is an additive payload key**, so every array the 1.1 screen reads keeps the length the fixture has. A screen that ignores it renders exactly what it rendered before.
 - **`pca_d` is the second casualty of #97** — 3.8e-05 on explained variance, 1.8e-01 on T². Regenerating the fixtures means regenerating `spectra.json` **and** `pca.json`.
 - **The reported rank was one too high for any centred matrix** — #101, now fixed. A centred array read back as float32 has columns that no longer sum to zero, and the SVD finds a hundredth singular value. Only the displayed integer moved; the limits move in the ninth decimal.
-- **PLS and PLS-DA have no kernel in the executor** and are reported in `Run.pending_estimators`. What a PLS result carries is #88's subject.
+- **PLS and PLS-DA are not fitted by the executor** and are reported in `Run.pending_estimators`. This said "what a PLS result carries is #88's subject" until 2026-09-05, and #88 had closed on 2026-08-27. **The kernel and its metrics exist**; what is missing is the executor branch and the result shape, which is #142.
 
 From #81 (the import endpoints), which #89 finished:
 

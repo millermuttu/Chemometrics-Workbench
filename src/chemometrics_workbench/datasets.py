@@ -306,9 +306,11 @@ TECATOR_RANGE_NM = (850.0, 1050.0)
 def load_tecator() -> ReferenceDataset:
     """240 meat samples, 100 NIT absorbance channels over 850-1050 nm.
 
-    Committed to this repository under the permission note reproduced in
-    `data/tecator/README.md`. **If you publish a result from this dataset you
-    must name the instrument and company (Tecator).**
+    Committed to this repository under the permission note in `tecator.txt`
+    itself, which is what its terms make redistribution conditional on and is
+    why the file's header must not be trimmed. `data/tecator/README.md` quotes
+    it and records the rest of the terms. **If you publish a result from this
+    dataset you must name the instrument and company (Tecator).**
 
     The wavelength axis is reconstructed as `linspace(850, 1050, 100)`; the
     file itself carries no axis. The 22 principal components the file also

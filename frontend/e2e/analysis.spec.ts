@@ -87,3 +87,47 @@ test("hovering a score names its sample", async ({ page }) => {
   await expect(page.locator(".hovertext")).toBeVisible();
   await expect(page.locator(".hovertext")).toContainText(/C\d{3}|E\d{3}/);
 });
+
+test("a regression tab draws what a decomposition has no counterpart for", async ({ page }) => {
+  await page.goto("/?token=e2e-token");
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /PLS 5 LV/ }).first().dblclick();
+
+  // The shared half renders, because a regression and a decomposition mean the
+  // same thing by scores, loadings and both diagnostics.
+  await expect(page.getByTestId("scores-plot")).toBeVisible();
+  for (const panel of ["Scores", "Loadings", "Explained variance", "Diagnostics"]) {
+    await expect(page.getByRole("region", { name: panel })).toBeVisible();
+  }
+
+  // And the half it does not: the row Phase 1.1 reserved in a comment. By
+  // role and name rather than by text - "RMSECV" is also an axis title, a
+  // metric row and a header figure on this same screen.
+  for (const panel of ["Predicted vs measured", "RMSECV", "Calibration metrics"]) {
+    await expect(page.getByRole("region", { name: panel })).toBeVisible();
+  }
+  await expect(page.getByTestId("predicted-plot")).toBeVisible();
+  await expect(page.getByTestId("rmsecv-plot")).toBeVisible();
+
+  // The header says what the model is and leads with the two numbers that say
+  // whether it generalises, rather than PC1 and cumulative variance.
+  const header = page.getByTestId("analysis-header");
+  await expect(header).toContainText("PLS on fat 5 components · 216 × 100");
+  await expect(header).toContainText("RMSECV");
+  await expect(header).toContainText("Q²");
+
+  // A metric the payload carries is a number; one it omits is an em dash, per
+  // metrics-and-validation.md section 11. This node is below a split, so
+  // RMSECV is present - and nothing here is ever rendered as 0.0000.
+  await expect(page.getByTestId("metric-RMSECV")).not.toHaveText("—");
+  await expect(page.getByTestId("metric-Q²")).not.toHaveText("—");
+});
+
+test("a decomposition tab is unchanged, and shows none of the regression panels", async ({
+  page,
+}) => {
+  await openResults(page);
+  for (const panel of ["Predicted vs measured", "RMSECV", "Calibration metrics"]) {
+    await expect(page.getByRole("region", { name: panel })).toHaveCount(0);
+  }
+});
