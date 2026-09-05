@@ -28,17 +28,19 @@ The live list is Phase 2's, seven entries, and it now has an exit criterion — 
 | 0 | The checklist's third check has a command | #138 | passing |
 | 1 | A branch is dragged on the canvas, and a node can be removed | #51 | passing |
 | 1 | A pipeline says which estimator nodes will not be fitted | #136 | passing |
+| 2 | The executor fits PLS, and a PLS result has a shape | #142 | passing |
 | 2 | Duplicate a subgraph, and compare two terminal nodes in one tab | #51 | not started |
 | 3 | A numeric id column is not imported as a target | #135 | not started |
+| 3 | Coefficients readable against the raw axis | #144 | not started |
 | 4 | `data/tecator/README.md` records tecator's terms | #137 | not started |
 
 ## Current work
 
 **Nothing is `in_progress`.** The tree is clean, no branches remain and no pull requests are open.
-`main` is tagged `v0.4.0`; `dev` is **fourteen commits ahead of it** — bookkeeping (`4a0d79e` the
-release, `b82b636` what the end-to-end run found, `79c9097` and `719c430` these notes) and four
-merges on 2026-09-05: #139 closing #138, #140 closing #134, #141 closing #136, and #143, the
-correction that made #142 findable. Nothing to merge into `main` until Phase 2 ends. Merged on 2026-08-29 and 30: #125 (#119), #126 (#120), #127 (#121),
+`main` is tagged `v0.4.0`; `dev` is **seventeen commits ahead of it** — bookkeeping and five merges
+on 2026-09-05: #139 closing #138, #140 closing #134, #141 closing #136, #143 (the correction that
+made #142 findable) and **#145 closing #142, which put PLS in the executor**. Nothing to merge into
+`main` until Phase 2 ends. Merged on 2026-08-29 and 30: #125 (#119), #126 (#120), #127 (#121),
 #128 (#122), #129 (#123), #130 (#124), #132 (#131 — the checkpoint cleanup), and #133, the phase
 into `main`.
 
@@ -56,19 +58,25 @@ things to remove.
 
 ## Next action
 
-**#142 — the executor fits PLS.** It is the critical path to this list's own exit criterion, it
-unblocks #51's second half, and it makes #136 redundant as that issue predicted. It is not a kernel
-problem: the kernel exists and is parity-covered. It is a decision about what a regression's
-`EstimatorResult` holds, because that dataclass is shaped for a decomposition — scores, loadings,
-eigenvalues, T², SPE — and a regression carries a different set. PLS-DA is deliberately out of its
-scope. Read the issue before cutting the branch; the shape is the work.
+**The exit criterion is now reachable, and mostly demonstrated.** Every clause of it ran over HTTP
+on 2026-09-05 — a real NIR dataset imported, preprocessed, split, fitted with PLS, cross-validated
+and read back, without leaving the application. What is missing for the *claim* is the last part:
+agreement with reference software inside the tolerances `docs/parity-report.md` publishes, recorded
+as evidence, and a screen to read a regression on.
 
-**Then the rest of #51** (priority 2): duplicating a subgraph, and a comparison tab for two terminal
-nodes. The tab still has no artboard, and after #142 it finally has something to compare.
+**The screen is the honest next thing, and it is still unfiled** — deliberately, because #142 had to
+settle the payload shape first. It has. `results/{node}` now serves a `regression` key (target,
+observed, predicted, coefficients, VIP, y-loadings, y-variance), a flat `metrics` table and a
+`rmsecv_curve`, and `validation` carries the held-out observed and predicted. `DESIGN_BRIEF.md` §5
+is the reference and there is no artboard for a regression result, so that gap is the first
+question rather than a detail.
 
-**#135** (priority 3) is waiting on a rule decision, below. **#137** (priority 4) is a documentation
-correction and can go any time. Either is a reasonable thing to take first if #142's shape needs
-thinking about.
+**Then the rest of #51** (priority 2): duplicating a subgraph, and a comparison tab. It finally has
+something to compare.
+
+**#135** (priority 3) is waiting on a rule decision, below. **#144** (priority 3) needs a decision
+too — three options in the issue, none obviously right. **#137** (priority 4) is a documentation
+correction and can go any time.
 
 **Everything the end-to-end run found is now closed** — #134 as #140 and #136 as #141 — except
 those two.
@@ -137,6 +145,26 @@ The issue's better half was left, deliberately: `pipelines/{id}/state` telling *
 will be* needs `NodeState` in `frontend/src/canvas/graph.ts:12` widened, a `NodeCard` case and a
 visual treatment with no artboard behind it — and #142 makes it moot. `PipelineCanvas.tsx:190`
 already renders `problems` when `valid` is false, so the sentence reaches the canvas for free.
+
+**#142 landed, and the lesson is about the issue rather than the code.** It was filed as "a
+decision about what a PLS result carries". It largely was not: `metrics-and-validation.md` §11
+already names every metric and whether it is a `Metrics` field or an `extra` key, `Metrics` already
+had them, §9 prescribes the `rmsecv_a<A>` key format, and `pls-regression.md` §13 lists the reported
+quantities. **Reading the documents was most of the work**, and almost nothing was invented. Worth
+remembering before framing the next feature as an open design question — this repository has
+specifications, and they are usually ahead of the code.
+
+The one call the documents left open, now asserted in a test: **the model is fold zero's and the
+cross-validated numbers are every fold's.** §13's quantities belong to one fitted model; RMSECV is a
+property of the split, which is why §7 pools residuals. Two smaller ones: the response is centred by
+the estimator rather than by a node, because `y` is not on the canvas; and §11's "a metric that could
+not be computed is absent" is followed literally, so RMSECV and Q² are missing above a split and SEC
+is missing when `n − A − 1 ≤ 0`.
+
+**The strongest evidence available was free.** The executor's RMSECV curve came back identical to a
+standalone script written hours earlier, before any of the executor code existed, and that script's
+R²cv is the executor's Q². When a feature reimplements something already scripted by hand, compare
+the two rather than only asserting the new one is plausible.
 
 **A stale issue reference outlived its reason by nine days, and nothing noticed.** `executor.py`
 said PLS was not fitted "because what a PLS result carries … is #88's subject". #88 closed on
