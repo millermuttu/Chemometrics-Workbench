@@ -8,28 +8,31 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 ## Where things stand
 
-**Phase 1 is complete and released** — `v0.1.0`, `v0.2.0`, `v0.3.0`, `v0.4.0`, the last merged into
-`main` and tagged on 2026-08-30 (`2277b5b`).
+**Phase 1 is complete and released.** `main` is tagged `v0.5.0` (`015f9ec`, 2026-09-05) — a mid-phase
+snapshot, not a phase close; the tag's own message says so.
 
-**Every entry on the live Phase 2 list is `passing`, and one issue is open.** The list is thirteen
-entries; the thirteen are done. That is not the same as the phase being finished — see *Next
-action*.
+**The pipeline canvas is editable.** #164's four issues are merged and it is closed. A node is
+dragged and stays where it is put, a finished node reads green, a step is added onto the node its
+connector was dragged from, and connect, delete, duplicate and compare were already there from #51.
 
 | Priority | Feature | Issue | Status |
 | --- | --- | --- | --- |
 | 0 | A node under a range selection can be plotted | #134 | passing |
 | 0 | Each model-to-row mapping is written once | #131 | passing |
 | 0 | The checklist's third check has a command | #138 | passing |
+| 0 | Applying a parameter saves it and recomputes on one press | #157 | passing |
 | 1 | A branch is dragged on the canvas, and a node removed | #51 | passing |
 | 1 | A pipeline says which estimator nodes will not be fitted | #136 | passing |
 | 1 | The seeded demo walks the exit criterion | #146 | passing |
 | 1 | The analysis screen draws a regression | #148 | passing |
+| 1 | A finished node reads green | #161 | passing |
+| 1 | A node is dragged, and stays where it is put | #162 | passing |
+| 1 | A step is added onto the node it was dragged from | #163 | passing |
 | 2 | The executor fits PLS, and a PLS result has a shape | #142 | passing |
 | 2 | Duplicate a subgraph, compare two terminal nodes | #51 | passing |
 | 3 | Coefficients readable against the raw axis | #144 | passing |
 | 3 | A numeric id column is not imported as a target | #135 | passing |
 | 4 | `data/tecator/README.md` records tecator's terms | #137 | passing |
-| 0 | Applying a parameter saves it and recomputes on one press | #157 | passing |
 
 ## Current work
 
@@ -37,85 +40,87 @@ action*.
 repository root, written by hand while looking for something importable. No branch remains and no
 pull request is open.
 
-**`main` is tagged `v0.5.0`** (`015f9ec`, 2026-09-05), which is a mid-phase snapshot rather than a
-phase close — the tag's own message says so. Merged on 2026-09-05: #139 (#138), #140 (#134),
-#141 (#136), #143, #145 (#142), #147 (#146), #149 (#148), #150 (#137), #151 (#135), #152 (#144),
-#153 (#51), #154 (the release), #156 (#155), #158 and #159 (both #157).
+**Two issues are open.** #71 (the Jackson-Mudholkar `h0`, a specification decision waiting since
+Phase 0) and #168 (a macOS flake, below).
 
-**The application has a way in.** `./run.sh` syncs, builds the bundle if there is not one, and
-serves; it prints `http://127.0.0.1:<port>/?token=<token>`, and `--build` forces the rebuild that a
-changed `frontend/src` needs. The README says the real status and carries both that path and the
-two-process Vite one. Before #156 it opened by saying the application does not run, which had been
-false since `v0.2.0`.
+**`./run.sh` is the way in.** It syncs, installs with **pnpm** — this project has no
+`package-lock.json` and `npm ci` refuses it — builds the bundle if there is not one, and serves,
+printing `http://127.0.0.1:<port>/?token=<token>`. `--build` forces the rebuild a changed
+`frontend/src` needs.
 
-**Nothing openly licensed is importable without a step.** Tecator is committed but carries a prose
-header; corn and gasoline are archives in `~/.cache`. `uv run python tests/seed_e2e.py --fresh
---serve <dir>` is the way in: it seeds Tecator, a four-branch pipeline and every node run, then
-serves it.
+**Nothing openly licensed imports without a step.** Tecator is committed but carries a prose header;
+corn and gasoline are archives in `~/.cache`. `uv run python tests/seed_e2e.py --fresh --serve <dir>`
+is the way in: it seeds Tecator, a four-branch pipeline and every node run, then serves it.
 
-**The demo runs the whole path.** Import, preprocess, split, fit PLS, cross-validate, read the
-result — on the seeded Tecator project, walked by CI on three platforms. Opening `PLS 5 LV · fat`
-gives scores with a T² ellipse, loadings, explained variance, diagnostics, predicted versus
-measured, the RMSECV curve and the calibration metrics. Terminal nodes can be picked in pairs and
-compared, and a branch can be duplicated and edited rather than rebuilt.
+## The lesson from #162, which shipped green and did not work
 
-## What a user found by using the editor (#157)
+Worth reading before trusting any test that asserts a change rather than a value.
 
-The first bug on this list found by using the application rather than reading it, and the shape of
-it is worth keeping.
+`read_layout` took the **first** layout row in the project rather than the current pipeline's, and a
+seeded project holds two — one written by `start_pipeline` at creation, one by the canvas. Every
+position the canvas wrote was read off the wrong graph and replaced by a generated one. The drag did
+nothing.
 
-**Changing a Savitzky-Golay window and pressing Apply did nothing.** The node went
-`stale · edited - downstream stale`, and re-running produced the same curve however many times it
-was pressed. Two bugs, and the staleness was not one of them:
+Its e2e test asserted the stored position was **not** the pre-drag value:
 
-- **`Apply` never sent the edit.** `ParameterForm.apply()` POSTed to `/steps/validate` — which only
-  validates — and then marked the node stale in the react-query cache. `PUT /pipelines/current` was
-  never called from the inspector at all, so the run that followed read the old number off disk.
-- **A finished run never invalidated the plot.** Only `["pipeline-state"]` was invalidated on a job;
-  the open tab reads `["spectra", nodeId]` / `["results", nodeId]`, both `staleTime: Infinity`.
+```ts
+.not.toEqual({ x: 40, y: 170 })
+```
 
-**The backend did exactly what its docstrings say, throughout.** Driven over HTTP with no frontend:
-`GET /api/spectra/savgol` digest `392e2b37…` at `window_length` 11, `PUT` 200 at 9, state `not_run`,
-run `succeeded`, digest `f0c7544b…`. That comparison is what turned a UI complaint into a one-sided
-diagnosis in a few minutes, and it is the cheapest first move whenever a screen and a kernel
-disagree.
+A generated position satisfies that as well as a stored one, so **the test passed while the feature
+did nothing, and CI was green on all three platforms**. It was caught by driving the real
+application by hand after the merge.
 
-**Then the two-press flow went too** (#159, at the reporter's request). Apply saves *and* runs; the
-button reads **"Apply and re-run"**; the banner, its Re-run button and the client-side stale marking
-are deleted. Only the edited node and its descendants recompute, so the press being saved bought a
-saving nobody asked for. `NodeState` still carries `stale` and the canvas still renders it — the
-fixtures use it — but nothing writes it any more.
+- *"It changed"* is not the claim *"it is what I set it to"*. Wherever a fallback exists, the two
+  come apart silently.
+- The replacement test was confirmed to **fail against the unfixed backend** before being trusted.
+  A regression test nobody has seen fail is a test nobody has tested.
+- The `feature_list.json` entry for #162 carries a correction rather than a rewrite: it is the
+  record of what was verified, and it was wrong.
 
-**Three traps, all of which cost real time:**
+## Three canvas traps, all of which cost time
 
 - **A node's label is built from its parameters.** Editing `SG d1 w11` to a window of 9 renames it
-  `SG d1 w9`, and `snv_savgol` — same window, same label — inherits the old name alone. The first
-  regression test reopened the node by the name it used to have, found the *other* node, read 11 off
-  it and failed. Never re-find an edited node by a label derived from what was edited.
-- **An assertion that waits on an unrelated visible thing is an undeclared synchronisation point.**
-  The persistence check waited for the stale banner before reading the pipeline. Removing the banner
-  exposed the read as a race with its own `PUT`, on the first full run. It polls now.
-- **Killing stray processes kills Playwright's own web servers.** A `pkill` during a run failed three
-  tests that had nothing wrong with them, and a leftover server on 8765 later made a whole run exit
-  before its first test. `fuser -k -n tcp 8765 8766 8767 8768` first, and never mid-run.
+  `SG d1 w9`, and `snv_savgol` — same window, same label — inherits the old name alone. Re-finding an
+  edited node by the name it used to have finds a *different* node and reads a plausible wrong value
+  off it.
+- **Making nodes draggable breaks two things silently.** A drag ends with a click on the node it
+  moved, which opens its tab — so no node can be moved without being opened, unless the drag consumes
+  that click. And any header button becomes a drag handle without React Flow's `nodrag` class.
+- **`fitView` re-fits the viewport on every mount**, so comparing a node's screen box either side of
+  a reload compares two zoom levels and fails on a change that did not happen.
+
+## Also worth not rediscovering
+
+- **This project uses pnpm.** `run.sh` said `npm ci` until #160 and failed on any clean checkout;
+  the verification missed it because `frontend/dist` already existed, so the broken branch never ran.
+  **Delete the artefact before verifying the code that builds it.**
+- **A stray `pkill` takes Playwright's own web servers with it**, failing tests that had nothing
+  wrong with them. `fuser -k -n tcp 8765 8766 8767 8768` before a run, never during one.
+- **#168: `shell.spec.ts:43` is flaky on macOS**, in two different ways. It failed the same way on
+  `dev` from a merge touching only `run.sh` and two markdown files, so it is the test, not the code.
+  It opens every outline button as a tab inside one 30 s budget.
 
 ## Next action
 
-**Write the five missing entries.** §16 names **PLS-DA, VIP scores, contribution plots, a train/test
-splitting UI and the Bruker OPUS reader**. None has a `feature_list.json` entry. Thirteen green
-entries means the list is finished, not the phase, and writing those five is the first job.
+**Write the five missing entries.** `PROPOSAL.md` §16 names **PLS-DA, VIP scores, contribution
+plots, a train/test splitting UI and the Bruker OPUS reader**. None has a `feature_list.json` entry.
+Sixteen green entries means the list is finished, not the phase.
+
+Note the coupling: the canvas menu deliberately omits PLS-DA and the train/test splitter because the
+executor cannot run them (`executor.py` `_FITTED`, and only `kfold`/`loo` execute). Those two §16
+features are what would let the menu offer them.
 
 **Two decisions, neither of them coding.**
 
 **1. Is the exit criterion met?** §16 asks that the workflow "match reference software within stated
-tolerance". PLS is parity-covered at kernel level in `docs/parity-report.md`, and the workflow now
-runs end to end in the application. Whether that combination *is* the criterion, or whether it wants
-its own recorded comparison as evidence, has not been decided. Nothing is blocked on it; the phase's
-close is.
+tolerance". PLS is parity-covered at kernel level in `docs/parity-report.md`, and the workflow runs
+end to end. Whether that combination *is* the criterion has not been decided. Nothing is blocked on
+it; the phase's close is.
 
-**2. #71 — what a non-positive `h0` should do** in the Jackson–Mudholkar SPE limit. Gasoline's `h0`
-is −0.0190; this kernel uses it as computed, `mdatools` clamps it to 0.001. The divergence is
-recorded and proven. It is a specification decision and has been waiting since Phase 0.
+**2. #71 — what a non-positive `h0` should do** in the Jackson-Mudholkar SPE limit. Gasoline's `h0`
+is −0.0190; this kernel uses it as computed, `mdatools` clamps it to 0.001. Recorded and proven, and
+waiting since Phase 0.
 
 ## What an end-to-end run against a public dataset found
 
