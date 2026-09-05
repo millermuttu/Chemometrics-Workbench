@@ -95,6 +95,7 @@ from chemometrics_workbench.decomposition import PCA
 from chemometrics_workbench.models import (
     DatasetVersion,
     Environment,
+    EstimatorSpec,
     Experiment,
     ExperimentStatus,
     KFoldSplit,
@@ -128,6 +129,7 @@ __all__ = [
     "capture_environment",
     "execute",
     "experiment_for",
+    "has_kernel",
     "node_keys",
     "node_label",
     "result_path",
@@ -135,6 +137,23 @@ __all__ = [
     "stored_display",
     "stored_result",
 ]
+
+
+def has_kernel(spec: EstimatorSpec) -> bool:
+    """Whether this build can actually fit that estimator.
+
+    **The one place that knows.** The routing below and `checks.py`'s warning
+    both ask here, so #88 adds `PLSRegressionSpec` to the tuple once rather
+    than in two files that have to be remembered together — which is the shape
+    #131 was about.
+    """
+    return isinstance(spec, _FITTED)
+
+
+#: What `_estimator` can fit. `PLSRegressionSpec` and `PLSDASpec` are absent,
+#: which is #88.
+_FITTED: tuple[type, ...] = (PCASpec,)
+
 
 RESULTS_DIR = "results"
 
@@ -368,7 +387,7 @@ def execute(
     for node in ordered:
         check_cancelled()
         if node.type == "estimator":
-            if not isinstance(node.spec, PCASpec):
+            if not has_kernel(node.spec):
                 pending.append(node.id)
                 announce(node)
                 continue

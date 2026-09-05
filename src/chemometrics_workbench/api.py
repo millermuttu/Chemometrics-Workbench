@@ -89,8 +89,8 @@ from numpy.typing import NDArray
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from chemometrics_workbench import preprocessing, readers
-from chemometrics_workbench.checks import check_pipeline
-from chemometrics_workbench.executor import EstimatorResult, stored
+from chemometrics_workbench.checks import PipelineWarning, check_pipeline
+from chemometrics_workbench.executor import EstimatorResult, has_kernel, stored
 from chemometrics_workbench.executor import stored_display as _stored_display
 from chemometrics_workbench.executor import stored_result as _stored_result
 from chemometrics_workbench.jobs import Job, Jobs, submit_run
@@ -123,6 +123,7 @@ from chemometrics_workbench.project import (
 )
 
 __all__ = [
+    "ESTIMATOR_NOT_FITTED",
     "MAX_POINTS",
     "MAX_TRACES",
     "MAX_UPLOAD_BYTES",
@@ -511,6 +512,44 @@ def _samples(rows: list[int], version: DatasetVersion) -> list[dict[str, Any]]:
 # --- Validation -----------------------------------------------------------
 
 
+#: A node this build cannot fit. Not a `checks.py` code, because that module
+#: catches mistakes whose symptom is a plausible result and this is not one:
+#: the recipe is right and the application is short. #136.
+ESTIMATOR_NOT_FITTED = "estimator_not_fitted"
+
+
+def _not_fitted(pipeline: Pipeline) -> list[PipelineWarning]:
+    """The estimator nodes a run will skip, said before the run rather than after.
+
+    **Deliberately not in `checks.py`.** That module's contract is written at
+    the top of it — every warning there catches a mistake whose symptom is a
+    plausible result, and has a document behind it saying what the consequence
+    is. This is neither. Nothing is wrong with the recipe; the build has no
+    kernel for part of it, which is a fact about the application. Filing it
+    under "what is wrong with your pipeline" would blame the user for #88.
+
+    What made this worth saying at all: a PLS node validated clean, the run
+    reported `succeeded` and `"Done"`, and the node was left `not_run` — which
+    is the same state it has before it has ever been run. Nothing anywhere
+    distinguished "not yet" from "never will be", though `Run.pending_estimators`
+    had named it the whole time.
+    """
+    return [
+        PipelineWarning(
+            code=ESTIMATOR_NOT_FITTED,
+            node_id=node.id,
+            message=(
+                f"{node.spec.kind!r} at {node.id!r} has no kernel in this build and will not "
+                "be fitted. The run will report success and this node will stay unrun; every "
+                "other node is unaffected."
+            ),
+            severity="info",
+        )
+        for node in pipeline.nodes
+        if node.type == "estimator" and not has_kernel(node.spec)
+    ]
+
+
 def validation_payload(pipeline: Pipeline) -> dict[str, Any]:
     """What `pipelines/{id}/validate` answers, computed rather than constant.
 
@@ -525,7 +564,10 @@ def validation_payload(pipeline: Pipeline) -> dict[str, Any]:
     reporting `valid: true` while holding a warning would mean the screen said
     "valid" and dropped the sentence.
     """
-    warnings = check_pipeline(pipeline)
+    # Two sources, one list: what is wrong with the recipe (`checks.py`) and
+    # what this build cannot run (#136). A screen tells them apart by `code`
+    # and by `severity`, which is why both are on the wire.
+    warnings = [*check_pipeline(pipeline), *_not_fitted(pipeline)]
     return {
         "pipeline_id": str(pipeline.pipeline_id),
         "valid": not warnings,
