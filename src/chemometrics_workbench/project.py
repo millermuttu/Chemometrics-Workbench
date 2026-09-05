@@ -567,10 +567,20 @@ def read_layout(directory: str | os.PathLike[str]) -> dict[NodeId, dict[str, flo
     `design/data-model.md` says so and #83's keys depend on it. A separate
     table rather than a column on `pipeline` is the same argument in schema
     form - writing a position touches a different row than the recipe.
+
+    **Keyed on the pipeline, not `.first()`.** A project can hold more than one
+    row here - `start_pipeline` writes one when the project is created, and the
+    canvas writes another against whichever pipeline is current. Taking the
+    first row returned every position the canvas wrote to the wrong graph and
+    generated one for the right one, which is #170: the write succeeded, the
+    read looked past it, and a dragged node came back where it started.
     """
     path = Path(directory)
+    pipeline = read_pipeline(path)
+    if pipeline is None:
+        return {}
     with _session(path) as session:
-        row = session.scalars(select(db.PipelineLayoutRow)).first()
+        row = session.get(db.PipelineLayoutRow, str(pipeline.pipeline_id))
         document = json.loads(row.document) if row is not None else None
     if not isinstance(document, dict):
         return {}
