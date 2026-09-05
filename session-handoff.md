@@ -25,6 +25,7 @@ The live list is Phase 2's, seven entries, and it now has an exit criterion — 
 | --- | --- | --- | --- |
 | 0 | A node under a range selection can be plotted | #134 | not started |
 | 0 | Each model-to-row mapping is written once | #131 | passing |
+| 0 | The checklist's third check has a command | #138 | passing |
 | 1 | A branch is dragged on the canvas, and a node can be removed | #51 | passing |
 | 1 | A pipeline says which estimator nodes will not be fitted | #136 | not started |
 | 2 | Duplicate a subgraph, and compare two terminal nodes in one tab | #51 | not started |
@@ -34,9 +35,9 @@ The live list is Phase 2's, seven entries, and it now has an exit criterion — 
 ## Current work
 
 **Nothing is `in_progress`.** The tree is clean, no branches remain and no pull requests are open.
-`main` is tagged `v0.4.0`; `dev` is **two commits ahead of it**, both bookkeeping — `4a0d79e`
-recording the release, and `b82b636` recording what the end-to-end run found. Nothing to merge into
-`main` until Phase 2 ends. Merged on 2026-08-29 and 30: #125 (#119), #126 (#120), #127 (#121),
+`main` is tagged `v0.4.0`; `dev` is **five commits ahead of it** — four bookkeeping (`4a0d79e` the
+release, `b82b636` what the end-to-end run found, `79c9097` this note) and #139, merged 2026-09-05,
+which closed #138. Nothing to merge into `main` until Phase 2 ends. Merged on 2026-08-29 and 30: #125 (#119), #126 (#120), #127 (#121),
 #128 (#122), #129 (#123), #130 (#124), #132 (#131 — the checkpoint cleanup), and #133, the phase
 into `main`.
 
@@ -113,6 +114,20 @@ the parity fixtures cannot give, because they are generated from the same NumPy.
 **Worth not rediscovering:** the executor holds no per-node axis, deliberately and for a good reason
 (`executor.py:5-8` — a second thing beside the arrays would have to stay consistent with them).
 Anything that needs a node's real axis should derive it from the recipe rather than store it.
+
+**A fifth thing, found while writing that up and fixed in #139.** `clean-state-checklist.md` check 3
+said to pass "when it prints `feature_list.json consistent`", and nothing in the repository printed
+it — no script, no test, no directory for one. The check whose stated purpose is catching a
+`passing` with nothing behind it had been passing by being read. `uv run python -m
+tests.check_feature_list` is that command now; it checks the mechanical half and the checklist says
+so, because whether an `evidence` string records a real run or a description of one is a person
+reading it. Its own test shows each rule failing rather than only that the current list passes —
+a checker that cannot fail is the same failure one level up, which is what this was.
+
+**And a method note worth repeating.** Waiting on CI with a polling loop that counts unfinished
+checks will report success the moment the API answers with something it cannot parse — an
+unauthenticated request returning no `check_runs` counts as zero remaining. Treat an unparseable or
+empty response as *keep waiting*, never as *done*.
 
 ## What Phase 1.3 settled
 
