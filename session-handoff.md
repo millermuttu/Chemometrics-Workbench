@@ -11,8 +11,9 @@ Compact state for the next session. **Overwrite this file at the end of every se
 **Phase 1 is complete and released** — `v0.1.0`, `v0.2.0`, `v0.3.0`, `v0.4.0`, the last merged into
 `main` and tagged on 2026-08-30 (`2277b5b`).
 
-**Every entry on the live Phase 2 list is `passing`, and one issue is open.** The list is twelve
-entries; the twelve are done. That is not the same as the phase being finished — see *Next action*.
+**Every entry on the live Phase 2 list is `passing`, and one issue is open.** The list is thirteen
+entries; the thirteen are done. That is not the same as the phase being finished — see *Next
+action*.
 
 | Priority | Feature | Issue | Status |
 | --- | --- | --- | --- |
@@ -28,14 +29,29 @@ entries; the twelve are done. That is not the same as the phase being finished �
 | 3 | Coefficients readable against the raw axis | #144 | passing |
 | 3 | A numeric id column is not imported as a target | #135 | passing |
 | 4 | `data/tecator/README.md` records tecator's terms | #137 | passing |
+| 0 | Applying a parameter saves it and recomputes on one press | #157 | passing |
 
 ## Current work
 
-**Nothing is `in_progress`.** The tree is clean, no branches remain and no pull requests are open.
-`main` is tagged `v0.4.0`; `dev` is **thirty-one commits ahead of it** — nothing merges to `main`
-until the phase closes. Merged on 2026-09-05: #139 (#138), #140 (#134), #141 (#136), #143 the
-stale-reference correction, #145 (#142), #147 (#146), #149 (#148), #150 (#137), #151 (#135),
-#152 (#144) and #153 (#51).
+**Nothing is `in_progress`.** The tree is clean apart from an untracked `tecator.csv` at the
+repository root, written by hand while looking for something importable. No branch remains and no
+pull request is open.
+
+**`main` is tagged `v0.5.0`** (`015f9ec`, 2026-09-05), which is a mid-phase snapshot rather than a
+phase close — the tag's own message says so. Merged on 2026-09-05: #139 (#138), #140 (#134),
+#141 (#136), #143, #145 (#142), #147 (#146), #149 (#148), #150 (#137), #151 (#135), #152 (#144),
+#153 (#51), #154 (the release), #156 (#155), #158 and #159 (both #157).
+
+**The application has a way in.** `./run.sh` syncs, builds the bundle if there is not one, and
+serves; it prints `http://127.0.0.1:<port>/?token=<token>`, and `--build` forces the rebuild that a
+changed `frontend/src` needs. The README says the real status and carries both that path and the
+two-process Vite one. Before #156 it opened by saying the application does not run, which had been
+false since `v0.2.0`.
+
+**Nothing openly licensed is importable without a step.** Tecator is committed but carries a prose
+header; corn and gasoline are archives in `~/.cache`. `uv run python tests/seed_e2e.py --fresh
+--serve <dir>` is the way in: it seeds Tecator, a four-branch pipeline and every node run, then
+serves it.
 
 **The demo runs the whole path.** Import, preprocess, split, fit PLS, cross-validate, read the
 result — on the seeded Tecator project, walked by CI on three platforms. Opening `PLS 5 LV · fat`
@@ -43,9 +59,53 @@ gives scores with a T² ellipse, loadings, explained variance, diagnostics, pred
 measured, the RMSECV curve and the calibration metrics. Terminal nodes can be picked in pairs and
 compared, and a branch can be duplicated and edited rather than rebuilt.
 
+## What a user found by using the editor (#157)
+
+The first bug on this list found by using the application rather than reading it, and the shape of
+it is worth keeping.
+
+**Changing a Savitzky-Golay window and pressing Apply did nothing.** The node went
+`stale · edited - downstream stale`, and re-running produced the same curve however many times it
+was pressed. Two bugs, and the staleness was not one of them:
+
+- **`Apply` never sent the edit.** `ParameterForm.apply()` POSTed to `/steps/validate` — which only
+  validates — and then marked the node stale in the react-query cache. `PUT /pipelines/current` was
+  never called from the inspector at all, so the run that followed read the old number off disk.
+- **A finished run never invalidated the plot.** Only `["pipeline-state"]` was invalidated on a job;
+  the open tab reads `["spectra", nodeId]` / `["results", nodeId]`, both `staleTime: Infinity`.
+
+**The backend did exactly what its docstrings say, throughout.** Driven over HTTP with no frontend:
+`GET /api/spectra/savgol` digest `392e2b37…` at `window_length` 11, `PUT` 200 at 9, state `not_run`,
+run `succeeded`, digest `f0c7544b…`. That comparison is what turned a UI complaint into a one-sided
+diagnosis in a few minutes, and it is the cheapest first move whenever a screen and a kernel
+disagree.
+
+**Then the two-press flow went too** (#159, at the reporter's request). Apply saves *and* runs; the
+button reads **"Apply and re-run"**; the banner, its Re-run button and the client-side stale marking
+are deleted. Only the edited node and its descendants recompute, so the press being saved bought a
+saving nobody asked for. `NodeState` still carries `stale` and the canvas still renders it — the
+fixtures use it — but nothing writes it any more.
+
+**Three traps, all of which cost real time:**
+
+- **A node's label is built from its parameters.** Editing `SG d1 w11` to a window of 9 renames it
+  `SG d1 w9`, and `snv_savgol` — same window, same label — inherits the old name alone. The first
+  regression test reopened the node by the name it used to have, found the *other* node, read 11 off
+  it and failed. Never re-find an edited node by a label derived from what was edited.
+- **An assertion that waits on an unrelated visible thing is an undeclared synchronisation point.**
+  The persistence check waited for the stale banner before reading the pipeline. Removing the banner
+  exposed the read as a race with its own `PUT`, on the first full run. It polls now.
+- **Killing stray processes kills Playwright's own web servers.** A `pkill` during a run failed three
+  tests that had nothing wrong with them, and a leftover server on 8765 later made a whole run exit
+  before its first test. `fuser -k -n tcp 8765 8766 8767 8768` first, and never mid-run.
+
 ## Next action
 
-**Two decisions, neither of them coding, and they are the only things left.**
+**Write the five missing entries.** §16 names **PLS-DA, VIP scores, contribution plots, a train/test
+splitting UI and the Bruker OPUS reader**. None has a `feature_list.json` entry. Thirteen green
+entries means the list is finished, not the phase, and writing those five is the first job.
+
+**Two decisions, neither of them coding.**
 
 **1. Is the exit criterion met?** §16 asks that the workflow "match reference software within stated
 tolerance". PLS is parity-covered at kernel level in `docs/parity-report.md`, and the workflow now
@@ -56,11 +116,6 @@ close is.
 **2. #71 — what a non-positive `h0` should do** in the Jackson–Mudholkar SPE limit. Gasoline's `h0`
 is −0.0190; this kernel uses it as computed, `mdatools` clamps it to 0.001. The divergence is
 recorded and proven. It is a specification decision and has been waiting since Phase 0.
-
-**And the list is not the phase.** §16 also names **PLS-DA, VIP and contribution plots, a train/test
-splitting UI, and the Bruker OPUS reader**. None has an entry. The exit criterion text says so, and
-it stays true: the twelve entries being green means the list is finished, not the phase. Writing
-those five entries is the natural next session's first job.
 
 ## What an end-to-end run against a public dataset found
 
