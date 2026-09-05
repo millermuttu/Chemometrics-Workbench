@@ -27,7 +27,7 @@ The live list is Phase 2's, seven entries, and it now has an exit criterion — 
 | 0 | Each model-to-row mapping is written once | #131 | passing |
 | 0 | The checklist's third check has a command | #138 | passing |
 | 1 | A branch is dragged on the canvas, and a node can be removed | #51 | passing |
-| 1 | A pipeline says which estimator nodes will not be fitted | #136 | not started |
+| 1 | A pipeline says which estimator nodes will not be fitted | #136 | passing |
 | 2 | Duplicate a subgraph, and compare two terminal nodes in one tab | #51 | not started |
 | 3 | A numeric id column is not imported as a target | #135 | not started |
 | 4 | `data/tecator/README.md` records tecator's terms | #137 | not started |
@@ -35,10 +35,10 @@ The live list is Phase 2's, seven entries, and it now has an exit criterion — 
 ## Current work
 
 **Nothing is `in_progress`.** The tree is clean, no branches remain and no pull requests are open.
-`main` is tagged `v0.4.0`; `dev` is **seven commits ahead of it** — three bookkeeping (`4a0d79e`
-the release, `b82b636` what the end-to-end run found, `79c9097` this note) and two merges on
-2026-09-05: #139 closing #138, and #140 closing #134. Nothing to merge into `main` until Phase 2
-ends. Merged on 2026-08-29 and 30: #125 (#119), #126 (#120), #127 (#121),
+`main` is tagged `v0.4.0`; `dev` is **eleven commits ahead of it** — bookkeeping (`4a0d79e` the
+release, `b82b636` what the end-to-end run found, `79c9097` and `719c430` these notes) and three
+merges on 2026-09-05: #139 closing #138, #140 closing #134, and #141 closing #136. Nothing to merge
+into `main` until Phase 2 ends. Merged on 2026-08-29 and 30: #125 (#119), #126 (#120), #127 (#121),
 #128 (#122), #129 (#123), #130 (#124), #132 (#131 — the checkpoint cleanup), and #133, the phase
 into `main`.
 
@@ -56,19 +56,17 @@ things to remove.
 
 ## Next action
 
-**#136**, priority 1 and small: a warning at validate time naming the estimator nodes that will not
-be fitted. `Run.pending_estimators` (`executor.py:279`, populated at `:432`) already names them and
-the string appears nowhere in `api.py`; the `warnings` list is already in the validate payload and
-already rendered. Worth doing next because a PLS node currently validates clean, reports a
-successful run, and is left `not_run` — the same state it has before it has ever been run.
-
-Then **the rest of #51** (priority 2): duplicating a subgraph, and a comparison tab for two terminal
+**The rest of #51** (priority 2): duplicating a subgraph, and a comparison tab for two terminal
 nodes. The comparison tab still has no artboard and little to compare until PLS has a kernel in the
 executor (#88). That ordering is still worth deciding before the branch is cut, and the end-to-end
 run sharpened it: **#88 now blocks the phase's own exit criterion**, not just one screen.
 
 **#135** (priority 3) is waiting on a rule decision, below. **#137** (priority 4) is a documentation
-correction and can go any time.
+correction and can go any time. Either is a reasonable thing to take instead of #51 if the PLS
+ordering is not settled yet.
+
+**Everything the end-to-end run found is now closed** — #134 as #140 and #136 as #141 — except
+those two.
 
 ## What an end-to-end run against a public dataset found
 
@@ -120,6 +118,20 @@ array — so the loadings were drawn against 285-783 nm instead of 501-999 nm, e
 about 216 nm. **A wrong plot does not announce itself the way a blank one does**, which is the
 general lesson: when one payload refuses a mismatch loudly, check whether its sibling serves the
 same mismatch quietly.
+
+**#136 is fixed and merged as #141**, and where it went is the part worth keeping. It is *not* in
+`checks.py`: that module's docstring draws its own line — every warning there catches a mistake
+whose symptom is a plausible result, with a document behind it — and a node the build cannot fit is
+neither. The recipe is right and the application is short a kernel, so filing it there would blame
+the user for #88. It is built in `validation_payload` instead: two sources, one list, told apart by
+`code` and by `severity` (`info` rather than `warning`). **`executor.has_kernel(spec)` is now the
+one place that knows what can be fitted**, asked by the executor's routing and by the warning, so
+#88 adds to one tuple rather than to two files that have to be remembered together.
+
+The issue's better half was left, deliberately: `pipelines/{id}/state` telling *not yet* from *never
+will be* needs `NodeState` in `frontend/src/canvas/graph.ts:12` widened, a `NodeCard` case and a
+visual treatment with no artboard behind it — and #88 makes it moot. `PipelineCanvas.tsx:190`
+already renders `problems` when `valid` is false, so the sentence reaches the canvas for free.
 
 **Worth not rediscovering:** the executor holds no per-node axis, deliberately and for a good reason
 (`executor.py:5-8` — a second thing beside the arrays would have to stay consistent with them).
