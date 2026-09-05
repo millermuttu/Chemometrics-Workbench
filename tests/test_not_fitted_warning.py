@@ -46,10 +46,14 @@ def codes(payload: dict[str, Any]) -> list[str]:
 # --- The one place that knows -----------------------------------------------
 
 
-def test_pca_has_a_kernel_and_the_two_pls_specs_do_not() -> None:
-    """#88 flips the last two by adding to one tuple, not by editing two files."""
+def test_pca_and_pls_have_kernels_and_pls_da_does_not() -> None:
+    """#142 added PLS by adding to one tuple, not by editing two files.
+
+    PLS-DA is what is left, and it is left on purpose: a class column and a
+    confusion matrix are a second result shape, not a second kernel call.
+    """
     assert has_kernel(PCASpec(n_components=2))
-    assert not has_kernel(PLSRegressionSpec(n_components=2, target="fat"))
+    assert has_kernel(PLSRegressionSpec(n_components=2, target="fat"))
     assert not has_kernel(PLSDASpec(n_components=2, class_column="grade"))
 
 
@@ -67,13 +71,13 @@ def test_a_pipeline_of_things_that_run_still_says_nothing() -> None:
     assert payload["problems"] == []
 
 
-def test_a_pls_node_is_named_before_the_run_rather_than_after_it() -> None:
+def test_a_pls_da_node_is_named_before_the_run_rather_than_after_it() -> None:
     graph = pipeline(
         PreprocessNode(id="centre", inputs=("source",), step=MeanCentre()),
         EstimatorNode(
             id="pls_dm",
             inputs=("centre",),
-            spec=PLSRegressionSpec(n_components=12, target="target_DM"),
+            spec=PLSDASpec(n_components=12, class_column="grade"),
         ),
     )
     payload = validation_payload(graph)
@@ -94,14 +98,18 @@ def test_every_unfittable_node_is_named_not_just_the_first() -> None:
         PreprocessNode(id="centre", inputs=("source",), step=MeanCentre()),
         EstimatorNode(id="pca", inputs=("centre",), spec=PCASpec(n_components=2)),
         EstimatorNode(
-            id="pls_a", inputs=("centre",), spec=PLSRegressionSpec(n_components=3, target="fat")
+            id="plsda_a", inputs=("centre",), spec=PLSDASpec(n_components=3, class_column="a")
         ),
         EstimatorNode(
-            id="plsda_b", inputs=("centre",), spec=PLSDASpec(n_components=3, class_column="grade")
+            id="plsda_b", inputs=("centre",), spec=PLSDASpec(n_components=3, class_column="b")
+        ),
+        # PLS is fitted since #142 and must not appear.
+        EstimatorNode(
+            id="pls", inputs=("centre",), spec=PLSRegressionSpec(n_components=3, target="fat")
         ),
     )
     named = [w["node_id"] for w in validation_payload(graph)["warnings"]]
-    assert named == ["pls_a", "plsda_b"]
+    assert named == ["plsda_a", "plsda_b"]
 
 
 def test_it_does_not_displace_what_checks_py_had_to_say() -> None:
@@ -111,7 +119,7 @@ def test_it_does_not_displace_what_checks_py_had_to_say() -> None:
         PreprocessNode(id="centre", inputs=("source",), step=MeanCentre()),
         SplitNode(id="split", inputs=("centre",), spec=KFoldSplit(n_splits=10, seed=42)),
         EstimatorNode(
-            id="pls", inputs=("split",), spec=PLSRegressionSpec(n_components=3, target="fat")
+            id="plsda", inputs=("split",), spec=PLSDASpec(n_components=3, class_column="grade")
         ),
     )
     found = codes(validation_payload(graph))
@@ -124,7 +132,7 @@ def test_the_two_kinds_are_told_apart_by_code_and_severity() -> None:
     graph = pipeline(
         PreprocessNode(id="snv", inputs=("source",), step=SNV()),
         EstimatorNode(
-            id="pls", inputs=("snv",), spec=PLSRegressionSpec(n_components=3, target="fat")
+            id="plsda", inputs=("snv",), spec=PLSDASpec(n_components=3, class_column="grade")
         ),
     )
     by_code = {w["code"]: w for w in validation_payload(graph)["warnings"]}
