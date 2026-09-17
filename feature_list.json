@@ -339,14 +339,15 @@
       "issue": 175,
       "title": "Inspector metrics belong to the node, and failed edits and runs say so",
       "depends_on": [],
-      "user_visible_behavior": "The inspector shows the selected estimator's own metrics; a refused save or run shows its message; Validate checks what is on screen; a node added from the drop menu keeps its position across a reload.",
+      "user_visible_behavior": "The inspector shows the selected estimator's own metrics; a refused save or run shows its message; Validate checks what is on screen; a node added from the drop menu keeps its position once saved; a cancelled run refreshes open tabs.",
       "verification": [
+        "uv run pytest - the validate endpoint checks a recipe sent in its body and writes nothing.",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
-        "pnpm exec playwright test"
+        "pnpm exec playwright test - the whole suite, including the two new tests, each first run against the unfixed code."
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-09-17. Metrics: Shell reads the active estimator's own `results/{id}` through nodeMetrics (PCA: PC1 and cumulative variance; PLS: RMSEC, R², RMSECV, Q²) instead of the experiment's last-estimator numbers; nodeMetrics.test.ts 3 tests. Errors: Apply and Run go through `attempt`, which puts the server's sentence in a role=alert banner (data-testid action-failed) rather than an unhandled rejection; Validate catches too. Validate: POST /pipelines/{id}/validate takes an optional {nodes} body and validates that recipe without writing; the canvas sends withDrafts(nodes, steps). test_the_validator_checks_the_recipe_it_is_sent_and_writes_nothing - on the old api.py `assert True is False`, with the fix passes. Layout: Save writes the layout for positions held locally after the recipe lands. Cancelled runs now invalidate spectra/results, and every settled run invalidates the experiment. e2e `an estimator's metrics are its own result's` (asserts equality with each node's served result) and `a step added from the drop menu keeps its position once saved` (stored layout equals the drawn position): against the unfixed Shell.tsx/PipelineCanvas.tsx both FAILED - `expect(locator).toContainText` and `expect(received).toEqual` (Expected -2 / Received +2); with the fix `pnpm exec playwright test` 48 passed (1.5m). `pnpm typecheck`, `pnpm lint` clean; `pnpm test` 109 passed; `uv run pytest` 816 passed 1 skipped; ruff, format, mypy clean.",
+      "notes": "The action-failed banner has no e2e: nothing in the seeded projects makes the server refuse a save or a run on demand."
     },
     {
       "id": "run-memory-bounded",

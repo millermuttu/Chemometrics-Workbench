@@ -4,8 +4,9 @@ import type { StepSchema } from "@/inspector/schema";
 
 import { api } from "./client";
 
-/** The payload shapes are the stub server's, generated from the kernels by
- * stub/generate_fixtures.py. Only the fields the shell reads are typed. */
+/** The payload shapes the server publishes; the Phase 1.1 contract they grew
+ * from is kept in tests/fixtures/contract/. Only the fields the shell reads are
+ * typed. */
 
 export interface Project {
   project_id: string;
@@ -107,7 +108,7 @@ export interface PipelineState {
 export interface Experiment {
   experiment_id: string;
   status: string;
-  started_at: string;
+  started_at: string | null;
   finished_at: string | null;
   metrics: { explained_variance: number[] | null };
 }
@@ -249,8 +250,8 @@ export function useImportDataset() {
   });
 }
 
-/** Phase 1.1 has one pipeline and one experiment, and the stub server returns
- * them whatever id it is given. 1.2 keeps the URLs and stops ignoring the id. */
+/** A project holds one pipeline and serves it, and its latest experiment, as
+ * `current`. */
 export function usePipeline() {
   return useQuery({ queryKey: ["pipeline"], queryFn: () => api<Pipeline>("/pipelines/current") });
 }
