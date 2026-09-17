@@ -1,74 +1,39 @@
-"""The HTTP surface: the real handlers, growing one issue at a time.
+"""The HTTP surface: every `/api` route the frontend calls.
 
 Phase 1.1 built the frontend against a stub server so that 1.2 could replace
-handlers behind unchanged URLs rather than integrate in one moment. This module
-is where the replacements live, and in #89 it becomes the whole server.
+handlers behind unchanged URLs; #89 finished that and deleted `stub/`. The
+contract the frontend was built against is kept in `tests/fixtures/contract/`.
 
-**Not one URL changes.** That was the point of building the frontend against
-these paths from its first commit.
-
-#99 recorded why these could not be swapped in one at a time: the project the
-frontend lists, the dataset it opens and the pipeline it runs are one chain, so
-the swap is one cut. This is that cut.
-
-## What is here now
-
-The import endpoints (#81) and the project and dataset reads they need to be
-reachable at all: a preview cannot be confirmed if the dataset it produces has
-nowhere to appear.
-
-- `GET  /api/projects`, `GET /api/projects/{id}` — the open project
-- `GET  /api/projects/{id}/datasets` — read from `datasets.json` on disk
+- `GET  /api/projects`, `GET /api/projects/{id}`, `GET /api/projects/{id}/datasets`
 - `POST /api/import/preview` — the reader's detection, nothing committed
 - `POST /api/import` — commits with the user's corrections applied, and starts
   a pipeline on the dataset if the project has none
-- `GET  /api/pipelines/{id}` and `/state`, `POST /api/pipelines/{id}/validate`
+- `GET/PUT /api/pipelines/{id}`, `GET /state`, `PUT /layout`, `POST /validate`
 - `GET  /api/experiments/{id}`, `POST /api/experiments/{id}/run`
 - `GET  /api/jobs/{id}`, `POST /api/jobs/{id}/cancel`
-- `GET  /api/spectra/{node_id}`, `GET /api/results/{node_id}`
+- `GET  /api/spectra/{node_id}`, `GET /api/results/{node_id}` and `/coefficients`
 - `GET  /api/schema/steps`, `POST /api/steps/validate`
 
-`current` is a real id here: the frontend has asked for `pipelines/current` and
-`experiments/current` since its first commit, and a project holds one of each
-until there is a database to hold more.
-
-`results_payload` (#87) renders an estimator result for `results/{node_id}`,
-`spectra_payload` (#86) renders `spectra/{node_id}`, and `validation_payload`
-(#84) renders `pipelines/{id}/validate`. Neither
-endpoint is served here yet: both take a pipeline, and there is nowhere to keep
-one until #89's pipeline store — the same cut #99 describes. The stub calls
-`validation_payload` for the one pipeline it has, so that response is computed
-rather than constant.
+`current` is a real id: a project holds one pipeline, and the frontend has
+asked for `pipelines/current` and `experiments/current` since its first commit.
 
 ## The open project
 
-There is no project browser yet and no database to list projects from, so the
-server opens exactly one: `CHEMOMETRICS_PROJECT` if it is set, else
-`<config dir>/projects/default`, created on first use. `known_projects()` from
-#77 keeps the registry up to date, which is what a project browser will read
-when #89 or 1.3 adds one.
+There is no project browser yet, so the server opens exactly one:
+`CHEMOMETRICS_PROJECT` if it is set, else `<config dir>/projects/default`,
+created on first use. Its index is `project.db` inside the directory.
 
 ## Uploads
 
 A file arrives as a multipart upload and is written to a temporary file, whose
-suffix is the original's because `reader_for` chooses by suffix. The readers
-take a path, so the temporary file is what they are given, and it is deleted
-whether or not the read succeeded.
-
-`MAX_UPLOAD_BYTES` bounds it. §4.3 calls localhost a trust boundary, not a
-private room, and an unbounded upload is a way to fill the user's disk from a
-page in their own browser.
-
-The file is uploaded once to preview and once to commit. On a loopback socket
-that is a memory copy, and staging the first upload to serve the second would
-mean a lifetime to manage — when it expires, what happens on a restart, what
-happens when the user previews ten files and imports none.
+name is the original's because `reader_for` chooses by suffix. It is deleted
+whether or not the read succeeded. `MAX_UPLOAD_BYTES` bounds it: §4.3 calls
+localhost a trust boundary, and an unbounded upload fills the user's disk.
 
 ## Errors
 
-Every failure has a body: `{"error": {"code", "message", "detail"}}`, which is
-what `stub/fixtures/error.json` documents and every screen renders. A
-`ReaderError` or a `ProjectError` becomes one, with its own sentence intact —
+Every failure has a body: `{"error": {"code", "message", "detail"}}`. A
+`ReaderError` or a `ProjectError` becomes one with its own sentence intact —
 §6's rule that an unreadable file produces a specific diagnostic rather than a
 stack trace.
 """
@@ -165,8 +130,8 @@ _BLOCK = 1 << 20
 
 router = APIRouter()
 
-#: The one job table this process has. Jobs do not survive a restart, which is
-#: Phase 1.3's; see `jobs.py`.
+#: The one job table this process has. Jobs deliberately do not survive a
+#: restart; see `jobs.py`.
 JOBS = Jobs()
 
 #: Where the canvas puts a node it has never seen. Left to right by depth, in
@@ -191,7 +156,7 @@ def open_project_directory() -> Path:
     # Check-then-act, under a lock. A page load asks six questions at once and
     # every one of them opens the project, so on a directory that is not a
     # project yet every one of them tries to create it. `create_project` makes
-    # `arrays/` before it writes `project.json`, so the losers found a
+    # `arrays/` before it writes `project.db`, so the losers found a
     # directory that was neither empty nor yet a project and refused - turning
     # the first load of a new project into a 500, intermittently.
     #
@@ -230,23 +195,13 @@ def _entry_json(entry: DatasetEntry) -> Any:
 
 # --- Projects and datasets ------------------------------------------------
 #
-# ## Pagination is deferred, and this is the reason (#89)
+# ## Pagination is deferred (#89)
 #
-# Phase 1.1 marked pagination a GUESS: the list endpoints return a bare JSON
-# array, with no envelope to hang `next` or `total` off. #89 keeps that, and
-# the decision is recorded here rather than left to be rediscovered.
-#
-# There is nothing to page. A project holds one pipeline and, until SQLite
-# arrives in Phase 1.3, its datasets are a JSON file read whole - paging a list
-# that is already entirely in memory adds a cursor the client must thread
-# through and buys nothing. `GET /projects` returns the single open project for
-# the same reason: the server has one.
-#
-# What would change the answer is Phase 1.3's database and more than one
-# project per server, and by then the store can page properly instead of
-# slicing a list it just parsed. Adding the envelope now would fix the shape of
-# an answer before knowing the question - which is what Phase 1.1 existed to
-# avoid, and why these endpoints were built against a published contract.
+# The list endpoints return a bare JSON array. A server opens one project, and
+# a project's datasets are a handful of rows, so a cursor would buy nothing.
+# When there is a project browser and more than one pipeline, the store can
+# page properly; adding the envelope before then fixes the shape of an answer
+# before knowing the question.
 
 
 @router.get("/projects")
@@ -278,9 +233,9 @@ def list_datasets(project_id: str) -> Any:
 
 
 @router.post("/import/preview")
-async def import_preview(file: Annotated[UploadFile, File()]) -> Any:
+def import_preview(file: Annotated[UploadFile, File()]) -> Any:
     """What the reader found, with alternatives. Nothing is committed."""
-    async with _uploaded(file) as path:
+    with _uploaded(file) as path:
         try:
             return readers.preview(path)
         except readers.ReaderError as error:
@@ -288,7 +243,7 @@ async def import_preview(file: Annotated[UploadFile, File()]) -> Any:
 
 
 @router.post("/import")
-async def import_dataset(
+def import_dataset(
     file: Annotated[UploadFile, File()],
     corrections: Annotated[str, Form()] = "{}",
     name: Annotated[str | None, Form()] = None,
@@ -302,7 +257,7 @@ async def import_dataset(
     directory, project = _project()
     corrected = _corrections(corrections)
 
-    async with _uploaded(file) as path:
+    with _uploaded(file) as path:
         try:
             imported = readers.read(path, corrected)
         except readers.ReaderError as error:
@@ -378,13 +333,20 @@ class _uploaded:
     upload calling itself `../../project.json` writes a file called
     `project.json` in a temporary directory and nothing else. §4.3 calls
     localhost a trust boundary.
+
+    **Synchronous on purpose, and so are the handlers that use it** (#174).
+    Reading a file at §13's envelope takes seconds of CPU and disk; in an
+    `async def` handler that time was spent on the event loop, and every other
+    request - the job poll included - waited behind the import. A plain `def`
+    handler runs on FastAPI's thread pool, and the multipart body is already
+    spooled by the time it is called, so reading `file.file` blocks nothing.
     """
 
     def __init__(self, file: UploadFile) -> None:
         self._file = file
         self._directory: tempfile.TemporaryDirectory[str] | None = None
 
-    async def __aenter__(self) -> Path:
+    def __enter__(self) -> Path:
         name = Path(self._file.filename or "").name
         if not Path(name).suffix:
             raise _fail(
@@ -400,7 +362,7 @@ class _uploaded:
         written = 0
         try:
             with path.open("wb") as handle:
-                while block := await self._file.read(_BLOCK):
+                while block := self._file.file.read(_BLOCK):
                     written += len(block)
                     if written > MAX_UPLOAD_BYTES:
                         raise _fail(
@@ -417,7 +379,7 @@ class _uploaded:
             raise
         return path
 
-    async def __aexit__(self, *_: object) -> None:
+    def __exit__(self, *_: object) -> None:
         self._cleanup()
 
     def _cleanup(self) -> None:
@@ -440,7 +402,7 @@ def results_payload(
     The kernel's numbers come from the executor unrounded; the sample ids and
     the variable axis come from the `DatasetVersion`, because a model does not
     know what its rows and columns were called. The shape is the one
-    `stub/fixtures/pca.json` publishes and the analysis screen already renders.
+    `tests/fixtures/contract/pca.json` publishes and the analysis screen already renders.
 
     **`axis` is the node's own**, from `node_axis`, because a model fitted
     under a range selection has fewer loadings than the dataset has variables.
@@ -829,7 +791,7 @@ def spectra_payload(
 ) -> dict[str, Any]:
     """One spectra plot's worth of data, decimated for the wire.
 
-    The shape is the one `stub/fixtures/spectra.json` publishes and the plot
+    The shape is the one `tests/fixtures/contract/spectra.json` publishes and the plot
     screen already renders: a shared axis, individually drawn traces, and a
     band when there are more spectra than the cap. `highlighted` is added
     beside them for §13's "selected or highlighted spectra are drawn at full

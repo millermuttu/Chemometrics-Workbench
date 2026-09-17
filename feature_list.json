@@ -324,13 +324,13 @@
       "issue": 174,
       "title": "Import does not block the server, a cached run does not re-hash, RMSECV fits once per fold",
       "depends_on": [],
-      "user_visible_behavior": "An import no longer stalls other requests; a fully cached run writes no arrays; the RMSECV curve costs one fit per fold; unknown node ids answer 404 with the envelope.",
+      "user_visible_behavior": "An import no longer stalls other requests; a fully cached run writes no arrays; the RMSECV curve costs one fit per fold.",
       "verification": [
         "uv run ruff check && uv run ruff format --check && uv run mypy && uv run pytest"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-09-17. (1) import_preview/import_dataset are plain `def` over a synchronous `_uploaded` reading `file.file`, so FastAPI runs them on its thread pool; test_the_import_handlers_run_on_the_thread_pool guards it and every existing import test in test_api.py still passes. (2) A cache hit reuses the indexed paths and names the hash from the content-addressed filename instead of calling write_array: test_a_cached_run_writes_no_array_and_reports_the_same_outputs monkeypatches write_array to raise; against the unfixed executor it FAILED with `AssertionError: a cached node wrote an array`, with the fix it passes and the outputs equal the first run's. (3) rmsecv_curve fits once per fold and truncates: on Tecator, 10-fold, A=15, max abs difference from the per-A refits 3.69e-14, 0.024 s against 0.148 s; test_the_curve_uses_one_fold_assignment_for_every_component_count and the parity suite pass. (4) r2_pearson is omitted rather than NaN; write_json/write_array temp names are unique; db engine cache is locked; token compared with secrets.compare_digest; stale stub/JSON-era docstrings in api.py, project.py, jobs.py rewritten; `stub` dropped from ruff src. `uv run ruff check` clean, `ruff format --check` clean, `mypy` no issues in 54 files, `uv run pytest` 817 passed 1 skipped, parity report regenerates with no diff.",
+      "notes": "Not changed: node_axis/_preprocess_chain KeyError on an unknown node id. Every HTTP caller asks stored_display/stored_result first, which return None for an unknown id and answer 404, so the KeyError is unreachable over HTTP."
     },
     {
       "id": "frontend-review-fixes",
