@@ -278,9 +278,9 @@ def list_datasets(project_id: str) -> Any:
 
 
 @router.post("/import/preview")
-async def import_preview(file: Annotated[UploadFile, File()]) -> Any:
+def import_preview(file: Annotated[UploadFile, File()]) -> Any:
     """What the reader found, with alternatives. Nothing is committed."""
-    async with _uploaded(file) as path:
+    with _uploaded(file) as path:
         try:
             return readers.preview(path)
         except readers.ReaderError as error:
@@ -288,7 +288,7 @@ async def import_preview(file: Annotated[UploadFile, File()]) -> Any:
 
 
 @router.post("/import")
-async def import_dataset(
+def import_dataset(
     file: Annotated[UploadFile, File()],
     corrections: Annotated[str, Form()] = "{}",
     name: Annotated[str | None, Form()] = None,
@@ -302,7 +302,7 @@ async def import_dataset(
     directory, project = _project()
     corrected = _corrections(corrections)
 
-    async with _uploaded(file) as path:
+    with _uploaded(file) as path:
         try:
             imported = readers.read(path, corrected)
         except readers.ReaderError as error:
@@ -378,13 +378,20 @@ class _uploaded:
     upload calling itself `../../project.json` writes a file called
     `project.json` in a temporary directory and nothing else. §4.3 calls
     localhost a trust boundary.
+
+    **Synchronous on purpose, and so are the handlers that use it** (#174).
+    Reading a file at §13's envelope takes seconds of CPU and disk; in an
+    `async def` handler that time was spent on the event loop, and every other
+    request - the job poll included - waited behind the import. A plain `def`
+    handler runs on FastAPI's thread pool, and the multipart body is already
+    spooled by the time it is called, so reading `file.file` blocks nothing.
     """
 
     def __init__(self, file: UploadFile) -> None:
         self._file = file
         self._directory: tempfile.TemporaryDirectory[str] | None = None
 
-    async def __aenter__(self) -> Path:
+    def __enter__(self) -> Path:
         name = Path(self._file.filename or "").name
         if not Path(name).suffix:
             raise _fail(
@@ -400,7 +407,7 @@ class _uploaded:
         written = 0
         try:
             with path.open("wb") as handle:
-                while block := await self._file.read(_BLOCK):
+                while block := self._file.file.read(_BLOCK):
                     written += len(block)
                     if written > MAX_UPLOAD_BYTES:
                         raise _fail(
@@ -417,7 +424,7 @@ class _uploaded:
             raise
         return path
 
-    async def __aexit__(self, *_: object) -> None:
+    def __exit__(self, *_: object) -> None:
         self._cleanup()
 
     def _cleanup(self) -> None:

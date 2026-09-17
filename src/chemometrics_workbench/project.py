@@ -37,6 +37,7 @@ import hashlib
 import io
 import json
 import os
+import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -418,7 +419,7 @@ def write_json(path: Path, document: Any) -> None:
     document written inside a project directory wants the same guarantee - the
     executor's cache index is the second.
     """
-    temporary = path.with_name(path.name + ".tmp")
+    temporary = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
     try:
         temporary.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
         temporary.replace(path)
@@ -703,7 +704,7 @@ def write_array(directory: str | os.PathLike[str], values: object) -> tuple[str,
     # Content-addressed, so an identical array is already stored and rewriting
     # it would only risk truncating a file something else is reading.
     if not target.exists():
-        temporary = target.with_name(target.name + ".tmp")
+        temporary = target.with_name(f"{target.name}.{uuid.uuid4().hex}.tmp")
         try:
             temporary.write_bytes(blob)
             temporary.replace(target)

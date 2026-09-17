@@ -466,10 +466,18 @@ def execute(
 
         stored: list[str] = []
         hashes: list[str] = []
-        for values in state.arrays:
-            array_path, content_hash = write_array(path, values)
-            stored.append(array_path)
-            hashes.append(content_hash)
+        if cached is not None:
+            # Already on disk under these paths. Writing them again cost a
+            # float32 copy, a serialisation and a SHA-256 per array, per fold,
+            # on every run that recomputed nothing (#174). The store is
+            # content-addressed, so the hash is the file's name.
+            stored = list(index[key])
+            hashes = [f"sha256:{Path(p).stem}" for p in stored]
+        else:
+            for values in state.arrays:
+                array_path, content_hash = write_array(path, values)
+                stored.append(array_path)
+                hashes.append(content_hash)
 
         if cached is None:
             # Read back what was written, so a node's successors are fed the
@@ -932,8 +940,12 @@ def _pls(
         "rmsec": validation.rmse(train_y, predicted),
         "r2": validation.r2(train_y, predicted),
         "bias": validation.bias(train_y, predicted),
-        "r2_pearson": float(np.corrcoef(train_y, predicted)[0, 1] ** 2),
     }
+    # §11: absent, never NaN. A constant prediction has no correlation to square.
+    with np.errstate(invalid="ignore", divide="ignore"):
+        pearson = float(np.corrcoef(train_y, predicted)[0, 1] ** 2)
+    if np.isfinite(pearson):
+        metrics["r2_pearson"] = pearson
     # §5: `n - A - 1 <= 0` makes SEC undefined. Absent, and never a fallback
     # denominator - that would be a number which is not SEC.
     if train_y.size - a - 1 > 0:

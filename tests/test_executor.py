@@ -12,6 +12,7 @@ finding rather than a failure: see
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from pathlib import Path
 from typing import Any
@@ -315,6 +316,26 @@ def test_a_second_run_recomputes_nothing(project: tuple[Path, DatasetVersion]) -
     second = execute(directory, pipeline, version)
     assert second.computed == []
     np.testing.assert_array_equal(first.displays["centre_d"], second.displays["centre_d"])
+
+
+def test_a_cached_run_writes_no_array_and_reports_the_same_outputs(
+    project: tuple[Path, DatasetVersion], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#174: a cache hit used to re-serialise and re-hash every stored array."""
+    directory, version = project
+    pipeline = fixture_pipeline(version.version_id)
+    first = execute(directory, pipeline, version)
+
+    def refuse(*_: object) -> None:
+        raise AssertionError("a cached node wrote an array")
+
+    monkeypatch.setattr("chemometrics_workbench.executor.write_array", refuse)
+    second = execute(directory, pipeline, version)
+
+    assert second.outputs == {
+        node_id: dataclasses.replace(output, from_cache=True)
+        for node_id, output in first.outputs.items()
+    }
 
 
 def test_editing_one_node_recomputes_it_and_its_descendants_and_nothing_else(
