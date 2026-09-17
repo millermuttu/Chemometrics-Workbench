@@ -1011,3 +1011,47 @@ def test_sep_and_rmsep_satisfy_the_identity_the_specification_names(
     left = result.metrics["rmsep"] ** 2
     right = held_out_bias**2 + ((n_p - 1) / n_p) * result.metrics["sep"] ** 2
     assert left == pytest.approx(right)
+
+
+def _held_out_predictions(arrays: list[np.ndarray], y: np.ndarray, folds: Any, a: int) -> Any:
+    """Each fold's held-out rows predicted from the array given for that fold."""
+    predicted = np.empty_like(y)
+    for fold, values in zip(folds, arrays, strict=True):
+        x_mean = values[fold.train].mean(axis=0)
+        y_mean = y[fold.train].mean()
+        model = PLS(a).fit(values[fold.train] - x_mean, y[fold.train] - y_mean)
+        predicted[fold.test] = model.predict(values[fold.test] - x_mean) + y_mean
+    return predicted
+
+
+def test_each_fold_is_cross_validated_through_its_own_preprocessing(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    """#173: fold `i`'s held-out rows go through fold `i`'s fitted preprocessing.
+
+    Autoscale rather than MeanCentre, because the kernel re-centres every fold
+    and would hide the leak: a mean fitted on the wrong rows is removed again,
+    a scale is not. The fold-zero computation is asserted to *differ*, so the
+    test says which of the two the executor matched rather than that it moved.
+    """
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=5, seed=42)),
+        PreprocessNode(id="scale", inputs=("split",), step=Autoscale()),
+        EstimatorNode(
+            id="pls", inputs=("scale",), spec=PLSRegressionSpec(n_components=6, target="fat")
+        ),
+    )
+    run = execute(directory, pipeline, version)
+    metrics = run.results["pls"].metrics
+
+    arrays = [read_array(directory, path) for path in run.outputs["scale"].array_paths]
+    y = np.asarray(version.targets["fat"], dtype=np.float64)
+    folds = k_fold(version.n_samples, 5, seed=42)
+
+    own = rmse(y, _held_out_predictions(arrays, y, folds, 6))
+    leaked = rmse(y, _held_out_predictions([arrays[0]] * 5, y, folds, 6))
+
+    assert own != pytest.approx(leaked, abs=1e-6)
+    assert metrics["rmsecv"] == pytest.approx(own, rel=1e-9)
