@@ -300,6 +300,68 @@
       ],
       "status": "passing",
       "evidence": "2026-09-05. The parent is no longer guessed. `withDrafts` appends to the first terminal node and its own docstring admits choosing a branch was left to #51; the menu's parent is the node whose connector was dragged, so the question does not arise. Built on onConnectEnd, which was already wired for refusals: a drop where `state.isValid` is null landed on nothing, and that is the offer to add a step. The React Flow instance is captured from onInit rather than useReactFlow(), which would have needed a provider this component does not have. The catalogue moved out of StepList.tsx into canvas/catalogue.ts so the list and the menu share one set; PLS 5 LV and K-fold 10 were added to the menu, and PLS-DA, train_test, repeated_kfold and external deliberately left out because executor.py cannot run them - a shorter menu beats a pipeline that looks fine and dies on Run. `numberedId` was added to edits.ts and withDrafts now calls it, removing the second copy of the same id-minting loop. `pnpm test` - 106 passed, 11 files (102 before, +4 for add()). `pnpm typecheck` and `pnpm lint` clean. `pnpm exec playwright test` - 46 passed (1.5m), 45 before plus the drop-menu test, which asserts the menu appears, contains PLS 5 LV and not PLS-DA, that picking Autoscale creates edge msc->autoscale, and that the node lands right and below the drop point rather than at the origin. DraftStep's `type` had to stay narrow: it knows only the two kinds the side list can draw as a draft chain, so CatalogueStep widens it to include `split` for the menu, which creates real nodes directly."
+    },
+    {
+      "id": "cv-refits-preprocessing-per-fold",
+      "priority": 0,
+      "area": "backend",
+      "issue": 173,
+      "title": "Cross-validated PLS metrics use each fold's own preprocessing",
+      "depends_on": [],
+      "user_visible_behavior": "RMSECV, Q2 and the per-fold errors of a PLS node below a split are computed with every fold evaluated through the preprocessing fitted on that fold's training rows, never fold zero's.",
+      "verification": [
+        "uv run pytest tests/test_executor.py tests/test_regression.py - a split -> Autoscale -> PLS run's RMSECV equals a hand computation over each fold's stored array and differs from the fold-zero computation.",
+        "uv run ruff check && uv run ruff format --check && uv run mypy && uv run pytest"
+      ],
+      "status": "passing",
+      "evidence": "2026-09-17. `_pls` passed `parent.arrays[0]` (fold zero's preprocessing) to rmsecv_curve and cross_validated_predictions for every fold; it now passes `parent.arrays`, and the kernel accepts one matrix per fold. New test test_each_fold_is_cross_validated_through_its_own_preprocessing (split KFold 5 -> Autoscale -> PLS 6 on Tecator) asserts rmsecv equals the own-fold computation and that the fold-zero computation differs. Run against the unfixed src (git stash): FAILED `assert 3.5944060103231967 == 3.5937243763324327`. With the fix: passed. test_one_matrix_per_fold_predicts_each_fold_from_its_own covers the kernel form and the fold-count refusal. `uv run ruff check` all passed; `ruff format --check` 91 files formatted; `mypy` no issues in 54 files; `uv run pytest` 815 passed, 1 skipped; `python -m tests.parity_report` leaves no diff.",
+      "notes": ""
+    },
+    {
+      "id": "backend-review-fixes",
+      "priority": 1,
+      "area": "backend",
+      "issue": 174,
+      "title": "Import does not block the server, a cached run does not re-hash, RMSECV fits once per fold",
+      "depends_on": [],
+      "user_visible_behavior": "An import no longer stalls other requests; a fully cached run writes no arrays; the RMSECV curve costs one fit per fold; unknown node ids answer 404 with the envelope.",
+      "verification": [
+        "uv run ruff check && uv run ruff format --check && uv run mypy && uv run pytest"
+      ],
+      "status": "not_started",
+      "evidence": "",
+      "notes": ""
+    },
+    {
+      "id": "frontend-review-fixes",
+      "priority": 1,
+      "area": "frontend",
+      "issue": 175,
+      "title": "Inspector metrics belong to the node, and failed edits and runs say so",
+      "depends_on": [],
+      "user_visible_behavior": "The inspector shows the selected estimator's own metrics; a refused save or run shows its message; Validate checks what is on screen; a node added from the drop menu keeps its position across a reload.",
+      "verification": [
+        "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
+        "pnpm exec playwright test"
+      ],
+      "status": "not_started",
+      "evidence": "",
+      "notes": ""
+    },
+    {
+      "id": "run-memory-bounded",
+      "priority": 2,
+      "area": "backend",
+      "issue": 176,
+      "title": "A run below a split does not hold every fold array of every node",
+      "depends_on": [],
+      "user_visible_behavior": "A 10-fold branch at the section 13 envelope runs within memory.",
+      "verification": [
+        "to be designed"
+      ],
+      "status": "not_started",
+      "evidence": "",
+      "notes": ""
     }
   ]
 }

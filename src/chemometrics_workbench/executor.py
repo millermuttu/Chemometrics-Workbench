@@ -951,14 +951,18 @@ def _pls(
     # §9: one split, one pass, one curve. The whole fold assignment, not fold
     # zero's, and `A` is never re-selected inside a fold - every fold model is
     # fitted with the same `A` and the curve is a property of the split.
+    #
+    # Each fold is evaluated on its own array, preprocessed with that fold's
+    # training rows. Fold zero's array fitted its preprocessing on every other
+    # fold's test rows, so using it for all of them leaked (#173).
     if parent.folds is not None:
         folds = parent.folds
-        curve = rmsecv_curve(matrix, response, folds, a)
+        curve = rmsecv_curve(parent.arrays, response, folds, a)
         for index, value in enumerate(curve, start=1):
             metrics[f"rmsecv_a{index}"] = float(value)
         metrics["rmsecv"] = float(curve[-1])
 
-        cross_validated = cross_validated_predictions(matrix, response, folds, a)
+        cross_validated = cross_validated_predictions(parent.arrays, response, folds, a)
         # §6: PRESS over the whole calibration set, against the full
         # calibration mean. Never a per-fold mean - packages differ on this and
         # it is what keeps Q2 and R2 on a common denominator.

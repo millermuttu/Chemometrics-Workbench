@@ -495,6 +495,21 @@ def test_every_sample_is_predicted_by_a_model_that_did_not_see_it() -> None:
         assert np.allclose(held_out[fold.test], model.predict(X[fold.test] - x_mean) + y_mean)
 
 
+def test_one_matrix_per_fold_predicts_each_fold_from_its_own() -> None:
+    """#173: below a split each fold has its own preprocessed matrix."""
+    X, y = _spectra_and_response(n=30)
+    folds = k_fold(30, 5)
+    arrays = [X * (1.0 + 0.1 * index) for index in range(5)]
+    held_out = cross_validated_predictions(arrays, y, folds, 3)
+
+    for fold, values in zip(folds, arrays, strict=True):
+        alone = cross_validated_predictions(values, y, folds, 3)
+        assert np.allclose(held_out[fold.test], alone[fold.test])
+
+    with pytest.raises(ValueError, match="4 fold matrices were given for 5 folds"):
+        cross_validated_predictions(arrays[:4], y, folds, 3)
+
+
 def test_centring_is_refitted_inside_each_fold() -> None:
     """`metrics-and-validation.md` §9: centring on everything before the split
     leaks the validation samples into the training statistics and makes the
