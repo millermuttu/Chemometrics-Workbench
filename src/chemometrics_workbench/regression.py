@@ -645,13 +645,35 @@ def rmsecv_curve(
     experiment rather than `A` unrelated ones. Choosing `A` at its minimum and
     then quoting that minimum as the model's expected error is optimistic; that
     is the user's call and the application does not make it for them.
+
+    **One fit per fold, not one per fold per `A`** (#174). NIPALS deflates one
+    component at a time, so the first `a` components of an `A`-component fit
+    are the `a`-component fit, and `R[:, :a] @ q[:a]` is its coefficient
+    vector. Refitting for every `A` cost `A(A+1)/2` fits per fold for the same
+    numbers. A fit that stopped early predicts with every component it has,
+    exactly as a separate fit asked for more would have.
     """
     if max_components < 1:
         raise ValueError(f"a curve needs at least one component, got {max_components}")
+    matrices = _fold_matrices(X, folds)
     response = as_float64_vector(y, "y")
-    return np.asarray(
-        [
-            rmse(response, cross_validated_predictions(X, response, folds, a))
-            for a in range(1, max_components + 1)
-        ]
-    )
+    n_samples = matrices[0].shape[0]
+    if response.size != n_samples:
+        raise ValueError(f"X has {n_samples} samples and y has {response.size}")
+    validate_partition(folds, n_samples)
+
+    held_out = np.empty((max_components, n_samples), dtype=np.float64)
+    for fold, values in zip(folds, matrices, strict=True):
+        train_x = values[fold.train]
+        train_y = response[fold.train]
+        x_mean = train_x.mean(axis=0)
+        y_mean = float(train_y.mean())
+        model = PLS(max_components).fit(train_x - x_mean, train_y - y_mean)
+        rotations = model._fitted("rotations_")
+        y_loadings = model._fitted("y_loadings_")
+        scores = (values[fold.test] - x_mean) @ rotations
+        # Column `a` of the running sum is the prediction with `a + 1` components.
+        partial = np.cumsum(scores * y_loadings, axis=1)
+        for a in range(max_components):
+            held_out[a, fold.test] = partial[:, min(a, partial.shape[1] - 1)] + y_mean
+    return np.asarray([rmse(response, predicted) for predicted in held_out])
