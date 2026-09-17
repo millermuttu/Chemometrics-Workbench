@@ -2,7 +2,7 @@
 
 Compact state for the next session. **Overwrite this file at the end of every session** — it is a snapshot, not a log. Read it first, then `feature_list.json`, `git log` on `dev`, and the open issues.
 
-**Updated:** 2026-09-05
+**Updated:** 2026-09-17
 
 ---
 
@@ -11,37 +11,34 @@ Compact state for the next session. **Overwrite this file at the end of every se
 **Phase 1 is complete and released.** `main` is tagged `v0.5.0` (`015f9ec`, 2026-09-05) — a mid-phase
 snapshot, not a phase close; the tag's own message says so.
 
-**The pipeline canvas is editable.** #164's four issues are merged and it is closed. A node is
-dragged and stays where it is put, a finished node reads green, a step is added onto the node its
-connector was dragged from, and connect, delete, duplicate and compare were already there from #51.
+**2026-09-17: a whole-repository review, and its findings fixed.** Three issues, three merged PRs,
+every check green on all three platforms:
 
-| Priority | Feature | Issue | Status |
-| --- | --- | --- | --- |
-| 0 | A node under a range selection can be plotted | #134 | passing |
-| 0 | Each model-to-row mapping is written once | #131 | passing |
-| 0 | The checklist's third check has a command | #138 | passing |
-| 0 | Applying a parameter saves it and recomputes on one press | #157 | passing |
-| 1 | A branch is dragged on the canvas, and a node removed | #51 | passing |
-| 1 | A pipeline says which estimator nodes will not be fitted | #136 | passing |
-| 1 | The seeded demo walks the exit criterion | #146 | passing |
-| 1 | The analysis screen draws a regression | #148 | passing |
-| 1 | A finished node reads green | #161 | passing |
-| 1 | A node is dragged, and stays where it is put | #162 | passing |
-| 1 | A step is added onto the node it was dragged from | #163 | passing |
-| 2 | The executor fits PLS, and a PLS result has a shape | #142 | passing |
-| 2 | Duplicate a subgraph, compare two terminal nodes | #51 | passing |
-| 3 | Coefficients readable against the raw axis | #144 | passing |
-| 3 | A numeric id column is not imported as a target | #135 | passing |
-| 4 | `data/tecator/README.md` records tecator's terms | #137 | passing |
+| Priority | Feature | Issue | PR | Status |
+| --- | --- | --- | --- | --- |
+| 0 | Cross-validated PLS metrics use each fold's own preprocessing | #173 | #177 | passing |
+| 1 | Import off the event loop, no array writes on a cache hit, RMSECV one fit per fold | #174 | #178 | passing |
+| 1 | Inspector metrics per node, visible save/run errors, Validate checks what is drawn | #175 | #179 | passing |
+| 2 | A run below a split does not hold every fold array of every node | #176 | — | not_started |
+
+**#173 was a science bug.** Below a split, `_pls` evaluated every fold's RMSECV, Q² and per-fold
+errors on fold zero's preprocessed array, so a scale or MSC fitted on the other folds' test rows. The
+old test used only `MeanCentre`, which the kernel re-centres per fold, so it could not see it. Any
+RMSECV computed before `10d15fd` with a fitted step other than mean centring below a split is
+slightly wrong.
+
+The earlier sixteen entries (#51 to #163) are unchanged and passing; `feature_list.json` has them.
 
 ## Current work
 
-**Nothing is `in_progress`.** The tree is clean apart from an untracked `tecator.csv` at the
-repository root, written by hand while looking for something importable. No branch remains and no
-pull request is open.
+**Nothing is `in_progress`.** No feature branch remains; `docs/handoff-review-fixes` carries this file.
 
-**Two issues are open.** #71 (the Jackson-Mudholkar `h0`, a specification decision waiting since
-Phase 0) and #168 (a macOS flake, below).
+**Open issues:** #71 (Jackson-Mudholkar `h0`, a specification decision), #168 (macOS flake — it hit
+#177 once and passed on a re-run), and #176 (run memory; needs a design decision, see its body).
+
+**Untracked in the root, not this session's to decide:** `AGENTS.md` (a Codex copy of `CLAUDE.md`
+that will drift), `.codex/`, `openspec/` and `tecator.csv`. **`.agents/` was lost this session** —
+see *Also worth not rediscovering*.
 
 **`./run.sh` is the way in.** It syncs, installs with **pnpm** — this project has no
 `package-lock.json` and `npm ci` refuses it — builds the bundle if there is not one, and serves,
@@ -97,6 +94,14 @@ application by hand after the merge.
   **Delete the artefact before verifying the code that builds it.**
 - **A stray `pkill` takes Playwright's own web servers with it**, failing tests that had nothing
   wrong with them. `fuser -k -n tcp 8765 8766 8767 8768` before a run, never during one.
+- **Never `git stash -u` with a pathspec in this checkout.** On 2026-09-17 the untracked `.agents/`
+  (openspec skills for Codex) disappeared during `git stash -q -u -- src tests pyproject.toml` and a
+  branch switch; the stash's untracked tree was empty and nothing reached the trash. A copy of the
+  same skill set lives at `~/Desktop/DAC_Adc_USB/.agents/skills/`, or `openspec init` regenerates it.
+  Commit to the branch instead of stashing.
+- **A regression test is trusted only after it fails on the unfixed code** — done for every test
+  added on 2026-09-17. One e2e first "failed" for the wrong reason (`-g` skipped the import it
+  depends on); run a spec file whole when its tests share a project.
 - **#168: `shell.spec.ts:43` is flaky on macOS**, in two different ways. It failed the same way on
   `dev` from a merge touching only `run.sh` and two markdown files, so it is the test, not the code.
   It opens every outline button as a tab inside one 30 s budget.
