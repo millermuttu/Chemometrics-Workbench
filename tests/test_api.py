@@ -647,3 +647,14 @@ def test_the_payload_is_built_inside_the_interaction_budget() -> None:
     assert payload["decimation"]["variables_kept"] == MAX_POINTS
     assert payload["decimation"]["traces_drawn"] == MAX_TRACES
     assert elapsed < 1.0, f"took {elapsed:.3f}s"
+
+
+def test_the_import_handlers_run_on_the_thread_pool() -> None:
+    """#174: reading a file is seconds of CPU. In an `async def` handler it ran
+    on the event loop and every other request, the job poll included, waited."""
+    import inspect
+
+    from chemometrics_workbench import api
+
+    assert not inspect.iscoroutinefunction(api.import_preview)
+    assert not inspect.iscoroutinefunction(api.import_dataset)

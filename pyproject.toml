@@ -46,7 +46,7 @@ dev = [
 
 [tool.ruff]
 line-length = 100
-src = ["src", "tests", "stub"]
+src = ["src", "tests"]
 target-version = "py312"
 # design/canvas holds a one-off generator for design artboards, not shipped code.
 extend-exclude = ["design/canvas"]

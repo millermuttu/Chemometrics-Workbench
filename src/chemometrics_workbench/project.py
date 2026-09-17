@@ -414,7 +414,7 @@ def _session(path: Path, *, create: bool = False) -> Iterator[Session]:
 def write_json(path: Path, document: Any) -> None:
     """Write JSON through a temporary file, so an interrupted write loses nothing.
 
-    A half-written `project.json` is a project the user can no longer open. The
+    A half-written JSON document is one the user can no longer open. The
     rename is atomic on every platform we ship to. Public because every small
     document written inside a project directory wants the same guarantee - the
     executor's cache index is the second.
@@ -432,12 +432,10 @@ def write_json(path: Path, document: Any) -> None:
 
 
 class DatasetEntry(Frozen):
-    """One dataset and its versions, as `datasets.json` holds them.
+    """One dataset and its versions, as `GET /projects/{id}/datasets` serves them.
 
-    The file is the project's index of what has been imported: SQLite arrives
-    in Phase 1.3 and takes this over, and until then a restart must not lose
-    the dataset list the way it currently loses the project list. The shape is
-    the one the Phase 1.1 frontend already reads, so #81 serves it unchanged.
+    Assembled from the `dataset` and `dataset_version` tables. The shape is the
+    one the Phase 1.1 frontend already reads, so #81 serves it unchanged.
 
     Contents still live in files. This holds a `DatasetVersion`, which holds an
     `array_path` - never an array.
@@ -523,7 +521,7 @@ def add_dataset(
 
 # --- The pipeline store ---------------------------------------------------
 #
-# One pipeline per project, until there is a database to hold more. The
+# One pipeline per project. The table could hold more; the screens cannot. The
 # frontend has asked for `pipelines/current` since its first commit, which is
 # the shape this matches: a project is a dataset and the recipe being built on
 # it. A second pipeline is a schema question and a screen that does not exist.

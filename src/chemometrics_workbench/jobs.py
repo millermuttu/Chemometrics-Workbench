@@ -30,18 +30,11 @@ expected and the bar sits at 100% while the work continues.
 
 ## Nothing survives a restart
 
-The table is a dict in memory and the process owns it. Persistence is Phase
-1.3's, and a job table that half-persists — surviving a restart with no worker
-behind it, reporting `running` forever — is worse than one that admits it is
-gone.
-
-## The endpoint is not here
-
-`POST /api/experiments/{id}/run` still belongs to the stub. A run needs an
-experiment, which holds a pipeline snapshot, and there is nowhere to keep one
-until #89's store — the same cut #99 describes, and the third feature to reach
-it. What the endpoint would do is `submit_run`, and `Job.payload()` is what it
-would return.
+The table is a dict in memory and the process owns it, and that is a decision
+rather than a gap (CLAUDE.md: jobs are not persisted). A job table that
+half-persists — surviving a restart with no worker behind it, reporting
+`running` forever — is worse than one that admits it is gone. The experiment a
+run leaves behind *is* persisted, whichever way the run ends.
 
 ## What a failure carries
 
