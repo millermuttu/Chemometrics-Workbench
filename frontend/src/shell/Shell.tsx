@@ -6,11 +6,11 @@ import type { DatasetEntry } from "@/api/queries";
 import {
   useCancelJob,
   useDatasets,
-  useExperiment,
   useJob,
   usePipeline,
   usePipelineState,
   useProjects,
+  useResults,
   useRunExperiment,
   useSavePipeline,
 } from "@/api/queries";
@@ -27,6 +27,7 @@ import { Sidebar } from "@/shell/Sidebar";
 import { StatusBar } from "@/shell/StatusBar";
 import { TabStrip } from "@/shell/TabStrip";
 import { FlaskIcon, KIND_ICONS } from "@/shell/icons";
+import { nodeMetrics } from "@/shell/nodeMetrics";
 import { emptyTabs, tabsReducer, type Tab } from "@/shell/tabs";
 
 /** The frame every screen opens inside. The measurements are the artboard's -
@@ -160,9 +161,11 @@ export function Shell() {
   const datasets = useDatasets(project?.project_id);
   const pipeline = usePipeline();
   const pipelineState = usePipelineState();
-  const experiment = useExperiment();
 
   const [dismissedFailure, setDismissedFailure] = useState(false);
+  /** A save or a run the server refused. Its sentence is the message: without
+   * this, Apply and Run failed as an unhandled rejection and nothing moved. */
+  const [actionError, setActionError] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const job = useJob(jobId);
@@ -197,12 +200,33 @@ export function Shell() {
    * recomputed has none under its new key, so refetching mid-run asks for
    * something that does not exist yet, takes a 404 and leaves the tab holding
    * an error instead of the stale plot it is supposed to keep showing. */
-  const settled = job.data?.status === "succeeded" || job.data?.status === "failed";
+  // A cancelled run settles too: the nodes it finished wrote new arrays.
+  const settled =
+    job.data?.status === "succeeded" ||
+    job.data?.status === "failed" ||
+    job.data?.status === "cancelled";
   useEffect(() => {
     if (!jobId || !settled) return;
     void queryClient.invalidateQueries({ queryKey: ["spectra"] });
     void queryClient.invalidateQueries({ queryKey: ["results"] });
+    void queryClient.invalidateQueries({ queryKey: ["experiment"] });
   }, [settled, jobId, queryClient]);
+
+  const startRun = useCallback(async () => {
+    const started = await run.mutateAsync();
+    setJobId(started.job_id);
+    setStartedAt(Date.now());
+  }, [run]);
+
+  /** Run an action, and put the server's refusal on screen if it refuses. */
+  const attempt = useCallback(async (action: () => Promise<void>) => {
+    setActionError(null);
+    try {
+      await action();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "The request failed.");
+    }
+  }, []);
 
   const open = useCallback(
     (tab: Omit<Tab, "transient">, transient: boolean) =>
@@ -261,12 +285,12 @@ export function Shell() {
           ? { ...node, [node.step ? "step" : "spec"]: step as { kind: string } }
           : node,
       );
-      await save.mutateAsync(nodes);
-      const started = await run.mutateAsync();
-      setJobId(started.job_id);
-      setStartedAt(Date.now());
+      await attempt(async () => {
+        await save.mutateAsync(nodes);
+        await startRun();
+      });
     },
-    [pipeline.data, run, save],
+    [pipeline.data, save, startRun, attempt],
   );
 
   const activeTab = state.tabs.find((tab) => tab.id === state.activeId);
@@ -274,18 +298,10 @@ export function Shell() {
   const samples = datasets.data?.[0]?.versions.at(-1);
   const noDatasets = datasets.isSuccess && datasets.data.length === 0;
 
-  /** An estimator node's headline numbers, in .kv form with tabular numerals.
-   * The full results table is #48; this is what fits in 292px. */
-  const metricsFor = (tab: Tab | undefined) => {
-    const node = pipeline.data?.nodes.find((candidate) => candidate.id === tab?.id);
-    if (node?.type !== "estimator" || !experiment.data) return undefined;
-    const variance = experiment.data.metrics.explained_variance ?? [];
-    return {
-      "PC1 variance": variance[0] ?? null,
-      "PC1-5 cumulative": variance.slice(0, 5).reduce((total, item) => total + item, 0) || null,
-      components: (node.spec?.n_components as number) ?? null,
-    };
-  };
+  /** The active estimator node's headline numbers, from its own result. The
+   * full results table is #48; this is what fits in 292px. */
+  const activeNode = pipeline.data?.nodes.find((candidate) => candidate.id === activeTab?.id);
+  const activeResult = useResults(activeNode?.type === "estimator" ? activeNode.id : undefined);
 
   return (
     <div className={`app ${theme}`} style={{ position: "relative" }}>
@@ -323,11 +339,9 @@ export function Shell() {
           </button>
           <button
             className="btn btn-p"
-            onClick={async () => {
+            onClick={() => {
               setDismissedFailure(false);
-              const started = await run.mutateAsync();
-              setJobId(started.job_id);
-              setStartedAt(Date.now());
+              void attempt(startRun);
             }}
           >
             Run pipeline
@@ -370,6 +384,33 @@ export function Shell() {
             // The shell's own load failed. Everything below depends on the
             // project, so there is nothing to show but the reason.
             <CannotLoad error={projects.error} />
+          ) : null}
+
+          {actionError ? (
+            <div
+              role="alert"
+              data-testid="action-failed"
+              style={{
+                margin: 12,
+                padding: "10px 12px",
+                borderRadius: 3,
+                border: "1px solid var(--fail)",
+                background: "var(--failSoft)",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <span style={{ color: "var(--ink)" }}>{actionError}</span>
+              <button
+                className="tabx"
+                aria-label="Dismiss error"
+                style={{ marginLeft: "auto" }}
+                onClick={() => setActionError(null)}
+              >
+                ×
+              </button>
+            </div>
           ) : null}
 
           {!projects.isError && job.data?.status === "failed" && !dismissedFailure ? (
@@ -426,7 +467,7 @@ export function Shell() {
               datasets={datasets.data}
               pipeline={pipeline.data}
               state={pipelineState.data}
-              metrics={metricsFor(activeTab)}
+              metrics={activeNode?.type === "estimator" ? nodeMetrics(activeResult.data) : undefined}
               collapsed={inspectorCollapsed}
               onEdit={applyEdit}
             />
@@ -442,9 +483,6 @@ export function Shell() {
           if (jobId) cancel.mutate(jobId);
         }}
       />
-      {/* experiment is read for the outline's Experiments section; keeping the
-          query here means one fetch shared by both regions. */}
-      <span hidden>{experiment.data?.status}</span>
     </div>
   );
 }

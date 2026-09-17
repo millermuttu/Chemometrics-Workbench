@@ -48,8 +48,8 @@ import "@xyflow/react/dist/style.css";
  * by the server after a save. Nothing here computes a graph rule of its own.
  *
  * Edits are held locally until Save, which is the same whole-list `PUT` the
- * step list uses (#108). Node positions are still not draggable: layout lives
- * in `pipeline_state.json` and nothing writes it back yet.
+ * step list uses (#108). Node positions are written separately, on the drop
+ * (#162), because a position is not part of the recipe.
  */
 
 const NODE_TYPES = { workbench: NodeCard };
@@ -353,6 +353,11 @@ export function PipelineCanvas({
           if (!pipeline.data) return;
           try {
             await save.mutateAsync(withDrafts(nodes, steps));
+            // A node added from the drop menu has a position only here until
+            // now: it had no id on the server to file one under (#175).
+            if (Object.keys(moved).length > 0) {
+              await saveLayout.mutateAsync({ ...(state.data?.layout ?? {}), ...moved });
+            }
             // The drafts are nodes now; keeping them would draw each one twice,
             // and the edits are what the server holds.
             setSteps([]);
@@ -367,11 +372,23 @@ export function PipelineCanvas({
           setValidation(null);
         }}
         onValidate={async () => {
-          const result = await api<{ valid: boolean; problems: string[] }>(
-            "/pipelines/current/validate",
-            { method: "POST" },
-          );
-          setValidation(result.valid ? `valid · ${steps.length} steps` : result.problems.join(" · "));
+          // What is drawn, drafts and unsaved edits included - validating the
+          // stored pipeline reported on a graph nobody was looking at (#175).
+          try {
+            const result = await api<{ valid: boolean; problems: string[] }>(
+              "/pipelines/current/validate",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ nodes: withDrafts(nodes, steps) }),
+              },
+            );
+            setValidation(
+              result.valid ? `valid · ${steps.length} steps` : result.problems.join(" · "),
+            );
+          } catch (error) {
+            setValidation(error instanceof ApiError ? error.message : "Could not validate.");
+          }
         }}
         validation={validation}
       />

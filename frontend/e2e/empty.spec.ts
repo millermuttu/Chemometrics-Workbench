@@ -96,3 +96,41 @@ test("confirming the preview opens the dataset, and nothing is committed before"
   await page.getByRole("button", { name: "Pipeline", exact: true }).click();
   await expect(page.locator(".react-flow__node")).toHaveCount(1);
 });
+
+/** #175. A step added from the drop menu had its position only in the tab:
+ * Save wrote the recipe and never the layout, so a reload moved the node to a
+ * generated place. Runs after the import above, on the source it left. */
+test("a step added from the drop menu keeps its position once saved", async ({ page }) => {
+  await page.goto("/?token=e2e-token");
+  await page.getByRole("button", { name: "Pipeline", exact: true }).click();
+  await expect(page.locator(".react-flow__node")).toHaveCount(1);
+
+  const port = page.locator('.react-flow__node[data-id="source"] .react-flow__handle-right');
+  const start = (await port.boundingBox())!;
+  await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(start.x + 260, start.y + 220, { steps: 12 });
+  await page.mouse.up();
+  await page.getByTestId("add-step-menu").getByRole("menuitem", { name: "Autoscale" }).click();
+
+  const drawn = await page
+    .locator('.react-flow__node[data-id="autoscale"]')
+    .evaluate((element) => {
+      const [x, y] = getComputedStyle(element)
+        .transform.match(/-?\d+\.?\d*/g)!
+        .slice(-2)
+        .map(Number);
+      return { x: Math.round(x), y: Math.round(y) };
+    });
+
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect
+    .poll(async () => {
+      const state = await page.request.get("/api/pipelines/current/state", {
+        headers: { Authorization: "Bearer e2e-token" },
+      });
+      const stored = (await state.json()).layout.autoscale;
+      return stored && { x: Math.round(stored.x), y: Math.round(stored.y) };
+    })
+    .toEqual(drawn);
+});

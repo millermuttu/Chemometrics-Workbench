@@ -979,25 +979,7 @@ def put_pipeline(pipeline_id: str, body: PipelineWrite) -> Any:
     if pipeline_id not in ("current", str(existing.pipeline_id)):
         raise _fail(404, "not_found", f"no pipeline {pipeline_id}.", pipeline_id=pipeline_id)
 
-    # Constructed rather than `model_copy(update=...)`, which does not re-run
-    # validators: the DAG rules - unique ids, known inputs, at least one
-    # source, no cycles - are on `Pipeline` itself, and a copy would skip them.
-    try:
-        updated = Pipeline(
-            pipeline_id=existing.pipeline_id,
-            project_id=existing.project_id,
-            name=body.name or existing.name,
-            nodes=body.nodes,
-            created_at=existing.created_at,
-        )
-    except ValidationError as error:
-        first = error.errors()[0]
-        raise _fail(
-            422,
-            "invalid_pipeline",
-            str(first.get("msg", "the pipeline is not valid")),
-            field=".".join(str(part) for part in first["loc"]),
-        ) from error
+    updated = _replaced(existing, body)
 
     # A source node naming a dataset this project does not hold would be
     # accepted by the schema and then fail at run time with nothing to point
@@ -1076,10 +1058,43 @@ def put_layout(pipeline_id: str, body: LayoutWrite) -> Any:
     return {"pipeline_id": str(pipeline.pipeline_id), "layout": placed}
 
 
+def _replaced(existing: Pipeline, body: PipelineWrite) -> Pipeline:
+    """The stored pipeline with the client's recipe, validated as a whole.
+
+    Constructed rather than `model_copy(update=...)`, which does not re-run
+    validators: the DAG rules - unique ids, known inputs, at least one source,
+    no cycles - are on `Pipeline` itself, and a copy would skip them.
+    """
+    try:
+        return Pipeline(
+            pipeline_id=existing.pipeline_id,
+            project_id=existing.project_id,
+            name=body.name or existing.name,
+            nodes=body.nodes,
+            created_at=existing.created_at,
+        )
+    except ValidationError as error:
+        first = error.errors()[0]
+        raise _fail(
+            422,
+            "invalid_pipeline",
+            str(first.get("msg", "the pipeline is not valid")),
+            field=".".join(str(part) for part in first["loc"]),
+        ) from error
+
+
 @router.post("/pipelines/{pipeline_id}/validate")
-def validate_pipeline(pipeline_id: str) -> Any:
+def validate_pipeline(pipeline_id: str, body: PipelineWrite | None = None) -> Any:
+    """Check the stored pipeline, or the recipe in the body if one is sent.
+
+    The body is what the canvas is drawing, unsaved edits and drafts included
+    (#175). Validating the stored pipeline while the screen showed three draft
+    steps reported "valid" about a graph the user was not looking at. Nothing
+    is written either way.
+    """
     directory, _ = _project()
-    return validation_payload(_current_pipeline(directory))
+    pipeline = _current_pipeline(directory)
+    return validation_payload(pipeline if body is None else _replaced(pipeline, body))
 
 
 def _node_state(

@@ -122,3 +122,37 @@ test("an accepted edit is written to the pipeline, not only to the screen", asyn
   await inspector.getByRole("button", { name: "Apply and re-run" }).click();
   await expect.poll(() => savedWindow(page)).toBe(11);
 });
+
+/** #175. The inspector's metrics came from the experiment, whose numbers are
+ * the last estimator's in the graph, so every estimator showed the same ones
+ * and a PLS node was labelled "PC1". Asserted as equality with each node's own
+ * served result, not as "the two differ". */
+test("an estimator's metrics are its own result's", async ({ page }) => {
+  await page.goto("/?token=e2e-token");
+  await page.getByRole("button", { name: "Pipeline", exact: true }).click();
+  const inspector = page.getByRole("complementary", { name: "Inspector" });
+
+  for (const id of ["pca_a", "pca_d"]) {
+    const served = await (
+      await page.request.get(`/api/results/${id}`, {
+        headers: { Authorization: "Bearer e2e-token" },
+      })
+    ).json();
+    await page.locator(`.react-flow__node[data-id="${id}"]`).click();
+    await expect(inspector.locator(".kv", { hasText: "PC1 variance" })).toContainText(
+      served.explained_variance_ratio[0].toFixed(4),
+    );
+    await page.getByRole("tab", { name: "Pipeline" }).click();
+  }
+
+  const pls = await (
+    await page.request.get("/api/results/pls_d", {
+      headers: { Authorization: "Bearer e2e-token" },
+    })
+  ).json();
+  await page.locator('.react-flow__node[data-id="pls_d"]').click();
+  await expect(inspector.locator(".kv", { hasText: "RMSEC" }).first()).toContainText(
+    pls.metrics.rmsec.toFixed(4),
+  );
+  await expect(inspector.getByText("PC1 variance")).toHaveCount(0);
+});

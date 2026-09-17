@@ -340,6 +340,39 @@ def test_the_validator_runs_against_the_stored_pipeline(client: TestClient) -> N
     assert body["valid"] is True, "a source node alone has nothing wrong with it"
 
 
+def test_the_validator_checks_the_recipe_it_is_sent_and_writes_nothing(
+    client: TestClient,
+) -> None:
+    """#175: the canvas validates what it is drawing, drafts and all."""
+    imported(client)
+    stored = client.get("/api/pipelines/current", headers=AUTH).json()
+    drafted = [
+        *stored["nodes"],
+        {
+            "id": "plsda",
+            "type": "estimator",
+            "inputs": ["source"],
+            "spec": {"kind": "plsda", "n_components": 2, "class_column": "c"},
+        },
+    ]
+
+    body = client.post(
+        "/api/pipelines/current/validate", json={"nodes": drafted}, headers=AUTH
+    ).json()
+    assert body["valid"] is False
+    assert "estimator_not_fitted" in {w["code"] for w in body["warnings"]}
+    assert {w["node_id"] for w in body["warnings"]} == {"plsda"}
+    assert client.get("/api/pipelines/current", headers=AUTH).json() == stored
+
+    unknown = client.post(
+        "/api/pipelines/current/validate",
+        json={"nodes": [*stored["nodes"], {**drafted[-1], "inputs": ["ghost"]}]},
+        headers=AUTH,
+    )
+    assert unknown.status_code == 422
+    assert unknown.json()["error"]["code"] == "invalid_pipeline"
+
+
 # --------------------------------------------------------------------------
 # what a run leaves behind
 # --------------------------------------------------------------------------
