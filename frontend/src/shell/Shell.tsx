@@ -212,6 +212,7 @@ export function Shell() {
     if (!jobId || !settled) return;
     void queryClient.invalidateQueries({ queryKey: ["spectra"] });
     void queryClient.invalidateQueries({ queryKey: ["results"] });
+    void queryClient.invalidateQueries({ queryKey: ["coefficients"] });
     void queryClient.invalidateQueries({ queryKey: ["experiment"] });
   }, [settled, jobId, queryClient]);
 

@@ -1,8 +1,9 @@
 import Plotly from "plotly.js-gl2d-dist-min";
 import { useLayoutEffect, useRef, useState } from "react";
 
-import { useResults, type PcaPayload } from "@/api/queries";
+import { useCoefficients, useResults, type PcaPayload } from "@/api/queries";
 import {
+  coefficientTrace,
   ellipseTrace,
   loadingsTraces,
   outliers,
@@ -10,6 +11,7 @@ import {
   rmsecvTrace,
   scoresTrace,
   varianceFigure,
+  vipFigure,
 } from "@/plot/analysis";
 import { PLOT_CONFIG, axisLayout, baseLayout, readTheme } from "@/plot/theme";
 import { Panel } from "@/screens/analysis/Panel";
@@ -143,6 +145,93 @@ function Loadings({ pca }: { pca: PcaPayload }) {
       }
     >
       <div ref={host} data-testid="loadings-plot" style={{ flex: 1, minHeight: 0 }} />
+    </Panel>
+  );
+}
+
+/** VIP on the node's axis, or the coefficient vector folded back to the raw
+ * axis (#184). Both are things a reader of a calibration looks at beside the
+ * loadings, which is why this sits in the loadings' row. Nothing is computed:
+ * VIP arrives in the result and the folded vector from its own endpoint,
+ * which answers with a sentence when a step in the chain - SNV, MSC, a
+ * baseline - is not a fixed linear map and cannot be folded. */
+function VariableImportance({ pca }: { pca: PcaPayload }) {
+  const [view, setView] = useState<"vip" | "coefficients">("vip");
+  const coefficients = useCoefficients(pca.node_id);
+  const folded = coefficients.data;
+
+  const vipHost = usePlot(
+    (theme) => {
+      const figure = vipFigure(pca, theme);
+      return {
+        data: figure.data,
+        layout: {
+          shapes: figure.shapes,
+          xaxis: axisLayout(theme, `${pca.loadings.axis.kind} (${pca.loadings.axis.unit ?? ""})`),
+          yaxis: { ...axisLayout(theme, "VIP"), rangemode: "tozero" },
+          margin: { l: 48, r: 12, t: 8, b: 38 },
+        },
+      };
+    },
+    [pca, view],
+  );
+  const coefficientHost = usePlot(
+    (theme) => {
+      const trace = folded ? coefficientTrace(folded, theme) : null;
+      return {
+        data: trace ? [trace] : [],
+        layout: {
+          xaxis: axisLayout(
+            theme,
+            folded?.axis ? `${folded.axis.kind} (${folded.axis.unit ?? ""})` : "",
+          ),
+          yaxis: axisLayout(theme, "Coefficient"),
+          margin: { l: 48, r: 12, t: 8, b: 38 },
+        },
+      };
+    },
+    [folded, view],
+  );
+
+  const choose = (
+    <select
+      aria-label="Variable importance view"
+      className="mono"
+      value={view}
+      onChange={(event) => setView(event.target.value as "vip" | "coefficients")}
+      style={{
+        height: 18,
+        borderRadius: 3,
+        border: "1px solid var(--rule)",
+        background: "var(--surface)",
+        color: "var(--ink2)",
+        font: "inherit",
+        fontSize: 9.5,
+      }}
+    >
+      <option value="vip">VIP</option>
+      <option value="coefficients">Coefficients, raw axis</option>
+    </select>
+  );
+
+  return (
+    <Panel title="Variable importance" note={choose}>
+      {view === "vip" ? (
+        <div ref={vipHost} data-testid="vip-plot" style={{ flex: 1, minHeight: 0 }} />
+      ) : folded?.available ? (
+        <div ref={coefficientHost} data-testid="coefficients-plot" style={{ flex: 1, minHeight: 0 }} />
+      ) : (
+        <div
+          role="note"
+          data-testid="coefficients-unavailable"
+          className="empty"
+          style={{ padding: 12, lineHeight: 1.4 }}
+        >
+          {/* The server's own sentence, which names the step. "Not available"
+              alone would leave the reader guessing which node to blame. */}
+          {folded ? folded.reason : coefficients.isError ? "Could not load the coefficients." : "Loading…"}
+        </div>
+      )}
     </Panel>
   );
 }
@@ -431,6 +520,7 @@ export function AnalysisResults({ nodeId, title }: { nodeId: string; title: stri
         <div style={{ display: "flex", gap: 12, flex: 1, minHeight: 0 }}>
           <Scores pca={pca} />
           <Loadings pca={pca} />
+          {regression && <VariableImportance pca={pca} />}
         </div>
         <div style={{ display: "flex", gap: 12, flex: 1, minHeight: 0 }}>
           <Variance pca={pca} />
