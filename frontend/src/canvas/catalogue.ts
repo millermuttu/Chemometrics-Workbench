@@ -11,11 +11,10 @@
  *
  * **Only kinds this build can actually run.** `models.py` defines sixteen;
  * these are the ones with a kernel behind them. PLS-DA has no kernel
- * (`executor.py` `_FITTED`), and of the splitters only k-fold and
- * leave-one-out execute - `train_test`, `repeated_kfold` and `external` raise
- * at run time. Offering them here would let the canvas build a pipeline that
- * looks fine and dies when it is run, which is a worse answer than a shorter
- * menu.
+ * (`executor.py` `_FITTED`), and of the splitters k-fold, leave-one-out and
+ * train/test execute - `repeated_kfold` and `external` raise at run time.
+ * Offering those here would let the canvas build a pipeline that looks fine
+ * and dies when it is run, which is a worse answer than a shorter menu.
  */
 import type { DraftStep } from "@/canvas/graph";
 
@@ -101,6 +100,13 @@ export function stepMenu(targets: string[]): CatalogueStep[] {
       type: "split",
       parameters: "10 folds · shuffle · seed 42",
       payload: { spec: { kind: "kfold", n_splits: 10, shuffle: true, seed: 42 } },
+    },
+    {
+      // One hold-out (#183): RMSEP on the held-out rows, no RMSECV.
+      kind: "Train/test 25%",
+      type: "split",
+      parameters: "25% held out · seed 42",
+      payload: { spec: { kind: "train_test", test_size: 0.25, seed: 42 } },
     },
   ];
 }

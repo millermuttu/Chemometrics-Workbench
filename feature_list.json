@@ -415,8 +415,8 @@
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
         "pnpm exec playwright test - a train/test split added below a PLS on the seeded project, run, and the result's validation.observed count equals round(test_size * n)"
       ],
-      "status": "not_started",
-      "evidence": "",
+      "status": "passing",
+      "evidence": "2026-09-18. validation.train_test per metrics-and-validation.md section 8.6: ceil(test_size * n) as the first slice of the section 8.2 permutation, one Fold, refused when nothing is left to calibrate on; test_train_test_holds_out_the_ceiling_of_the_fraction_from_the_permutation checks the worked permutation by hand. Executor: _folds_for resolves TrainTestSplit and refuses stratify_by by name; _State.display returns the one array below a single fold; _pls computes the CV block only for more than one fold. test_a_train_test_split_holds_out_once_and_reports_p_metrics (60 of 240 held out, rmsep and sep present, rmsecv and q2 absent, training rows centred to zero, held-out rows not) and test_stratifying_a_train_test_split_is_refused_by_name. `uv run pytest` 827 passed 1 skipped; ruff, format, mypy clean. Frontend: Train/test 25% on the drop menu, nodeLabel and parameterLine know the kind; `pnpm test` 113 passed; typecheck, lint, build clean. e2e `a train/test split runs, and its PLS reports on the held-out set` (runs project: split_d swapped to train_test through the API, the failing branch dropped, the inspector shows Test Size 0.25, Run reaches Done, the PLS tab reads `2250 calibration · 750 held out`, RMSEP a number and RMSECV an em dash): against dev's executor, validation, catalogue, Sidebar and graph it FAILED (`locator.dblclick: Test timeout` - the node had no Train/test label); with the fix `pnpm exec playwright test` 52 passed (1.6m), the menu assertion in pipeline.spec.ts included.",
       "notes": "stratify_by stays unimplemented until PLS-DA brings a class column; a spec that sets it is refused at run time by name."
     },
     {

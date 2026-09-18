@@ -45,6 +45,7 @@ from chemometrics_workbench.models import (
     PLSRegressionSpec,
     PreprocessNode,
     RangeSelect,
+    RepeatedKFoldSplit,
     SavitzkyGolay,
     SourceNode,
     SplitNode,
@@ -584,13 +585,71 @@ def test_a_split_below_a_split_is_refused_by_name(
 
 
 def test_a_split_with_no_splitter_yet_says_so(project: tuple[Path, DatasetVersion]) -> None:
-    """Three of the five split specs have no kernel. That is said, not guessed at."""
+    """Two of the five split specs have no kernel. That is said, not guessed at."""
     directory, version = project
     pipeline = _pipeline(
         version.version_id,
-        SplitNode(id="holdout", inputs=("source",), spec=TrainTestSplit(test_size=0.3)),
+        SplitNode(
+            id="repeated",
+            inputs=("source",),
+            spec=RepeatedKFoldSplit(n_splits=3, n_repeats=2),
+        ),
     )
-    with pytest.raises(ExecutorError, match="'train_test' split, which has no splitter yet"):
+    with pytest.raises(ExecutorError, match="'repeated_kfold' split, which has no splitter yet"):
+        execute(directory, pipeline, version)
+
+
+def test_a_train_test_split_holds_out_once_and_reports_p_metrics(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    """#183, `metrics-and-validation.md` §8.6: one fold, metrics with the P
+    suffix and none with CV, and the node below it displays the one array its
+    training rows' parameters produced."""
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="holdout", inputs=("source",), spec=TrainTestSplit(test_size=0.25, seed=42)),
+        PreprocessNode(id="centre", inputs=("holdout",), step=MeanCentre()),
+        EstimatorNode(
+            id="pls", inputs=("centre",), spec=PLSRegressionSpec(n_components=3, target="fat")
+        ),
+    )
+    run = execute(directory, pipeline, version)
+
+    [resolved] = run.resolved_splits
+    [fold] = validation.train_test(version.n_samples, 0.25, seed=42)
+    assert resolved.test_indices == [fold.test.tolist()]
+    assert len(fold.test) == 60
+
+    result = run.results["pls"]
+    assert result.fold == 0
+    assert result.held_out == fold.test.tolist()
+    assert {"rmsec", "r2", "rmsep", "sep"} <= set(result.metrics)
+    for absent in ("rmsecv", "q2", "rmsecv_std", "rmsecv_a1"):
+        assert absent not in result.metrics
+    assert len(result.held_out_predicted) == 60
+
+    # One array, centred by the training rows' mean: those rows average to
+    # zero and the held-out ones, pushed through the same mean, do not.
+    display = run.displays["centre"]
+    assert display.shape == (version.n_samples, version.n_variables)
+    np.testing.assert_allclose(display[fold.train].mean(axis=0), 0.0, atol=1e-4)
+    assert abs(display[fold.test].mean()) > 1e-4
+
+
+def test_stratifying_a_train_test_split_is_refused_by_name(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(
+            id="holdout",
+            inputs=("source",),
+            spec=TrainTestSplit(test_size=0.25, stratify_by="batch"),
+        ),
+    )
+    with pytest.raises(ExecutorError, match="stratify by 'batch', which is not implemented"):
         execute(directory, pipeline, version)
 
 

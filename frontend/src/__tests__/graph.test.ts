@@ -44,6 +44,14 @@ describe("nodes", () => {
     expect(parameterLine(savgol)).toBe("window 11 · poly 2 · deriv 1");
     const split = pipeline.nodes.find((node) => node.id === "split_d")!;
     expect(parameterLine(split)).toBe("10 folds · shuffle · seed 42");
+    // #183: a hold-out reads as its fraction, which is what the menu offered.
+    const holdout: PipelineNode = {
+      id: "holdout",
+      type: "split",
+      inputs: ["source"],
+      spec: { kind: "train_test", test_size: 0.25, seed: 42 },
+    };
+    expect(parameterLine(holdout)).toBe("25% held out · seed 42");
   });
 
   it("carry the reason and the failure as footers, because that is the useful part", () => {
