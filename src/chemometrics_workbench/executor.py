@@ -40,6 +40,17 @@ estimator below it reports RMSEP and SEP on the held-out rows and nothing with
 a CV suffix, because one hold-out is not a cross-validation
 (`metrics-and-validation.md` §8.6).
 
+## What a run holds in memory
+
+Nothing it has finished with (#176). Every node's arrays are released the
+moment its last consumer has run - a count of pending consumers per node,
+decremented as the walk goes - so a run holds the arrays of the frontier, not
+of the graph. The display array is written to the store when its node
+completes, under `<key>#display` in the index, so the spectra endpoint reads
+one array rather than assembling k fold arrays on every request; and
+`Run.displays` reads from the store on access rather than holding anything,
+which is what lets a finished job sit in the job table costing nothing.
+
 ## Caching, and what invalidates it
 
 Each node has a key: the SHA-256 of its own JSON together with the keys of its
@@ -101,7 +112,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable
+from collections import Counter
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import asdict, dataclass, field, fields, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -160,6 +172,7 @@ __all__ = [
     "Progress",
     "Run",
     "RunCancelled",
+    "StoredDisplays",
     "assign_classes",
     "capture_environment",
     "classification_metrics",
@@ -402,18 +415,40 @@ class EstimatorResult:
         return cls(**{key: value for key, value in document.items() if key in known})
 
 
+class StoredDisplays(Mapping[NodeId, NDArray[np.float64]]):
+    """`Run.displays`: each node's display array, read from the store on access.
+
+    A mapping rather than a dict of arrays (#176): a `Run` sits in the job
+    table for the life of the process, and one that held every node's display
+    would keep a whole run's worth of float64 resident after it finished.
+    Reading on access costs one `np.load` per look and holds nothing.
+    """
+
+    def __init__(self, directory: Path, paths: dict[NodeId, str]) -> None:
+        self._directory = directory
+        self._paths = dict(paths)
+
+    def __getitem__(self, node_id: NodeId) -> NDArray[np.float64]:
+        return read_array(self._directory, self._paths[node_id])
+
+    def __iter__(self) -> Iterator[NodeId]:
+        return iter(self._paths)
+
+    def __len__(self) -> int:
+        return len(self._paths)
+
+
 @dataclass(frozen=True)
 class Run:
     """What one execution produced.
 
-    `displays` holds the arrays in memory because every caller in 1.2 wants
-    them immediately — the spectra endpoint to decimate, the tests to compare.
-    They are on disk as well, at the paths in `outputs`.
+    `displays` reads from the store on access; the arrays are on disk at the
+    paths in `outputs`, and nothing here holds one (#176).
     """
 
     pipeline_id: str
     outputs: dict[NodeId, NodeOutput]
-    displays: dict[NodeId, NDArray[np.float64]]
+    displays: Mapping[NodeId, NDArray[np.float64]]
     resolved_splits: list[ResolvedSplit]
     results: dict[NodeId, EstimatorResult]
     pending_estimators: list[NodeId]
@@ -489,10 +524,21 @@ def execute(
 
     states: dict[NodeId, _State] = {}
     outputs: dict[NodeId, NodeOutput] = {}
+    display_paths: dict[NodeId, str] = {}
     splits: list[ResolvedSplit] = []
     results: dict[NodeId, EstimatorResult] = {}
     pending: list[NodeId] = []
     index_changed = False
+
+    # How many nodes still need each node's arrays. When it reaches zero the
+    # arrays are let go (#176): a run holds its frontier, not its history.
+    consumers = Counter(parent for node in pipeline.nodes for parent in node.inputs)
+
+    def release(node: PipelineNode) -> None:
+        for parent in node.inputs:
+            consumers[parent] -= 1
+            if consumers[parent] <= 0:
+                states.pop(parent, None)
 
     ordered = _topological(pipeline)
     completed = 0
@@ -519,6 +565,7 @@ def execute(
             results[node.id] = _estimator(
                 node, states[node.inputs[0]], keys[node.id], path, use_cache, version
             )
+            release(node)
             announce(node)
             continue
 
@@ -527,7 +574,6 @@ def execute(
         folds = _folds_for(node, parent, version.n_samples)
 
         cached = _from_cache(path, index.get(key), folds) if use_cache else None
-        state = cached or _compute(node, parent, folds, path, version, axis)
 
         stored: list[str] = []
         hashes: list[str] = []
@@ -536,22 +582,34 @@ def execute(
             # float32 copy, a serialisation and a SHA-256 per array, per fold,
             # on every run that recomputed nothing (#174). The store is
             # content-addressed, so the hash is the file's name.
+            state = cached
             stored = list(index[key])
             hashes = [f"sha256:{Path(p).stem}" for p in stored]
         else:
-            for values in state.arrays:
+            # One fold at a time (#176): computed, written, and read back
+            # before the next is computed, so a node below a k-fold holds its
+            # k stored arrays and one transient, never k computed and k read
+            # back at once. Read back rather than kept, so a node's successors
+            # are fed the stored values rather than the float64 they were
+            # computed in: otherwise a run that hit the cache and a run that
+            # recomputed would disagree in the last few digits, and a cache
+            # would be something that changes an answer. The narrowing itself
+            # stays where #77 put it, at the store. A split's folds are one
+            # array k times, and one file, and are read back once.
+            arrays: list[NDArray[np.float64]] = []
+            read_back: dict[str, NDArray[np.float64]] = {}
+            for values in _computed(node, parent, folds, path, version, axis):
                 array_path, content_hash = write_array(path, values)
+                del values
                 stored.append(array_path)
                 hashes.append(content_hash)
-
-        if cached is None:
-            # Read back what was written, so a node's successors are fed the
-            # stored values rather than the float64 they were computed in.
-            # Otherwise a run that hit the cache and a run that recomputed
-            # would disagree in the last few digits, and a cache would be
-            # something that changes an answer. The narrowing itself stays
-            # where #77 put it, at the store.
-            state = _State(arrays=[read_array(path, p) for p in stored], folds=folds)
+                # A split's k folds are one array and one file, so the read
+                # back happens once and every fold shares it.
+                if array_path not in read_back:
+                    read_back[array_path] = read_array(path, array_path)
+                arrays.append(read_back[array_path])
+            del read_back
+            state = _State(arrays=arrays, folds=folds)
 
         states[node.id] = state
         if node.type == "split":
@@ -560,6 +618,25 @@ def execute(
         if use_cache and index.get(key) != stored:
             index[key] = stored
             index_changed = True
+
+        # The display array, stored once at completion (#176). Above a split it
+        # is the node's one array and costs nothing - the same content hash is
+        # the same file; below one it is the out-of-fold assembly, written so
+        # `stored_display` reads one array rather than k. A cache hit whose
+        # index already names it writes nothing (#174).
+        display_key = f"{key}#display"
+        known = index.get(display_key) if use_cache and cached is not None else None
+        if known and (path / known[0]).is_file():
+            display_paths[node.id] = known[0]
+        else:
+            display_path = (
+                stored[0] if len(state.arrays) == 1 else write_array(path, state.display)[0]
+            )
+            display_paths[node.id] = display_path
+            if use_cache and index.get(display_key) != [display_path]:
+                index[display_key] = [display_path]
+                index_changed = True
+        release(node)
 
         outputs[node.id] = NodeOutput(
             node_id=node.id,
@@ -578,7 +655,7 @@ def execute(
     return Run(
         pipeline_id=str(pipeline.pipeline_id),
         outputs=outputs,
-        displays={nid: state.display for nid, state in states.items()},
+        displays=StoredDisplays(path, display_paths),
         resolved_splits=splits,
         results=results,
         pending_estimators=pending,
@@ -794,15 +871,20 @@ def _folds_for(node: PipelineNode, parent: _State | None, n_samples: int) -> lis
     return folds
 
 
-def _compute(
+def _computed(
     node: PipelineNode,
     parent: _State | None,
     folds: list[Fold] | None,
     directory: Path,
     version: DatasetVersion,
     axis: NDArray[np.float64],
-) -> _State:
-    """One node's arrays, computed from its input's."""
+) -> Iterator[NDArray[np.float64]]:
+    """One node's arrays, computed from its input's, one at a time.
+
+    A generator so the walk can store each fold before the next exists
+    (#176): below a ten-fold split the alternative held ten float64 arrays it
+    was about to narrow and discard.
+    """
     if node.type == "source":
         try:
             values = read_array(directory, version.array_path)
@@ -816,7 +898,8 @@ def _compute(
                 f"the version records {version.n_samples}x{version.n_variables}.",
                 node.id,
             )
-        return _State(arrays=[values], folds=None)
+        yield values
+        return
 
     assert parent is not None, "only a source node has no input, and it returned above"
 
@@ -826,7 +909,9 @@ def _compute(
         # in the content-addressed store - and the nodes below diverge from
         # there.
         assert folds is not None, "a split node always resolves its folds"
-        return _State(arrays=[parent.arrays[0]] * len(folds), folds=folds)
+        for _ in folds:
+            yield parent.arrays[0]
+        return
 
     if node.type != "preprocess":
         raise ExecutorError(
@@ -834,19 +919,15 @@ def _compute(
         )
 
     if folds is None:
-        return _State(arrays=[_transform(node, parent.arrays[0], None, axis)], folds=None)
+        yield _transform(node, parent.arrays[0], None, axis)
+        return
 
     # §9: refitted on the training fold alone, and the held-out rows pushed
     # through those parameters. Fitting on `values[fold.train]` and then
     # transforming every row gives both in one call, because a fitted
     # transformer treats each row independently of the others.
-    return _State(
-        arrays=[
-            _transform(node, values, fold, axis)
-            for values, fold in zip(parent.arrays, folds, strict=True)
-        ],
-        folds=folds,
-    )
+    for values, fold in zip(parent.arrays, folds, strict=True):
+        yield _transform(node, values, fold, axis)
 
 
 def _transform(
@@ -1357,10 +1438,20 @@ def stored_display(
     keys = node_keys(pipeline, version)
     if node_id not in keys:
         return None
-    paths = read_cache_index(path).get(keys[node_id])
+    index = read_cache_index(path)
+    paths = index.get(keys[node_id])
     if not paths:
         return None
 
+    # The assembly stored at run time (#176), one read. An index written
+    # before it was kept falls back to assembling from the fold arrays, which
+    # is the same array by construction.
+    stored = index.get(f"{keys[node_id]}#display")
+    if stored:
+        try:
+            return read_array(path, stored[0])
+        except ProjectError:
+            pass
     by_id = {node.id: node for node in pipeline.nodes}
     folds = governing_folds(node_id, by_id, version.n_samples)
     state = _from_cache(path, paths, folds)

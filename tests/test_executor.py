@@ -309,6 +309,61 @@ def test_the_split_resolves_its_folds_and_records_them(
 # --------------------------------------------------------------------------
 
 
+def test_a_run_holds_no_arrays_and_reads_its_displays_from_the_store(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    """#176: `Run.displays` is a mapping over the store, not a dict of arrays,
+    and every node's display array is indexed beside its fold arrays - the
+    same file above a split, an assembled one below it."""
+    directory, version = project
+    pipeline = fixture_pipeline(version.version_id)
+    run = execute(directory, pipeline, version)
+
+    assert not isinstance(run.displays, dict)
+    assert not any(isinstance(value, np.ndarray) for value in vars(run).values())
+    assert set(run.displays) == {n.id for n in pipeline.nodes if n.type != "estimator"}
+    assert run.displays["centre_d"].shape == (version.n_samples, version.n_variables)
+
+    index = read_cache_index(directory)
+    keys = node_keys(pipeline, version)
+    for node in pipeline.nodes:
+        if node.type == "estimator":
+            continue
+        display = index[f"{keys[node.id]}#display"]
+        assert len(display) == 1
+        if node.id == "centre_d":
+            # Below the split: the out-of-fold assembly is its own file.
+            assert display[0] not in index[keys[node.id]]
+        else:
+            assert display == index[keys[node.id]][:1]
+
+
+def test_stored_display_reads_the_stored_assembly_and_assembles_for_an_old_index(
+    project: tuple[Path, DatasetVersion], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from chemometrics_workbench.executor import stored_display
+
+    directory, version = project
+    pipeline = fixture_pipeline(version.version_id)
+    run = execute(directory, pipeline, version)
+    expected = run.displays["centre_d"]
+
+    fresh = stored_display(directory, pipeline, version, "centre_d")
+    assert fresh is not None
+    np.testing.assert_array_equal(fresh, expected)
+
+    # A project whose index predates the display entries (#176) still serves
+    # the same array, assembled from its fold arrays.
+    monkeypatch.setattr(
+        executor_module,
+        "read_cache_index",
+        lambda path: {k: v for k, v in read_cache_index(path).items() if "#display" not in k},
+    )
+    old = stored_display(directory, pipeline, version, "centre_d")
+    assert old is not None
+    np.testing.assert_array_equal(old, expected)
+
+
 def test_a_second_run_recomputes_nothing(project: tuple[Path, DatasetVersion]) -> None:
     directory, version = project
     pipeline = fixture_pipeline(version.version_id)

@@ -358,11 +358,13 @@
       "depends_on": [],
       "user_visible_behavior": "A 10-fold branch at the section 13 envelope runs within memory.",
       "verification": [
-        "to be designed"
+        "uv run pytest - a run holds no arrays and reads its displays from the store; stored_display serves the stored assembly and still assembles for an index written before it",
+        "uv run python -m tests.memory_probe 6000 1200 - peak resident memory of a ten-fold branch, against the same probe on the previous executor",
+        "pnpm exec playwright test - the spectra and analysis screens read the same arrays they did"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-09-18. Three changes, one entry. (1) A node's arrays are released when its last consumer has run: a Counter of pending consumers per node, decremented as the walk goes, so a run holds its frontier rather than its history. (2) A node that recomputes streams one fold at a time - _compute became the _computed generator, and the walk writes and reads back each fold before the next exists - where it used to hold k computed float64 arrays and then k read back. (3) Run.displays is StoredDisplays, a Mapping that reads from the store on access, and each node's display array is written at completion under <key>#display in the index, so a finished run in the job table holds nothing and the spectra endpoint reads one array instead of assembling k. Measured with the committed probe on this machine: `uv run python -m tests.memory_probe 6000 1200` gives peak RSS 1919 MB (30.4 arrays of 54.9 MB above baseline) on dev's executor and 1002 MB (13.7 arrays) with the change; at 3000 x 1200, 1048 MB (31.0) becomes 616 MB (15.3). Run time is unchanged (4.4 s both). test_a_run_holds_no_arrays_and_reads_its_displays_from_the_store asserts the mapping type, that no ndarray is reachable from the Run, and that every node has a display entry - its own file above a split, an assembled one below it; test_stored_display_reads_the_stored_assembly_and_assembles_for_an_old_index covers the fallback for a project whose index predates the entries. `uv run pytest` 863 passed 1 skipped; ruff, format, mypy clean; `pnpm exec playwright test` 57 passed (2.5m).",
+      "notes": "The floor is now the current node's k fold arrays plus one transient, which is what the probe's ~14 arrays are: ten folds of the node being computed, its parent's, and the read-back. Going below that means keeping fold arrays on disk and reading per fold inside the estimators, which is a larger change for a smaller win and is not filed. An id()-based dedupe of a split's repeated array was tried and reverted: a freed array's address is reused, so it paired folds with the wrong file - caught by test_executor, and worth remembering."
     },
     {
       "id": "review-fixes-version-404-stale",
