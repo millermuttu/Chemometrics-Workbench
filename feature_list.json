@@ -1,6 +1,6 @@
 {
-  "phase": "Phase 2 - comparison and direct manipulation",
-  "exit_criterion": "PROPOSAL.md section 16: \"A complete calibration workflow on a real NIR dataset matches reference software within stated tolerance.\" Concretely, and demonstrated rather than reasoned: a real NIR dataset is imported, preprocessed, split, fitted with PLS, cross-validated and read back - the metrics, the predicted-versus-actual plot and the residuals - without leaving the application, and the numbers agree with the parity programme's reference within the tolerances docs/parity-report.md publishes. The phase ends when that run is recorded with its evidence, not when every entry below is passing. Section 16 also names PLS regression and PLS-DA, the full validation suite, Hotelling T2, SPE, VIP and contribution plots, predicted-versus-actual and residual plots, a train/test splitting UI, and the Bruker OPUS reader. Of those PLS has a kernel and is parity-covered, but the executor does not fit it - that is #142, the critical path to this criterion and untracked until 2026-09-05. The rest have no entry on this list yet, and the list is not complete until they do.",
+  "phase": "Phase 3 - reproducibility and export",
+  "exit_criterion": "PROPOSAL.md section 16: \"Two models differing only in preprocessing can be compared step by step; an exported model reproduces application predictions within tolerance in a clean environment.\" Concretely, and demonstrated rather than reasoned: the application exports a fitted PLS model as the three artifacts section 9 names, a script installs nothing but NumPy in a fresh environment, runs the exported snippet against the same spectra, and the predictions agree with the served ones within a tolerance this list states; and the comparison view shows, for two experiments on one dataset, exactly which pipeline nodes differ and what each model scored. The phase ends when both are recorded with their evidence.",
   "status_values": [
     "not_started",
     "in_progress",
@@ -9,546 +9,133 @@
   ],
   "features": [
     {
-      "id": "feature-list-checker",
+      "id": "experiment-history",
+      "priority": 1,
+      "area": "backend",
+      "issue": null,
+      "title": "An experiment history, not only the last run",
+      "depends_on": [],
+      "user_visible_behavior": "The outline lists every experiment this project has run, newest first, with its status, its pipeline hash and its headline metric; opening one shows what it ran and what it scored.",
+      "verification": [
+        "uv run pytest - read_experiments returns every recorded run in order and GET /experiments serves them; the existing /experiments/current is unchanged",
+        "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
+        "pnpm exec playwright test - the seeded project lists more than one experiment after a second run"
+      ],
+      "status": "not_started",
+      "evidence": "",
+      "notes": "The table already keeps every experiment; `read_experiment` returns the most recently started and nothing reads the rest (project.py). This is the read side plus a screen, not a schema change. It is the spine the comparison view hangs from."
+    },
+    {
+      "id": "model-artifact",
+      "priority": 1,
+      "area": "backend",
+      "issue": null,
+      "title": "The model artifact: one self-describing file",
+      "depends_on": [
+        "experiment-history"
+      ],
+      "user_visible_behavior": "A fitted estimator can be saved as one file that carries the pipeline definition, the fitted parameters, the provenance record and the metrics, and that file can be read back without this application.",
+      "verification": [
+        "A documented schema under docs/, written before the writer",
+        "uv run pytest - an artifact round-trips through the writer and reader; a file written by a newer schema version is refused by name",
+        "The artifact opens with nothing but the standard library and NumPy, asserted in the test"
+      ],
+      "status": "not_started",
+      "evidence": "",
+      "notes": "PROPOSAL.md section 8.4. `models.py` already has an unused `Model` with `artifact_path` and `artifact_hash`; the file format is what is missing. Openly documented and readable without the application is the requirement, so a zip of JSON plus .npy rather than a pickle."
+    },
+    {
+      "id": "model-registry",
+      "priority": 2,
+      "area": "frontend",
+      "issue": null,
+      "title": "A model registry: which models this project holds",
+      "depends_on": [
+        "model-artifact"
+      ],
+      "user_visible_behavior": "Saving a fitted estimator records it in the project with its name, its task, the experiment it came from and its metrics; the outline lists them and one can be opened.",
+      "verification": [
+        "uv run pytest - a saved model is recorded and served; its artifact reference is a path and never contents",
+        "pnpm exec playwright test - a model saved from the analysis tab appears in the outline"
+      ],
+      "status": "not_started",
+      "evidence": "",
+      "notes": "The `model` table and the `Model` schema exist. The database stores the reference; the artifact is a file, per PROPOSAL.md section 11."
+    },
+    {
+      "id": "json-and-snippet-export",
+      "priority": 1,
+      "area": "backend",
+      "issue": null,
+      "title": "JSON model and a standalone Python prediction snippet",
+      "depends_on": [
+        "model-artifact"
+      ],
+      "user_visible_behavior": "A fitted regression exports as a documented JSON model - the preprocessing steps with their parameters, the coefficients, the intercept and the scaling - and as a self-contained Python function that depends only on NumPy and reproduces the application's predictions.",
+      "verification": [
+        "A documented JSON schema under docs/, written before the writer",
+        "uv run pytest - the exported snippet, executed in a subprocess with only NumPy importable, reproduces the served predictions within the parity harness's prediction tolerance",
+        "The same test covers a chain that cannot be folded: the snippet carries the residual preprocessing and still reproduces the predictions"
+      ],
+      "status": "not_started",
+      "evidence": "",
+      "notes": "PROPOSAL.md section 9. `regression.coefficients_original_units` already folds a foldable chain and says by name when it cannot (#144), and `/results/{id}/coefficients` serves it. The constraint section 9 places on the codebase - exported predictions match in-application predictions within a stated tolerance, verified in CI - is this entry's verification, not a promise."
+    },
+    {
+      "id": "lineage-comparison",
+      "priority": 1,
+      "area": "frontend",
+      "issue": null,
+      "title": "Two experiments compared step by step",
+      "depends_on": [
+        "experiment-history"
+      ],
+      "user_visible_behavior": "Two experiments on one dataset are shown side by side with exactly which pipeline nodes differ - added, removed or edited - and what each scored, so a reader can see that two models differ only in their scatter correction.",
+      "verification": [
+        "pnpm test - the diff of two pipeline snapshots is pure and tested: a node added, a node removed, a parameter changed, and a graph that differs only in layout reported as identical",
+        "pnpm exec playwright test - the seeded project compares two experiments and names the node that differs"
+      ],
+      "status": "not_started",
+      "evidence": "",
+      "notes": "PROPOSAL.md section 8.3 calls this the single feature most likely to make a researcher prefer this tool to a notebook, and says it is free once the model is correct. `Experiment.pipeline_snapshot` is the snapshot by value that makes it possible; `CompareResults` already compares two results and is the screen to build on."
+    },
+    {
+      "id": "html-report",
+      "priority": 3,
+      "area": "backend",
+      "issue": null,
+      "title": "An HTML report of one experiment",
+      "depends_on": [
+        "experiment-history",
+        "lineage-comparison"
+      ],
+      "user_visible_behavior": "One experiment exports as a standalone HTML file carrying its pipeline, its metrics, its plots and its provenance, openable in a browser with no application and no network.",
+      "verification": [
+        "uv run pytest - the report is one file, references nothing external, and carries the experiment's own numbers",
+        "pnpm exec playwright test - the exported file opens and shows the scores plot"
+      ],
+      "status": "not_started",
+      "evidence": "",
+      "notes": "PROPOSAL.md section 16 names HTML/PDF reporting. HTML first and PDF deferred: a browser prints a PDF and a PDF library is a dependency with weight, which section 7's rule is about."
+    },
+    {
+      "id": "phase-3-exit-run",
       "priority": 0,
       "area": "process",
-      "issue": 138,
-      "title": "The clean-state checklist's third check has a command behind it",
-      "depends_on": [],
-      "user_visible_behavior": "`uv run python -m tests.check_feature_list` prints `feature_list.json consistent`, or one line per problem and a non-zero exit.",
-      "status": "passing",
-      "verification": [
-        "uv run python -m tests.check_feature_list - prints the sentence and exits 0.",
-        "The same, on each of the four archived lists under docs/phase-*/.",
-        "uv run pytest tests/test_check_feature_list.py - every rule shown failing.",
-        "uv run ruff check && uv run ruff format --check && uv run mypy && uv run pytest"
-      ],
-      "evidence": "2026-09-05. `uv run python -m tests.check_feature_list` printed 'feature_list.json consistent', exit 0, and did the same on all four of docs/phase-0, phase-1-1, phase-1-2, phase-1-3. Run against a deliberately broken copy of the live list it printed three problems and exited 1: \"'row-mapping-said-once' is passing with empty evidence\", \"'canvas-compare-and-duplicate' depends on 'ghost', which is not in this list\", \"2 features are in_progress (pending-estimator-is-announced, range-select-axis-follows-data). At most one may be.\" `uv run pytest` - 775 passed, 1 skipped (758 before, +17 in tests/test_check_feature_list.py). `uv run ruff check`, `uv run ruff format --check` (75 files) and `uv run mypy` (51 source files) all exit 0.",
-      "notes": "clean-state-checklist.md:29 asked check 3 to pass 'when it prints feature_list.json consistent' and nothing in the repository printed it - no script, no test, no scripts/ or tools/ directory. The one check whose purpose is catching a passing with nothing behind it passed by being read, which is #131's second item one level up. The module checks only the mechanical half and the checklist now says so explicitly: whether an evidence string records a real run or a description of one is a person reading it, and a command claiming otherwise would be the same failure again. tests/parity_report.py is the precedent for a runnable module under tests/ that is not a test. Deliberately not wired into CI - that is a separate decision and one line if it is wanted."
-    },
-    {
-      "id": "range-select-axis-follows-data",
-      "priority": 0,
-      "area": "backend",
-      "issue": 134,
-      "title": "A node under a range selection can be plotted",
-      "depends_on": [],
-      "user_visible_behavior": "Selecting a wavelength range no longer empties the spectra plot for the rest of the branch. Every node downstream of a range_select draws against the axis it actually has.",
-      "status": "passing",
-      "verification": [
-        "GET /api/spectra/{node} returns a payload for a node under a range_select, with axis.values matching the selection rather than the dataset.",
-        "GET /api/results/{node} under a range selection returns loadings.axis the same length as its components.",
-        "The axis is correct for two chained range selections, and for a sibling branch that has none.",
-        "uv run pytest - the existing suite, plus a case asserting the axis a selected node reports."
-      ],
-      "evidence": "2026-09-05. Against the live mango project over HTTP, after the fix: GET /api/spectra/{node} returns an aligned payload for every node under the 500-1000 nm selection - vis_nir, snv, snv_d1 and d2 each 167 axis values [501-999 nm] against 167 trace points, while source and full_centre stay 306 [285-1200 nm]. Every one of the four was a 500 before. GET /api/results/{node}: pca_snv and pca_d2 now publish 167 axis values [501-999 nm] beside 167 loadings, where they published 306 [285-1200 nm] beside 167 with no error; pca_full is unchanged at 306/306. uv run pytest - 787 passed, 1 skipped (775 before, +12 in tests/test_node_axis.py: the source axis, a selection, inheritance down the chain, two selections composing, a sibling branch unaffected, a descending wavenumber axis, both payloads, and both refusals). uv run ruff check, ruff format --check (76 files) and mypy (52 source files) exit 0. Frontend: npx tsc -b --noEmit and npx vitest run - 10 files, 77 tests passed, unchanged, because the payload shape did not move.",
-      "notes": "Found running the application end to end against the mango dry-matter set (Anderson et al. 2020, 285-1200 nm, 7413 x 306), whose first necessary step is a range selection because 285-500 nm and 1191-1200 nm are zero-padded dark channels. The axis is computed and discarded, not unknown: RangeSelectTransformer.selected_axis() exists at preprocessing.py:478, the executor deliberately keeps no per-node axis (executor.py:5-8), and spectra_payload reads only version.axis.values (api.py:588) before raising at api.py:595. The fix that keeps the executor's guarantees is to fold the range_select masks down the node's ancestry in the HTTP layer - a pure function of the recipe, so no new cached state and no content hash moves. Carrying an axis beside each node's array in the executor is the other option and the larger one. Found on picking it up: results/{node} has the same cause and does not raise - results_payload builds loadings.axis from version.axis unconditionally (api.py:443-450), so pca_snv under a 500-1000 nm selection served 167 loadings against a 306-value axis with no error. One bug, two symptoms; the fix belongs at the shared question of what axis a node is on, not in either payload. Fixed by node_axis(pipeline, node_id, version) in api.py, which folds the range_select steps down the node's ancestry - a pure function of the recipe, so it reads no array and cannot move a content hash or invalidate a cache entry, which is what let the executor keep its no-per-node-axis guarantee. The mask comes from RangeSelectTransformer rather than being restated, so the interval's meaning is stated once. Both payloads take an optional axis and both now check it: the spectra 500 stays for a width no step accounts for, and results_payload gained the same check, because serving a mismatch silently is worse than refusing. Impact measured on the way past: frontend/src/plot/analysis.ts:55 plots loadings.axis.values as x against components as y, and Plotly truncates to the shorter array, so 167 loadings were being drawn against 285-783 nm instead of 501-999 nm - every peak displaced by about 216 nm."
-    },
-    {
-      "id": "row-mapping-said-once",
-      "priority": 0,
-      "area": "backend",
-      "issue": 131,
-      "title": "Each model-to-row mapping is written once, not twice",
-      "depends_on": [],
-      "user_visible_behavior": "Nothing changes for the user. A column added to the schema reaches both the normal path and the import that reads a pre-database directory, because there is one place to add it.",
-      "status": "passing",
-      "verification": [
-        "uv run pytest - unchanged in count and content, the import path's tests included.",
-        "cd frontend && npx playwright test - 38 passed."
-      ],
-      "evidence": "2026-08-30. `uv run pytest` - 758 passed, 1 skipped, the same suite as before the change. `cd frontend && npx playwright test` - 38 passed. ruff, format and mypy clean over 49 files. project.py is 38 lines shorter and the seven remaining db.*Row( constructions are the seven builders. Merged as #132.",
-      "notes": "Cleanup found at the Phase 1.3 checkpoint, filed as #131 rather than folded into a feature branch. Six mappings were stated twice - once on the normal path, once in _import_json_project - and the copy that would be forgotten when a column is added is the import path, which has one test and no user until someone opens an old project. Two smaller things went with it: a test asserting datasets.json does not exist, which could no longer fail because nothing writes that file; and the server's lifespan leaving every SQLite engine holding its file, which costs nothing on process exit and is what locks a file on Windows. An unused-export scan flagged fourteen names - executor.NodeOutput, checks.PipelineWarning, project.PROJECT_FILE among them - and none was deleted: each is used inside its own module or is the type a caller receives, so removing them would be churn dressed as cleanup."
-    },
-    {
-      "id": "analysis-draws-a-regression",
-      "priority": 1,
-      "area": "frontend",
-      "issue": 148,
-      "title": "The analysis screen draws a regression, not only a decomposition",
+      "issue": null,
+      "title": "The exit criterion demonstrated: an exported model predicts in a clean environment",
       "depends_on": [
-        "demo-walks-the-exit-criterion"
+        "json-and-snippet-export",
+        "lineage-comparison"
       ],
-      "user_visible_behavior": "Opening a PLS node shows predicted versus measured, the RMSECV curve and the calibration metrics beside the scores and loadings it already showed. A metric the run could not compute renders as an em dash.",
-      "status": "passing",
+      "user_visible_behavior": "Recorded, not built: a fitted model is exported from the served application, its snippet is run in a fresh environment with only NumPy installed, and its predictions agree with the application's within the stated tolerance; and the comparison view is shown naming the one node two models differ by.",
       "verification": [
-        "A PLS node's tab shows the three regression panels; a PCA node's tab shows none of them.",
-        "A metric the payload omits renders as an em dash rather than a zero.",
-        "Held-out points are a separate trace from calibration points.",
-        "npx vitest run, npx tsc -b --noEmit, npx eslint .",
-        "npx playwright test - the walkthrough and the analysis tab."
+        "A script under tests/ that drives the served application over HTTP, exports the model, runs the snippet in a subprocess with an isolated environment, and compares",
+        "Its output committed under docs/phase-3/ with the date, the dataset, the pipeline, every number compared and the tolerance each is judged against"
       ],
-      "evidence": "2026-09-05. `npx playwright test` - 40 passed (38 before), including two new cases in e2e/analysis.spec.ts: the regression tab renders Scores, Loadings, Explained variance, Diagnostics, Predicted vs measured, RMSECV and Calibration metrics, with the header reading 'PLS on fat 5 components' and RMSECV and Q2 as its headline figures and neither showing an em dash; and a decomposition tab showing none of the three. `npx vitest run` - 10 files, 82 tests (78 before, +4 on the new traces: the 1:1 line spans both sets, held-out is its own trace, it is omitted above a split, and nothing is drawn for a decomposition). `npx tsc -b --noEmit` and `npx eslint .` exit 0. Backend untouched: uv run pytest 799 passed, 1 skipped; ruff check, ruff format --check (77 files) and mypy (53 source files) exit 0.",
-      "notes": "The design question that looked like a blocker was already answered: AnalysisResults.tsx's docstring calls the grid 'the layout Phase 2's predicted-vs-measured panel drops into rather than one that has to be torn up', and the second row carried the slot in a comment. No new screen, no artboard round-trip - the panels dropped into a grid built to take them. Three things were found on the way. The Playwright config serves frontend/dist, a built bundle, so an app-source change needs npm run build before the e2e suite sees it - an earlier run passed only because the changes were test-side. 'RMSECV' appears four times on one screen (header figure, panel title, axis title, metric row), so getByText was a strict-mode violation; Panel's section now carries aria-label={title}, which is the markup a named section already implied and makes panels addressable by name. And a pls node had no case in the sidebar's label switch, so it rendered its own id; it now reads 'PLS 5 LV / fat', latent variables rather than PCs because two PLS nodes differ by what they model. VIP and the coefficient plot are deliberately left: both are served, neither is needed to read a calibration, and the second row is full."
-    },
-    {
-      "id": "canvas-direct-editing",
-      "priority": 1,
-      "area": "frontend",
-      "issue": 51,
-      "title": "A branch is dragged on the canvas, and a node can be removed",
-      "depends_on": [],
-      "user_visible_behavior": "Dragging from a node's output port to another node's input port points that node at a new parent, and a control on the node removes it, reconnecting its children to its parent. A connection that would make a cycle does not drop, and says why.",
-      "status": "passing",
-      "verification": [
-        "cd frontend && npx vitest run - the graph rules in edits.ts, including every refusal.",
-        "cd frontend && npx playwright test e2e/pipeline.spec.ts - the drag and the removal in a browser."
-      ],
-      "evidence": "2026-08-29. `npx vitest run` - 10 files, 77 tests passed, including src/__tests__/edits.test.ts (14 tests: connect replaces the target's input, a fork gives one node two children, cycle/self/source-target/duplicate/unknown are refused, removal reconnects every child, the source is refused). `npx playwright test` - 38 passed across all four projects, including the four new cases in e2e/pipeline.spec.ts: msc->centre_a rewires and the edge count stays 13, pca_a->snv is refused with 'would make a cycle' and no edge appears, removing snv leaves source->centre_a and source->snv_savgol with 13 nodes, and the source node carries no remove control. `npx tsc -b --noEmit` and `npx eslint .` both exit 0.",
-      "notes": "Items 1 and 4 of #51. The rules live in frontend/src/canvas/edits.ts, pure and tested, and are enforced during the drag through React Flow's isValidConnection - each refusal is the client half of a models.py validator. Every non-source node holds exactly one input (tuple[NodeId]), so connecting replaces rather than appends and a branch is one node with several children; an edge cannot be cut on its own because the child would be left dangling. The remove control is on the node rather than in the side panel: clicking a node opens its tab, which replaces the panel before it could be used. Edits are held locally and saved by the existing whole-list PUT (#108). Node positions are still not draggable - layout lives in pipeline_state.json and nothing writes it back."
-    },
-    {
-      "id": "demo-walks-the-exit-criterion",
-      "priority": 1,
-      "area": "backend",
-      "issue": 146,
-      "title": "The seeded demo walks the exit criterion, and the ellipse it exposed",
-      "depends_on": [
-        "pls-in-the-executor"
-      ],
-      "user_visible_behavior": "The demo project the Playwright suite walks now cross-validates a PLS calibration, so the path the exit criterion names runs in CI on three platforms rather than once by hand.",
-      "status": "passing",
-      "verification": [
-        "A seeded project holds a pls_d node that runs, with pending_estimators empty.",
-        "GET /api/results/pls_d serves task 'regression' with eigenvalues as long as n_components, and the metrics table.",
-        "The T2 ellipse radii are finite for a regression - asserted in the frontend unit tests.",
-        "npx playwright test - the whole suite, including the failing-branch tests.",
-        "uv run ruff check && uv run ruff format --check && uv run mypy && uv run pytest"
-      ],
-      "evidence": "2026-09-05. `uv run python tests/seed_e2e.py --fresh <dir>` seeded '240 x 100, 15 nodes' (14 before) and every estimator produced a result: pca_a..pca_d task=decomposition, pls_d task=regression with eig=5. Served over HTTP from the seeded project: task regression, target fat, A=5, eigenvalues 5, RMSEC 2.2432, R2 0.9755, SEC 2.2750, RMSECV 2.3909, Q2 0.9722, rmsecv_std 0.4744, RMSEP 2.2122, SEP 2.2049, curve [4.863, 3.183, 2.762, 2.463, 2.391], 100 VIP and 100 coefficients on a 100-point axis. `npx playwright test` - 38 passed, having first caught two real failures: the runs seed uses the synthetic dataset, which carried no targets, so pls_d failed there with \"models target 'fat', which this dataset does not carry. It has: none.\" `npx vitest run` - 10 files, 78 tests (77 before). `uv run pytest` - 799 passed, 1 skipped. ruff check, ruff format --check (77 files), mypy (53 source files), tsc -b --noEmit and eslint all exit 0.",
-      "notes": "The seed's branch D was commented 'the path the exit criterion walks' and ended at a PCA, so nothing in the demo cross-validated anything. Adding pls_d needed no new dataset: Tecator carries fat and the seed already writes it. Two things fell out. First, a bug from #142: eigenvalues were published as an empty list for a regression, and analysis.ts:37 draws the T2 ellipse as sqrt(limit * eigenvalues[x]), so both radii were NaN. Unreachable until now because no fixture or demo had a PLS node to open - which is the argument for the demo covering the whole path. PLS.score_eigenvalues() is public now; the formula stays in one place. Second, the runs seed uses synthetic_dataset for a run slow enough to watch, and it had targets={}, so the shared pipeline could not fit there. It now carries a response built from two of its own band amplitudes, so PLS models something real rather than noise; no number is claimed from it, the same footing as the spectra. Playwright's hard-coded node and edge counts moved 14/13 to 15/14."
-    },
-    {
-      "id": "pending-estimator-is-announced",
-      "priority": 1,
-      "area": "backend",
-      "issue": 136,
-      "title": "A pipeline says which estimator nodes will not be fitted",
-      "depends_on": [],
-      "user_visible_behavior": "A pipeline holding a PLS or PLS-DA node is told so before it is run, rather than reporting a successful run with a node that silently never fitted.",
-      "status": "passing",
-      "verification": [
-        "POST /api/pipelines/{id}/validate returns a warning naming every PLS and PLS-DA node; a pipeline without one still returns warnings: [].",
-        "A run over such a pipeline still succeeds - what is said changes, what is executed does not.",
-        "uv run pytest"
-      ],
-      "evidence": "2026-09-05. Against the live mango pipeline, which holds a PLS node on a mean-centred branch: POST /api/pipelines/current/validate returned valid: false with one warning - code 'estimator_not_fitted', node_id 'pls_dm', severity 'info', and the sentence \"'pls' at 'pls_dm' has no kernel in this build and will not be fitted. The run will report success and this node will stay unrun; every other node is unaffected.\" It returned valid: true, problems: [], warnings: [] before. Node states are unchanged: 11 of 12 complete, pls_dm not_run. uv run pytest - 793 passed, 1 skipped (787 before, +6 in tests/test_not_fitted_warning.py). uv run ruff check, ruff format --check (77 files) and mypy (53 source files) exit 0. Frontend npx tsc -b --noEmit and npx vitest run - 10 files, 77 tests passed, unchanged.",
-      "notes": "Not the kernel, which exists and is parity-covered; #142 is the executor half. This is the silence around it, found end to end: validate returned valid: true with no warnings, the job reported succeeded and 'Done', and the PLS node was left 'not_run' - the same state a node has before it has ever been run, so a screen cannot tell 'not yet' from 'never will be'. Run.pending_estimators (executor.py:279, populated at :432) already names the declined nodes and the string 'pending_estimators' appears nowhere in api.py. The warnings list is already in the validate payload and already rendered. This should become redundant when #142 lands. Built in api.py's validation_payload rather than in checks.py, deliberately: that module's docstring states its contract - every warning there catches a mistake whose symptom is a plausible result, with a document behind it - and this is neither. Nothing is wrong with the recipe; the build is short a kernel. Filing it under 'what is wrong with your pipeline' would blame the user for #142. Two sources, one list, told apart by code and severity ('info' rather than 'warning'). executor.has_kernel(spec) is now the one place that knows what can be fitted, asked by the executor's routing and by the warning, so #142 adds to one tuple rather than editing two files. The state half of the issue - pipelines/{id}/state telling 'not yet' from 'never will be' - was left: frontend NodeState is a closed union in canvas/graph.ts:12, so it needs a type change, a NodeCard switch case and a visual treatment with no artboard behind it, and #142 makes it moot. PipelineCanvas.tsx:190 already renders problems.join(' . ') when valid is false, so the sentence reaches the canvas with no frontend change and nothing blocks the run."
-    },
-    {
-      "id": "canvas-compare-and-duplicate",
-      "priority": 2,
-      "area": "frontend",
-      "issue": 51,
-      "title": "Duplicate a subgraph, and compare two terminal nodes in one tab",
-      "depends_on": [
-        "canvas-direct-editing",
-        "pls-in-the-executor"
-      ],
-      "user_visible_behavior": "A subgraph can be duplicated so a variant is built from an existing path rather than from scratch, and selecting two terminal nodes opens a tab comparing their results.",
-      "status": "passing",
-      "verification": [
-        "The duplicate produces an independent branch with fresh node ids, asserted in the browser.",
-        "Two terminal nodes open one comparison tab showing both models' metrics."
-      ],
-      "evidence": "2026-09-05. npx playwright test - 43 passed (40 before), including three new cases in e2e/pipeline.spec.ts: duplicating snv produces 'snv copy', 'centre_a copy' and 'pca_a copy' with an edge source->'snv copy', so the copy is a sibling branch; the source offers no duplicate control; and picking pca_a then pls_d opens a tab titled 'pca_a vs pls_d' whose difference column reads an em dash, because only pls_d carries regression metrics. The compare control is absent on snv, which is not terminal. npx vitest run - 11 files, 99 tests (92 before, +7 on compareRows and +8 on duplicate and terminals). npx tsc -b --noEmit and npx eslint . exit 0. Backend untouched: uv run pytest 809 passed, 1 skipped.",
-      "notes": "Items 2 and 3 of #51, deliberately left for a second pass. The comparison tab is a screen with no artboard behind it and no metrics to compare until the executor fits PLS (#142), which is what makes 'compare two models' worth looking at. DESIGN_BRIEF.md section 5 is the reference. Duplicate and terminals are pure functions in edits.ts, tested without a browser like the first half's rules. A copy hangs off the original's parent rather than below it, because a chain is not what 'duplicate' means on a graph whose point is comparison, and ids are derived ('snv copy', then 'snv copy 2') rather than random: a pipeline is read by a person and 'snv copy' beside 'snv' says what happened. Comparison is two clicks rather than a multi-select, because a click on a node body already means 'open this' and selection would need a modifier nobody is told about; the armed node saying so is the affordance. The tab id carries both nodes so picking the same pair twice reuses the tab. The difference column is a subtraction of two served numbers, never a statistic, and it points an arrow without declaring a winner - which model is better depends on what is being calibrated for. A metric only one side carries is kept because that is itself the finding; one neither carries is dropped rather than shown as two dashes."
-    },
-    {
-      "id": "pls-in-the-executor",
-      "priority": 2,
-      "area": "backend",
-      "issue": 142,
-      "title": "The executor fits PLS, and a PLS result has a defined shape",
-      "depends_on": [],
-      "user_visible_behavior": "A PLS node in a pipeline is fitted like a PCA node is, and its result is readable: the RMSECV curve, the metrics, predicted versus actual, and coefficients on the original axis where the chain allows it.",
-      "status": "passing",
-      "verification": [
-        "A pipeline with a PLS node under a split runs and Run.pending_estimators is empty.",
-        "The result's metrics match regression.py and validation.py called directly on the same arrays - the executor orchestrates and computes nothing of its own.",
-        "GET /api/results/{node} serves it, on node_axis's axis (#134).",
-        "The mango calibration reproduces the recorded numbers: RMSECV 0.9193 at A=30 over 10 folds, R2cv 0.8638.",
-        "validate stops warning estimator_not_fitted for a PLS node, and still warns for PLS-DA.",
-        "uv run ruff check && uv run ruff format --check && uv run mypy && uv run pytest"
-      ],
-      "evidence": "2026-09-05. Against the live mango project over HTTP: a pipeline of range_select 500-1000 nm, SNV, Savitzky-Golay first derivative, a 10-fold split, mean centre and a 15-component PLS on target_DM ran to 'succeeded' with pls_dm 'complete' - the first PLS node this application has ever fitted - and pending_estimators empty. GET /api/results/pls_dm served task 'regression', 167 coefficients and 167 VIP values on a 167-point axis at 501-999 nm (node_axis, #134), RMSEC 1.1111, R2 0.8015, bias +0.00000, SEC 1.1124, RMSEP 1.1218, SEP 1.1221, RMSECV 1.1166, Q2 0.7990, rmsecv_std 0.0334, ten rmsecv_fold_k entries and a fifteen-point rmsecv curve. The curve is identical to the standalone script run on 2026-09-05 before any of this code existed - [2.4085, 2.3898, 2.3739, 2.3083, 2.2479, 2.1925, 2.048, 1.8275, 1.7762, 1.5075, 1.4356, 1.3555, 1.2092, 1.1581, 1.1166] - and that run's R2cv 0.7990 is this run's Q2. POST /api/pipelines/current/validate returned valid: true with no warnings, so #136's estimator_not_fitted correctly stopped firing for PLS. uv run pytest - 799 passed, 1 skipped (793 before, +6 in tests/test_executor.py, including the RMSEP^2 = bias^2 + (n-1)/n * SEP^2 identity section 5 offers as a cheap unit test). uv run ruff check, ruff format --check (77 files) and mypy (53 source files) exit 0. Frontend npx tsc -b --noEmit and npx vitest run - 10 files, 77 tests, unchanged.",
-      "notes": "The critical path to this list's exit criterion, and untracked until 2026-09-05. Everything cited it as blocked on #88 - executor.py's docstring, session-handoff.md, this file - and #88 closed on 2026-08-27 as #105. SEC, SEP, Q2 and coefficients_original_units all exist, the PLS kernel exists and is parity-covered, and 10-fold CV over 7413 mango spectra ran on 2026-09-05 scoring 0.9198 RMSE against the paper's published 0.8281. The sentence outlived its reason by nine days because no issue tracked what it deferred to. What is actually left is not a kernel but a decision: EstimatorResult is shaped for a decomposition - scores, loadings, eigenvalues, T2, SPE - and a regression's result is a different set. PLS-DA is deliberately out of scope, needing a class column and a confusion matrix. The screen that renders it is a follow-up not yet filed, because an issue written before the payload shape is decided would be guessing; DESIGN_BRIEF.md section 5 is the reference and there is no artboard for a regression result. Shipped: the executor's PLS branch, the result shape, and has_kernel gaining PLSRegressionSpec. The shape turned out to be specified rather than open - metrics-and-validation.md section 11 names every field and where it goes, Metrics already had them, and section 9 even prescribes the rmsecv_a<A> keys. Reading the documents first was most of the work. EstimatorResult was extended additively rather than split in two: the tasks share task, rows, fold, scores, loadings, the x-variances and both diagnostics, so a second type would have restated most of it to differ in the last third. The one real design call is asserted rather than left in prose - the model is fold zero's, the cross-validated numbers are every fold's, because section 13's reported quantities belong to one model while RMSECV is a property of the split, which is why section 7 pools residuals. The response is centred by the estimator, not by a node, because y is not on the canvas. coefficients_original_units is #144, not laziness: it needs the fitted transformer chain, and a cached node never builds one. PLS-DA stays out - a class column and a confusion matrix are a second result shape."
-    },
-    {
-      "id": "coefficients-on-the-raw-axis",
-      "priority": 3,
-      "area": "backend",
-      "issue": 144,
-      "title": "Coefficients readable against the raw axis",
-      "depends_on": [
-        "pls-in-the-executor"
-      ],
-      "user_visible_behavior": "A PLS model's coefficients can be read and exported against the dataset's own axis, or the application says which step makes that impossible and why.",
-      "status": "passing",
-      "verification": [
-        "A foldable chain (range selection, Savitzky-Golay, centring) exports coefficients reproducing the model's predictions from the raw array: y_hat == intercept + X_raw @ b.",
-        "A pipeline containing SNV reports them unavailable, naming SNV, rather than returning an approximation.",
-        "The numbers survive a cache hit - a second run reads back what the first computed."
-      ],
-      "evidence": "2026-09-05. On a foldable Tecator chain (range select 860-1040 nm, Savitzky-Golay first derivative, mean centre, PLS 6 components on fat): `intercept + X_raw @ b` reproduces the model's own predictions to 1.4e-06 against the stored array the model was fitted through, and 3.6e-05 against the original float64 spectra - the difference is the float32 store (#83), not the folding. 100 coefficients for 100 raw variables, with the channels a range selection dropped carrying exactly zero. Below a 5-fold split it folds fold zero's parameters and agrees on the fitted rows to 1.5e-05. A chain containing SNV returns available: false naming SNVTransformer. Over HTTP on the seeded demo: GET /api/results/pls_d/coefficients returns available: false with that sentence (its chain has an SNV), and /api/results/pca_d/coefficients returns 422 not_a_regression, \"node 'pca_d' is a decomposition, which has no coefficient vector.\" uv run pytest - 809 passed, 1 skipped (804 before, +5 in tests/test_folded_coefficients.py). ruff check, ruff format --check (78 files) and mypy (54 source files) exit 0.",
-      "notes": "Split out of #142, which delivered everything else. regression.coefficients_original_units already does the arithmetic and does it well - it measures the chain by passing the identity through it rather than restating four folding rules. What is missing is its input: it needs the fitted transformers, and _transform builds, fits, transforms and drops them, while a cached node never builds one at all. So this is a question about what the executor keeps, not a missing call. Three options in the issue, none obviously right; option 3 - fold at fit time, where the transformers exist - fits the executor's grain best, option 1 is the smallest diff. The mango pipeline is the unfoldable case: it has an SNV, so PROPOSAL.md section 9's portable model is not available for it and the UI has to say so rather than approximate. Option 1 taken, not option 3: the chain is refitted from the recipe in the HTTP layer. Option 3 - fold at fit time - turned out not to be available as written, because the transformers do not exist at the estimator either; _transform builds and drops them per node, so option 3 collapses into option 2, keeping them in _State, which is the second-thing-beside-the-arrays that executor.py:5-8 refuses and which a cache hit would leave empty anyway. Refitting is #134's node_axis shape again: a pure function of the pipeline and the stored source array, identical hot or cold, and a test asserts it survives a cache hit. One subtlety the issue did not anticipate: _pls centres X by the fit rows' mean, which is not a pipeline node and so is not in the measured chain. Since the model computes (chain(X) - xbar).b + ybar and the helper returns an intercept of y_mean + offset.b, passing ybar - xbar.b as y_mean puts it exactly where it belongs. executor._governing_folds became public governing_folds rather than being imported across modules by its private name."
-    },
-    {
-      "id": "import-column-roles-and-sample-ids",
-      "priority": 3,
-      "area": "backend",
-      "issue": 135,
-      "title": "A numeric id column is not imported as a target, and preview matches import",
-      "depends_on": [],
-      "user_visible_behavior": "A CSV whose leading identifier column happens to hold integers imports with its sample ids kept, and without offering a row number as a response variable. The preview reports the same sample ids the import stores.",
-      "status": "passing",
-      "verification": [
-        "A CSV with an integer id column imports with sample_ids populated and no spurious target.",
-        "/import/preview and /import report the same sample ids for the same bytes.",
-        "A file whose first column is genuinely a numeric measurement is still read as a target.",
-        "uv run pytest - the tests/fixtures/contract/ inputs read unchanged."
-      ],
-      "evidence": "2026-09-05. On the mango Val/DM/DM.csv that prompted the issue: preview head sample_ids ['1','2','3','4'] and import sample_ids ['1','2','3','4'] (n=1448) - the same answer, and real values rather than a placeholder; targets ['target_DM'] where it was ['sample_id','target_DM']; spectra still (1448, 306). uv run pytest - 804 passed, 1 skipped (799 before, +5 in tests/test_readers_delimited.py: a numbered id column names the samples, preview and import agree, a repeating first column is still a measurement, text ids still work, and a file with no ids previews 'row N'). load_tecator still reads 240 x 100 with ids ('C001','C002') and targets moisture/fat/protein. ruff check, ruff format --check (77 files) and mypy (53 source files) exit 0. Frontend npx vitest run - 82 tests; npx playwright test - 40 passed.",
-      "notes": "Found end to end on the mango set, whose CSV is 'sample_id, 285.0, ..., 1200.0, target_DM': the import recorded targets {sample_id, target_DM} and sample_ids [] for 7413 samples, so sample_id is selectable as a PLS response and every trace falls back to 'row N'. This is readers/delimited.py:34-35 doing exactly what it documents, so the rule is what needs deciding, not the code. The sharper half is that /import/preview reports head.sample_ids ['1','2',...] for the same file the import keeps none for - two answers to one question. corrections is an object of strings covering delimiter, decimal and orientation only (api.py:333), so a user who sees the wrong role in the preview cannot overrule it, which is the one guess the reader does not offer a Choice for. Needs a decision before a branch: detect better, add column role to the Choice set, or both. Rule chosen and stated rather than left open: **uniqueness, not type**. The old test was all_text, so 'S001' was an identifier and '1' was a response - and most files number their samples. A measurement repeats (two meat samples share a fat content often enough) while an identifier is distinct by definition, so a leading column under a non-numeric header whose values are all distinct is the identifier whatever the values look like. The Choice override was deliberately NOT added: the reader offers alternatives for delimiter, decimal and orientation because those are genuinely ambiguous readings of the same bytes, and a column role under this rule is not - add the override when a real file defeats it rather than before. The sharper half turned out to be subtler than filed: head_payload fell back to f'{index + 1}', a row number that happened to equal mango's sample_id values, so the preview was not reporting ids the import dropped but a placeholder indistinguishable from data. It now says 'row N', matching what api.py already says where it has no id."
-    },
-    {
-      "id": "tecator-readme-records-tecator",
-      "priority": 4,
-      "area": "docs",
-      "issue": 137,
-      "title": "data/tecator/README.md records tecator's terms, not gasoline's",
-      "depends_on": [],
-      "user_visible_behavior": "The tecator dataset directory documents the dataset it holds: its permission note, its publication obligation, its source and its checksum.",
-      "status": "passing",
-      "verification": [
-        "diff src/chemometrics_workbench/data/tecator/README.md src/chemometrics_workbench/data/gasoline/README.md differs.",
-        "The README quotes the permission note from the committed tecator.txt and states the obligation to name the instrument and company when publishing a result.",
-        "No table row in it carries a gasoline URL or hash.",
-        "uv run pytest tests/test_datasets.py"
-      ],
-      "evidence": "2026-09-05. `diff src/chemometrics_workbench/data/tecator/README.md src/chemometrics_workbench/data/gasoline/README.md` reports the files differ; it reported them identical before. The README now names tecator, quotes the permission note from the committed tecator.txt verbatim, states the obligation to name the instrument and company when publishing, and carries tecator's own SHA-256 (e435c053...) and StatLib source rather than gasoline's CRAN URL and two gasoline hashes. datasets.py's load_tecator docstring now points at the note where it actually is - tecator.txt - with the README as the record of the rest. uv run pytest - 799 passed, 1 skipped, including tests/test_datasets.py (19 tests). ruff check, ruff format --check (77 files) and mypy (53 source files) exit 0.",
-      "notes": "Found while choosing a dataset for an end-to-end run: data/tecator/README.md is byte-identical to data/gasoline/README.md, so it is titled 'Gasoline / octane' and asserts tecator is NOT committed, is GPL-2 and comes from CRAN - all four false, and the two SHA-256 rows are gasoline's. Nothing is redistributed wrongly: tecator.txt carries its own permission note ('can be redistributed as long as this permission note is attached') and that file is committed. What is wrong is the record. Three places designate that README as where the terms live - datasets.py:308-310 says the note is 'reproduced in data/tecator/README.md', CONTRIBUTING.md:78, session-handoff.md:313 - and for tecator it reproduces another dataset's. The publication obligation currently survives only in a docstring and in session-handoff.md, which is overwritten every session. The source URL was checked rather than copied: lib.stat.cmu.edu/datasets/tecator answers 301 on http and 403 on https, so the host and path exist but the page refuses a direct fetch - the table says exactly that rather than claiming a clean verification. The CRLF paragraph was kept and sharpened because it is the reason this file's bytes matter: .gitattributes marks *.txt as -text and test_the_committed_data_is_checked_out_byte_for_byte asserts it."
-    },
-    {
-      "id": "apply-saves-and-runs",
-      "priority": 0,
-      "area": "frontend",
-      "issue": 157,
-      "title": "Applying a parameter saves it and recomputes on the one press",
-      "depends_on": [
-        "pls-in-the-executor"
-      ],
-      "user_visible_behavior": "Changing a preprocessing parameter and pressing 'Apply and re-run' writes the step through PUT /pipelines/current, starts the run, and redraws the open plot when it settles. No banner, and no second press.",
-      "status": "passing",
-      "verification": [
-        "npx playwright test - the whole suite, including 'an accepted edit recomputes on the one press, and nothing is left dimmed' and 'an accepted edit is written to the pipeline, not only to the screen'.",
-        "The regression test fails against a bundle built before the fix.",
-        "npm run test && npm run typecheck && npm run lint",
-        "By hand against a real server: window_length 11 to 9, one press, then reload."
-      ],
-      "evidence": "2026-09-05. Two commits, merged as #158 and #159. Diagnosis: `ParameterForm.apply()` POSTed to /steps/validate - which only validates - and marked the node stale in the cache; PUT /pipelines/current was never called from the inspector, so a re-run recomputed the old spec. Second half: only ['pipeline-state'] was invalidated on a job, never ['spectra', nodeId] / ['results', nodeId], both of which carry staleTime: Infinity. The backend was never involved - driven over HTTP on a seeded project, GET /api/spectra/savgol digest 392e2b377d89657e at window_length 11, PUT 200 at 9, state 'not_run', run 'succeeded', digest f0c7544b7b2191da. `npx playwright test` - 44 passed (1.4m). `npm run test` - 99 passed, 11 files. `npm run typecheck` and `npm run lint` clean. The new e2e test was run against a bundle built from the pre-fix source and failed there (Expected 9, Received 11), then passed after. Driven by hand in Chrome against 127.0.0.1: window_length 11 to 9, one press; after the run the node reads 'SG d1 w9', 'complete', the form shows 9 and the plot is drawn from the recomputed arrays, surviving a reload. Confirmed working by the reporter."
-    },
-    {
-      "id": "complete-reads-green",
-      "priority": 1,
-      "area": "frontend",
-      "issue": 161,
-      "title": "A finished node reads green, and a queued one is not a never-run one",
-      "depends_on": [],
-      "user_visible_behavior": "A node holding a result is bordered green, solid, in both themes; a node waiting its turn during a run is dashed in the accent with an empty progress track, so a run visibly sweeps the graph instead of only the one node the executor is inside.",
-      "status": "passing",
-      "verification": [
-        "pnpm test - tokens.test.ts proves design/canvas/_base.css and frontend/src/styles/tokens.css still agree, with `ok` in both palettes.",
-        "pnpm typecheck && pnpm lint && pnpm build",
-        "pnpm exec playwright test - the whole suite, including the new assertion that node-complete's border resolves to --ok and that --ok is not --accent.",
-        "By eye on a seeded project, both themes."
-      ],
-      "evidence": "2026-09-05. `--ok` added to design/canvas/_base.css first (it is the token source) as #1E7A3C light / #63C67E dark, then ported verbatim to frontend/src/styles/tokens.css and added to the Run state group in tokens.ts. Neither value collides with --accent (#0B6B62 / #54BFAB, which means *running*) nor with the Okabe-Ito series, and tokens.test.ts's 'keeps the accent off the data palette' check now covers `ok` too. `pnpm test` - 99 passed, 11 files, including the two drift checks that compare the artboard palette against the ported one. `pnpm typecheck` and `pnpm lint` clean; `pnpm build` succeeded. `pnpm exec playwright test` - 44 passed (1.4m); the '[WebServer] job ... failed' line in that log is runs.spec.ts's deliberate failing-run fixture, not a test failure. The new assertion in pipeline.spec.ts reads borderTopColor off node-complete, converts it from rgb() to hex and asserts it equals --ok resolved from .app, and separately that --ok is not --accent; it passed as test 14 of 44. Confirmed by eye on a seeded 15-node project served at 127.0.0.1:8793: every node carries a solid green border where all fifteen were previously the same grey as an unrun node. complete stays *solid* while every other state is dashed, hatched or striped, so pipeline.spec.ts's existing form assertion (borderTopStyle 'solid', opacity 1) passed unchanged and the greyscale reading still works."
-    },
-    {
-      "id": "canvas-nodes-are-dragged",
-      "priority": 1,
-      "area": "frontend",
-      "issue": 162,
-      "title": "A node is dragged, and stays where it is put",
-      "depends_on": [],
-      "user_visible_behavior": "A node on the canvas is dragged to a new place and stays there, across a reload and across a restart. The drag writes through on the drop rather than waiting on Save, and does not open the node's tab. A node the server has never placed lands beside its parent instead of at the origin.",
-      "status": "passing",
-      "verification": [
-        "uv run pytest - PUT /api/pipelines/current/layout stores a position, GET .../state reports it, and GET /api/pipelines/current is byte-identical either side, so the cache key does not move.",
-        "A position for a node not in the pipeline is dropped rather than refused; a non-numeric coordinate is 422; an unknown pipeline id is 404.",
-        "pnpm test - a node absent from the layout lands beside its parent, and two new children of one parent do not stack.",
-        "pnpm exec playwright test - the whole suite, including the drag writing through and not opening the tab.",
-        "uv run ruff check && uv run ruff format --check && uv run mypy; pnpm typecheck && pnpm lint && pnpm build"
-      ],
-      "evidence": "2026-09-05. `PUT /pipelines/{id}/layout` added beside put_pipeline, with its own LayoutWrite body and a typed Position, so layout still never touches Pipeline.content_hash() - the reason it has its own table. Positions for unknown node ids are filtered rather than refused, which also collects a removed node's coordinates instead of leaving them in a table nothing prunes. Frontend: nodesDraggable={false} removed, onNodesChange narrowed to position changes only (React Flow will not move a controlled node without it), onNodeDragStop writes through useSaveLayout with no debounce because it already fires once per drag. Two regressions were anticipated and handled: the click that ends a drag is consumed so moving a node does not also open its tab, and the three header buttons got React Flow's `nodrag` class or they would have become drag handles. graph.ts gained `placements`, which puts an unplaced node beside its parent at the same 170/130 step the server uses - previously graph.ts:104 fell back to {x:0,y:0} and duplicates stacked at the origin. `uv run pytest` exit 0. `uv run ruff check` and `uv run mypy` (54 files) clean; ruff format reformatted one file, then clean. `pnpm test` - 102 passed, 11 files (99 before, +3 for placements). `pnpm typecheck` and `pnpm lint` clean after fixing a real exhaustive-deps warning: `moved` was read inside the graph useMemo but missing from its deps, so a drag would not have redrawn. `pnpm exec playwright test` - 45 passed (2.2m), 44 before plus the new drag test. One test failure along the way was the test's own fault and worth recording: the first version compared the node's screen bounding box either side of a reload and failed 529 vs 383, because `fitView` re-fits the viewport on every mount - a node that has not moved in the graph still lands on a different pixel. It now asserts the layout the server holds, which is the actual claim; that the canvas draws what the layout says is graph.test.ts's job and it has one. CORRECTION, same day: this evidence overstated the feature. Driving the real application by hand afterwards showed a dragged node coming back where it started - project.read_layout took the first layout row in the project rather than the current pipeline's, and a seeded project holds two, so every position the canvas wrote was read off the wrong graph and replaced by a generated one. The e2e test above did not catch it because it asserted the stored position was *not* the pre-drag value, which a generated position satisfies too. Fixed under #170, where the test became an equality against the position actually drawn and was confirmed to fail against the unfixed backend."
-    },
-    {
-      "id": "step-added-from-the-canvas",
-      "priority": 1,
-      "area": "frontend",
-      "issue": 163,
-      "title": "A step is added onto the node it was dragged from",
-      "depends_on": [
-        "canvas-nodes-are-dragged"
-      ],
-      "user_visible_behavior": "Dragging a connector from a node's output port and dropping it on empty canvas opens a menu of the steps this build can run. The chosen step becomes a node hung off the node the connector came from, placed where it was dropped.",
-      "verification": [
-        "pnpm test - add() hangs the node off the parent it was given, derives a non-colliding id, refuses an unknown parent, and can create a split.",
-        "pnpm exec playwright test - the whole suite, including the drop menu appearing, offering PLS but not PLS-DA, attaching to the node dragged from, and landing near the drop point.",
-        "pnpm typecheck && pnpm lint && pnpm build"
-      ],
-      "status": "passing",
-      "evidence": "2026-09-05. The parent is no longer guessed. `withDrafts` appends to the first terminal node and its own docstring admits choosing a branch was left to #51; the menu's parent is the node whose connector was dragged, so the question does not arise. Built on onConnectEnd, which was already wired for refusals: a drop where `state.isValid` is null landed on nothing, and that is the offer to add a step. The React Flow instance is captured from onInit rather than useReactFlow(), which would have needed a provider this component does not have. The catalogue moved out of StepList.tsx into canvas/catalogue.ts so the list and the menu share one set; PLS 5 LV and K-fold 10 were added to the menu, and PLS-DA, train_test, repeated_kfold and external deliberately left out because executor.py cannot run them - a shorter menu beats a pipeline that looks fine and dies on Run. `numberedId` was added to edits.ts and withDrafts now calls it, removing the second copy of the same id-minting loop. `pnpm test` - 106 passed, 11 files (102 before, +4 for add()). `pnpm typecheck` and `pnpm lint` clean. `pnpm exec playwright test` - 46 passed (1.5m), 45 before plus the drop-menu test, which asserts the menu appears, contains PLS 5 LV and not PLS-DA, that picking Autoscale creates edge msc->autoscale, and that the node lands right and below the drop point rather than at the origin. DraftStep's `type` had to stay narrow: it knows only the two kinds the side list can draw as a draft chain, so CatalogueStep widens it to include `split` for the menu, which creates real nodes directly."
-    },
-    {
-      "id": "cv-refits-preprocessing-per-fold",
-      "priority": 0,
-      "area": "backend",
-      "issue": 173,
-      "title": "Cross-validated PLS metrics use each fold's own preprocessing",
-      "depends_on": [],
-      "user_visible_behavior": "RMSECV, Q2 and the per-fold errors of a PLS node below a split are computed with every fold evaluated through the preprocessing fitted on that fold's training rows, never fold zero's.",
-      "verification": [
-        "uv run pytest tests/test_executor.py tests/test_regression.py - a split -> Autoscale -> PLS run's RMSECV equals a hand computation over each fold's stored array and differs from the fold-zero computation.",
-        "uv run ruff check && uv run ruff format --check && uv run mypy && uv run pytest"
-      ],
-      "status": "passing",
-      "evidence": "2026-09-17. `_pls` passed `parent.arrays[0]` (fold zero's preprocessing) to rmsecv_curve and cross_validated_predictions for every fold; it now passes `parent.arrays`, and the kernel accepts one matrix per fold. New test test_each_fold_is_cross_validated_through_its_own_preprocessing (split KFold 5 -> Autoscale -> PLS 6 on Tecator) asserts rmsecv equals the own-fold computation and that the fold-zero computation differs. Run against the unfixed src (git stash): FAILED `assert 3.5944060103231967 == 3.5937243763324327`. With the fix: passed. test_one_matrix_per_fold_predicts_each_fold_from_its_own covers the kernel form and the fold-count refusal. `uv run ruff check` all passed; `ruff format --check` 91 files formatted; `mypy` no issues in 54 files; `uv run pytest` 815 passed, 1 skipped; `python -m tests.parity_report` leaves no diff.",
-      "notes": ""
-    },
-    {
-      "id": "backend-review-fixes",
-      "priority": 1,
-      "area": "backend",
-      "issue": 174,
-      "title": "Import does not block the server, a cached run does not re-hash, RMSECV fits once per fold",
-      "depends_on": [],
-      "user_visible_behavior": "An import no longer stalls other requests; a fully cached run writes no arrays; the RMSECV curve costs one fit per fold.",
-      "verification": [
-        "uv run ruff check && uv run ruff format --check && uv run mypy && uv run pytest"
-      ],
-      "status": "passing",
-      "evidence": "2026-09-17. (1) import_preview/import_dataset are plain `def` over a synchronous `_uploaded` reading `file.file`, so FastAPI runs them on its thread pool; test_the_import_handlers_run_on_the_thread_pool guards it and every existing import test in test_api.py still passes. (2) A cache hit reuses the indexed paths and names the hash from the content-addressed filename instead of calling write_array: test_a_cached_run_writes_no_array_and_reports_the_same_outputs monkeypatches write_array to raise; against the unfixed executor it FAILED with `AssertionError: a cached node wrote an array`, with the fix it passes and the outputs equal the first run's. (3) rmsecv_curve fits once per fold and truncates: on Tecator, 10-fold, A=15, max abs difference from the per-A refits 3.69e-14, 0.024 s against 0.148 s; test_the_curve_uses_one_fold_assignment_for_every_component_count and the parity suite pass. (4) r2_pearson is omitted rather than NaN; write_json/write_array temp names are unique; db engine cache is locked; token compared with secrets.compare_digest; stale stub/JSON-era docstrings in api.py, project.py, jobs.py rewritten; `stub` dropped from ruff src. `uv run ruff check` clean, `ruff format --check` clean, `mypy` no issues in 54 files, `uv run pytest` 817 passed 1 skipped, parity report regenerates with no diff.",
-      "notes": "Not changed: node_axis/_preprocess_chain KeyError on an unknown node id. Every HTTP caller asks stored_display/stored_result first, which return None for an unknown id and answer 404, so the KeyError is unreachable over HTTP."
-    },
-    {
-      "id": "frontend-review-fixes",
-      "priority": 1,
-      "area": "frontend",
-      "issue": 175,
-      "title": "Inspector metrics belong to the node, and failed edits and runs say so",
-      "depends_on": [],
-      "user_visible_behavior": "The inspector shows the selected estimator's own metrics; a refused save or run shows its message; Validate checks what is on screen; a node added from the drop menu keeps its position once saved; a cancelled run refreshes open tabs.",
-      "verification": [
-        "uv run pytest - the validate endpoint checks a recipe sent in its body and writes nothing.",
-        "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
-        "pnpm exec playwright test - the whole suite, including the two new tests, each first run against the unfixed code."
-      ],
-      "status": "passing",
-      "evidence": "2026-09-17. Metrics: Shell reads the active estimator's own `results/{id}` through nodeMetrics (PCA: PC1 and cumulative variance; PLS: RMSEC, R², RMSECV, Q²) instead of the experiment's last-estimator numbers; nodeMetrics.test.ts 3 tests. Errors: Apply and Run go through `attempt`, which puts the server's sentence in a role=alert banner (data-testid action-failed) rather than an unhandled rejection; Validate catches too. Validate: POST /pipelines/{id}/validate takes an optional {nodes} body and validates that recipe without writing; the canvas sends withDrafts(nodes, steps). test_the_validator_checks_the_recipe_it_is_sent_and_writes_nothing - on the old api.py `assert True is False`, with the fix passes. Layout: Save writes the layout for positions held locally after the recipe lands. Cancelled runs now invalidate spectra/results, and every settled run invalidates the experiment. e2e `an estimator's metrics are its own result's` (asserts equality with each node's served result) and `a step added from the drop menu keeps its position once saved` (stored layout equals the drawn position): against the unfixed Shell.tsx/PipelineCanvas.tsx both FAILED - `expect(locator).toContainText` and `expect(received).toEqual` (Expected -2 / Received +2); with the fix `pnpm exec playwright test` 48 passed (1.5m). `pnpm typecheck`, `pnpm lint` clean; `pnpm test` 109 passed; `uv run pytest` 816 passed 1 skipped; ruff, format, mypy clean.",
-      "notes": "The action-failed banner has no e2e: nothing in the seeded projects makes the server refuse a save or a run on demand."
-    },
-    {
-      "id": "run-memory-bounded",
-      "priority": 2,
-      "area": "backend",
-      "issue": 176,
-      "title": "A run below a split does not hold every fold array of every node",
-      "depends_on": [],
-      "user_visible_behavior": "A 10-fold branch at the section 13 envelope runs within memory.",
-      "verification": [
-        "uv run pytest - a run holds no arrays and reads its displays from the store; stored_display serves the stored assembly and still assembles for an index written before it",
-        "uv run python -m tests.memory_probe 6000 1200 - peak resident memory of a ten-fold branch, against the same probe on the previous executor",
-        "pnpm exec playwright test - the spectra and analysis screens read the same arrays they did"
-      ],
-      "status": "passing",
-      "evidence": "2026-09-18. Three changes, one entry. (1) A node's arrays are released when its last consumer has run: a Counter of pending consumers per node, decremented as the walk goes, so a run holds its frontier rather than its history. (2) A node that recomputes streams one fold at a time - _compute became the _computed generator, and the walk writes and reads back each fold before the next exists - where it used to hold k computed float64 arrays and then k read back. (3) Run.displays is StoredDisplays, a Mapping that reads from the store on access, and each node's display array is written at completion under <key>#display in the index, so a finished run in the job table holds nothing and the spectra endpoint reads one array instead of assembling k. Measured with the committed probe on this machine: `uv run python -m tests.memory_probe 6000 1200` gives peak RSS 1919 MB (30.4 arrays of 54.9 MB above baseline) on dev's executor and 1002 MB (13.7 arrays) with the change; at 3000 x 1200, 1048 MB (31.0) becomes 616 MB (15.3). Run time is unchanged (4.4 s both). test_a_run_holds_no_arrays_and_reads_its_displays_from_the_store asserts the mapping type, that no ndarray is reachable from the Run, and that every node has a display entry - its own file above a split, an assembled one below it; test_stored_display_reads_the_stored_assembly_and_assembles_for_an_old_index covers the fallback for a project whose index predates the entries. `uv run pytest` 863 passed 1 skipped; ruff, format, mypy clean; `pnpm exec playwright test` 57 passed (2.5m).",
-      "notes": "The floor is now the current node's k fold arrays plus one transient, which is what the probe's ~14 arrays are: ten folds of the node being computed, its parent's, and the read-back. Going below that means keeping fold arrays on disk and reading per fold inside the estimators, which is a larger change for a smaller win and is not filed. An id()-based dedupe of a split's repeated array was tried and reverted: a freed array's address is reused, so it paired folds with the wrong file - caught by test_executor, and worth remembering."
-    },
-    {
-      "id": "review-fixes-version-404-stale",
-      "priority": 1,
-      "area": "frontend",
-      "issue": 181,
-      "title": "The recorded app version is real, an unrun node says so, and the stale state is gone",
-      "depends_on": [],
-      "user_visible_behavior": "Every experiment and the inspector's provenance footer carry the version pyproject.toml declares; opening a node that has never been run shows what to do rather than a loading message that never resolves; the canvas has no stale encoding because the server never sends one.",
-      "verification": [
-        "uv run pytest - test_the_project_reports_the_version_pyproject_declares fails on the old __init__.py",
-        "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
-        "pnpm exec playwright test - the whole suite, the new runs.spec.ts test first run against the unfixed screens"
-      ],
-      "status": "passing",
-      "evidence": "2026-09-18. Version: __init__.py reads importlib.metadata; GET /projects and /projects/{id} carry app_version; test_the_project_reports_the_version_pyproject_declares against the old __init__.py: `AssertionError: assert '0.2.0' == '0.5.0'`; with the fix `uv run pytest` 819 passed 1 skipped (22 s); ruff, format, mypy clean. 404: AnalysisResults and SpectraView render CannotLoad on a query error, and CannotLoad has a 404 case (\"Nothing to show yet\"); e2e `a node that has never been run says so, rather than loading forever` (runs.spec.ts, first in the file) against the unfixed screens FAILED at `expect(page.getByText(\"Loading results…\")).toHaveCount(0)`; with the fix `pnpm exec playwright test` 48 passed + this test failing on an exact-name locator for SNV, then `--project=runs` 4 passed after the locator became /^SNV/. Stale: NodeState, toEdges, NodeCard, Inspector and stale.ts no longer carry a state the server never sends; graph.test.ts asserts the fixture's stale nodes get the resting edge. `pnpm typecheck`, `pnpm lint` clean; `pnpm test` 106 passed (3 dead-code tests removed); `pnpm build` ok.",
-      "notes": ""
-    },
-    {
-      "id": "spec-nodes-are-edited",
-      "priority": 1,
-      "area": "frontend",
-      "issue": 182,
-      "title": "Estimator and split nodes are edited in the inspector, and PLS models a real column",
-      "depends_on": [
-        "review-fixes-version-404-stale"
-      ],
-      "user_visible_behavior": "Selecting a PLS, PCA or k-fold node shows a typed form like a preprocessing step's; a PLS target is chosen from the dataset's own columns; the drop menu offers PLS only when the dataset has a target, modelling its first one rather than a column named fat.",
-      "verification": [
-        "uv run pytest - the schema endpoint serves estimators and splits; the validator refuses a one-fold k-fold",
-        "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
-        "pnpm exec playwright test - a k-fold's fold count edited in the inspector reaches the served pipeline; the PLS target is offered from the dataset's targets; both first run against the unfixed inspector"
-      ],
-      "status": "passing",
-      "evidence": "2026-09-18. Backend: /schema/steps serves one discriminated union of PreprocessStep, SplitSpec and EstimatorSpec and /steps/validate validates against it; test_the_schema_covers_estimators_and_splits_as_well and test_an_estimator_or_a_split_is_validated_like_a_step; `uv run pytest` 821 passed 1 skipped; ruff, format, mypy clean. Frontend: schema.ts skips $defs without a kind, resolves a $ref enum, and knows string and boolean fields; ParameterForm renders any field with options as a select and sends strings and booleans as such; Inspector builds the form from step or spec and offers the PLS target from the source version's target columns (sourceVersionOf); catalogue.stepMenu(targets) puts PLS on the menu only with a target, modelling the first. `pnpm test` 111 passed (5 new in inspector.test.ts, 2 in catalogue.test.ts); typecheck, lint, build clean. e2e `a split is edited like a step, and the edit reaches the pipeline` (n_splits 10 -> 5 -> 10 asserted on GET /pipelines/current) and `a PLS target is chosen from the dataset's own columns` (select with Tecator's moisture, fat, protein): against dev's Inspector.tsx, schema.ts and ParameterForm.tsx both FAILED with `element(s) not found` on the N Splits and Target fields; with the fix `pnpm exec playwright test` 51 passed (1.5m).",
-      "notes": ""
-    },
-    {
-      "id": "train-test-split-executes",
-      "priority": 1,
-      "area": "backend",
-      "issue": 183,
-      "title": "A train/test split executes, and the canvas offers it",
-      "depends_on": [
-        "spec-nodes-are-edited"
-      ],
-      "user_visible_behavior": "A Train/test node is on the drop menu and edited in the inspector; below it a PLS reports RMSEP and SEP on the held-out set and its predicted-vs-measured plot draws the held-out points; RMSECV and Q2 stay absent because a single fold is not a cross-validation.",
-      "verification": [
-        "uv run pytest - validation.train_test partitions every sample exactly once and is deterministic under a seed; the executor resolves TrainTestSplit and refuses stratify_by with a sentence",
-        "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
-        "pnpm exec playwright test - a train/test split added below a PLS on the seeded project, run, and the result's validation.observed count equals round(test_size * n)"
-      ],
-      "status": "passing",
-      "evidence": "2026-09-18. validation.train_test per metrics-and-validation.md section 8.6: ceil(test_size * n) as the first slice of the section 8.2 permutation, one Fold, refused when nothing is left to calibrate on; test_train_test_holds_out_the_ceiling_of_the_fraction_from_the_permutation checks the worked permutation by hand. Executor: _folds_for resolves TrainTestSplit and refuses stratify_by by name; _State.display returns the one array below a single fold; _pls computes the CV block only for more than one fold. test_a_train_test_split_holds_out_once_and_reports_p_metrics (60 of 240 held out, rmsep and sep present, rmsecv and q2 absent, training rows centred to zero, held-out rows not) and test_stratifying_a_train_test_split_is_refused_by_name. `uv run pytest` 827 passed 1 skipped; ruff, format, mypy clean. Frontend: Train/test 25% on the drop menu, nodeLabel and parameterLine know the kind; `pnpm test` 113 passed; typecheck, lint, build clean. e2e `a train/test split runs, and its PLS reports on the held-out set` (runs project: split_d swapped to train_test through the API, the failing branch dropped, the inspector shows Test Size 0.25, Run reaches Done, the PLS tab reads `2250 calibration · 750 held out`, RMSEP a number and RMSECV an em dash): against dev's executor, validation, catalogue, Sidebar and graph it FAILED (`locator.dblclick: Test timeout` - the node had no Train/test label); with the fix `pnpm exec playwright test` 52 passed (1.6m), the menu assertion in pipeline.spec.ts included.",
-      "notes": "stratify_by stays unimplemented until PLS-DA brings a class column; a spec that sets it is refused at run time by name."
-    },
-    {
-      "id": "vip-and-coefficients-drawn",
-      "priority": 2,
-      "area": "frontend",
-      "issue": 184,
-      "title": "VIP and the folded coefficient vector are drawn",
-      "depends_on": [
-        "spec-nodes-are-edited"
-      ],
-      "user_visible_behavior": "A regression's analysis tab gains a panel toggling between VIP against the node's axis with the VIP = 1 line, and the coefficient vector on the raw axis from /results/{id}/coefficients - or the sentence naming the step that cannot be folded.",
-      "verification": [
-        "pnpm test - vipTrace and coefficientTrace in analysis.ts, and the unavailable sentence rendered",
-        "pnpm typecheck && pnpm lint && pnpm build",
-        "pnpm exec playwright test - the seeded PLS tab shows both plots and the raw-axis length equals the dataset's variable count"
-      ],
-      "status": "passing",
-      "evidence": "2026-09-18. A Variable importance panel on the regression's loadings row toggles between VIP on the node's axis with the VIP = 1 line (vipFigure) and the folded coefficients on the raw axis from GET /results/{id}/coefficients (useCoefficients, coefficientTrace), rendering the server's sentence when the chain cannot be folded. Runs settling invalidate the coefficients query. `pnpm test` 116 passed (3 new in analysis.test.ts); typecheck, lint, build clean. e2e: analysis.spec.ts's regression test asserts the panel, 100 VIP points on the seeded PLS and the SNV refusal sentence; runs.spec.ts `a foldable chain draws its coefficients on the raw axis` adds a mean-centre-only branch through the API, runs, and reads 1200 raw-axis coefficients off the plot. Against dev's AnalysisResults, analysis.ts, queries.ts and Shell both FAILED - the seeded one on the missing panel (`element(s) not found`), the runs one for a different reason when run alone with -g (the failing branch was still present, so the run never reached Done). With the fix `pnpm exec playwright test` 53 passed (1.6m). No Python changed.",
-      "notes": "Backend is done: EstimatorResult.vip (#142) and folded_coefficients (#144). This is a screen."
-    },
-    {
-      "id": "plsda-two-class",
-      "priority": 2,
-      "area": "backend",
-      "issue": 185,
-      "title": "PLS-DA: a specification, a two-class kernel, and a confusion matrix",
-      "depends_on": [
-        "train-test-split-executes"
-      ],
-      "user_visible_behavior": "A PLS-DA node on a dataset with a two-valued class column is fitted; its tab shows a confusion matrix, accuracy, sensitivity and specificity, cross-validated below a split; more than two classes is refused with the count.",
-      "verification": [
-        "docs/algorithms/pls-da.md written before the kernel, with a reference and a parity fixture entry",
-        "uv run pytest - the kernel matches the reference on the fixture within the parity tolerance; the executor fits PLSDASpec and has_kernel says so",
-        "pnpm test && pnpm typecheck && pnpm lint && pnpm build",
-        "pnpm exec playwright test - a seeded two-class dataset's PLS-DA tab shows the confusion matrix with the expected totals"
-      ],
-      "status": "passing",
-      "evidence": "2026-09-18. Spec: docs/algorithms/pls-da.md (two classes in Unicode order coded {0,1}, PLS1 on the dummy response, assignment at 0.5, confusion rows observed / columns assigned, accuracy/sensitivity/specificity by set with absent-never-NaN). Kernel: executor fits PLSDASpec through the shared _fit_pls1 and adds classes, assignments and confusion matrices; results_payload serves `classification` beside the regression block; Metrics.accuracy filled. Parity: ten fixture entries per dataset (dummy_predictions, confusion, accuracy, confusion_cv, accuracy_cv) from scikit-learn on the derived class column, test_parity.py compares all three datasets, docs/parity-report.md regenerated (120 claims). test_a_plsda_node_is_the_regression_on_a_dummy_response_and_tallies_it (accuracy > 0.8 on Tecator, _cv and _p tallies sum to their sets), refusals for a missing column and three classes; the no-kernel tests take PLS-DA's kernel away through _FITTED. `uv run pytest` 843 passed 1 skipped; ruff, format, mypy clean. Frontend: PLS-DA on the drop menu for a dataset with a two-valued metadata column (twoValuedColumns), class_column a select in the inspector, labels, a Confusion panel in place of predicted-vs-measured, accuracy headline and metrics, compare rows; `pnpm test` 121 passed; typecheck, lint, build clean. Seed: tecator.csv gains fat_class and the seeded pipeline a plsda_d node. e2e: analysis `a classification tab tallies its classes` (216 calibration, 240 CV), inspector `class column is chosen from the dataset's two-valued columns`, and the drop-menu test asserting PLS-DA 5 LV - all three FAILED against HEAD's seed and screens (`locator.dblclick: Test timeout`, `toHaveCount(expected) failed`); with the fix the seeded project 43 passed after five node/edge counts moved from 15/14 to 16/15, and the other three projects 13 passed in the same run.",
-      "notes": "Two-class only, which is PLS1 on a {0, 1} response. PLS2 is deferred by pls-regression.md section 10. The class column is any two-valued metadata column; no import role was needed, the delimited reader already files text columns as metadata. A misclassification-rate curve against A is a reasonable later panel (pls-da.md section 7)."
-    },
-    {
-      "id": "contribution-plots",
-      "priority": 3,
-      "area": "backend",
-      "issue": 186,
-      "title": "Contribution plots for a sample beyond a limit",
-      "depends_on": [
-        "vip-and-coefficients-drawn"
-      ],
-      "user_visible_behavior": "Clicking an outlier row in the diagnostics table opens a bar plot of that sample's per-variable contribution to SPE or T2, computed server-side from the stored array and result.",
-      "verification": [
-        "Formulas added to pca.md section 7 and 8 and pls-regression.md section 9 before implementing",
-        "uv run pytest - GET /results/{id}/contributions/{sample} matches a hand-computed two-variable case",
-        "pnpm test && pnpm typecheck && pnpm lint && pnpm build",
-        "pnpm exec playwright test - clicking the first outlier on the seeded PCA tab shows n_variables bars"
-      ],
-      "status": "passing",
-      "evidence": "2026-09-18. Formulas: pca.md sections 7 and 8 gain Contributions (c_ij = x_ij sum_k (t_ik/lambda_k) p_jk, signed, summing to T2; e_ij^2 summing to SPE with the signed residual beside it) and pls-regression.md section 9 the same with the rotations for the scores. Kernel: decomposition.t2_contributions and spe_contributions; test_t2_contributions_sum_to_t2_on_a_case_small_enough_to_check_by_hand (two variables, hand-computed 3 and 1, and 1.5 and -0.5), the identities row by row on a fitted model, and shape refusals. Executor: EstimatorResult.rotations kept (PCA loadings, PLS R) and stored_fitted_matrix reads the estimator's input fold-zero array back. Endpoint GET /results/{id}/contributions/{sample}: contributions_payload centres a regression's row by the fit rows' mean; sums match the served T2 and SPE to 1e-5 (float32 store) for pca_a and, below the split, for pca_d and pls_d on calibration and held-out rows; a result stored without rotations answers 409 rerun_needed; an unknown row 404. `uv run pytest` 851 passed 1 skipped; ruff, format, mypy clean. Screen: diagnostics rows are buttons carrying their dataset row, a Contributions panel beside them draws the picked sample's T2 or SPE contributions on the node's axis filled to zero with the sum in its note; `pnpm test` 123 passed; typecheck, lint, build clean. e2e `picking an outlier draws which variables put it there, summing to its own T2` (100 points, sum within 1e-3 of the served T2, SPE view): against HEAD's screens and backend FAILED (`element(s) not found`); with the fix `pnpm exec playwright test` 56 passed (1.7m).",
-      "notes": ""
-    },
-    {
-      "id": "opus-reader",
-      "priority": 3,
-      "area": "backend",
-      "issue": 187,
-      "title": "Bruker OPUS reader",
-      "depends_on": [],
-      "user_visible_behavior": "A .zip of OPUS files imports as one dataset: the preview names the block the spectrum was read from with the alternatives, the wavenumber axis comes from the parameter block, and sample ids are the filenames.",
-      "verification": [
-        "A licensed OPUS fixture in tests/fixtures/readers with its terms recorded",
-        "uv run pytest - sniff and read on the fixture; block choice; axis from FXV, LXV, NPT; a corrupt file is a ReaderError sentence",
-        "pnpm exec playwright test - the empty project imports the fixture zip and the dataset view shows the wavenumber axis"
-      ],
-      "status": "passing",
-      "evidence": "2026-09-18. Fixture: four OPUS files from opusreader2's sample data (MIT, tests/fixtures/readers/opus/LICENSE.md records the commit, the licence and the copyright holder) plus soil_pair.zip of two same-instrument soil spectra. Reader: readers/opus.py parses the header, the 12-byte directory, the XXX/type/length parameter records and the float32 data blocks directly (written from the MIT brukeropus and opusreader2 parsers, nothing imported); offers AB, Refl, ScSm, ScRf as a Block choice (correctable, resniff), reads the post-processed absorbance where OPUS stored both, reconstructs the axis from FXV/LXV/NPT with DXU=WN as wavenumber_cm-1, takes the first file's axis when members drift by less than one point spacing and states the drift, refuses a larger drift, a different point count, a non-OPUS member, a truncated file and an empty archive by name; sample ids are the file names and SNM becomes a sample_name metadata column. reader_for routes .zip and any numeric suffix. tests/test_readers_opus.py (10 tests) asserts the files' own MNY/MXY against the values read, the 0.27 cm-1 drift note, the block choice and every refusal. `uv run pytest` 861 passed 1 skipped; ruff, format, mypy clean. Screen: the import preview renders a Block select when the reader offers one and the file hint names the format; `pnpm test` 123 passed; typecheck, lint, build clean. e2e `a zip of OPUS files previews as one dataset with a block to choose` (empty project: Block AB with the two alternatives, wavenumber_cm-1, Import 2 x 3578, cancelled): against HEAD's reader and screen FAILED (the server refused the zip, so the file name appeared twice and the Block select never did); with the fix `pnpm exec playwright test` 57 passed (1.7m).",
-      "notes": "Parsed directly per PROPOSAL section 7; no dependency. Only DXU=WN is mapped to an axis kind; any other unit is an index axis with a note. Multi-file upload in the import screen was not added: a zip of a folder is the smaller change and what users already do to move OPUS data."
-    },
-    {
-      "id": "experiment-carries-pls-metrics",
-      "priority": 2,
-      "area": "backend",
-      "issue": 188,
-      "title": "The experiment record carries a regression's metrics",
-      "depends_on": [],
-      "user_visible_behavior": "GET /experiments/current for a run whose last estimator is a PLS carries rmsec, rmsecv, rmsep, r2, q2 and bias in metrics, not only explained variance.",
-      "verification": [
-        "uv run pytest - a seeded PLS run's experiment carries rmsecv equal to the node's result",
-        "pnpm typecheck - Experiment.metrics widened in queries.ts"
-      ],
-      "status": "passing",
-      "evidence": "2026-09-18. experiment_for fills Metrics.rmsec, rmsecv, rmsep, r2, q2 and bias from the last estimator's own metrics table and puts the rest (sec, sep, the RMSECV curve, per-fold errors) in extra beside the two limits; a decomposition leaves the named fields None. test_the_experiment_carries_a_regressions_named_metrics against dev's executor.py: `assert None == 5.447...` on rmsec; with the fix it and test_a_decompositions_experiment_leaves_the_regression_fields_absent pass. `uv run pytest` 829 passed 1 skipped; ruff, format, mypy clean. queries.ts Experiment.metrics widened; `pnpm typecheck` clean. No screen reads the new fields yet; Phase 3's lineage view is what they are for.",
-      "notes": "One experiment still carries one set: the last estimator's, as #87 left it. The per-node results are where each branch's numbers live."
-    },
-    {
-      "id": "spe-limit-outside-jm-domain",
-      "priority": 2,
-      "area": "backend",
-      "issue": 71,
-      "title": "A Jackson-Mudholkar limit computed with a non-positive h0 is returned with its caveat",
-      "depends_on": [],
-      "user_visible_behavior": "A PCA whose residual spectrum gives h0 <= 0 still gets an SPE limit, and the result and the diagnostics panel say the approximation's assumption failed for it, so the plot keeps its line and the reader knows what it is worth. Nothing is clamped.",
-      "verification": [
-        "pca.md section 8 states the rule and section 13 records the divergence from mdatools's clamp",
-        "uv run pytest - gasoline at a = 5 (h0 = -0.0190) returns the computed limit and a caveat; corn and tecator return none; CHEMOMETRICS_DOWNLOAD_DATASETS=1 in CI",
-        "pnpm test - the diagnostics panel renders the caveat when present and nothing when absent"
-      ],
-      "status": "passing",
-      "evidence": "2026-09-18. Kernel: PCA.spe_limit_caveat() returns the sentence naming h0 when h0 <= 0 and None otherwise, from the same _jackson_mudholkar_terms spe_limit uses; nothing is clamped and the bracket guard still raises. Executor stores it on EstimatorResult.spe_limit_caveat (default None, so stored results read back), results_payload serves diagnostics.spe_limit_caveat, the diagnostics panel prints it (data-testid spe-limit-caveat). pca.md section 8 states the rule and section 13 the divergence. Tests: test_the_gasoline_spe_limit_differs_because_mdatools_clamps_h0 now also asserts the caveat carries h0 = -0.0190 and that corn and tecator have none (gasoline from the local cache; CI downloads it); test_a_well_behaved_residual_spectrum_has_no_caveat; test_the_results_payload_is_the_shape_the_fixture_publishes asserts the key is present and None on Tecator; diagnostics.test.tsx renders the panel with and without the caveat. `uv run pytest` 822 passed 1 skipped; ruff, format, mypy clean; `pnpm test` 113 passed; typecheck, lint, build clean. Before the change the new assertions fail on the missing method. No e2e: no seeded dataset has h0 <= 0.",
-      "notes": "Decision recorded 2026-09-18 after the review: clamping (mdatools) hides that the assumption failed, raising (the bracket guard's answer) refuses a plot for a dataset that is otherwise fine, returning with a recorded caveat keeps the plot and tells the truth. Raising stays for the bracket <= 0 case, which has no real power at all."
-    },
-    {
-      "id": "phase-2-exit-run",
-      "priority": 0,
-      "area": "process",
-      "issue": 201,
-      "title": "The exit criterion is demonstrated: a calibration workflow on a real NIR dataset matches a reference within tolerance",
-      "depends_on": [
-        "train-test-split-executes",
-        "vip-and-coefficients-drawn",
-        "experiment-carries-pls-metrics"
-      ],
-      "user_visible_behavior": "Recorded, not built: a real NIR dataset is imported through the application, preprocessed, split, fitted with PLS and cross-validated, and the RMSECV, Q2 and predictions read back over HTTP agree with an independent implementation on the same fold indices within the tolerances docs/parity-report.md publishes.",
-      "verification": [
-        "A script under tests/ that drives the served application over HTTP against a public dataset (Tecator, or the mango set the 2026-09-05 run used) and compares against scikit-learn on the experiment's own resolved_splits",
-        "Its output committed under docs/phase-2/ with the date, the dataset, the pipeline and every number compared"
-      ],
-      "status": "passing",
-      "evidence": "2026-09-18. `uv run python -m tests.exit_run` exit 0; record at docs/phase-2/exit-run.md. The real server on a fresh project, Tecator imported through /import (content hash sha256:858b4e6c...), pipeline SNV -> SG(11,2,d1) -> k-fold 10 seed 42 -> mean centre -> PLS 5 LV on fat, run as a job to succeeded, compared against scikit-learn 1.9.0 PLSRegression on the experiment's own resolved_splits with SNV in NumPy and SciPy savgol_filter. Against a float64 reference: RMSECV 2.390922629 vs 2.390921117 (6.3e-7 rel), Q2 3.6e-8 rel, RMSEC 7.4e-7, R2 3.7e-8, RMSEP 2.2e-7, curve 6.3e-7 - all inside the metrics class (rtol 1e-6); predictions 7.1e-6 rel and coefficients 5.5e-3 rel outside. With the reference narrowed to float32 at the four store boundaries: every criterion quantity inside tolerance (metrics ~2.5e-9 rel, predictions 3.7e-8 rel); coefficients 2.9e-6 rel, still outside the 1e-6 coefficient class. An 80-bit NIPALS arbiter on the narrowed fold-zero matrix: our kernel 7.5e-16 and scikit-learn 9.6e-16 from it, the served vector 1.0e-7, because our Savitzky-Golay and SciPy's round to different float32 values at 15 of 24000 elements. Verdict recorded as met on every quantity the criterion names, against the narrowed reference, with the float64 and coefficient findings stated. `uv run pytest` 829 passed 1 skipped; ruff, format, mypy clean.",
-      "notes": "PROPOSAL.md section 16 leaves what 'matches reference software' means open; this entry decides it as: same folds, same preprocessing, an independent PLS, agreement within the parity tolerances. Kernel parity alone is not the criterion, because the executor's fold handling (#173) is exactly what kernel parity cannot see. Dataset decided 2026-09-18: Tecator; mango as a second run once #176 is done. Finding worth keeping: the float32 store is visible at the coefficient level on a derivative chain (1e-7 of the largest coefficient) and at the prediction level against a float64 reference (7e-6 relative); if the project ever wants float64 parity end to end, the store's dtype is the decision, not the kernels."
+      "status": "not_started",
+      "evidence": "",
+      "notes": "The shape Phase 2's exit run set: tests/exit_run.py drives the application over HTTP and writes docs/phase-2/exit-run.md, and this is the same thing for section 16's Phase 3 criterion. The float32 store finding from that run applies here too - an exported snippet computing in float64 will differ from the served numbers at the level docs/phase-2/exit-run.md records, and the tolerance has to be stated with that in mind."
     }
   ]
 }
