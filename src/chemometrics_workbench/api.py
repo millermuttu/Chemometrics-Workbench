@@ -746,7 +746,9 @@ def folded_coefficients(
 
     **The estimator's own centring is folded in too.** `_pls` centres `X` by the
     fit rows' mean, which is not a pipeline node and so is not in the measured
-    chain. Since the model computes `(chain(X) - x̄)·b + ȳ` and the helper
+    chain; since #211 the result records it, and a result stored before that
+    falls back to recomputing it from the refitted chain. Since the model
+    computes `(chain(X) - x̄)·b + ȳ` and the helper
     returns an intercept of `y_mean + offset·b`, passing `ȳ - x̄·b` as `y_mean`
     puts it exactly where it belongs.
     """
@@ -777,8 +779,13 @@ def folded_coefficients(
             axis = transformer.selected_axis()
         transformers.append(transformer)
 
+    # The estimator's own centring, as it recorded it (#211). This used to be
+    # recomputed from the refitted chain - the same number when the chain is
+    # the same, and one more thing that had to stay in step with the model.
     observed = np.asarray(result.observed, dtype=np.float64)
-    x_mean = values[rows].mean(axis=0)
+    x_mean = (
+        np.asarray(result.x_mean, dtype=np.float64) if result.x_mean else values[rows].mean(axis=0)
+    )
     coefficients = np.asarray(result.coefficients, dtype=np.float64)
 
     try:

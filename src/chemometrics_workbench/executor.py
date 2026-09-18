@@ -359,6 +359,19 @@ class EstimatorResult:
     y_loadings: list[float] = field(default_factory=list)
     vip: list[float] = field(default_factory=list)
 
+    x_mean: list[float] = field(default_factory=list)
+    """The column means the estimator subtracted before fitting, and adds back
+    to nothing - predictions come back in the response's units through
+    `y_mean`. Not a pipeline node's centring: `y` is not on the canvas and no
+    `MeanCentre` reaches it (`pls-regression.md` §3), so the estimator centres
+    `X` by its fit rows too and this is that. Empty on a decomposition. Kept
+    since #211, because a model artifact cannot carry a fitted model without
+    it and `folded_coefficients` had to refit the chain to recover it."""
+
+    y_mean: float | None = None
+    """The response mean the estimator subtracted, added back to every
+    prediction. `None` on a decomposition."""
+
     rotations: list[list[float]] = field(default_factory=list)
     """`a x p`, like `loadings`: what a row is multiplied by to get its scores.
     PCA's are its loadings; PLS's are `R = W(P'W)^-1` (`pls-regression.md`
@@ -1248,6 +1261,8 @@ def _fit_pls1(
         observed=_values(train_y),
         predicted=_values(predicted),
         coefficients=_values(model.coefficients_),
+        x_mean=_values(x_mean),
+        y_mean=y_mean,
         y_loadings=_values(model.y_loadings_),
         vip=_values(model.vip()),
         cross_validated_predicted=_values(cross_validated),
