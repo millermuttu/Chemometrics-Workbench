@@ -84,6 +84,7 @@ __all__ = [
     "read_cache_index",
     "read_datasets",
     "read_experiment",
+    "read_experiments",
     "read_layout",
     "read_pipeline",
     "write_array",
@@ -642,12 +643,45 @@ def write_cache_index(directory: str | os.PathLike[str], index: dict[str, list[s
         session.commit()
 
 
+def read_experiments(
+    directory: str | os.PathLike[str], limit: int | None = None
+) -> list[Experiment]:
+    """Every experiment this project has recorded, most recently started first.
+
+    The table has kept them all since #121; until #209 only the newest was ever
+    read. Ordering is `started_at` descending with the id as a tiebreak, which
+    is `read_experiment`'s order - that one is this list's head, and the two
+    cannot disagree about which run is current.
+
+    A record that no longer validates is skipped rather than refusing the whole
+    history: one run written by a version whose schema has since moved should
+    cost its own row, not every other run in the project. `read_experiment`
+    keeps its stricter contract, because a caller asking for *the* experiment
+    gets an answer or an error rather than silence.
+    """
+    path = Path(directory)
+    with _session(path) as session:
+        rows = session.scalars(
+            select(db.ExperimentRow)
+            .order_by(db.ExperimentRow.started_at.desc(), db.ExperimentRow.experiment_id)
+            .limit(limit)
+        ).all()
+
+    experiments: list[Experiment] = []
+    for row in rows:
+        try:
+            experiments.append(Experiment.model_validate_json(row.document))
+        except ValidationError:
+            continue
+    return experiments
+
+
 def read_experiment(directory: str | os.PathLike[str]) -> Experiment | None:
     """The last experiment recorded, or `None` if nothing has been run.
 
     The file this replaced held exactly one; the table keeps every one it is
-    given and this returns the most recently started. An experiment *history*
-    is a screen that does not exist yet, so nothing else reads the rest.
+    given and this returns the most recently started. `read_experiments` is the
+    whole history, in this same order, and this is its head.
     """
     path = Path(directory)
     with _session(path) as session:
