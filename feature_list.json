@@ -29,20 +29,21 @@
       "id": "model-artifact",
       "priority": 1,
       "area": "backend",
-      "issue": null,
+      "issue": 211,
       "title": "The model artifact: one self-describing file",
       "depends_on": [
         "experiment-history"
       ],
       "user_visible_behavior": "A fitted estimator can be saved as one file that carries the pipeline definition, the fitted parameters, the provenance record and the metrics, and that file can be read back without this application.",
       "verification": [
-        "A documented schema under docs/, written before the writer",
-        "uv run pytest - an artifact round-trips through the writer and reader; a file written by a newer schema version is refused by name",
-        "The artifact opens with nothing but the standard library and NumPy, asserted in the test"
+        "docs/model-artifact.md, normative, written before the writer",
+        "uv run pytest tests/test_artifact.py - every array round-trips bit for bit; a decomposition carries what it has and not what it does not; a newer schema version is refused by name; five malformed files each give a sentence",
+        "The same suite opens an artifact in a subprocess where this package is made unreachable, so the format is proven not to need it",
+        "uv run ruff check && uv run ruff format --check && uv run mypy && uv run pytest"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": "PROPOSAL.md section 8.4. `models.py` already has an unused `Model` with `artifact_path` and `artifact_hash`; the file format is what is missing. Openly documented and readable without the application is the requirement, so a zip of JSON plus .npy rather than a pickle."
+      "status": "passing",
+      "evidence": "2026-09-18. Format first: docs/model-artifact.md is normative and states the container (a zip of manifest.json and one .npy per array), the version rule, every manifest field, every array name with its shape and task, the prediction arithmetic, and what is deliberately not in it. artifact.py implements it: write_artifact returns the content hash of the bytes that landed and writes through a temporary file; read_artifact refuses a file stamped newer by name, as db.py refuses a newer database. EstimatorResult gained x_mean and y_mean - the estimator's own centring, which _fit_pls1 computed and threw away and folded_coefficients recovered by refitting the chain; that endpoint now reads them, with the refit kept as the fallback for a result stored before #211. tests/test_artifact.py, 11 tests: a PLS below a ten-fold split round-trips its coefficients, x_mean, VIP, loadings, rotations and both index sets bit for bit with float64 and int64 dtypes; the pipeline travels by value and parses back to the same content hash; a PCA carries no coefficients, no x_mean, no indices and a null split, because a reader must not assume an array that absent is absent rather than empty; a file stamped schema_version 4 is refused naming both numbers; five malformed files (not a zip, no manifest, bad JSON, no schema_version, an array the archive does not hold) each give a sentence. The claim that matters - PROPOSAL.md section 8.4's 'readable without this application' - is tested by reading an artifact in a subprocess that installs a meta-path finder raising on any import of chemometrics_workbench, and asserting afterwards that sys.modules holds nothing of ours. Blocking rather than relying on absence, because in a developer's environment the package is installed and a test that merely did not import it would prove nothing. `uv run pytest` 879 passed 1 skipped; ruff, format, mypy clean; frontend typecheck, tests (126) and build unchanged and clean.",
+      "notes": "A zip of JSON and .npy rather than a pickle: a pickle needs this package importable and executes what it is sent, and an artifact is a thing people email to each other. Scores, predictions and per-sample diagnostics are deliberately absent - they are properties of the samples the model saw, recomputable from the model and the data, where the artifact is what you need to use and explain the model. Prediction from an artifact is json-and-snippet-export; recording one in the project is model-registry; no endpoint is added here."
     },
     {
       "id": "model-registry",
