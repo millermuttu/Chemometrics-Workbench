@@ -17,6 +17,7 @@ import {
 } from "@/api/queries";
 import { DatasetView } from "@/screens/DatasetView";
 import { ExperimentView } from "@/screens/ExperimentView";
+import { LineageView } from "@/screens/LineageView";
 import { EmptyProject } from "@/screens/EmptyProject";
 import { CannotLoad } from "@/states/CannotLoad";
 import { Import } from "@/screens/Import";
@@ -78,6 +79,7 @@ function Pane({
   onCloseImport,
   onOpenNode,
   onCompare,
+  onCompareRuns,
 }: {
   tab: Tab | undefined;
   datasets: DatasetEntry[] | undefined;
@@ -85,6 +87,7 @@ function Pane({
   classColumns: string[];
   onOpenNode: (id: string, label: string) => void;
   onCompare: (left: string, right: string) => void;
+  onCompareRuns: (left: string, right: string) => void;
   onImported: (versionId: string, name: string) => void;
   onCloseImport: () => void;
 }) {
@@ -113,7 +116,16 @@ function Pane({
     );
   }
   if (tab?.kind === "results") return <AnalysisResults nodeId={tab.id} title={tab.title} />;
-  if (tab?.kind === "experiment") return <ExperimentView experimentId={tab.id} title={tab.title} />;
+  if (tab?.kind === "experiment")
+    return (
+      <ExperimentView experimentId={tab.id} title={tab.title} onCompareRuns={onCompareRuns} />
+    );
+  if (tab?.kind === "lineage") {
+    // Both runs in the id, as the node comparison above has it: picking the
+    // same pair twice reuses the tab rather than stacking another.
+    const [left, right] = tab.id.split("|");
+    return <LineageView left={left} right={right} />;
+  }
   if (tab?.kind === "compare") {
     // The id carries both nodes, so this tab is stable across opens the way
     // every other one is: picking the same pair twice reuses it.
@@ -280,6 +292,13 @@ export function Shell() {
     // replacing it with the next preview would throw away what was just built.
     (left: string, right: string) =>
       open({ id: `${left}|${right}`, kind: "compare", title: `${left} vs ${right}` }, false),
+    [open],
+  );
+
+  const openLineage = useCallback(
+    // The node comparison's rule, for runs: two deliberate picks, so pinned.
+    (left: string, right: string) =>
+      open({ id: `${left}|${right}`, kind: "lineage", title: "Two runs compared" }, false),
     [open],
   );
 
@@ -470,11 +489,11 @@ export function Shell() {
             <EmptyProject onImport={openImport} />
           ) : state.splitId ? (
             <div className="split">
-              <Pane tab={activeTab} datasets={datasets.data} targets={targets} classColumns={classColumns} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} />
-              <Pane tab={splitTab} datasets={datasets.data} targets={targets} classColumns={classColumns} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} />
+              <Pane tab={activeTab} datasets={datasets.data} targets={targets} classColumns={classColumns} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} onCompareRuns={openLineage} />
+              <Pane tab={splitTab} datasets={datasets.data} targets={targets} classColumns={classColumns} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} onCompareRuns={openLineage} />
             </div>
           ) : (
-            <Pane tab={activeTab} datasets={datasets.data} targets={targets} classColumns={classColumns} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} />
+            <Pane tab={activeTab} datasets={datasets.data} targets={targets} classColumns={classColumns} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} onCompareRuns={openLineage} />
           )}
         </main>
 

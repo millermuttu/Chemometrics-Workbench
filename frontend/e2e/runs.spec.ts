@@ -291,3 +291,52 @@ test("the outline lists every run, and one opens to what it ran", async ({ page 
   // The placeholder the experiment tab used to reach is gone.
   await expect(page.getByText("view — built in a later issue")).toHaveCount(0);
 });
+
+test("two runs compare step by step, and the differing node is named", async ({ page }) => {
+  // #215. The tests above each changed the pipeline before running it, so this
+  // project's history holds runs of different recipes - which is the case the
+  // comparison exists for. The pair is chosen from the served history rather
+  // than assumed, because which two differ depends on what ran above.
+  await page.goto("/?token=e2e-token");
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  const runs = outline.getByRole("button", { name: /^Run \d+/ });
+  await expect.poll(() => runs.count()).toBeGreaterThan(1);
+
+  const served = await page.evaluate(async () => {
+    const response = await fetch("/api/experiments", {
+      headers: { Authorization: `Bearer ${sessionStorage.getItem("token")}` },
+    });
+    return (await response.json()) as { experiment_id: string; pipeline_hash: string }[];
+  });
+  // The outline is the served order, so an index into one is an index into the
+  // other. The first run whose recipe differs from the newest is the partner.
+  const other = served.findIndex((row) => row.pipeline_hash !== served[0].pipeline_hash);
+  expect(other, "this project's history holds runs of more than one recipe").toBeGreaterThan(0);
+
+  await runs.first().dblclick();
+  await expect(page.getByTestId("experiment-view")).toBeVisible();
+  await page
+    .getByTestId("compare-with")
+    .selectOption({ value: served[other].experiment_id });
+
+  const view = page.getByTestId("lineage-view");
+  await expect(view).toBeVisible();
+  // Two different recipes differ by at least one node, and the pill counts the
+  // same nodes the table marks - the summary is not a second opinion.
+  const summary = page.getByTestId("lineage-summary");
+  await expect(summary).toHaveText(/^\d+ nodes? differ$/);
+  const counted = Number((await summary.innerText()).split(" ")[0]);
+  expect(counted).toBeGreaterThan(0);
+
+  const marked = view.locator(
+    '[data-testid="lineage-node-changed"], [data-testid="lineage-node-added"], [data-testid="lineage-node-removed"]',
+  );
+  await expect(marked).toHaveCount(counted);
+  // Named, not merely counted: the row carries the node's own id.
+  await expect(marked.first()).toHaveAttribute("data-node", /.+/);
+
+  // The steps the two share are still drawn, because a diff that hides what
+  // matched makes the reader reconstruct the recipe to read the difference.
+  await expect(view.getByTestId("lineage-node-unchanged").first()).toBeVisible();
+  await expect(view).toContainText("What each scored");
+});

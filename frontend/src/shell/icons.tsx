@@ -107,5 +107,6 @@ export const KIND_ICONS = {
   results: PlotIcon,
   compare: CompareIcon,
   experiment: FlaskIcon,
+  lineage: CompareIcon,
   model: ModelIcon,
 } as const;

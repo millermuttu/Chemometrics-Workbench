@@ -1,4 +1,4 @@
-import { useExperimentRecord, type ExperimentRecord } from "@/api/queries";
+import { useExperimentRecord, useExperiments, type ExperimentRecord } from "@/api/queries";
 import { CannotLoad } from "@/states/CannotLoad";
 import { nodeLabel } from "@/shell/Sidebar";
 import { parameterLine } from "@/canvas/graph";
@@ -86,7 +86,51 @@ function Metrics({ record }: { record: ExperimentRecord }) {
   );
 }
 
-export function ExperimentView({ experimentId, title }: { experimentId: string; title: string }) {
+/** Pick another run to compare this one with (#215).
+ *
+ * A run names the others and opening one pairs them, which is the cheapest
+ * pairing that exists: the history is already loaded, and a run knows its own
+ * id. The canvas's node comparison (#51) is a different pairing of a different
+ * thing and is left alone.
+ */
+function CompareWith({
+  experimentId,
+  onCompareRuns,
+}: {
+  experimentId: string;
+  onCompareRuns: (left: string, right: string) => void;
+}) {
+  const runs = useExperiments();
+  const others = (runs.data ?? []).filter((row) => row.experiment_id !== experimentId);
+  if (others.length === 0) return null;
+  return (
+    <select
+      aria-label="Compare with another run"
+      data-testid="compare-with"
+      value=""
+      onChange={(event) => {
+        if (event.target.value) onCompareRuns(experimentId, event.target.value);
+      }}
+    >
+      <option value="">Compare with…</option>
+      {others.map((row) => (
+        <option key={row.experiment_id} value={row.experiment_id}>
+          {when(row.started_at)} · {row.status} · {row.n_nodes} nodes
+        </option>
+      ))}
+    </select>
+  );
+}
+
+export function ExperimentView({
+  experimentId,
+  title,
+  onCompareRuns,
+}: {
+  experimentId: string;
+  title: string;
+  onCompareRuns: (left: string, right: string) => void;
+}) {
   const record = useExperimentRecord(experimentId);
 
   if (record.isError) return <CannotLoad error={record.error} />;
@@ -130,9 +174,12 @@ export function ExperimentView({ experimentId, title }: { experimentId: string; 
             {when(run.started_at)}
           </span>
         </div>
-        <span className="pill mono" title={run.pipeline_snapshot.pipeline_id}>
-          {nodes.length} nodes
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+          <CompareWith experimentId={experimentId} onCompareRuns={onCompareRuns} />
+          <span className="pill mono" title={run.pipeline_snapshot.pipeline_id}>
+            {nodes.length} nodes
+          </span>
+        </div>
       </div>
 
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>

@@ -86,7 +86,7 @@
       "id": "lineage-comparison",
       "priority": 1,
       "area": "frontend",
-      "issue": null,
+      "issue": 215,
       "title": "Two experiments compared step by step",
       "depends_on": [
         "experiment-history"
@@ -96,9 +96,9 @@
         "pnpm test - the diff of two pipeline snapshots is pure and tested: a node added, a node removed, a parameter changed, and a graph that differs only in layout reported as identical",
         "pnpm exec playwright test - the seeded project compares two experiments and names the node that differs"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": "PROPOSAL.md section 8.3 calls this the single feature most likely to make a researcher prefer this tool to a notebook, and says it is free once the model is correct. `Experiment.pipeline_snapshot` is the snapshot by value that makes it possible; `CompareResults` already compares two results and is the screen to build on."
+      "status": "passing",
+      "evidence": "2026-09-18. `pnpm test` in frontend/: `Test Files 18 passed (18)`, `Tests 132 passed (132)` - src/__tests__/lineage.test.ts covers a node added, a node removed, a parameter changed, a renamed node read as remove plus add, a rewired input, and a graph differing only in layout reported identical. `pnpm build && npx playwright test --project=runs`: `8 passed (33.4s)`, the new `two runs compare step by step, and the differing node is named` among them. Proof it fails on unfixed code: with src/lineage/, LineageView.tsx and the four wiring edits reverted and the spec kept, the same whole-project run gave `1 failed` at `locator.selectOption: Test timeout of 180000ms exceeded. - waiting for getByTestId('compare-with')`, 7 passed.",
+      "notes": "PROPOSAL.md section 8.3 calls this the single feature most likely to make a researcher prefer this tool to a notebook, and says it is free once the model is correct. `Experiment.pipeline_snapshot` is the snapshot by value that makes it possible; `CompareResults` already compares two results and is the screen to build on. Built as `src/lineage/diff.ts` (pure, matched by node id) plus `src/screens/LineageView.tsx`, not on `CompareResults`: that screen compares two nodes' results inside one run and shares no state with a comparison of two runs' recipes. Pairing is a select on the run record, which already has the history loaded. The e2e picks its pair from the served history rather than assuming one, because which two runs differ depends on what the tests above it ran."
     },
     {
       "id": "html-report",
