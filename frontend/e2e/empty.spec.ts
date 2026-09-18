@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { expect, test, type Page } from "@playwright/test";
 
 import { spectraCsv } from "./spectra-file";
@@ -133,4 +135,26 @@ test("a step added from the drop menu keeps its position once saved", async ({ p
       return stored && { x: Math.round(stored.x), y: Math.round(stored.y) };
     })
     .toEqual(drawn);
+});
+
+test("a zip of OPUS files previews as one dataset with a block to choose", async ({ page }) => {
+  // #187. Two soil spectra from opusreader2's sample data, one per file. The
+  // preview names the block it read, offers the others, and states the axis
+  // in wavenumbers; nothing is committed, so the project stays as the tests
+  // after this one expect it.
+  await page.goto("/?token=e2e-token");
+  await page.getByRole("button", { name: "Import…" }).click();
+  await page.getByLabel("Choose file").setInputFiles(
+    path.resolve(import.meta.dirname, "../../tests/fixtures/readers/opus/soil_pair.zip"),
+  );
+  await expect(page.getByText("soil_pair.zip")).toBeVisible();
+  await expect(page.getByLabel("Block")).toHaveValue("AB");
+  await expect(page.getByLabel("Block").locator("option")).toHaveText([
+    "AB · absorbance",
+    "ScSm · sample single channel",
+    "ScRf · reference single channel",
+  ]);
+  await expect(page.getByText("wavenumber_cm-1")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Import 2 × 3578" })).toBeVisible();
+  await page.getByRole("button", { name: "Cancel" }).click();
 });

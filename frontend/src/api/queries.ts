@@ -74,6 +74,9 @@ export interface ImportPreview {
     metadata_columns: string[];
     targets: string[];
     discarded: { what: string; why: string }[];
+    /** Which spectrum block an OPUS file is read from (#187); absent for
+     * every other format. */
+    block?: Detected<string>;
   };
   head: { sample_ids: string[]; rows: number[][] };
 }

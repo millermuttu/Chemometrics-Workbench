@@ -15,6 +15,7 @@ instrument and company; see `src/chemometrics_workbench/data/tecator/README.md`.
 | `tecator_subset.xlsx` | A workbook: a merged title row over a blank row, a second sheet, typed numbers |
 | `tecator_subset.jdx` | A JCAMP-DX LINK block of eight spectra, `(X++(Y..Y))` with a `##YFACTOR` |
 | `compressed_forms.jdx` | Hand-written, five ordinates: SQZ, DIF and DUP in one file |
+| `opus/*.0`, `opus/*.1`, `opus/soil_pair.zip` | Bruker OPUS binaries from `opusreader2`'s sample data (MIT; see `opus/LICENSE.md`). Not Tecator: real FT-IR soil spectra, one per file, and a zip of two whose axes drift by 0.27 cm⁻¹ |
 
 The numbers in all six are identical to `load_tecator().spectra[:8, :12]` to
 four decimal places, which is what lets one test assert that the same data

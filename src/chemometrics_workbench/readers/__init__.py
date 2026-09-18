@@ -106,6 +106,10 @@ class Detection:
     #: Which sheet a workbook is being read from, and the others it could be.
     #: `None` for formats that hold one table and have nothing to choose.
     sheet: Choice | None = None
+    #: Which spectrum block an OPUS file is read from - absorbance, reflectance,
+    #: a single channel - and the others every file in the upload holds (#187).
+    #: `None` for every other format.
+    block: Choice | None = None
     #: The fields this reader will accept a correction to. Per-reader because a
     #: delimiter means nothing to a spreadsheet and a sheet means nothing to a
     #: text file, and offering a correction that cannot be applied is the same
@@ -140,6 +144,8 @@ class Detection:
         }
         if self.sheet is not None:
             payload["sheet"] = self.sheet.payload()
+        if self.block is not None:
+            payload["block"] = self.block.payload()
         return payload
 
 
@@ -185,17 +191,21 @@ def reader_for(path: str | Path) -> Any:
     suffix is a reader that will one day parse a spreadsheet as text and
     produce a diagnostic about line 1.
     """
-    from chemometrics_workbench.readers import delimited, jcamp, xlsx
+    from chemometrics_workbench.readers import delimited, jcamp, opus, xlsx
 
-    modules = [delimited, jcamp, xlsx]
+    modules = [delimited, jcamp, xlsx, opus]
     suffix = Path(path).suffix.lower()
     for module in modules:
         if suffix in module.SUFFIXES:
             return module
+    # OPUS names its files by a counter - `.0`, `.1`, `.001` - which no list
+    # of suffixes can hold (#187).
+    if opus.is_opus_name(path):
+        return opus
     known = sorted({s for module in modules for s in module.SUFFIXES})
     raise ReaderError(
         f"there is no reader for {suffix or 'a file with no suffix'}. "
-        f"This build reads {', '.join(known)}."
+        f"This build reads {', '.join(known)}, and Bruker OPUS files by their numeric suffix."
     )
 
 
