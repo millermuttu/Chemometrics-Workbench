@@ -8,8 +8,9 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 ## Where things stand
 
-**Phase 1 is complete and released.** `main` is tagged `v0.5.0` (`015f9ec`, 2026-09-05) — a mid-phase
-snapshot, not a phase close; the tag's own message says so.
+**Phase 1 is complete and released.** `main` is tagged `v0.6.0` (2026-09-18) — a mid-phase snapshot
+taken after the review fixes and #183, not a phase close; the tag's own message says so. `v0.5.0`
+(`015f9ec`, 2026-09-05) was the previous one.
 
 **2026-09-18: a whole-repository review, four features merged, and Phase 2 written down.** The review
 found nothing in the science. It found seven things at the frontend edge and in provenance, and that

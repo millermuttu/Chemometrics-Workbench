@@ -4,13 +4,14 @@ An open-source, local-first chemometrics workbench: a Python backend and a React
 shipped as one double-clickable desktop application, aimed at research and academic users of
 closed tools such as Unscrambler, SIMCA and OPUS. Your data never leaves your machine.
 
-**Status: Phase 1 is complete and released, `v0.5.0`.** The application runs: import a
+**Status: Phase 1 is complete and released; `v0.6.0` is the snapshot Phase 2 starts from.**
+The application runs: import a
 dataset, build a preprocessing pipeline on a canvas, fit PCA or PLS, cross-validate, and read
 the result. Everything stands on the numerical foundation Phase 0 laid — the algorithm
 kernels, their specifications, and the evidence that their numbers are right.
 
-Phase 2 is under way. `PROPOSAL.md` §16 still wants PLS-DA, VIP scores, contribution plots, a
-train/test splitting interface and the Bruker OPUS reader.
+Phase 2 is under way, with every §16 item on `feature_list.json`. The train/test split is in;
+VIP and coefficient plots, PLS-DA, contribution plots and the Bruker OPUS reader are still open.
 
 ## Running it
 
