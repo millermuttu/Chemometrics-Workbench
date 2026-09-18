@@ -15,12 +15,17 @@ export function CannotLoad({ error }: { error: unknown }) {
   const api = error instanceof ApiError ? error : null;
   const unauthorised = api?.status === 401;
   const unreachable = !api;
+  // A 404 from a node endpoint means the node has no result yet - not a fault,
+  // and not something reloading fixes (#181).
+  const missing = api?.status === 404;
 
   const heading = unauthorised
     ? "Not authenticated"
     : unreachable
       ? "The workbench server is not answering"
-      : "The workbench server refused the request";
+      : missing
+        ? "Nothing to show yet"
+        : "The workbench server refused the request";
 
   const explanation = unauthorised
     ? "This window has no session token, so the server refused every request. The token is handed over once, in the launch URL."
@@ -32,7 +37,9 @@ export function CannotLoad({ error }: { error: unknown }) {
     ? "Reopen the application from its launch URL — the one printed when the server started, ending in ?token=…"
     : unreachable
       ? "Start the server again, then reload this window."
-      : "Reload the window. If it keeps failing, restart the application.";
+      : missing
+        ? "Run the pipeline, then open this tab again."
+        : "Reload the window. If it keeps failing, restart the application.";
 
   return (
     <div className="pane">

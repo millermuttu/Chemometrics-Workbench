@@ -10,9 +10,11 @@ import type { NodeData } from "@/canvas/graph";
  *
  * The five states are encoded in form as well as colour, which is what makes
  * them survive greyscale and colour blindness: complete is solid, running
- * takes an accent border and shows progress inside the node, stale is a
- * dashed border over a 135 degree hatch, failed carries a left stripe, and
- * not-yet-run is a dashed outline.
+ * takes an accent border and shows progress inside the node, queued is dashed
+ * in the accent, failed carries a left stripe, and not-yet-run is a dashed
+ * outline. The artboard's hatched *stale* is not here: the server derives a
+ * node's state from whether its result exists under its cache key, so an
+ * edited node's descendants are `not_run`, and there is no stale to draw.
  */
 
 const HEADER = 17;
@@ -28,13 +30,6 @@ function frame(state: NodeData["state"]): React.CSSProperties {
   switch (state) {
     case "running":
       return { border: "1px solid var(--accent)", background: "var(--surface)" };
-    case "stale":
-      return {
-        border: "1px dashed var(--stale)",
-        background:
-          "repeating-linear-gradient(135deg,var(--surface),var(--surface) 5px,var(--staleSoft) 5px,var(--staleSoft) 10px)",
-        opacity: 0.72,
-      };
     case "failed":
       return {
         border: "1px solid var(--rule)",
@@ -50,7 +45,7 @@ function frame(state: NodeData["state"]): React.CSSProperties {
       return { border: "1px dashed var(--rule)", background: "var(--surface)" };
     default:
       // Complete. Solid *and* green: the brief asks for form as well as
-      // colour, and solid is what the other five states are distinguished
+      // colour, and solid is what the other four states are distinguished
       // from - a canvas read in greyscale still says which nodes hold a
       // result.
       return { border: "1px solid var(--ok)", background: "var(--surface)" };
@@ -59,7 +54,6 @@ function frame(state: NodeData["state"]): React.CSSProperties {
 
 export function NodeCard({ data, selected }: NodeProps) {
   const node = data as NodeData;
-  const stale = node.state === "stale";
   const failed = node.state === "failed";
 
   return (
@@ -90,11 +84,11 @@ export function NodeCard({ data, selected }: NodeProps) {
           display: "flex",
           alignItems: "center",
           padding: "0 8px",
-          background: stale ? "var(--staleSoft)" : "var(--sunken)",
+          background: "var(--sunken)",
           fontSize: 9,
           letterSpacing: ".1em",
           textTransform: "uppercase",
-          color: stale ? "var(--stale)" : "var(--ink3)",
+          color: "var(--ink3)",
         }}
       >
         {node.type}
@@ -168,7 +162,7 @@ export function NodeCard({ data, selected }: NodeProps) {
             padding: "4px 8px 6px",
             fontSize: 10,
             borderTop: "1px solid var(--rule2)",
-            color: stale ? "var(--stale)" : failed ? "var(--fail)" : "var(--ink2)",
+            color: failed ? "var(--fail)" : "var(--ink2)",
             // A failure names what went wrong; the node is 132px wide and the
             // message is a sentence, so it wraps rather than being truncated
             // into something unreadable.

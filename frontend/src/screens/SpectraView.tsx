@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useSpectra, type SpectraPayload } from "@/api/queries";
 import { PLOT_CONFIG, axisLayout, baseLayout, readTheme } from "@/plot/theme";
 import { bandTraces, spectraTraces } from "@/plot/traces";
+import { CannotLoad } from "@/states/CannotLoad";
 import { Overloaded } from "@/states/Overloaded";
 import { checkEnvelope } from "@/states/envelope";
 
@@ -169,6 +170,13 @@ function SpectraPlotView({ nodeId, title }: { nodeId: string; title: string }) {
       current.includes(index) ? current.filter((item) => item !== index) : [...current, index],
     );
 
+  // A node that has never been run answers 404 (#181). The processed node's
+  // refusal is the one to show: the raw layer fails only when the source has
+  // not been read either, and then the sentence is the same.
+  const refused = processed.error ?? raw.error;
+  if (refused) {
+    return <CannotLoad error={refused} />;
+  }
   if (!processed.data || !raw.data) {
     return (
       <div className="pane">

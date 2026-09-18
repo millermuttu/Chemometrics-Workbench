@@ -14,6 +14,8 @@ export interface Project {
   description: string;
   directory: string;
   created_at: string;
+  /** The server's own version, which is what every experiment records. */
+  app_version: string;
 }
 
 export interface DatasetVersion {

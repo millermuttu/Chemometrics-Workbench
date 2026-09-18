@@ -1,9 +1,10 @@
 /** The canvas's encodings: what each node says, and what each edge means.
  *
  * These are the artboard's rules, checked against the committed fixture. The
- * screen is the signature one and its states carry meaning - a stale result
- * must stay visible rather than vanish - so the rules are tested here rather
- * than only looked at.
+ * screen is the signature one and its states carry meaning, so the rules are
+ * tested here rather than only looked at. The fixture still carries the 1.1
+ * contract's `stale`, which the server never sends (#181): what is asserted
+ * is that the canvas gives it no encoding of its own.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -28,11 +29,11 @@ const read = <T,>(name: string) =>
 
 const pipeline = read<Pipeline>("pipeline");
 const state = read<PipelineState>("pipeline_state");
-const colours = { rule: "#D2DAD8", accent: "#0B6B62", stale: "#9A6206" };
+const colours = { rule: "#D2DAD8", accent: "#0B6B62" };
 
-it("carries all five states at once, which is what the artboard shows", () => {
+it("carries every served state at once, which is what the artboard shows", () => {
   const states = new Set(Object.values(state.nodes).map((node) => node.state));
-  for (const required of ["complete", "running", "stale", "failed", "not_run"]) {
+  for (const required of ["complete", "running", "queued", "failed", "not_run"]) {
     expect(states, required).toContain(required);
   }
 });
@@ -45,7 +46,7 @@ describe("nodes", () => {
     expect(parameterLine(split)).toBe("10 folds · shuffle · seed 42");
   });
 
-  it("carry why they are stale and what failed, because that is the useful part", () => {
+  it("carry the reason and the failure as footers, because that is the useful part", () => {
     expect(nodeStateOf("savgol", state).footer).toBe("edited - downstream stale");
     expect(nodeStateOf("pca_d", state).footer).toContain("rank 4");
   });
@@ -72,12 +73,9 @@ describe("edges", () => {
     expect(edge("centre_b->pca_b").style.stroke).toBe(colours.accent);
   });
 
-  it("run dashed stale wherever either end is stale", () => {
-    expect(edge("source->savgol").style).toMatchObject({
-      stroke: colours.stale,
-      strokeDasharray: "4 3",
-    });
-    expect(edge("savgol->autoscale_c").style.stroke).toBe(colours.stale);
+  it("give the fixture's stale nodes the resting edge, not one of their own", () => {
+    expect(edge("source->savgol").style).toEqual({ stroke: colours.rule, strokeWidth: 1.4 });
+    expect(edge("savgol->autoscale_c").style.strokeDasharray).toBeUndefined();
   });
 
   it("run rule-coloured and still at rest", () => {

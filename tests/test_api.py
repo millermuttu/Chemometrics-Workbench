@@ -35,7 +35,7 @@ from chemometrics_workbench.api import (
     spectra_payload,
 )
 from chemometrics_workbench.datasets import load_tecator
-from chemometrics_workbench.executor import Run, execute
+from chemometrics_workbench.executor import Run, capture_environment, execute
 from chemometrics_workbench.models import AxisKind, DatasetVersion, VariableAxis
 from chemometrics_workbench.project import (
     create_project,
@@ -110,6 +110,19 @@ def test_the_open_project_is_created_on_first_use_and_is_a_real_directory(
     assert body[0]["directory"] == str(project)
     assert (project / "project.db").exists()
     assert body[0]["project_id"] == str(open_project(project).project_id)
+
+
+def test_the_project_reports_the_version_pyproject_declares(client: TestClient) -> None:
+    """One number, from the package metadata. `__version__` was a literal that
+    stayed at 0.2.0 for three releases while every experiment recorded it
+    (#181); this reads the declared version so the drift cannot recur."""
+    import tomllib
+
+    declared = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text())
+    expected = declared["project"]["version"]
+    assert capture_environment().app_version == expected
+    assert client.get("/api/projects").json()[0]["app_version"] == expected
+    assert client.get(f"/api/projects/{project_id(client)}").json()["app_version"] == expected
 
 
 def test_a_project_that_is_not_the_open_one_is_a_404_with_a_body(client: TestClient) -> None:

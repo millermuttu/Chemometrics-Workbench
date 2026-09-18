@@ -363,6 +363,23 @@
       "status": "not_started",
       "evidence": "",
       "notes": ""
+    },
+    {
+      "id": "review-fixes-version-404-stale",
+      "priority": 1,
+      "area": "frontend",
+      "issue": 181,
+      "title": "The recorded app version is real, an unrun node says so, and the stale state is gone",
+      "depends_on": [],
+      "user_visible_behavior": "Every experiment and the inspector's provenance footer carry the version pyproject.toml declares; opening a node that has never been run shows what to do rather than a loading message that never resolves; the canvas has no stale encoding because the server never sends one.",
+      "verification": [
+        "uv run pytest - test_the_project_reports_the_version_pyproject_declares fails on the old __init__.py",
+        "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
+        "pnpm exec playwright test - the whole suite, the new runs.spec.ts test first run against the unfixed screens"
+      ],
+      "status": "passing",
+      "evidence": "2026-09-18. Version: __init__.py reads importlib.metadata; GET /projects and /projects/{id} carry app_version; test_the_project_reports_the_version_pyproject_declares against the old __init__.py: `AssertionError: assert '0.2.0' == '0.5.0'`; with the fix `uv run pytest` 819 passed 1 skipped (22 s); ruff, format, mypy clean. 404: AnalysisResults and SpectraView render CannotLoad on a query error, and CannotLoad has a 404 case (\"Nothing to show yet\"); e2e `a node that has never been run says so, rather than loading forever` (runs.spec.ts, first in the file) against the unfixed screens FAILED at `expect(page.getByText(\"Loading results…\")).toHaveCount(0)`; with the fix `pnpm exec playwright test` 48 passed + this test failing on an exact-name locator for SNV, then `--project=runs` 4 passed after the locator became /^SNV/. Stale: NodeState, toEdges, NodeCard, Inspector and stale.ts no longer carry a state the server never sends; graph.test.ts asserts the fixture's stale nodes get the resting edge. `pnpm typecheck`, `pnpm lint` clean; `pnpm test` 106 passed (3 dead-code tests removed); `pnpm build` ok.",
+      "notes": ""
     }
   ]
 }
