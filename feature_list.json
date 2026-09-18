@@ -507,8 +507,8 @@
         "uv run pytest - a seeded PLS run's experiment carries rmsecv equal to the node's result",
         "pnpm typecheck - Experiment.metrics widened in queries.ts"
       ],
-      "status": "not_started",
-      "evidence": "",
+      "status": "passing",
+      "evidence": "2026-09-18. experiment_for fills Metrics.rmsec, rmsecv, rmsep, r2, q2 and bias from the last estimator's own metrics table and puts the rest (sec, sep, the RMSECV curve, per-fold errors) in extra beside the two limits; a decomposition leaves the named fields None. test_the_experiment_carries_a_regressions_named_metrics against dev's executor.py: `assert None == 5.447...` on rmsec; with the fix it and test_a_decompositions_experiment_leaves_the_regression_fields_absent pass. `uv run pytest` 829 passed 1 skipped; ruff, format, mypy clean. queries.ts Experiment.metrics widened; `pnpm typecheck` clean. No screen reads the new fields yet; Phase 3's lineage view is what they are for.",
       "notes": "One experiment still carries one set: the last estimator's, as #87 left it. The per-node results are where each branch's numbers live."
     },
     {

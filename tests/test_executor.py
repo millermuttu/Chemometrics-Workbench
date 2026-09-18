@@ -27,6 +27,7 @@ from chemometrics_workbench.decomposition import PCA
 from chemometrics_workbench.executor import (
     ExecutorError,
     execute,
+    experiment_for,
     node_keys,
     result_path,
 )
@@ -1025,6 +1026,52 @@ def test_below_a_split_the_curve_is_every_folds_and_the_model_is_fold_zeros(
     assert result.metrics["rmsecv"] == pytest.approx(curve[-1])
     assert all(f"rmsecv_fold_{k}" in result.metrics for k in range(5))
     assert "q2" in result.metrics and "rmsecv_std" in result.metrics
+
+
+def test_the_experiment_carries_a_regressions_named_metrics(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    """#188: `Metrics` had fields for RMSEC, RMSECV, R2 and Q2 and every
+    experiment left them `None`. A run whose last estimator is a regression
+    fills them from that node's own result; the rest of its table is in
+    `extra`; and a metric the node does not carry stays `None` (§11)."""
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=5, seed=42)),
+        PreprocessNode(id="centre", inputs=("split",), step=MeanCentre()),
+        EstimatorNode(
+            id="pls", inputs=("centre",), spec=PLSRegressionSpec(n_components=3, target="fat")
+        ),
+    )
+    run = execute(directory, pipeline, version)
+    metrics = experiment_for(pipeline, version, run).metrics
+    assert metrics is not None
+    own = run.results["pls"].metrics
+
+    assert metrics.rmsec == own["rmsec"]
+    assert metrics.rmsecv == own["rmsecv"]
+    assert metrics.r2 == own["r2"]
+    assert metrics.q2 == own["q2"]
+    assert metrics.bias == own["bias"]
+    # Fold zero's held-out rows give RMSEP too; a regression above any split
+    # would leave it None, which the decomposition test below covers for r2.
+    assert metrics.rmsep == own["rmsep"]
+    assert metrics.extra["sec"] == own["sec"]
+    assert metrics.extra["rmsecv_a1"] == own["rmsecv_a1"]
+    assert "spe_limit" in metrics.extra
+
+
+def test_a_decompositions_experiment_leaves_the_regression_fields_absent(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    directory, version = project
+    pipeline = fixture_pipeline(version.version_id)
+    run = execute(directory, pipeline, version)
+    metrics = experiment_for(pipeline, version, run).metrics
+    assert metrics is not None
+    assert metrics.explained_variance and len(metrics.explained_variance) == 5
+    assert (metrics.rmsec, metrics.rmsecv, metrics.r2, metrics.q2) == (None, None, None, None)
 
 
 def test_a_pls_node_above_a_split_reports_no_cross_validated_metric(
