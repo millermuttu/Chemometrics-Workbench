@@ -30,6 +30,7 @@ from chemometrics_workbench.api import (
     MAX_POINTS,
     MAX_TRACES,
     MAX_UPLOAD_BYTES,
+    contributions_payload,
     results_payload,
     router,
     spectra_payload,
@@ -674,3 +675,99 @@ def test_the_import_handlers_run_on_the_thread_pool() -> None:
 
     assert not inspect.iscoroutinefunction(api.import_preview)
     assert not inspect.iscoroutinefunction(api.import_dataset)
+
+
+# --------------------------------------------------------------------------
+# contributions (#186)
+# --------------------------------------------------------------------------
+
+
+def test_contributions_sum_to_the_diagnostics_the_result_serves(tmp_path: Path) -> None:
+    """`pca.md` §7 and §8 on a stored result: the sums are the served `T²` and
+    SPE of that sample, recomputed from the stored rotations and the stored
+    input row rather than refitted. The store is float32, so the agreement is
+    to that precision and not to the last bit."""
+    from chemometrics_workbench.api import node_axis
+    from chemometrics_workbench.executor import stored_fitted_matrix
+
+    directory = tmp_path / "contributions"
+    run, version = executed(directory)
+    pipeline = fixture_pipeline(version.version_id)
+    result = run.results["pca_a"]
+    matrix = stored_fitted_matrix(directory, pipeline, version, "pca_a")
+    assert matrix is not None and matrix.shape == (version.n_samples, version.n_variables)
+
+    axis = node_axis(pipeline, "pca_a", version)
+    for position, row in enumerate(result.rows[:5]):
+        payload = contributions_payload(result, matrix, row, version, axis)
+        assert payload["sample"]["index"] == row
+        assert len(payload["hotelling_t2"]["contributions"]) == version.n_variables
+        assert len(payload["axis"]["values"]) == version.n_variables
+        assert payload["hotelling_t2"]["total"] == pytest.approx(
+            result.hotelling_t2[position], rel=1e-5
+        )
+        assert payload["spe"]["total"] == pytest.approx(result.spe[position], rel=1e-5)
+        assert sum(payload["hotelling_t2"]["contributions"]) == pytest.approx(
+            payload["hotelling_t2"]["total"]
+        )
+
+
+def test_contributions_below_a_split_use_fold_zeros_matrix_and_the_estimators_centring(
+    tmp_path: Path,
+) -> None:
+    """A PCA below the split was fitted on fold zero's array; a PLS beside it
+    centred that array by its fit rows' mean inside the estimator. Both sums
+    have to land on the served diagnostics, held-out rows included."""
+    from chemometrics_workbench.api import node_axis
+    from chemometrics_workbench.executor import stored_fitted_matrix
+    from chemometrics_workbench.models import EstimatorNode, PLSRegressionSpec
+
+    directory = tmp_path / "split"
+    _, version = executed(directory)
+    # `executed` records no targets; the PLS needs `fat`.
+    version = version.model_copy(
+        update={"targets": {"fat": [float(v) for v in load_tecator().targets["fat"]]}}
+    )
+    pipeline = fixture_pipeline(version.version_id)
+    pipeline = pipeline.model_copy(
+        update={
+            "nodes": [
+                *pipeline.nodes,
+                EstimatorNode(
+                    id="pls_d",
+                    inputs=("centre_d",),
+                    spec=PLSRegressionSpec(n_components=3, target="fat"),
+                ),
+            ]
+        }
+    )
+    run = execute(directory, pipeline, version)
+    for node_id in ("pca_d", "pls_d"):
+        result = run.results[node_id]
+        matrix = stored_fitted_matrix(directory, pipeline, version, node_id)
+        assert matrix is not None
+        axis = node_axis(pipeline, node_id, version)
+        # A calibration row and a held-out one.
+        for row, served_t2, served_spe in (
+            (result.rows[0], result.hotelling_t2[0], result.spe[0]),
+            (result.held_out[0], result.held_out_hotelling_t2[0], result.held_out_spe[0]),
+        ):
+            payload = contributions_payload(result, matrix, row, version, axis)
+            assert payload["hotelling_t2"]["total"] == pytest.approx(served_t2, rel=1e-4)
+            assert payload["spe"]["total"] == pytest.approx(served_spe, rel=1e-4)
+
+
+def test_a_result_stored_before_rotations_were_kept_asks_for_a_rerun(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    from chemometrics_workbench.api import node_axis
+
+    run, version = executed(tmp_path / "old")
+    pipeline = fixture_pipeline(version.version_id)
+    old = replace(run.results["pca_a"], rotations=[])
+    with pytest.raises(HTTPException) as refused:
+        contributions_payload(
+            old, np.zeros((240, 100)), 0, version, node_axis(pipeline, "pca_a", version)
+        )
+    assert refused.value.status_code == 409
+    assert "Run the pipeline again" in refused.value.detail["message"]  # type: ignore[index]

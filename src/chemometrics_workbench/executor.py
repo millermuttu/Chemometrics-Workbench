@@ -40,6 +40,17 @@ estimator below it reports RMSEP and SEP on the held-out rows and nothing with
 a CV suffix, because one hold-out is not a cross-validation
 (`metrics-and-validation.md` §8.6).
 
+## What a run holds in memory
+
+Nothing it has finished with (#176). Every node's arrays are released the
+moment its last consumer has run - a count of pending consumers per node,
+decremented as the walk goes - so a run holds the arrays of the frontier, not
+of the graph. The display array is written to the store when its node
+completes, under `<key>#display` in the index, so the spectra endpoint reads
+one array rather than assembling k fold arrays on every request; and
+`Run.displays` reads from the store on access rather than holding anything,
+which is what lets a finished job sit in the job table costing nothing.
+
 ## Caching, and what invalidates it
 
 Each node has a key: the SHA-256 of its own JSON together with the keys of its
@@ -84,8 +95,11 @@ The response is centred by the estimator rather than by a node, because `y` is
 not on the canvas and no `MeanCentre` can reach it. Predictions come back in
 the response's original units.
 
-`PLSDASpec` is still not fitted and is reported in `Run.pending_estimators`. It
-needs a class column and a confusion matrix, which is a second result shape.
+A `PLSDASpec` node is fitted since #185, as `pls-da.md` specifies: two classes
+from a metadata column, coded {0, 1} in Unicode order of the labels, PLS1 on
+that dummy response through the same `_fit_pls1` a regression uses, and a class
+assigned at 0.5. What is added to the result is the coding, the assignments and
+the confusion matrices; every model quantity is the regression's.
 
 ## What is not here
 
@@ -98,8 +112,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable
-from dataclasses import asdict, dataclass, field, fields
+from collections import Counter
+from collections.abc import Callable, Iterator, Mapping
+from dataclasses import asdict, dataclass, field, fields, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -122,6 +137,7 @@ from chemometrics_workbench.models import (
     PCASpec,
     Pipeline,
     PipelineNode,
+    PLSDASpec,
     PLSRegressionSpec,
     ResolvedSplit,
     TrainTestSplit,
@@ -156,7 +172,11 @@ __all__ = [
     "Progress",
     "Run",
     "RunCancelled",
+    "StoredDisplays",
+    "assign_classes",
     "capture_environment",
+    "classification_metrics",
+    "confusion_matrix",
     "execute",
     "experiment_for",
     "governing_folds",
@@ -166,6 +186,7 @@ __all__ = [
     "result_path",
     "stored",
     "stored_display",
+    "stored_fitted_matrix",
     "stored_result",
 ]
 
@@ -181,9 +202,10 @@ def has_kernel(spec: EstimatorSpec) -> bool:
     return isinstance(spec, _FITTED)
 
 
-#: What `_estimator` can fit. `PLSDASpec` is absent: it needs a class column
-#: and a confusion matrix, which is a second result shape.
-_FITTED: tuple[type, ...] = (PCASpec, PLSRegressionSpec)
+#: What `_estimator` can fit. All three since #185; the tuple stays because
+#: `has_kernel` is the one place the answer lives, and the next estimator will
+#: not have a kernel on the day its spec lands either.
+_FITTED: tuple[type, ...] = (PCASpec, PLSRegressionSpec, PLSDASpec)
 
 
 RESULTS_DIR = "results"
@@ -337,10 +359,43 @@ class EstimatorResult:
     y_loadings: list[float] = field(default_factory=list)
     vip: list[float] = field(default_factory=list)
 
+    rotations: list[list[float]] = field(default_factory=list)
+    """`a x p`, like `loadings`: what a row is multiplied by to get its scores.
+    PCA's are its loadings; PLS's are `R = W(P'W)^-1` (`pls-regression.md`
+    §5). Kept since #186 so a contribution plot can be computed from the
+    stored result and the stored input row without refitting anything. Empty
+    on a result stored before then, which the endpoint says."""
+
     y_explained_variance_ratio: list[float] = field(default_factory=list)
     """`pls-regression.md` §8's YVar. The x-block's stays in
     `explained_variance_ratio`, shared with PCA, because a screen plotting
     "variance captured" wants both blocks."""
+
+    cross_validated_predicted: list[float] = field(default_factory=list)
+    """One held-out prediction per sample, pooled over the folds
+    (`metrics-and-validation.md` §7). Empty above a split and below a single
+    hold-out. Kept since #185 because a classification tallies its
+    cross-validated confusion matrix from it; a regression could draw a
+    cross-validated predicted-versus-measured from the same list."""
+
+    # --- The classification half (#185) ----------------------------------
+    #
+    # Additive again, and for the same reason as the regression half: a
+    # two-class PLS-DA *is* the regression above on a dummy response
+    # (`pls-da.md` §2), so everything up to here is filled in the same way and
+    # `task` says "classification". These are what a classification adds.
+
+    classes: list[str] = field(default_factory=list)
+    """`[C_0, C_1]` in Unicode order; `C_1` is the class coded 1 (§3)."""
+
+    predicted_class: list[int] = field(default_factory=list)
+    """Calibration assignments as indices into `classes` (§5)."""
+
+    held_out_predicted_class: list[int] = field(default_factory=list)
+
+    confusion: dict[str, list[list[int]]] = field(default_factory=dict)
+    """`calibration`, and below a split `cross_validation` and `held_out`: rows
+    observed, columns assigned, in `classes` order (§6)."""
 
     metrics: dict[str, float] = field(default_factory=dict)
     """`metrics-and-validation.md` §11's table, flattened.
@@ -360,18 +415,40 @@ class EstimatorResult:
         return cls(**{key: value for key, value in document.items() if key in known})
 
 
+class StoredDisplays(Mapping[NodeId, NDArray[np.float64]]):
+    """`Run.displays`: each node's display array, read from the store on access.
+
+    A mapping rather than a dict of arrays (#176): a `Run` sits in the job
+    table for the life of the process, and one that held every node's display
+    would keep a whole run's worth of float64 resident after it finished.
+    Reading on access costs one `np.load` per look and holds nothing.
+    """
+
+    def __init__(self, directory: Path, paths: dict[NodeId, str]) -> None:
+        self._directory = directory
+        self._paths = dict(paths)
+
+    def __getitem__(self, node_id: NodeId) -> NDArray[np.float64]:
+        return read_array(self._directory, self._paths[node_id])
+
+    def __iter__(self) -> Iterator[NodeId]:
+        return iter(self._paths)
+
+    def __len__(self) -> int:
+        return len(self._paths)
+
+
 @dataclass(frozen=True)
 class Run:
     """What one execution produced.
 
-    `displays` holds the arrays in memory because every caller in 1.2 wants
-    them immediately — the spectra endpoint to decimate, the tests to compare.
-    They are on disk as well, at the paths in `outputs`.
+    `displays` reads from the store on access; the arrays are on disk at the
+    paths in `outputs`, and nothing here holds one (#176).
     """
 
     pipeline_id: str
     outputs: dict[NodeId, NodeOutput]
-    displays: dict[NodeId, NDArray[np.float64]]
+    displays: Mapping[NodeId, NDArray[np.float64]]
     resolved_splits: list[ResolvedSplit]
     results: dict[NodeId, EstimatorResult]
     pending_estimators: list[NodeId]
@@ -447,10 +524,21 @@ def execute(
 
     states: dict[NodeId, _State] = {}
     outputs: dict[NodeId, NodeOutput] = {}
+    display_paths: dict[NodeId, str] = {}
     splits: list[ResolvedSplit] = []
     results: dict[NodeId, EstimatorResult] = {}
     pending: list[NodeId] = []
     index_changed = False
+
+    # How many nodes still need each node's arrays. When it reaches zero the
+    # arrays are let go (#176): a run holds its frontier, not its history.
+    consumers = Counter(parent for node in pipeline.nodes for parent in node.inputs)
+
+    def release(node: PipelineNode) -> None:
+        for parent in node.inputs:
+            consumers[parent] -= 1
+            if consumers[parent] <= 0:
+                states.pop(parent, None)
 
     ordered = _topological(pipeline)
     completed = 0
@@ -477,6 +565,7 @@ def execute(
             results[node.id] = _estimator(
                 node, states[node.inputs[0]], keys[node.id], path, use_cache, version
             )
+            release(node)
             announce(node)
             continue
 
@@ -485,7 +574,6 @@ def execute(
         folds = _folds_for(node, parent, version.n_samples)
 
         cached = _from_cache(path, index.get(key), folds) if use_cache else None
-        state = cached or _compute(node, parent, folds, path, version, axis)
 
         stored: list[str] = []
         hashes: list[str] = []
@@ -494,22 +582,34 @@ def execute(
             # float32 copy, a serialisation and a SHA-256 per array, per fold,
             # on every run that recomputed nothing (#174). The store is
             # content-addressed, so the hash is the file's name.
+            state = cached
             stored = list(index[key])
             hashes = [f"sha256:{Path(p).stem}" for p in stored]
         else:
-            for values in state.arrays:
+            # One fold at a time (#176): computed, written, and read back
+            # before the next is computed, so a node below a k-fold holds its
+            # k stored arrays and one transient, never k computed and k read
+            # back at once. Read back rather than kept, so a node's successors
+            # are fed the stored values rather than the float64 they were
+            # computed in: otherwise a run that hit the cache and a run that
+            # recomputed would disagree in the last few digits, and a cache
+            # would be something that changes an answer. The narrowing itself
+            # stays where #77 put it, at the store. A split's folds are one
+            # array k times, and one file, and are read back once.
+            arrays: list[NDArray[np.float64]] = []
+            read_back: dict[str, NDArray[np.float64]] = {}
+            for values in _computed(node, parent, folds, path, version, axis):
                 array_path, content_hash = write_array(path, values)
+                del values
                 stored.append(array_path)
                 hashes.append(content_hash)
-
-        if cached is None:
-            # Read back what was written, so a node's successors are fed the
-            # stored values rather than the float64 they were computed in.
-            # Otherwise a run that hit the cache and a run that recomputed
-            # would disagree in the last few digits, and a cache would be
-            # something that changes an answer. The narrowing itself stays
-            # where #77 put it, at the store.
-            state = _State(arrays=[read_array(path, p) for p in stored], folds=folds)
+                # A split's k folds are one array and one file, so the read
+                # back happens once and every fold shares it.
+                if array_path not in read_back:
+                    read_back[array_path] = read_array(path, array_path)
+                arrays.append(read_back[array_path])
+            del read_back
+            state = _State(arrays=arrays, folds=folds)
 
         states[node.id] = state
         if node.type == "split":
@@ -518,6 +618,25 @@ def execute(
         if use_cache and index.get(key) != stored:
             index[key] = stored
             index_changed = True
+
+        # The display array, stored once at completion (#176). Above a split it
+        # is the node's one array and costs nothing - the same content hash is
+        # the same file; below one it is the out-of-fold assembly, written so
+        # `stored_display` reads one array rather than k. A cache hit whose
+        # index already names it writes nothing (#174).
+        display_key = f"{key}#display"
+        known = index.get(display_key) if use_cache and cached is not None else None
+        if known and (path / known[0]).is_file():
+            display_paths[node.id] = known[0]
+        else:
+            display_path = (
+                stored[0] if len(state.arrays) == 1 else write_array(path, state.display)[0]
+            )
+            display_paths[node.id] = display_path
+            if use_cache and index.get(display_key) != [display_path]:
+                index[display_key] = [display_path]
+                index_changed = True
+        release(node)
 
         outputs[node.id] = NodeOutput(
             node_id=node.id,
@@ -536,7 +655,7 @@ def execute(
     return Run(
         pipeline_id=str(pipeline.pipeline_id),
         outputs=outputs,
-        displays={nid: state.display for nid, state in states.items()},
+        displays=StoredDisplays(path, display_paths),
         resolved_splits=splits,
         results=results,
         pending_estimators=pending,
@@ -564,6 +683,11 @@ def capture_environment() -> Environment:
     )
 
 
+#: The `Metrics` fields a regression fills by name (#188). Everything else in
+#: a result's metrics table travels in `extra`.
+_NAMED_METRICS = ("rmsec", "rmsecv", "rmsep", "r2", "q2", "bias", "accuracy")
+
+
 def experiment_for(
     pipeline: Pipeline,
     version: DatasetVersion,
@@ -584,15 +708,28 @@ def experiment_for(
     experiment carries one set, which is Phase 1.2's simplification and not a
     claim that a four-branch pipeline has a single explained variance; #87's
     per-node results are where each branch's own numbers live.
+
+    A regression's named metrics - RMSEC, RMSECV, RMSEP, R2, Q2, bias - fill
+    the `Metrics` fields that were written for them and stayed `None` until
+    #188; the rest of `EstimatorResult.metrics` (SEC, SEP, the RMSECV curve
+    and per-fold errors) goes into `extra` beside the two limits. A metric the
+    result does not carry stays `None`, which is §11's absence and not zero.
     """
     metrics: Metrics | None = None
     if run is not None and run.results:
         last = list(run.results.values())[-1]
+        named = {name: last.metrics.get(name) for name in _NAMED_METRICS}
         metrics = Metrics(
+            **named,
             explained_variance=[float(value) for value in last.explained_variance_ratio],
             extra={
                 "hotelling_t2_limit": float(last.hotelling_t2_limit),
                 "spe_limit": float(last.spe_limit),
+                **{
+                    key: float(value)
+                    for key, value in last.metrics.items()
+                    if key not in _NAMED_METRICS
+                },
             },
         )
     return Experiment(
@@ -734,15 +871,20 @@ def _folds_for(node: PipelineNode, parent: _State | None, n_samples: int) -> lis
     return folds
 
 
-def _compute(
+def _computed(
     node: PipelineNode,
     parent: _State | None,
     folds: list[Fold] | None,
     directory: Path,
     version: DatasetVersion,
     axis: NDArray[np.float64],
-) -> _State:
-    """One node's arrays, computed from its input's."""
+) -> Iterator[NDArray[np.float64]]:
+    """One node's arrays, computed from its input's, one at a time.
+
+    A generator so the walk can store each fold before the next exists
+    (#176): below a ten-fold split the alternative held ten float64 arrays it
+    was about to narrow and discard.
+    """
     if node.type == "source":
         try:
             values = read_array(directory, version.array_path)
@@ -756,7 +898,8 @@ def _compute(
                 f"the version records {version.n_samples}x{version.n_variables}.",
                 node.id,
             )
-        return _State(arrays=[values], folds=None)
+        yield values
+        return
 
     assert parent is not None, "only a source node has no input, and it returned above"
 
@@ -766,7 +909,9 @@ def _compute(
         # in the content-addressed store - and the nodes below diverge from
         # there.
         assert folds is not None, "a split node always resolves its folds"
-        return _State(arrays=[parent.arrays[0]] * len(folds), folds=folds)
+        for _ in folds:
+            yield parent.arrays[0]
+        return
 
     if node.type != "preprocess":
         raise ExecutorError(
@@ -774,19 +919,15 @@ def _compute(
         )
 
     if folds is None:
-        return _State(arrays=[_transform(node, parent.arrays[0], None, axis)], folds=None)
+        yield _transform(node, parent.arrays[0], None, axis)
+        return
 
     # §9: refitted on the training fold alone, and the held-out rows pushed
     # through those parameters. Fitting on `values[fold.train]` and then
     # transforming every row gives both in one call, because a fitted
     # transformer treats each row independently of the others.
-    return _State(
-        arrays=[
-            _transform(node, values, fold, axis)
-            for values, fold in zip(parent.arrays, folds, strict=True)
-        ],
-        folds=folds,
-    )
+    for values, fold in zip(parent.arrays, folds, strict=True):
+        yield _transform(node, values, fold, axis)
 
 
 def _transform(
@@ -861,6 +1002,12 @@ def _estimator(
         write_json(stored, result.as_json())
         return result
 
+    if isinstance(node.spec, PLSDASpec):
+        result = _plsda(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
+        stored.parent.mkdir(parents=True, exist_ok=True)
+        write_json(stored, result.as_json())
+        return result
+
     assert isinstance(node.spec, PCASpec)
     try:
         # Every array reaches here through the store, which is float32 on disk
@@ -886,6 +1033,7 @@ def _estimator(
         rows=[int(row) for row in rows],
         scores=_rows(model.scores_),
         loadings=_rows(np.asarray(model.loadings_).T),
+        rotations=_rows(np.asarray(model.loadings_).T),
         eigenvalues=_values(np.asarray(model.eigenvalues_)[: model.n_components]),
         explained_variance_ratio=_values(model.explained_variance_ratio()),
         cumulative_explained_variance=_values(model.cumulative_explained_variance()),
@@ -958,24 +1106,58 @@ def _pls(
     `checks.py` warns separately when `X` has no centring above it.
     """
     response = _response(version, node, spec.target)
+    return _fit_pls1(
+        node,
+        "pls",
+        spec.n_components,
+        spec.target,
+        response,
+        parent,
+        key,
+        matrix,
+        rows,
+        held_out,
+        fold,
+    )
+
+
+def _fit_pls1(
+    node: PipelineNode,
+    kind: str,
+    n_components: int,
+    target: str,
+    response: NDArray[np.float64],
+    parent: _State,
+    key: str,
+    matrix: NDArray[np.float64],
+    rows: NDArray[np.intp],
+    held_out: NDArray[np.intp],
+    fold: int | None,
+) -> EstimatorResult:
+    """PLS1 on `response`, with every quantity `pls-regression.md` §13 names.
+
+    Shared by a regression and a two-class PLS-DA, which is this on a dummy
+    response (`pls-da.md` §2). `kind` is only for the sentences.
+    """
     if response.size != matrix.shape[0]:
         raise ExecutorError(
-            f"node {node.id!r} (pls) has {matrix.shape[0]} samples and target "
-            f"{spec.target!r} has {response.size} values.",
+            f"node {node.id!r} ({kind}) has {matrix.shape[0]} samples and target "
+            f"{target!r} has {response.size} values.",
             node.id,
         )
+    spec_components = n_components
 
     train_x, train_y = matrix[rows], response[rows]
     x_mean = train_x.mean(axis=0)
     y_mean = float(train_y.mean())
 
     try:
-        model = PLS(spec.n_components).fit(train_x - x_mean, train_y - y_mean)
+        model = PLS(spec_components).fit(train_x - x_mean, train_y - y_mean)
     except (ValueError, RuntimeError) as error:
-        raise ExecutorError(f"node {node.id!r} (pls) failed: {error}", node.id) from error
+        raise ExecutorError(f"node {node.id!r} ({kind}) failed: {error}", node.id) from error
 
     predicted = model.predict(train_x - x_mean) + y_mean
-    a = model.n_components_ or spec.n_components
+    a = model.n_components_ or spec_components
 
     metrics: dict[str, float] = {
         "rmsec": validation.rmse(train_y, predicted),
@@ -1012,6 +1194,7 @@ def _pls(
     # One fold is a train/test hold-out (#183), and one hold-out is not a
     # cross-validation: its training rows are never predicted, so there is no
     # RMSECV and no Q2 - §11 says absent, and RMSEP above is its number.
+    cross_validated = np.array([], dtype=np.float64)
     if parent.folds is not None and len(parent.folds) > 1:
         folds = parent.folds
         curve = rmsecv_curve(parent.arrays, response, folds, a)
@@ -1047,6 +1230,7 @@ def _pls(
         rows=[int(row) for row in rows],
         scores=_rows(model.x_scores_),
         loadings=_rows(np.asarray(model.x_loadings_).T),
+        rotations=_rows(np.asarray(model.rotations_).T),
         # The score variances, not a decomposition's spectrum of them - but the
         # same quantity `PCA.eigenvalues_` carries and the same one the T2
         # ellipse is drawn from. #142 published an empty list here on the
@@ -1060,12 +1244,13 @@ def _pls(
         hotelling_t2_limit=float(model.hotelling_t2_limit(ALPHA)),
         spe=_values(model.spe(train_x - x_mean)),
         spe_limit=float(model.spe_limit(ALPHA)),
-        target=spec.target,
+        target=target,
         observed=_values(train_y),
         predicted=_values(predicted),
         coefficients=_values(model.coefficients_),
         y_loadings=_values(model.y_loadings_),
         vip=_values(model.vip()),
+        cross_validated_predicted=_values(cross_validated),
         metrics=metrics,
         held_out=[int(row) for row in held_out],
         held_out_observed=_values(held_y) if held_out.size else [],
@@ -1075,6 +1260,126 @@ def _pls(
             _values(model.hotelling_t2(held_x - x_mean)) if held_out.size else []
         ),
         held_out_spe=_values(model.spe(held_x - x_mean)) if held_out.size else [],
+    )
+
+
+def _class_response(
+    version: DatasetVersion, node: PipelineNode, name: str
+) -> tuple[list[str], NDArray[np.float64]]:
+    """The two classes in Unicode order and the {0, 1} dummy response (`pls-da.md` §3).
+
+    Refused here, by name, when the column is not in the dataset or does not
+    hold exactly two distinct values: three classes are PLS2, which
+    `pls-regression.md` §10 defers, and reducing them to two would be a model
+    nobody asked for.
+    """
+    labels = version.metadata_columns.get(name)
+    if labels is None:
+        available = ", ".join(sorted(version.metadata_columns)) or "none"
+        raise ExecutorError(
+            f"node {node.id!r} (plsda) classifies by {name!r}, which this dataset does not "
+            f"carry as a metadata column. It has: {available}.",
+            node.id,
+        )
+    classes = sorted(set(labels))
+    if len(classes) != 2:
+        shown = ", ".join(repr(value) for value in classes[:6]) + (
+            ", …" if len(classes) > 6 else ""
+        )
+        raise ExecutorError(
+            f"node {node.id!r} (plsda) classifies by {name!r}, which has {len(classes)} distinct "
+            f"values ({shown}). Two-class PLS-DA needs exactly two (pls-da.md section 2); more "
+            "is PLS2, which is not in this build.",
+            node.id,
+        )
+    response = np.asarray([1.0 if label == classes[1] else 0.0 for label in labels])
+    return classes, response
+
+
+def assign_classes(predicted: object) -> NDArray[np.intp]:
+    """`pls-da.md` §5: at or above 0.5 is the class coded 1."""
+    return (np.asarray(predicted, dtype=np.float64) >= 0.5).astype(np.intp)
+
+
+def confusion_matrix(observed: object, assigned: object) -> list[list[int]]:
+    """`pls-da.md` §6: rows observed, columns assigned, `[[TN, FP], [FN, TP]]`."""
+    truth = np.asarray(observed, dtype=np.intp)
+    guess = np.asarray(assigned, dtype=np.intp)
+
+    def count(o: int, g: int) -> int:
+        return int(np.count_nonzero((truth == o) & (guess == g)))
+
+    return [[count(0, 0), count(0, 1)], [count(1, 0), count(1, 1)]]
+
+
+def classification_metrics(confusion: list[list[int]], suffix: str = "") -> dict[str, float]:
+    """`pls-da.md` §6, with the "absent, never NaN" rule for an empty class."""
+    (tn, fp), (fn, tp) = confusion
+    total = tn + fp + fn + tp
+    metrics: dict[str, float] = {}
+    if total:
+        metrics[f"accuracy{suffix}"] = (tp + tn) / total
+    if tp + fn:
+        metrics[f"sensitivity{suffix}"] = tp / (tp + fn)
+    if tn + fp:
+        metrics[f"specificity{suffix}"] = tn / (tn + fp)
+    return metrics
+
+
+def _plsda(
+    node: PipelineNode,
+    spec: PLSDASpec,
+    parent: _State,
+    key: str,
+    matrix: NDArray[np.float64],
+    rows: NDArray[np.intp],
+    held_out: NDArray[np.intp],
+    fold: int | None,
+    version: DatasetVersion,
+) -> EstimatorResult:
+    """Two-class PLS-DA (#185): the regression fit on a dummy response, tallied."""
+    classes, response = _class_response(version, node, spec.class_column)
+    fitted = _fit_pls1(
+        node,
+        "plsda",
+        spec.n_components,
+        spec.class_column,
+        response,
+        parent,
+        key,
+        matrix,
+        rows,
+        held_out,
+        fold,
+    )
+
+    observed = assign_classes(fitted.observed)
+    predicted_class = assign_classes(fitted.predicted)
+    confusion = {"calibration": confusion_matrix(observed, predicted_class)}
+    metrics = {**fitted.metrics, **classification_metrics(confusion["calibration"])}
+
+    held_out_class = (
+        assign_classes(fitted.held_out_predicted) if held_out.size else np.array([], dtype=np.intp)
+    )
+    if held_out.size:
+        confusion["held_out"] = confusion_matrix(
+            assign_classes(fitted.held_out_observed), held_out_class
+        )
+        metrics.update(classification_metrics(confusion["held_out"], "_p"))
+    if fitted.cross_validated_predicted:
+        confusion["cross_validation"] = confusion_matrix(
+            assign_classes(response), assign_classes(fitted.cross_validated_predicted)
+        )
+        metrics.update(classification_metrics(confusion["cross_validation"], "_cv"))
+
+    return replace(
+        fitted,
+        task="classification",
+        classes=classes,
+        predicted_class=[int(value) for value in predicted_class],
+        held_out_predicted_class=[int(value) for value in held_out_class],
+        confusion=confusion,
+        metrics=metrics,
     )
 
 
@@ -1133,14 +1438,49 @@ def stored_display(
     keys = node_keys(pipeline, version)
     if node_id not in keys:
         return None
-    paths = read_cache_index(path).get(keys[node_id])
+    index = read_cache_index(path)
+    paths = index.get(keys[node_id])
     if not paths:
         return None
 
+    # The assembly stored at run time (#176), one read. An index written
+    # before it was kept falls back to assembling from the fold arrays, which
+    # is the same array by construction.
+    stored = index.get(f"{keys[node_id]}#display")
+    if stored:
+        try:
+            return read_array(path, stored[0])
+        except ProjectError:
+            pass
     by_id = {node.id: node for node in pipeline.nodes}
     folds = governing_folds(node_id, by_id, version.n_samples)
     state = _from_cache(path, paths, folds)
     return None if state is None else state.display
+
+
+def stored_fitted_matrix(
+    directory: str | Path, pipeline: Pipeline, version: DatasetVersion, node_id: NodeId
+) -> NDArray[np.float64] | None:
+    """The array an estimator was fitted from, read back: its input's fold-zero array.
+
+    Every row of it, calibration and held-out alike, transformed with fold
+    zero's parameters - which is the matrix `_estimator` indexed with `rows`
+    and `held_out`. A contribution plot (#186) needs the sample's row from
+    *this* array, not from the display array a spectra plot draws, whose rows
+    below a split come from whichever fold held each one out. `None` when the
+    node is not an estimator or its input has not been run.
+    """
+    path = Path(directory)
+    by_id = {node.id: node for node in pipeline.nodes}
+    node = by_id.get(node_id)
+    if node is None or node.type != "estimator":
+        return None
+    parent = node.inputs[0]
+    paths = read_cache_index(path).get(node_keys(pipeline, version)[parent])
+    if not paths:
+        return None
+    state = _from_cache(path, paths, governing_folds(parent, by_id, version.n_samples))
+    return None if state is None else state.arrays[0]
 
 
 def stored_result(

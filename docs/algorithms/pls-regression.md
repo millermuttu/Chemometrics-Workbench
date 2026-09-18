@@ -189,6 +189,8 @@ $$\mathrm{SPE}_{\alpha} = g\,\chi^{2}_{\alpha}(h), \qquad g = \frac{v}{2m}, \qqu
 
 where $m$ and $v$ are the sample mean and variance of $\mathrm{SPE}_i$ over the calibration set. This difference from PCA is deliberate and must be stated wherever a PLS SPE limit is drawn.
 
+**Contributions** follow `pca.md` §7 and §8 with the rotations in place of the loadings for the scores — $t_{ia} = \sum_j x_{ij} r_{ja}$, so $c^{T^2}_{ij} = x_{ij} \sum_a (t_{ia}/\lambda_a)\, r_{ja}$ — and $\hat{x}_i = t_i P^{\top}$ for the residual, exactly as §7's prediction path. Both sums stay exact. $x_i$ is the row after the estimator's own centring (§3).
+
 ---
 
 ## 10. PLS1 and PLS2

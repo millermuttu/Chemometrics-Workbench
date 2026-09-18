@@ -1,4 +1,4 @@
-import type { PcaPayload } from "@/api/queries";
+import type { CoefficientsPayload, ContributionsPayload, PcaPayload } from "@/api/queries";
 
 import type { PlotTheme } from "./theme";
 
@@ -108,9 +108,13 @@ export function varianceFigure(pca: PcaPayload, theme: PlotTheme) {
 
 /** Which samples the server's own limits put outside. Comparison, not
  * statistics: both limits arrived with the payload. */
-export function outliers(pca: PcaPayload): { sample: string; t2: number; spe: number }[] {
+export function outliers(
+  pca: PcaPayload,
+): { index: number; sample: string; t2: number; spe: number }[] {
   return pca.samples
     .map((sample, index) => ({
+      // The dataset row, which is what a contribution is asked for by (#186).
+      index: sample.index,
       sample: sample.sample_id,
       t2: pca.diagnostics.hotelling_t2[index],
       spe: pca.diagnostics.spe[index],
@@ -187,5 +191,72 @@ export function rmsecvTrace(pca: PcaPayload, theme: PlotTheme) {
     line: { width: 1.5, color: theme.series[0] },
     marker: { size: 5, color: theme.series[0] },
     hovertemplate: "A = %{x}<br>RMSECV %{y:.4g}<extra></extra>",
+  };
+}
+
+/** VIP against the node's own axis (#184), with the `VIP = 1` line
+ * `pls-regression.md` §8 explains: `Σ VIP² = p`, so 1 is the average and the
+ * origin of the rule of thumb. The line is a shape rather than a trace so it
+ * neither appears in the legend nor answers a hover. */
+export function vipFigure(pca: PcaPayload, theme: PlotTheme) {
+  return {
+    data: [
+      {
+        type: "scattergl",
+        mode: "lines",
+        name: "VIP",
+        x: pca.loadings.axis.values,
+        y: pca.regression?.vip ?? [],
+        line: { width: 1.3, color: theme.series[0] },
+        hovertemplate: "%{x:.1f} · VIP %{y:.3f}<extra></extra>",
+      },
+    ],
+    shapes: [
+      {
+        type: "line",
+        xref: "paper",
+        x0: 0,
+        x1: 1,
+        y0: 1,
+        y1: 1,
+        line: { width: 1, dash: "dot", color: theme.ink3 },
+      },
+    ],
+  };
+}
+
+/** The folded coefficient vector on the dataset's raw axis (#184), or `null`
+ * when the chain cannot be folded - the panel prints the reason instead. */
+export function coefficientTrace(payload: CoefficientsPayload, theme: PlotTheme) {
+  if (!payload.available || !payload.axis || !payload.coefficients) return null;
+  return {
+    type: "scattergl",
+    mode: "lines",
+    name: "b",
+    x: payload.axis.values,
+    y: payload.coefficients,
+    line: { width: 1.3, color: theme.series[1] },
+    hovertemplate: "%{x:.1f} · b %{y:.4g}<extra></extra>",
+  };
+}
+
+/** One sample's contributions to its `T²` or its SPE against the node's axis
+ * (#186), filled to zero so a signed `T²` contribution reads as a bar. The
+ * numbers are the server's; their sum is the total the panel prints. */
+export function contributionTrace(
+  payload: ContributionsPayload,
+  which: "hotelling_t2" | "spe",
+  theme: PlotTheme,
+) {
+  const values = which === "spe" ? payload.spe.contributions : payload.hotelling_t2.contributions;
+  return {
+    type: "scattergl",
+    mode: "lines",
+    name: which === "spe" ? "SPE contribution" : "T² contribution",
+    x: payload.axis.values,
+    y: values,
+    fill: "tozeroy",
+    line: { width: 1.2, color: theme.series[which === "spe" ? 1 : 0] },
+    hovertemplate: `${payload.sample.sample_id}<br>%{x:.1f} · %{y:.4g}<extra></extra>`,
   };
 }

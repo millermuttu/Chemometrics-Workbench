@@ -34,3 +34,18 @@ describe("nodeMetrics", () => {
     expect(nodeMetrics(undefined)).toBeUndefined();
   });
 });
+
+it("labels a classification by its accuracies, absent as null (#185)", () => {
+  const plsda = {
+    task: "classification",
+    n_components: 5,
+    metrics: { accuracy: 0.95, sensitivity: 0.9, specificity: 1.0 },
+  } as unknown as PcaPayload;
+  expect(nodeMetrics(plsda)).toEqual({
+    Accuracy: 0.95,
+    "Accuracy (CV)": null,
+    Sensitivity: 0.9,
+    Specificity: 1.0,
+    components: 5,
+  });
+});

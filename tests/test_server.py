@@ -394,8 +394,10 @@ def test_the_validator_checks_the_recipe_it_is_sent_and_writes_nothing(
     body = client.post(
         "/api/pipelines/current/validate", json={"nodes": drafted}, headers=AUTH
     ).json()
+    # The drafted PLS-DA sits on the source with no centring above it, which
+    # `checks.py` warns about; until #185 it was also the node with no kernel.
     assert body["valid"] is False
-    assert "estimator_not_fitted" in {w["code"] for w in body["warnings"]}
+    assert "pls_without_centring" in {w["code"] for w in body["warnings"]}
     assert {w["node_id"] for w in body["warnings"]} == {"plsda"}
     assert client.get("/api/pipelines/current", headers=AUTH).json() == stored
 
@@ -803,3 +805,47 @@ def test_the_source_tree_carries_no_stub_affordances() -> None:
             if needle in text:
                 hits.append(f"{path.relative_to(root)}: {needle}")
     assert hits == []
+
+
+def test_the_contributions_endpoint_serves_a_sample_and_refuses_one_it_has_not_got(
+    client: TestClient,
+) -> None:
+    """#186: one sample's per-variable `T²` and SPE contributions, on the node's
+    own axis, and a row the node does not have is a 404 with a body."""
+    imported(client)
+    source = client.get("/api/pipelines/current", headers=AUTH).json()["nodes"][0]
+    nodes = [
+        source,
+        {
+            "id": "centre",
+            "type": "preprocess",
+            "inputs": ["source"],
+            "step": {"kind": "mean_centre"},
+        },
+        {
+            "id": "pca",
+            "type": "estimator",
+            "inputs": ["centre"],
+            "spec": {"kind": "pca", "n_components": 2},
+        },
+    ]
+    assert (
+        client.put("/api/pipelines/current", json={"nodes": nodes}, headers=AUTH).status_code == 200
+    )
+    job = client.post("/api/experiments/current/run", headers=AUTH).json()
+    assert wait_for(client, job["job_id"])["status"] == "succeeded"
+    estimator = "pca"
+
+    served = client.get(f"/api/results/{estimator}/contributions/0", headers=AUTH)
+    assert served.status_code == 200, served.text
+    body = served.json()
+    assert body["sample"]["index"] == 0
+    assert len(body["axis"]["values"]) == len(body["spe"]["contributions"])
+    assert sum(body["spe"]["contributions"]) == pytest.approx(body["spe"]["total"])
+    assert sum(body["hotelling_t2"]["contributions"]) == pytest.approx(
+        body["hotelling_t2"]["total"]
+    )
+
+    missing = client.get(f"/api/results/{estimator}/contributions/100000", headers=AUTH)
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "not_found"

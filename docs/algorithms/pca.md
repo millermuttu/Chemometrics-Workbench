@@ -126,6 +126,14 @@ The two converge as $n$ grows. They differ noticeably for small $n$, which is th
 
 Requires $n > a + 1$ for the beta form and $n > a$ for the F form. Outside those, no limit is defined and none is drawn.
 
+### Contributions
+
+Which variables put sample $i$ where it is. With $t_{ik} = \sum_j x_{ij} p_{jk}$,
+
+$$c^{T^2}_{ij} = x_{ij} \sum_{k=1}^{a} \frac{t_{ik}}{\lambda_k}\, p_{jk} \qquad \sum_{j=1}^{p} c^{T^2}_{ij} = T^{2}_i$$
+
+The sum is exact, which is the test of an implementation. Contributions are **signed**: a variable pulling a score back towards the centre contributes negatively, and that is information rather than a nuisance, so nothing is squared or made absolute. $x_{ij}$ is the preprocessed row the model was fitted on or projected — the same row `spe` takes — and the contribution plot is drawn against the node's own axis, as the loadings are.
+
 ---
 
 ## 8. Squared prediction error (SPE, also written $Q$)
@@ -149,6 +157,12 @@ where $c_{\alpha}$ is the standard normal deviate at the upper $\alpha$ tail ($c
 **Box's $\chi^2$ approximation is not used** as the default, but is recorded here because other packages use it and the difference will show up in comparisons:
 
 $$\mathrm{SPE}_{\alpha} = g\,\chi^{2}_{\alpha}(h), \qquad g = \frac{\theta_2}{\theta_1}, \qquad h = \frac{\theta_1^{2}}{\theta_2}$$
+
+### Contributions
+
+$$c^{\mathrm{SPE}}_{ij} = e_{ij}^{2} \qquad \sum_{j=1}^{p} c^{\mathrm{SPE}}_{ij} = \mathrm{SPE}_i$$
+
+Non-negative by construction, and reported together with the signed residual $e_{ij}$, whose sign says which way the sample departs from the model plane at that variable. The same row $x_i$ as §7.
 
 **Degenerate case.** When $a = r$ the residual is zero by construction: $\mathrm{SPE}_i = 0$ for all $i$, $\theta_m = 0$, and no limit exists. Report SPE as exactly zero and draw no limit. Do not report a limit computed from an empty sum.
 

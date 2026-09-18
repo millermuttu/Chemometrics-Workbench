@@ -62,7 +62,7 @@ test("an accepted edit recomputes on the one press, and nothing is left dimmed",
   // was slow enough to be caught looking, which is why this test was flaky.
   // `runs.spec.ts` watches a run advance, on a project seeded large enough.
   await page.getByRole("button", { name: "Pipeline", exact: true }).click();
-  await expect(page.getByTestId("node-complete")).toHaveCount(15);
+  await expect(page.getByTestId("node-complete")).toHaveCount(16);
   await expect(page.getByTestId("node-stale")).toHaveCount(0);
 
   // Nothing is left asking to be pressed: the edit ran, so there is no banner
@@ -71,7 +71,7 @@ test("an accepted edit recomputes on the one press, and nothing is left dimmed",
   await expect(page.getByRole("button", { name: "Re-run" })).toHaveCount(0);
 
   // A run does not cost anyone a node. Every one is still on the canvas.
-  await expect(page.locator(".react-flow__node")).toHaveCount(15);
+  await expect(page.locator(".react-flow__node")).toHaveCount(16);
 });
 
 test("provenance is collapsed until asked for, and hashes are truncated in the middle", async ({
@@ -193,4 +193,12 @@ test("a PLS target is chosen from the dataset's own columns", async ({ page }) =
   // exactly these, and a name that is not one is refused at run time anyway.
   await expect(target.locator("option")).toHaveText(["moisture", "fat", "protein"]);
   await expect(inspector.getByLabel("N Components")).toHaveValue("5");
+});
+
+test("a PLS-DA class column is chosen from the dataset's two-valued columns", async ({ page }) => {
+  // #185: `fat_class` is the one metadata column with exactly two values.
+  const inspector = await selectNode(page, /PLS-DA 5 LV/);
+  const column = inspector.getByLabel("Class Column");
+  await expect(column).toHaveValue("fat_class");
+  await expect(column.locator("option")).toHaveText(["fat_class"]);
 });

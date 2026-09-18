@@ -74,6 +74,9 @@ export interface ImportPreview {
     metadata_columns: string[];
     targets: string[];
     discarded: { what: string; why: string }[];
+    /** Which spectrum block an OPUS file is read from (#187); absent for
+     * every other format. */
+    block?: Detected<string>;
   };
   head: { sample_ids: string[]; rows: number[][] };
 }
@@ -112,7 +115,18 @@ export interface Experiment {
   status: string;
   started_at: string | null;
   finished_at: string | null;
-  metrics: { explained_variance: number[] | null };
+  /** The last estimator's numbers. A regression fills the named fields
+   * (#188); a decomposition leaves them null, which is section 11's absence. */
+  metrics: {
+    explained_variance: number[] | null;
+    rmsec?: number | null;
+    rmsecv?: number | null;
+    rmsep?: number | null;
+    r2?: number | null;
+    q2?: number | null;
+    bias?: number | null;
+    extra?: Record<string, number>;
+  } | null;
 }
 
 /** What the spectra endpoint returns for one node. Decimation is consumed,
@@ -173,6 +187,8 @@ export interface PcaPayload {
     spe: number[];
     observed?: number[];
     predicted?: number[];
+    /** A classification's held-out assignments, as indices into `classes`. */
+    predicted_class?: number[];
   };
   /** Present only when `task === "regression"`. The half of a PLS result that
    * has no counterpart on a decomposition; everything above is shared. */
@@ -185,12 +201,48 @@ export interface PcaPayload {
     y_loadings: number[];
     y_explained_variance_ratio: number[];
   };
+  /** Present only when `task === "classification"` (#185, `pls-da.md`). The
+   * model is the regression block above on a {0, 1} dummy response; this is
+   * the coding, the assignments and the confusion matrices. */
+  classification?: {
+    class_column: string | null;
+    classes: string[];
+    predicted_class: number[];
+    /** `calibration`, and below a split `cross_validation` and `held_out`:
+     * rows observed, columns assigned, in `classes` order. */
+    confusion: Record<string, number[][]>;
+  };
   /** `metrics-and-validation.md` section 11's table, flat. **A metric that
    * could not be computed is absent** - never zero, never NaN - so a reader
    * must render `undefined` as an em dash rather than a number. */
   metrics?: Partial<Record<string, number>>;
   /** RMSECV against component count, one point per `A`. Empty above a split. */
   rmsecv_curve?: number[];
+}
+
+/** `GET /results/{id}/coefficients`: the model as `y = intercept + X_raw · b`
+ * on the dataset's own axis (#144), or `available: false` with the sentence
+ * naming the step that cannot be folded. */
+export interface CoefficientsPayload {
+  node_id: string;
+  available: boolean;
+  reason?: string;
+  target?: string | null;
+  intercept?: number;
+  coefficients?: number[];
+  axis?: { kind: string; unit: string | null; values: number[] };
+}
+
+/** `GET /results/{id}/contributions/{sample}` (#186): which variables put one
+ * sample where the diagnostics show it. Signed `T²` contributions summing to
+ * its `T²`, and the residual with its squares summing to its SPE, on the
+ * node's own axis. */
+export interface ContributionsPayload {
+  node_id: string;
+  sample: { index: number; sample_id: string };
+  axis: { kind: string; unit: string | null; values: number[] };
+  hotelling_t2: { total: number; contributions: number[] };
+  spe: { total: number; residual: number[]; contributions: number[] };
 }
 
 export interface Job {
@@ -360,6 +412,24 @@ export function useResults(nodeId: string | undefined) {
     queryKey: ["results", nodeId],
     queryFn: () => api<PcaPayload>(`/results/${nodeId}`),
     enabled: Boolean(nodeId),
+    staleTime: Infinity,
+  });
+}
+
+export function useCoefficients(nodeId: string | undefined) {
+  return useQuery({
+    queryKey: ["coefficients", nodeId],
+    queryFn: () => api<CoefficientsPayload>(`/results/${nodeId}/coefficients`),
+    enabled: Boolean(nodeId),
+    staleTime: Infinity,
+  });
+}
+
+export function useContributions(nodeId: string | undefined, sample: number | null) {
+  return useQuery({
+    queryKey: ["contributions", nodeId, sample],
+    queryFn: () => api<ContributionsPayload>(`/results/${nodeId}/contributions/${sample}`),
+    enabled: Boolean(nodeId) && sample !== null,
     staleTime: Infinity,
   });
 }

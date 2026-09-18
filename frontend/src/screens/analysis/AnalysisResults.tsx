@@ -1,8 +1,10 @@
 import Plotly from "plotly.js-gl2d-dist-min";
 import { useLayoutEffect, useRef, useState } from "react";
 
-import { useResults, type PcaPayload } from "@/api/queries";
+import { useCoefficients, useContributions, useResults, type PcaPayload } from "@/api/queries";
 import {
+  coefficientTrace,
+  contributionTrace,
   ellipseTrace,
   loadingsTraces,
   outliers,
@@ -10,6 +12,7 @@ import {
   rmsecvTrace,
   scoresTrace,
   varianceFigure,
+  vipFigure,
 } from "@/plot/analysis";
 import { PLOT_CONFIG, axisLayout, baseLayout, readTheme } from "@/plot/theme";
 import { Panel } from "@/screens/analysis/Panel";
@@ -147,6 +150,93 @@ function Loadings({ pca }: { pca: PcaPayload }) {
   );
 }
 
+/** VIP on the node's axis, or the coefficient vector folded back to the raw
+ * axis (#184). Both are things a reader of a calibration looks at beside the
+ * loadings, which is why this sits in the loadings' row. Nothing is computed:
+ * VIP arrives in the result and the folded vector from its own endpoint,
+ * which answers with a sentence when a step in the chain - SNV, MSC, a
+ * baseline - is not a fixed linear map and cannot be folded. */
+function VariableImportance({ pca }: { pca: PcaPayload }) {
+  const [view, setView] = useState<"vip" | "coefficients">("vip");
+  const coefficients = useCoefficients(pca.node_id);
+  const folded = coefficients.data;
+
+  const vipHost = usePlot(
+    (theme) => {
+      const figure = vipFigure(pca, theme);
+      return {
+        data: figure.data,
+        layout: {
+          shapes: figure.shapes,
+          xaxis: axisLayout(theme, `${pca.loadings.axis.kind} (${pca.loadings.axis.unit ?? ""})`),
+          yaxis: { ...axisLayout(theme, "VIP"), rangemode: "tozero" },
+          margin: { l: 48, r: 12, t: 8, b: 38 },
+        },
+      };
+    },
+    [pca, view],
+  );
+  const coefficientHost = usePlot(
+    (theme) => {
+      const trace = folded ? coefficientTrace(folded, theme) : null;
+      return {
+        data: trace ? [trace] : [],
+        layout: {
+          xaxis: axisLayout(
+            theme,
+            folded?.axis ? `${folded.axis.kind} (${folded.axis.unit ?? ""})` : "",
+          ),
+          yaxis: axisLayout(theme, "Coefficient"),
+          margin: { l: 48, r: 12, t: 8, b: 38 },
+        },
+      };
+    },
+    [folded, view],
+  );
+
+  const choose = (
+    <select
+      aria-label="Variable importance view"
+      className="mono"
+      value={view}
+      onChange={(event) => setView(event.target.value as "vip" | "coefficients")}
+      style={{
+        height: 18,
+        borderRadius: 3,
+        border: "1px solid var(--rule)",
+        background: "var(--surface)",
+        color: "var(--ink2)",
+        font: "inherit",
+        fontSize: 9.5,
+      }}
+    >
+      <option value="vip">VIP</option>
+      <option value="coefficients">Coefficients, raw axis</option>
+    </select>
+  );
+
+  return (
+    <Panel title="Variable importance" note={choose}>
+      {view === "vip" ? (
+        <div ref={vipHost} data-testid="vip-plot" style={{ flex: 1, minHeight: 0 }} />
+      ) : folded?.available ? (
+        <div ref={coefficientHost} data-testid="coefficients-plot" style={{ flex: 1, minHeight: 0 }} />
+      ) : (
+        <div
+          role="note"
+          data-testid="coefficients-unavailable"
+          className="empty"
+          style={{ padding: 12, lineHeight: 1.4 }}
+        >
+          {/* The server's own sentence, which names the step. "Not available"
+              alone would leave the reader guessing which node to blame. */}
+          {folded ? folded.reason : coefficients.isError ? "Could not load the coefficients." : "Loading…"}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
 function Variance({ pca }: { pca: PcaPayload }) {
   const host = usePlot(
     (theme) => {
@@ -179,7 +269,16 @@ function Variance({ pca }: { pca: PcaPayload }) {
 
 /** Exported for its test: the caveat is a sentence the kernel wrote, and the
  * panel's one job with it is to put it beside the number it qualifies. */
-export function Diagnostics({ pca }: { pca: PcaPayload }) {
+export function Diagnostics({
+  pca,
+  picked = null,
+  onPick,
+}: {
+  pca: PcaPayload;
+  /** The dataset row whose contributions are open, if any (#186). */
+  picked?: number | null;
+  onPick?: (index: number) => void;
+}) {
   const beyond = outliers(pca);
   const { diagnostics } = pca;
   return (
@@ -227,7 +326,28 @@ export function Diagnostics({ pca }: { pca: PcaPayload }) {
           </thead>
           <tbody>
             {beyond.slice(0, 40).map((row) => (
-              <tr key={row.sample}>
+              // A row opens the sample's contributions (#186): which
+              // variables put it beyond the limit is the next question.
+              <tr
+                key={row.sample}
+                data-testid="outlier-row"
+                data-index={row.index}
+                role={onPick ? "button" : undefined}
+                tabIndex={onPick ? 0 : undefined}
+                aria-pressed={onPick ? picked === row.index : undefined}
+                onClick={onPick ? () => onPick(row.index) : undefined}
+                onKeyDown={
+                  onPick
+                    ? (event) => {
+                        if (event.key === "Enter" || event.key === " ") onPick(row.index);
+                      }
+                    : undefined
+                }
+                style={{
+                  cursor: onPick ? "pointer" : undefined,
+                  background: picked === row.index ? "var(--sunken)" : undefined,
+                }}
+              >
                 <td className="mono" style={{ color: "var(--ink)" }}>
                   {row.sample}
                 </td>
@@ -250,6 +370,70 @@ export function Diagnostics({ pca }: { pca: PcaPayload }) {
           </tbody>
         </table>
       </div>
+    </Panel>
+  );
+}
+
+/** Which variables put a picked sample where the diagnostics show it (#186,
+ * `pca.md` §7 and §8): signed `T²` contributions or squared residuals against
+ * the node's axis, served by the contributions endpoint and drawn, not
+ * computed. Empty until a row in the diagnostics table is picked. */
+function Contributions({ pca, sample }: { pca: PcaPayload; sample: number | null }) {
+  const [which, setWhich] = useState<"hotelling_t2" | "spe">("hotelling_t2");
+  const contributions = useContributions(sample === null ? undefined : pca.node_id, sample);
+  const payload = contributions.data;
+  const host = usePlot(
+    (theme) => ({
+      data: payload ? [contributionTrace(payload, which, theme)] : [],
+      layout: {
+        xaxis: axisLayout(theme, `${pca.loadings.axis.kind} (${pca.loadings.axis.unit ?? ""})`),
+        yaxis: axisLayout(theme, which === "spe" ? "e²" : "T² contribution"),
+        margin: { l: 48, r: 12, t: 8, b: 38 },
+      },
+    }),
+    [payload, which],
+  );
+  const total = payload ? (which === "spe" ? payload.spe.total : payload.hotelling_t2.total) : null;
+  const choose = (
+    <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <select
+        aria-label="Contribution view"
+        className="mono"
+        value={which}
+        onChange={(event) => setWhich(event.target.value as "hotelling_t2" | "spe")}
+        style={{
+          height: 18,
+          borderRadius: 3,
+          border: "1px solid var(--rule)",
+          background: "var(--surface)",
+          color: "var(--ink2)",
+          font: "inherit",
+          fontSize: 9.5,
+        }}
+      >
+        <option value="hotelling_t2">T²</option>
+        <option value="spe">SPE</option>
+      </select>
+      {payload ? (
+        <span className="mono" style={{ fontSize: 9.5, color: "var(--ink3)" }} data-testid="contributions-note">
+          {payload.sample.sample_id} · Σ = {total!.toPrecision(4)}
+        </span>
+      ) : null}
+    </span>
+  );
+  return (
+    <Panel title="Contributions" note={choose}>
+      {sample === null ? (
+        <div className="empty" data-testid="contributions-empty" style={{ padding: 12 }}>
+          Pick a sample in the diagnostics table to see which variables put it there.
+        </div>
+      ) : contributions.isError ? (
+        <div className="empty" role="note" data-testid="contributions-unavailable" style={{ padding: 12 }}>
+          {contributions.error instanceof Error ? contributions.error.message : "Could not load."}
+        </div>
+      ) : (
+        <div ref={host} data-testid="contributions-plot" style={{ flex: 1, minHeight: 0 }} />
+      )}
     </Panel>
   );
 }
@@ -311,19 +495,85 @@ function RmsecvCurve({ pca }: { pca: PcaPayload }) {
   );
 }
 
+/** The confusion matrices a two-class PLS-DA reports (#185, `pls-da.md` §6):
+ * rows observed, columns assigned, in the classes' order, for the calibration
+ * set and - below a split - the cross-validated and held-out sets. Counts,
+ * not a plot: four numbers per set are read, not drawn. Exported for its test. */
+export function ConfusionMatrix({ pca }: { pca: PcaPayload }) {
+  const classification = pca.classification;
+  if (!classification) return null;
+  const sets: [string, string][] = [
+    ["calibration", "Calibration"],
+    ["cross_validation", "Cross-validated"],
+    ["held_out", "Held out (fold 0)"],
+  ];
+  const [c0, c1] = classification.classes;
+  return (
+    <Panel title="Confusion" note={`${c0} · ${c1}`}>
+      <div
+        data-testid="confusion-matrix"
+        style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "6px 0" }}
+      >
+        {sets
+          .filter(([key]) => classification.confusion[key])
+          .map(([key, label]) => {
+            const [[tn, fp], [fn, tp]] = classification.confusion[key];
+            return (
+              <table key={key} data-testid={`confusion-${key}`} style={{ marginBottom: 8 }}>
+                <thead>
+                  <tr>
+                    <th style={{ width: 110 }}>{label}</th>
+                    <th className="n">→ {c0}</th>
+                    <th className="n">→ {c1}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td className="mono">{c0}</td>
+                    <td className="n">{tn}</td>
+                    <td className="n">{fp}</td>
+                  </tr>
+                  <tr>
+                    <td className="mono">{c1}</td>
+                    <td className="n">{fn}</td>
+                    <td className="n">{tp}</td>
+                  </tr>
+                </tbody>
+              </table>
+            );
+          })}
+      </div>
+    </Panel>
+  );
+}
+
 function RegressionMetrics({ pca }: { pca: PcaPayload }) {
   const m = pca.metrics ?? {};
-  const rows: [string, string][] = [
-    ["RMSEC", metric(m.rmsec)],
-    ["RMSECV", metric(m.rmsecv)],
-    ["RMSEP", metric(m.rmsep)],
-    ["R²", metric(m.r2)],
-    ["Q²", metric(m.q2)],
-    ["Bias", metric(m.bias)],
-    ["SEC", metric(m.sec)],
-    ["SEP", metric(m.sep)],
-    ["RMSECV spread", metric(m.rmsecv_std)],
-  ];
+  const rows: [string, string][] =
+    pca.task === "classification"
+      ? [
+          // pls-da.md section 6, by set: none is calibration, _cv the pooled
+          // held-out assignments, _p fold zero's held-out rows.
+          ["Accuracy", metric(m.accuracy, 3)],
+          ["Accuracy (CV)", metric(m.accuracy_cv, 3)],
+          ["Accuracy (held out)", metric(m.accuracy_p, 3)],
+          ["Sensitivity", metric(m.sensitivity, 3)],
+          ["Sensitivity (CV)", metric(m.sensitivity_cv, 3)],
+          ["Specificity", metric(m.specificity, 3)],
+          ["Specificity (CV)", metric(m.specificity_cv, 3)],
+          ["RMSECV (dummy)", metric(m.rmsecv)],
+        ]
+      : [
+          ["RMSEC", metric(m.rmsec)],
+          ["RMSECV", metric(m.rmsecv)],
+          ["RMSEP", metric(m.rmsep)],
+          ["R²", metric(m.r2)],
+          ["Q²", metric(m.q2)],
+          ["Bias", metric(m.bias)],
+          ["SEC", metric(m.sec)],
+          ["SEP", metric(m.sep)],
+          ["RMSECV spread", metric(m.rmsecv_std)],
+        ];
   return (
     <Panel title="Calibration metrics" note={pca.regression?.target ?? ""} width={260}>
       <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "6px 0" }}>
@@ -342,6 +592,7 @@ function RegressionMetrics({ pca }: { pca: PcaPayload }) {
 
 export function AnalysisResults({ nodeId, title }: { nodeId: string; title: string }) {
   const results = useResults(nodeId);
+  const [picked, setPicked] = useState<number | null>(null);
 
   // A node with no result answers 404, and this used to render as a loading
   // message that never resolved (#181). The server's sentence says what to do.
@@ -359,7 +610,11 @@ export function AnalysisResults({ nodeId, title }: { nodeId: string; title: stri
   }
 
   const pca = results.data;
-  const regression = pca.task === "regression";
+  const classification = pca.task === "classification";
+  // A classification is the regression on a dummy response (pls-da.md
+  // section 2), so every regression panel applies; only what it is called and
+  // which panel sits first differ.
+  const regression = pca.task === "regression" || classification;
   return (
     <div className="pane">
       <div
@@ -377,12 +632,22 @@ export function AnalysisResults({ nodeId, title }: { nodeId: string; title: stri
         <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
           <span style={{ fontWeight: 600, fontSize: 13.5 }}>{title}</span>
           <span className="mono" style={{ fontSize: 11, color: "var(--ink3)" }}>
-            {regression ? `PLS on ${pca.regression?.target ?? "?"}` : "PCA"} {pca.n_components}{" "}
+            {classification
+              ? `PLS-DA on ${pca.classification?.class_column ?? "?"}`
+              : regression
+                ? `PLS on ${pca.regression?.target ?? "?"}`
+                : "PCA"}{" "}
+            {pca.n_components}{" "}
             components · {pca.n_samples} × {pca.n_variables}
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "stretch" }}>
-          {(regression
+          {(classification
+            ? ([
+                ["ACCURACY (CV)", metric(pca.metrics?.accuracy_cv, 3)],
+                ["ACCURACY", metric(pca.metrics?.accuracy, 3)],
+              ] as [string, string][])
+            : regression
             ? // What a reader of a calibration looks at first, and the pair
               // that says whether it generalises. Absent renders as an em dash.
               ([
@@ -431,10 +696,12 @@ export function AnalysisResults({ nodeId, title }: { nodeId: string; title: stri
         <div style={{ display: "flex", gap: 12, flex: 1, minHeight: 0 }}>
           <Scores pca={pca} />
           <Loadings pca={pca} />
+          {regression && <VariableImportance pca={pca} />}
         </div>
         <div style={{ display: "flex", gap: 12, flex: 1, minHeight: 0 }}>
           <Variance pca={pca} />
-          <Diagnostics pca={pca} />
+          <Diagnostics pca={pca} picked={picked} onPick={setPicked} />
+          <Contributions pca={pca} sample={picked} />
         </div>
         {/* The row this comment reserved in Phase 1.1, now filled. It arrives
             beside the two above rather than replacing them, exactly as the
@@ -442,7 +709,7 @@ export function AnalysisResults({ nodeId, title }: { nodeId: string; title: stri
             three have no counterpart on a decomposition. */}
         {regression && (
           <div style={{ display: "flex", gap: 12, flex: 1, minHeight: 0 }}>
-            <PredictedVsMeasured pca={pca} />
+            {classification ? <ConfusionMatrix pca={pca} /> : <PredictedVsMeasured pca={pca} />}
             <RmsecvCurve pca={pca} />
             <RegressionMetrics pca={pca} />
           </div>

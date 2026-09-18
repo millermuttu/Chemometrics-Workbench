@@ -6,7 +6,7 @@ CI regenerates it and fails the build if the committed copy differs, which is wh
 `PROPOSAL.md` §16's exit criterion — *parity report green in CI against published
 reference values* — means in practice.
 
-Fixture schema 1, generated 2026-08-27.
+Fixture schema 1, generated 2026-09-18.
 
 ---
 
@@ -18,11 +18,11 @@ strong the agreement is** rather than a bare pass or fail:
 
 | Claim | Count | Meaning |
 | --- | --- | --- |
-| identical within floating point | 83 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
-| agrees within stated tolerance | 14 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
+| identical within floating point | 96 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
+| agrees within stated tolerance | 16 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
 | differs by documented convention | 8 | Not compared numerically at all. The two quantities are not the same thing, and the reason is given in full below. |
 
-**105 comparisons, 105 passed, 0 failed.**
+**120 comparisons, 120 passed, 0 failed.**
 
 Three things a reader should hold on to, because the agreement column cannot
 show them:
@@ -181,6 +181,26 @@ show them:
 | tecator | `rmsecv_curve` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 10 values, worst Δ < 1e-12 |
 | tecator | `sep` | unstated | documented divergence | not compared — see below |
 | tecator | `vip` † | scikit-learn 1.9.0 | identical | 100 values, worst Δ < 1e-15 |
+
+### PLS-DA (two-class)
+
+| Dataset | Quantity | Reference | Claim | Ours vs reference |
+| --- | --- | --- | --- | --- |
+| corn | `accuracy` | scikit-learn 1.9.0 | identical | `0.925` vs `0.925` |
+| corn | `accuracy_cv` | scikit-learn 1.9.0 | identical | `0.875` vs `0.875` |
+| corn | `confusion` | scikit-learn 1.9.0 | identical | 4 values, worst Δ 0, exactly |
+| corn | `confusion_cv` | scikit-learn 1.9.0 | identical | 4 values, worst Δ 0, exactly |
+| corn | `dummy_predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 80 values, worst Δ < 1e-13 |
+| gasoline | `accuracy` | scikit-learn 1.9.0 | identical | `0.983333` vs `0.983333` |
+| gasoline | `accuracy_cv` | scikit-learn 1.9.0 | identical | `0.883333` vs `0.883333` |
+| gasoline | `confusion` | scikit-learn 1.9.0 | identical | 4 values, worst Δ 0, exactly |
+| gasoline | `confusion_cv` | scikit-learn 1.9.0 | identical | 4 values, worst Δ 0, exactly |
+| gasoline | `dummy_predictions` | scikit-learn 1.9.0 | identical | 60 values, worst Δ < 1e-14 |
+| tecator | `accuracy` | scikit-learn 1.9.0 | identical | `0.85` vs `0.85` |
+| tecator | `accuracy_cv` | scikit-learn 1.9.0 | identical | `0.8375` vs `0.8375` |
+| tecator | `confusion` | scikit-learn 1.9.0 | identical | 4 values, worst Δ 0, exactly |
+| tecator | `confusion_cv` | scikit-learn 1.9.0 | identical | 4 values, worst Δ 0, exactly |
+| tecator | `dummy_predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 240 values, worst Δ < 1e-13 |
 
 ---
 

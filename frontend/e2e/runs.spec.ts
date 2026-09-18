@@ -115,7 +115,12 @@ test("the failure names its cause, marks the node, and shows no trace", async ({
   await page.getByRole("button", { name: "Run pipeline" }).click();
 
   const failure = page.getByTestId("run-failed");
-  await expect(failure).toBeVisible({ timeout: 60_000 });
+  // The failing branch is last in topological order, so the banner arrives
+  // only after four PCA branches and a ten-fold PLS on 3,000 x 1,200 have
+  // run cold. That is about ten seconds here and has taken over sixty on a
+  // slow Windows runner (#202's first CI run). The budget is the file's,
+  // not a wall-clock guess: this waits on the run's own terminal state.
+  await expect(failure).toBeVisible({ timeout: 150_000 });
   await expect(failure).toContainText("RUN FAILED");
 
   // The kernel's own sentence. `decomposition.py` refuses to return fewer
@@ -199,4 +204,51 @@ test("a train/test split runs, and its PLS reports on the held-out set", async (
   await expect(page.getByText("2250 calibration · 750 held out")).toBeVisible();
   await expect(page.getByTestId("metric-RMSEP")).not.toHaveText("—");
   await expect(page.getByTestId("metric-RMSECV")).toHaveText("—");
+});
+
+test("a foldable chain draws its coefficients on the raw axis", async ({ page }) => {
+  // #184. The seeded chains all carry an SNV, so the raw-axis vector is
+  // refused there by name (analysis.spec.ts). A branch of one mean centre is
+  // foldable; added through the API, run from the UI, read off the plot.
+  const headers = { Authorization: "Bearer e2e-token" };
+  const pipeline = (await (await page.request.get("/api/pipelines/current", { headers })).json()) as {
+    nodes: { id: string }[];
+  };
+  const nodes = [
+    ...pipeline.nodes,
+    { id: "centre_f", type: "preprocess", inputs: ["source"], step: { kind: "mean_centre" } },
+    {
+      id: "pls_f",
+      type: "estimator",
+      inputs: ["centre_f"],
+      spec: { kind: "pls", n_components: 5, algorithm: "nipals", target: "fat" },
+    },
+  ];
+  const saved = await page.request.put("/api/pipelines/current", { headers, data: { nodes } });
+  expect(saved.ok()).toBe(true);
+
+  await page.goto("/?token=e2e-token");
+  await page.getByRole("button", { name: "Run pipeline" }).click();
+  await expect(page.locator(".status")).toContainText("Done", { timeout: 150_000 });
+
+  // Two nodes are labelled "PLS 5 LV · fat"; the outline follows the
+  // pipeline's order and the new one was appended last.
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /PLS 5 LV/ }).last().dblclick();
+  await page.getByLabel("Variable importance view").selectOption("coefficients");
+  await expect(page.getByTestId("coefficients-plot")).toBeVisible();
+  await expect(page.getByTestId("coefficients-unavailable")).toHaveCount(0);
+
+  // One coefficient per raw variable: 1,200 on the synthetic dataset, which
+  // is the dataset's count and not the node's.
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const plot = document.querySelector("[data-testid=coefficients-plot]") as HTMLElement & {
+          data?: { x?: number[] }[];
+        };
+        return plot.data?.[0]?.x?.length ?? 0;
+      }),
+    )
+    .toBe(1200);
 });

@@ -109,6 +109,24 @@ test("a regression tab draws what a decomposition has no counterpart for", async
   await expect(page.getByTestId("predicted-plot")).toBeVisible();
   await expect(page.getByTestId("rmsecv-plot")).toBeVisible();
 
+  // #184: VIP beside the loadings, on the same axis - one point per variable.
+  await expect(page.getByRole("region", { name: "Variable importance" })).toBeVisible();
+  await expect(page.getByTestId("vip-plot")).toBeVisible();
+  const points = await page.evaluate(() => {
+    const plot = document.querySelector("[data-testid=vip-plot]") as HTMLElement & {
+      data?: { x?: number[] }[];
+    };
+    return plot.data?.[0]?.x?.length ?? 0;
+  });
+  expect(points).toBe(100);
+
+  // The seeded chain has an SNV in it, which is not a fixed linear map, so
+  // the raw-axis coefficients are refused - and the refusal names the step.
+  await page.getByLabel("Variable importance view").selectOption("coefficients");
+  const refused = page.getByTestId("coefficients-unavailable");
+  await expect(refused).toBeVisible();
+  await expect(refused).toContainText("SNVTransformer cannot be folded");
+
   // The header says what the model is and leads with the two numbers that say
   // whether it generalises, rather than PC1 and cumulative variance.
   const header = page.getByTestId("analysis-header");
@@ -127,7 +145,86 @@ test("a decomposition tab is unchanged, and shows none of the regression panels"
   page,
 }) => {
   await openResults(page);
-  for (const panel of ["Predicted vs measured", "RMSECV", "Calibration metrics"]) {
+  for (const panel of [
+    "Predicted vs measured",
+    "RMSECV",
+    "Calibration metrics",
+    "Variable importance",
+  ]) {
     await expect(page.getByRole("region", { name: panel })).toHaveCount(0);
   }
+});
+
+test("a classification tab tallies its classes, and is read by accuracy", async ({ page }) => {
+  // #185. The seeded PLS-DA sits below the ten-fold split beside the PLS, on
+  // `fat_class` - Tecator's fat above its median. Every regression panel
+  // applies, because the model is PLS1 on a dummy response; what differs is
+  // the confusion panel where predicted-vs-measured would be, and the header.
+  await page.goto("/?token=e2e-token");
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /PLS-DA 5 LV/ }).first().dblclick();
+
+  const header = page.getByTestId("analysis-header");
+  await expect(header).toContainText("PLS-DA on fat_class 5 components");
+  await expect(header).toContainText("ACCURACY (CV)");
+
+  await expect(page.getByRole("region", { name: "Confusion" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Predicted vs measured" })).toHaveCount(0);
+  for (const panel of ["Scores", "Loadings", "Variable importance", "RMSECV", "Calibration metrics"]) {
+    await expect(page.getByRole("region", { name: panel })).toBeVisible();
+  }
+
+  // Fold zero's calibration tally sums to its rows, and the cross-validated
+  // one to every sample; both are counts the server tallied, not the page.
+  const totals = await page.evaluate(() => {
+    const sum = (id: string) =>
+      Array.from(document.querySelectorAll(`[data-testid=confusion-${id}] td.n`)).reduce(
+        (total, cell) => total + Number(cell.textContent),
+        0,
+      );
+    return { calibration: sum("calibration"), cv: sum("cross_validation") };
+  });
+  expect(totals).toEqual({ calibration: 216, cv: 240 });
+  await expect(page.getByTestId("metric-Accuracy")).not.toHaveText("—");
+  await expect(page.getByTestId("metric-Accuracy (CV)")).not.toHaveText("—");
+});
+
+test("picking an outlier draws which variables put it there, summing to its own T²", async ({
+  page,
+}) => {
+  // #186. The diagnostics table lists what the limits put outside; a row
+  // opens that sample's contributions, served by the node's own endpoint.
+  await openResults(page);
+  await expect(page.getByTestId("contributions-empty")).toBeVisible();
+
+  const row = page.getByTestId("outlier-row").first();
+  const index = Number(await row.getAttribute("data-index"));
+  await row.click();
+  await expect(page.getByTestId("contributions-plot")).toBeVisible();
+  await expect(page.getByTestId("contributions-note")).toContainText("Σ =");
+
+  const drawn = await page.evaluate(() => {
+    const plot = document.querySelector("[data-testid=contributions-plot]") as HTMLElement & {
+      data?: { x?: number[]; y?: number[] }[];
+    };
+    const trace = plot.data?.[0];
+    return { points: trace?.x?.length ?? 0, sum: (trace?.y ?? []).reduce((a, b) => a + b, 0) };
+  });
+  expect(drawn.points).toBe(100);
+
+  // The sum is the sample's T² as the results payload serves it, to the
+  // store's float32 precision - the contributions are drawn, not decided.
+  const served = await page.evaluate(async (wanted: number) => {
+    const response = await fetch("/api/results/pca_a", {
+      headers: { Authorization: `Bearer ${sessionStorage.getItem("token")}` },
+    });
+    const pca = await response.json();
+    const position = pca.samples.findIndex((s: { index: number }) => s.index === wanted);
+    return pca.diagnostics.hotelling_t2[position] as number;
+  }, index);
+  expect(Math.abs(drawn.sum - served) / served).toBeLessThan(1e-3);
+
+  await page.getByLabel("Contribution view").selectOption("spe");
+  await expect(page.getByTestId("contributions-plot")).toBeVisible();
+  await expect(page.getByTestId("contributions-note")).toContainText("Σ =");
 });

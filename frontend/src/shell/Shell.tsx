@@ -30,6 +30,7 @@ import { TabStrip } from "@/shell/TabStrip";
 import { FlaskIcon, KIND_ICONS } from "@/shell/icons";
 import { nodeMetrics } from "@/shell/nodeMetrics";
 import { emptyTabs, tabsReducer, type Tab } from "@/shell/tabs";
+import { twoValuedColumns } from "@/shell/classColumns";
 
 /** The frame every screen opens inside. The measurements are the artboard's -
  * see src/styles/shell.css, which is ported from design/canvas/_base.css. */
@@ -71,6 +72,7 @@ function Pane({
   tab,
   datasets,
   targets,
+  classColumns,
   onImported,
   onCloseImport,
   onOpenNode,
@@ -79,6 +81,7 @@ function Pane({
   tab: Tab | undefined;
   datasets: DatasetEntry[] | undefined;
   targets: string[];
+  classColumns: string[];
   onOpenNode: (id: string, label: string) => void;
   onCompare: (left: string, right: string) => void;
   onImported: (versionId: string, name: string) => void;
@@ -89,7 +92,14 @@ function Pane({
   }
 
   if (tab?.kind === "pipeline")
-    return <PipelineCanvas onOpenNode={onOpenNode} onCompare={onCompare} targets={targets} />;
+    return (
+      <PipelineCanvas
+        onOpenNode={onOpenNode}
+        onCompare={onCompare}
+        targets={targets}
+        classColumns={classColumns}
+      />
+    );
   if (tab?.kind === "spectra") {
     const shape = datasets?.[0]?.versions.at(-1);
     return (
@@ -212,6 +222,8 @@ export function Shell() {
     if (!jobId || !settled) return;
     void queryClient.invalidateQueries({ queryKey: ["spectra"] });
     void queryClient.invalidateQueries({ queryKey: ["results"] });
+    void queryClient.invalidateQueries({ queryKey: ["coefficients"] });
+    void queryClient.invalidateQueries({ queryKey: ["contributions"] });
     void queryClient.invalidateQueries({ queryKey: ["experiment"] });
   }, [settled, jobId, queryClient]);
 
@@ -301,7 +313,9 @@ export function Shell() {
   const samples = datasets.data?.[0]?.versions.at(-1);
   const noDatasets = datasets.isSuccess && datasets.data.length === 0;
   /** What a PLS node can model: the columns of the version the recipe runs on. */
-  const targets = Object.keys(sourceVersionOf(pipeline.data, datasets.data)?.targets ?? {});
+  const source = sourceVersionOf(pipeline.data, datasets.data);
+  const targets = Object.keys(source?.targets ?? {});
+  const classColumns = twoValuedColumns(source?.metadata_columns);
 
   /** The active estimator node's headline numbers, from its own result. The
    * full results table is #48; this is what fits in 292px. */
@@ -453,11 +467,11 @@ export function Shell() {
             <EmptyProject onImport={openImport} />
           ) : state.splitId ? (
             <div className="split">
-              <Pane tab={activeTab} datasets={datasets.data} targets={targets} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} />
-              <Pane tab={splitTab} datasets={datasets.data} targets={targets} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} />
+              <Pane tab={activeTab} datasets={datasets.data} targets={targets} classColumns={classColumns} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} />
+              <Pane tab={splitTab} datasets={datasets.data} targets={targets} classColumns={classColumns} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} />
             </div>
           ) : (
-            <Pane tab={activeTab} datasets={datasets.data} targets={targets} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} />
+            <Pane tab={activeTab} datasets={datasets.data} targets={targets} classColumns={classColumns} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} />
           )}
         </main>
 

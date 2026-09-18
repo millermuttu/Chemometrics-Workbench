@@ -4,11 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-**Phase 1 is complete: Phase 0 is tagged `v0.1.0`, 1.1 `v0.2.0`, 1.2 `v0.3.0` and 1.3 `v0.4.0`; `v0.5.0` and `v0.6.0` are mid-phase snapshots, the latter taken 2026-09-18 after the repository review and the first Phase 2 feature (#183).** The kernels, the parity programme and the reproducibility schema are green in CI, and the React shell walks its screens over the real backend: readers, the array store, the executor, real jobs, the HTTP surface, and **SQLite in each project directory**. A project directory is now `project.db`, `arrays/` and `results/` — no JSON index anywhere in it — and a killed server restarts onto its datasets, its pipeline, its layout and its last experiment. Phase 2 is next.
+**Phase 2 is complete and tagged `v0.7.0`.** Phase 0 is tagged `v0.1.0`, 1.1 `v0.2.0`, 1.2 `v0.3.0`, 1.3 `v0.4.0`; `v0.5.0` and `v0.6.0` are mid-phase snapshots. The kernels, the parity programme and the reproducibility schema are green in CI, and the React shell walks its screens over the real backend: readers, the array store, the executor, real jobs, the HTTP surface, and **SQLite in each project directory**. A project directory is now `project.db`, `arrays/` and `results/` — no JSON index anywhere in it — and a killed server restarts onto its datasets, its pipeline, its layout and its last experiment.
+
+**Phase 2 added the chemometrics depth `PROPOSAL.md` §16 asks for**: PLS in the executor, a train/test split, two-class PLS-DA with its own specification and parity claims, VIP and folded coefficients drawn, contribution plots, the Bruker OPUS reader, and a run that holds its frontier rather than every array it has computed. Its exit criterion is demonstrated in `docs/phase-2/exit-run.md`, not reasoned. Phase 3 — reproducibility and export — is next.
 
 - `PROPOSAL.md` — the specification. Read it before proposing or writing anything.
-- `feature_list.json` — the **live** task list. It covers Phase 2, whose first feature (#51's branch drag and node removal) was built ahead of 1.3 and whose second half is still open.
-- `docs/phase-0/`, `docs/phase-1-1/`, `docs/phase-1-2/`, `docs/phase-1-3/` — the completed lists, kept as their record. Do not add to them.
+- `feature_list.json` — the **live** task list. It covers Phase 3: the experiment history, the model artifact and registry, the JSON and snippet export, the lineage comparison, the HTML report, and the exit run that demonstrates the criterion.
+- `docs/phase-0/`, `docs/phase-1-1/`, `docs/phase-1-2/`, `docs/phase-1-3/`, `docs/phase-2/` — the completed lists, kept as their record. Do not add to them. `docs/phase-2/exit-run.md` is that phase's exit criterion, recorded by `tests/exit_run.py`.
 - `design/DESIGN_BRIEF.md` — screens, states and plot rules for the UI.
 - `src/chemometrics_workbench/` — the kernels: preprocessing, PCA, PLS, validation, reference datasets.
 - `src/chemometrics_workbench/models.py` — the Pydantic schema for the reproducibility model; its invariants are exercised by `tests/test_models.py`.

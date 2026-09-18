@@ -29,8 +29,9 @@ function hexOf(rgb: string): string {
 
 test("the branching pipeline renders with every node the executor ran", async ({ page }) => {
   await openCanvas(page);
-  await expect(page.locator(".react-flow__node")).toHaveCount(15);
-  await expect(page.locator(".react-flow__edge")).toHaveCount(14);
+  // Sixteen since #185: the seeded PLS-DA beside the PLS below the split.
+  await expect(page.locator(".react-flow__node")).toHaveCount(16);
+  await expect(page.locator(".react-flow__edge")).toHaveCount(15);
 
   // The node bodies carry their parameters, which is what makes the graph
   // readable without opening anything.
@@ -41,7 +42,7 @@ test("the branching pipeline renders with every node the executor ran", async ({
 test("a node that has been run is complete, and says so by form", async ({ page }) => {
   await openCanvas(page);
   await expect(page.getByTestId("node-complete").first()).toBeVisible();
-  await expect(page.getByTestId("node-complete")).toHaveCount(15);
+  await expect(page.getByTestId("node-complete")).toHaveCount(16);
 
   // Form, not only colour: complete is a solid border, which is what the other
   // four states are distinguished *from*.
@@ -125,10 +126,10 @@ test("dragging from an output port moves a branch onto a new parent", async ({ p
   await connect(page, "msc", "centre_a");
 
   // Exactly one input, so the old edge is replaced rather than added to: the
-  // graph keeps its fourteen edges and centre_a now reads from msc.
+  // graph keeps its fifteen edges and centre_a now reads from msc.
   await expect(page.locator('.react-flow__edge[data-id="msc->centre_a"]')).toHaveCount(1);
   await expect(page.locator('.react-flow__edge[data-id="snv->centre_a"]')).toHaveCount(0);
-  await expect(page.locator(".react-flow__edge")).toHaveCount(14);
+  await expect(page.locator(".react-flow__edge")).toHaveCount(15);
 });
 
 test("a connection that would make a cycle does not drop, and says why", async ({ page }) => {
@@ -152,7 +153,7 @@ test("removing a node reconnects its children to its parent", async ({ page }) =
   await expect(page.locator('.react-flow__node[data-id="snv"]')).toHaveCount(0);
   await expect(page.locator('.react-flow__edge[data-id="source->centre_a"]')).toHaveCount(1);
   await expect(page.locator('.react-flow__edge[data-id="source->snv_savgol"]')).toHaveCount(1);
-  await expect(page.locator(".react-flow__node")).toHaveCount(14);
+  await expect(page.locator(".react-flow__node")).toHaveCount(15);
 });
 
 test("the source has no remove control, because it is where the data enters", async ({ page }) => {
@@ -318,10 +319,11 @@ test("a connector dropped on empty canvas adds a step onto the node it came from
   await expect(menu).toBeVisible();
   await expect(menu).toContainText("msc");
 
-  // Only what the executor can actually fit: PLS-DA has no kernel, and
-  // repeated k-fold and external splits raise at run time. Train/test runs
-  // since #183 and is offered.
-  await expect(menu.getByRole("menuitem", { name: "PLS-DA" })).toHaveCount(0);
+  // Only what the executor can actually fit: repeated k-fold and external
+  // splits raise at run time. Train/test runs since #183 and PLS-DA since
+  // #185 - the seeded Tecator carries a two-valued `fat_class`, so it is
+  // offered here.
+  await expect(menu.getByRole("menuitem", { name: "PLS-DA 5 LV" })).toHaveCount(1);
   await expect(menu.getByRole("menuitem", { name: "PLS 5 LV" })).toHaveCount(1);
   await expect(menu.getByRole("menuitem", { name: "Train/test 25%" })).toHaveCount(1);
 

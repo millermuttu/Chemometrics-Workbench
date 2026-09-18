@@ -70,6 +70,10 @@ export function parameterLine(node: PipelineNode): string {
       return `${Math.round(Number(spec!.test_size) * 100)}% held out · seed ${spec!.seed}`;
     case "pca":
       return `${spec!.n_components} components`;
+    case "pls":
+      return `${spec!.n_components} components · ${spec!.target}`;
+    case "plsda":
+      return `${spec!.n_components} components · ${spec!.class_column}`;
     case "snv":
       return "population statistics per row";
     case "mean_centre":

@@ -90,6 +90,8 @@ export function nodeLabel(node: PipelineNode): string {
       // nodes on one branch differ by what they model rather than by their
       // component count.
       return `PLS ${spec?.n_components} LV · ${spec?.target}`;
+    case "plsda":
+      return `PLS-DA ${spec?.n_components} LV · ${spec?.class_column}`;
     case "source":
       return "Source";
     default:

@@ -226,6 +226,14 @@ QUANTITY_CLASS: dict[str, str] = {
     "rmsecv_curve": "metrics",
     "coefficients_original_units": "coefficients",
     "intercept_original_units": "predictions",
+    # PLS-DA (pls-da.md §9): PLS1 on a dummy response, thresholded. The
+    # continuous predictions are predictions; the tallies are counts and an
+    # accuracy, which sit in the metrics class as RMSE does.
+    "dummy_predictions": "predictions",
+    "accuracy": "metrics",
+    "confusion": "metrics",
+    "accuracy_cv": "metrics",
+    "confusion_cv": "metrics",
 }
 
 # Quantities whose sign is arbitrary per component and must be aligned before
