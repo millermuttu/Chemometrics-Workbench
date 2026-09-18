@@ -184,6 +184,8 @@ export interface PcaPayload {
     spe: number[];
     observed?: number[];
     predicted?: number[];
+    /** A classification's held-out assignments, as indices into `classes`. */
+    predicted_class?: number[];
   };
   /** Present only when `task === "regression"`. The half of a PLS result that
    * has no counterpart on a decomposition; everything above is shared. */
@@ -195,6 +197,17 @@ export interface PcaPayload {
     vip: number[];
     y_loadings: number[];
     y_explained_variance_ratio: number[];
+  };
+  /** Present only when `task === "classification"` (#185, `pls-da.md`). The
+   * model is the regression block above on a {0, 1} dummy response; this is
+   * the coding, the assignments and the confusion matrices. */
+  classification?: {
+    class_column: string | null;
+    classes: string[];
+    predicted_class: number[];
+    /** `calibration`, and below a split `cross_validation` and `held_out`:
+     * rows observed, columns assigned, in `classes` order. */
+    confusion: Record<string, number[][]>;
   };
   /** `metrics-and-validation.md` section 11's table, flat. **A metric that
    * could not be computed is absent** - never zero, never NaN - so a reader

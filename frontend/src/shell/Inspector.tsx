@@ -5,6 +5,7 @@ import { sourceVersionOf, useStepSchema } from "@/api/queries";
 import { ParameterForm } from "@/inspector/ParameterForm";
 import { Provenance } from "@/inspector/Provenance";
 import { specFor, type StepSpec } from "@/inspector/schema";
+import { twoValuedColumns } from "@/shell/classColumns";
 import type { Tab } from "@/shell/tabs";
 
 /** The right sidebar, and the only place a parameter is edited.
@@ -43,14 +44,15 @@ function short(hash: string): string {
  * form offers the columns, because a name that is not one is refused at run
  * time anyway - and a dataset with no targets leaves it a text field, which
  * is at least honest about why the node cannot run. */
-function withDatasetColumns(spec: StepSpec, targets: string[]): StepSpec {
-  if (targets.length === 0) return spec;
+function withDatasetColumns(spec: StepSpec, targets: string[], classColumns: string[]): StepSpec {
   return {
     ...spec,
     fields: spec.fields.map((field) =>
-      field.name === "target" && field.kind === "string"
+      field.name === "target" && field.kind === "string" && targets.length > 0
         ? { ...field, kind: "enum", options: targets }
-        : field,
+        : field.name === "class_column" && field.kind === "string" && classColumns.length > 0
+          ? { ...field, kind: "enum", options: classColumns }
+          : field,
     ),
   };
 }
@@ -105,7 +107,13 @@ export function Inspector({
   const kind = node?.step?.kind ?? node?.spec?.kind;
   const found = kind ? specFor(schema.data, String(kind)) : undefined;
   const source = sourceVersionOf(pipeline, datasets);
-  const spec = found && withDatasetColumns(found, Object.keys(source?.targets ?? {}));
+  const spec =
+    found &&
+    withDatasetColumns(
+      found,
+      Object.keys(source?.targets ?? {}),
+      twoValuedColumns(source?.metadata_columns),
+    );
 
   return (
     <aside className="insp" aria-label="Inspector" style={{ overflowY: "auto" }}>

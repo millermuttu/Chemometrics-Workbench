@@ -400,19 +400,85 @@ function RmsecvCurve({ pca }: { pca: PcaPayload }) {
   );
 }
 
+/** The confusion matrices a two-class PLS-DA reports (#185, `pls-da.md` §6):
+ * rows observed, columns assigned, in the classes' order, for the calibration
+ * set and - below a split - the cross-validated and held-out sets. Counts,
+ * not a plot: four numbers per set are read, not drawn. Exported for its test. */
+export function ConfusionMatrix({ pca }: { pca: PcaPayload }) {
+  const classification = pca.classification;
+  if (!classification) return null;
+  const sets: [string, string][] = [
+    ["calibration", "Calibration"],
+    ["cross_validation", "Cross-validated"],
+    ["held_out", "Held out (fold 0)"],
+  ];
+  const [c0, c1] = classification.classes;
+  return (
+    <Panel title="Confusion" note={`${c0} · ${c1}`}>
+      <div
+        data-testid="confusion-matrix"
+        style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "6px 0" }}
+      >
+        {sets
+          .filter(([key]) => classification.confusion[key])
+          .map(([key, label]) => {
+            const [[tn, fp], [fn, tp]] = classification.confusion[key];
+            return (
+              <table key={key} data-testid={`confusion-${key}`} style={{ marginBottom: 8 }}>
+                <thead>
+                  <tr>
+                    <th style={{ width: 110 }}>{label}</th>
+                    <th className="n">→ {c0}</th>
+                    <th className="n">→ {c1}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td className="mono">{c0}</td>
+                    <td className="n">{tn}</td>
+                    <td className="n">{fp}</td>
+                  </tr>
+                  <tr>
+                    <td className="mono">{c1}</td>
+                    <td className="n">{fn}</td>
+                    <td className="n">{tp}</td>
+                  </tr>
+                </tbody>
+              </table>
+            );
+          })}
+      </div>
+    </Panel>
+  );
+}
+
 function RegressionMetrics({ pca }: { pca: PcaPayload }) {
   const m = pca.metrics ?? {};
-  const rows: [string, string][] = [
-    ["RMSEC", metric(m.rmsec)],
-    ["RMSECV", metric(m.rmsecv)],
-    ["RMSEP", metric(m.rmsep)],
-    ["R²", metric(m.r2)],
-    ["Q²", metric(m.q2)],
-    ["Bias", metric(m.bias)],
-    ["SEC", metric(m.sec)],
-    ["SEP", metric(m.sep)],
-    ["RMSECV spread", metric(m.rmsecv_std)],
-  ];
+  const rows: [string, string][] =
+    pca.task === "classification"
+      ? [
+          // pls-da.md section 6, by set: none is calibration, _cv the pooled
+          // held-out assignments, _p fold zero's held-out rows.
+          ["Accuracy", metric(m.accuracy, 3)],
+          ["Accuracy (CV)", metric(m.accuracy_cv, 3)],
+          ["Accuracy (held out)", metric(m.accuracy_p, 3)],
+          ["Sensitivity", metric(m.sensitivity, 3)],
+          ["Sensitivity (CV)", metric(m.sensitivity_cv, 3)],
+          ["Specificity", metric(m.specificity, 3)],
+          ["Specificity (CV)", metric(m.specificity_cv, 3)],
+          ["RMSECV (dummy)", metric(m.rmsecv)],
+        ]
+      : [
+          ["RMSEC", metric(m.rmsec)],
+          ["RMSECV", metric(m.rmsecv)],
+          ["RMSEP", metric(m.rmsep)],
+          ["R²", metric(m.r2)],
+          ["Q²", metric(m.q2)],
+          ["Bias", metric(m.bias)],
+          ["SEC", metric(m.sec)],
+          ["SEP", metric(m.sep)],
+          ["RMSECV spread", metric(m.rmsecv_std)],
+        ];
   return (
     <Panel title="Calibration metrics" note={pca.regression?.target ?? ""} width={260}>
       <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "6px 0" }}>
@@ -448,7 +514,11 @@ export function AnalysisResults({ nodeId, title }: { nodeId: string; title: stri
   }
 
   const pca = results.data;
-  const regression = pca.task === "regression";
+  const classification = pca.task === "classification";
+  // A classification is the regression on a dummy response (pls-da.md
+  // section 2), so every regression panel applies; only what it is called and
+  // which panel sits first differ.
+  const regression = pca.task === "regression" || classification;
   return (
     <div className="pane">
       <div
@@ -466,12 +536,22 @@ export function AnalysisResults({ nodeId, title }: { nodeId: string; title: stri
         <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
           <span style={{ fontWeight: 600, fontSize: 13.5 }}>{title}</span>
           <span className="mono" style={{ fontSize: 11, color: "var(--ink3)" }}>
-            {regression ? `PLS on ${pca.regression?.target ?? "?"}` : "PCA"} {pca.n_components}{" "}
+            {classification
+              ? `PLS-DA on ${pca.classification?.class_column ?? "?"}`
+              : regression
+                ? `PLS on ${pca.regression?.target ?? "?"}`
+                : "PCA"}{" "}
+            {pca.n_components}{" "}
             components · {pca.n_samples} × {pca.n_variables}
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "stretch" }}>
-          {(regression
+          {(classification
+            ? ([
+                ["ACCURACY (CV)", metric(pca.metrics?.accuracy_cv, 3)],
+                ["ACCURACY", metric(pca.metrics?.accuracy, 3)],
+              ] as [string, string][])
+            : regression
             ? // What a reader of a calibration looks at first, and the pair
               // that says whether it generalises. Absent renders as an em dash.
               ([
@@ -532,7 +612,7 @@ export function AnalysisResults({ nodeId, title }: { nodeId: string; title: stri
             three have no counterpart on a decomposition. */}
         {regression && (
           <div style={{ display: "flex", gap: 12, flex: 1, minHeight: 0 }}>
-            <PredictedVsMeasured pca={pca} />
+            {classification ? <ConfusionMatrix pca={pca} /> : <PredictedVsMeasured pca={pca} />}
             <RmsecvCurve pca={pca} />
             <RegressionMetrics pca={pca} />
           </div>

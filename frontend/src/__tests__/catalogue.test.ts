@@ -11,6 +11,12 @@ describe("the PLS menu entry", () => {
     expect(pls.parameters).toBe("5 components · moisture");
   });
 
+  it("offers PLS-DA only for a dataset with a two-valued column, on that column", () => {
+    const plsda = stepMenu(["fat"], ["fat_class"]).find((step) => step.kind === "PLS-DA 5 LV")!;
+    expect(plsda.payload.spec).toMatchObject({ kind: "plsda", class_column: "fat_class" });
+    expect(stepMenu(["fat"]).map((step) => step.kind)).not.toContain("PLS-DA 5 LV");
+  });
+
   it("is absent when the dataset has nothing to model", () => {
     const kinds = stepMenu([]).map((step) => step.kind);
     expect(kinds).not.toContain("PLS 5 LV");

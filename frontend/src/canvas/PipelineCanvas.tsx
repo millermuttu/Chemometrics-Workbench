@@ -97,6 +97,7 @@ export function PipelineCanvas({
   onOpenNode,
   onCompare,
   targets = [],
+  classColumns = [],
 }: {
   onOpenNode: (id: string, label: string) => void;
   /** Opens the comparison tab once two terminal estimators are picked (#51). */
@@ -104,6 +105,9 @@ export function PipelineCanvas({
   /** The dataset's target columns, which decide whether PLS is on the menu
    * and what it models (#182). */
   targets?: string[];
+  /** Metadata columns with exactly two values, which is what a PLS-DA can
+   * classify by (#185). */
+  classColumns?: string[];
 }) {
   const pipeline = usePipeline();
   const state = usePipelineState();
@@ -324,7 +328,7 @@ export function PipelineCanvas({
           <div className="ilabel" style={{ padding: "2px 8px 4px" }}>
             Add after {dropped.parent}
           </div>
-          {stepMenu(targets).map((step) => (
+          {stepMenu(targets, classColumns).map((step) => (
             <button
               key={step.kind}
               role="menuitem"
