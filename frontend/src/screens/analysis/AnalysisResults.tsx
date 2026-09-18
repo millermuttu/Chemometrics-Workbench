@@ -177,7 +177,9 @@ function Variance({ pca }: { pca: PcaPayload }) {
   );
 }
 
-function Diagnostics({ pca }: { pca: PcaPayload }) {
+/** Exported for its test: the caveat is a sentence the kernel wrote, and the
+ * panel's one job with it is to put it beside the number it qualifies. */
+export function Diagnostics({ pca }: { pca: PcaPayload }) {
   const beyond = outliers(pca);
   const { diagnostics } = pca;
   return (
@@ -191,6 +193,18 @@ function Diagnostics({ pca }: { pca: PcaPayload }) {
           <b>SPE limit</b>
           <span>{diagnostics.spe_limit.toExponential(3)}</span>
         </div>
+        {diagnostics.spe_limit_caveat ? (
+          // #71: a limit outside its approximation's domain is drawn, and
+          // said to be. The sentence is the kernel's, not one written here.
+          <p
+            role="note"
+            data-testid="spe-limit-caveat"
+            className="mono"
+            style={{ margin: "2px 12px 4px", fontSize: 10, color: "var(--stale)", lineHeight: 1.35 }}
+          >
+            {diagnostics.spe_limit_caveat}
+          </p>
+        ) : null}
         <div className="kv">
           <b>Rank</b>
           <span>{pca.rank}</span>

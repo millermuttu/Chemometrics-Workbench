@@ -418,7 +418,10 @@ def test_the_results_payload_is_the_shape_the_fixture_publishes(tmp_path: Path) 
 
     assert set(payload) == set(published)
     assert set(payload["loadings"]) == set(published["loadings"])
-    assert set(payload["diagnostics"]) == set(published["diagnostics"])
+    # Additive since the fixture: #71's caveat, `None` on Tecator, whose h0 is
+    # positive. A screen that ignores the key renders what it rendered before.
+    assert set(payload["diagnostics"]) == set(published["diagnostics"]) | {"spe_limit_caveat"}
+    assert payload["diagnostics"]["spe_limit_caveat"] is None
     assert payload["samples"][:2] == published["samples"][:2]
     assert len(payload["scores"]) == len(published["scores"]) == 240
     assert len(payload["loadings"]["components"]) == 5

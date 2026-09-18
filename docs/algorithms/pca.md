@@ -152,6 +152,8 @@ $$\mathrm{SPE}_{\alpha} = g\,\chi^{2}_{\alpha}(h), \qquad g = \frac{\theta_2}{\t
 
 **Degenerate case.** When $a = r$ the residual is zero by construction: $\mathrm{SPE}_i = 0$ for all $i$, $\theta_m = 0$, and no limit exists. Report SPE as exactly zero and draw no limit. Do not report a limit computed from an empty sum.
 
+**Outside the approximation's domain.** Jackson–Mudholkar assumes $h_0 > 0$. A residual spectrum that decays slowly enough gives $h_0 \le 0$ — gasoline at $a = 5$ has $h_0 = -0.0190$ — and the formula still produces a number. The limit is then **reported as computed, with a recorded caveat** naming $h_0$, and is neither clamped nor refused (decided in [#71](https://github.com/millermuttu/Chemometrics-Workbench/issues/71)): clamping keeps a number and hides that the assumption failed, and refusing takes the plot away from a dataset that is otherwise fine. The bracket being non-positive is a different case — it has no real $1/h_0$ power at all — and that one is refused. Whatever draws the limit must show the caveat beside it.
+
 ---
 
 ## 9. Rank, and $n\_components$ beyond it
@@ -221,7 +223,7 @@ Recorded so the parity report can classify them as *differs by documented conven
 | Sign rule | Largest-magnitude **loading** | `sklearn` decides from $U$ by default |
 | SPE scale | Sum of squares | Some packages report the mean or its root |
 | SPE limit | Jackson–Mudholkar | Some packages use Box's $\chi^{2}$ |
-| SPE limit when $h_0 \le 0$ | Used as computed (see [#71](https://github.com/millermuttu/Chemometrics-Workbench/issues/71)) | R `mdatools` clamps $h_0$ to `0.001` |
+| SPE limit when $h_0 \le 0$ | Used as computed, and reported with a caveat naming $h_0$ (§8, [#71](https://github.com/millermuttu/Chemometrics-Workbench/issues/71)) | R `mdatools` clamps $h_0$ to `0.001` and reports nothing |
 | $T^2$ limit | Beta for calibration, F for new samples | Some packages use the F form for both |
 | Rank overflow | Error | Some packages silently truncate |
 

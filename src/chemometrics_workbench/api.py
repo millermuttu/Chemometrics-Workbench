@@ -469,6 +469,8 @@ def results_payload(
             "hotelling_t2_limit": result.hotelling_t2_limit,
             "spe": result.spe,
             "spe_limit": result.spe_limit,
+            # Additive (#71): `null` unless the limit is outside its domain.
+            "spe_limit_caveat": result.spe_limit_caveat,
             "alpha": result.alpha,
         },
     }
