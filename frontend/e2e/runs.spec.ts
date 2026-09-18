@@ -260,8 +260,12 @@ test("the outline lists every run, and one opens to what it ran", async ({ page 
   await page.goto("/?token=e2e-token");
   const outline = page.getByRole("complementary", { name: "Project outline" });
   const runs = outline.getByRole("button", { name: /^Run \d+/ });
+  // Polled, not counted once: `count()` does not wait, and the outline draws
+  // these from a query that has to resolve first. Counting a frame before it
+  // did is what failed on the Windows runner, and it is the flake this suite
+  // keeps finding - an assertion about a moment rather than about a state.
+  await expect.poll(() => runs.count()).toBeGreaterThan(1);
   const count = await runs.count();
-  expect(count).toBeGreaterThan(1);
 
   // The served history is what is drawn: same count, newest first.
   const served = await page.evaluate(async () => {
