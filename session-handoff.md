@@ -52,6 +52,7 @@ is now Phase 3's.
 | A plain JSON model and a standalone prediction snippet | #213 | #214 | merged |
 | Two experiments compared step by step | #215 | #216 | merged |
 | A model registry, and the first schema change | #219 | #220 | merged |
+| An edit-and-restore poll gets a real budget | #222 | #223 | merged |
 
 **#217 recorded a mistake this session made, and is fixed and merged.** `feature/215_lineage-comparison` was cut from
 `feature/213_json-and-snippet-export` rather than from `dev`, so #216 carried the export commit into
@@ -65,8 +66,8 @@ through another pull request. **Cut every branch from a freshly pulled `dev`, an
 **Nothing is `in_progress`.** `model-registry` passed with evidence and merged through #220, all six
 checks green. Two Phase 3 entries remain: `html-report`, then `phase-3-exit-run`.
 
-**No open issues.** #217's process correction is merged, and the branch that carried it is deleted
-locally and on origin.
+**No open issues.** #217's process correction and #222's suite fix are both merged, and every branch
+that carried this session's work is deleted locally and on origin.
 
 **Untracked in the root, still not decided:** `AGENTS.md` (a Codex copy of `CLAUDE.md` that will
 drift), `.codex/` and `tecator.csv`. Either gitignore them or commit them; leaving them is what makes
@@ -110,6 +111,13 @@ demonstrates both rather than citing them, as `docs/phase-2/exit-run.md` did for
   chosen, not stumbled into.
 - **A feature list note can be wrong.** #219's said the `model` table existed. It did not. Check the
   code before believing a note about what is already built.
+- **A test that edits and restores is borrowing the seeded project.** When the restore misses its
+  poll budget the edit stays, and the next test fails for a reason that is not its own — which is how
+  #222 produced two red tests from one cause. `APPLIED` in `inspector.spec.ts` is the budget, and
+  `expect.poll`'s default five seconds is what a loaded macOS runner misses.
+- **A red macOS check on a markdown-only change is a flake, and it still has a cause.** #221 went red
+  with no source change. Reading the job log found a real ordering problem worth fixing rather than a
+  reason to press the button again.
 - **A branch cut from another feature branch carries that feature into the pull request.** #216
   merged #213's export commit as a side effect, which nothing in the pull request said.
 - **`count()` does not wait.** A Playwright assertion of the form `expect(await x.count())` compares a
