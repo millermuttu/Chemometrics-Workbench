@@ -474,8 +474,8 @@
         "pnpm test && pnpm typecheck && pnpm lint && pnpm build",
         "pnpm exec playwright test - clicking the first outlier on the seeded PCA tab shows n_variables bars"
       ],
-      "status": "not_started",
-      "evidence": "",
+      "status": "passing",
+      "evidence": "2026-09-18. Formulas: pca.md sections 7 and 8 gain Contributions (c_ij = x_ij sum_k (t_ik/lambda_k) p_jk, signed, summing to T2; e_ij^2 summing to SPE with the signed residual beside it) and pls-regression.md section 9 the same with the rotations for the scores. Kernel: decomposition.t2_contributions and spe_contributions; test_t2_contributions_sum_to_t2_on_a_case_small_enough_to_check_by_hand (two variables, hand-computed 3 and 1, and 1.5 and -0.5), the identities row by row on a fitted model, and shape refusals. Executor: EstimatorResult.rotations kept (PCA loadings, PLS R) and stored_fitted_matrix reads the estimator's input fold-zero array back. Endpoint GET /results/{id}/contributions/{sample}: contributions_payload centres a regression's row by the fit rows' mean; sums match the served T2 and SPE to 1e-5 (float32 store) for pca_a and, below the split, for pca_d and pls_d on calibration and held-out rows; a result stored without rotations answers 409 rerun_needed; an unknown row 404. `uv run pytest` 851 passed 1 skipped; ruff, format, mypy clean. Screen: diagnostics rows are buttons carrying their dataset row, a Contributions panel beside them draws the picked sample's T2 or SPE contributions on the node's axis filled to zero with the sum in its note; `pnpm test` 123 passed; typecheck, lint, build clean. e2e `picking an outlier draws which variables put it there, summing to its own T2` (100 points, sum within 1e-3 of the served T2, SPE view): against HEAD's screens and backend FAILED (`element(s) not found`); with the fix `pnpm exec playwright test` 56 passed (1.7m).",
       "notes": ""
     },
     {

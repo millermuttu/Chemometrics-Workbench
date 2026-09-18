@@ -14,7 +14,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from chemometrics_workbench.decomposition import PCA
+from chemometrics_workbench.decomposition import PCA, spe_contributions, t2_contributions
 
 RNG = np.random.default_rng(20260822)
 
@@ -510,3 +510,58 @@ def test_a_matrix_with_nothing_left_after_centring_has_no_components_at_all() ->
 def test_a_meaningless_component_count_is_refused(n_components: int) -> None:
     with pytest.raises(ValueError, match="n_components must be at least 1"):
         PCA(n_components)
+
+
+# --------------------------------------------------------------------------
+# contributions, §7 and §8 (#186)
+# --------------------------------------------------------------------------
+
+
+def test_t2_contributions_sum_to_t2_on_a_case_small_enough_to_check_by_hand() -> None:
+    """§7: `c_j = x_j sum_k (t_k / lambda_k) p_jk`, signed, summing to `T^2`.
+
+    Two variables, one component along (1, 1)/sqrt(2) with lambda = 2, and the
+    row (3, 1): t = 4/sqrt(2), so T^2 = 16/2/2 = 4, split as 3 and 1 in the
+    row's own proportions - and (3, -1) gives t = 2/sqrt(2), T^2 = 1, with the
+    second variable contributing -1/2: it pulls the score back.
+    """
+    p = np.array([[1.0], [1.0]]) / np.sqrt(2.0)
+    lam = [2.0]
+    c = t2_contributions([3.0, 1.0], p, lam)
+    np.testing.assert_allclose(c, [3.0, 1.0])
+    np.testing.assert_allclose(c.sum(), 4.0)
+    c = t2_contributions([3.0, -1.0], p, lam)
+    np.testing.assert_allclose(c, [1.5, -0.5])
+    np.testing.assert_allclose(c.sum(), 1.0)
+
+
+def test_spe_contributions_are_the_squared_residual_and_sum_to_spe() -> None:
+    """§8: the residual off the model plane, per variable. (3, 1) on the (1, 1)
+    line leaves (1, -1): squares (1, 1), SPE 2."""
+    p = np.array([[1.0], [1.0]]) / np.sqrt(2.0)
+    residual, squares = spe_contributions([3.0, 1.0], p, p)
+    np.testing.assert_allclose(residual, [1.0, -1.0])
+    np.testing.assert_allclose(squares, [1.0, 1.0])
+    np.testing.assert_allclose(squares.sum(), 2.0)
+
+
+def test_contributions_recover_the_models_own_diagnostics_for_every_sample() -> None:
+    """The identities hold for a fitted model, row by row, which is what the
+    endpoint relies on: the served totals are these sums."""
+    X = _centred(_structured(n=60, p=12, a=3, seed=5))
+    model = PCA(3).fit(X)
+    loadings = np.asarray(model.loadings_)
+    eigenvalues = np.asarray(model.eigenvalues_)[:3]
+    t2 = model.hotelling_t2()
+    spe = model.spe(X)
+    for i in range(X.shape[0]):
+        np.testing.assert_allclose(t2_contributions(X[i], loadings, eigenvalues).sum(), t2[i])
+        np.testing.assert_allclose(spe_contributions(X[i], loadings, loadings)[1].sum(), spe[i])
+
+
+def test_contributions_refuse_mismatched_shapes_by_name() -> None:
+    p = np.zeros((4, 2))
+    with pytest.raises(ValueError, match=r"expected \(3, 2\)"):
+        t2_contributions([1.0, 2.0, 3.0], p, [1.0, 1.0])
+    with pytest.raises(ValueError, match="must both be"):
+        spe_contributions([1.0, 2.0, 3.0, 4.0], p, np.zeros((4, 3)))

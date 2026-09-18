@@ -1,9 +1,10 @@
 import Plotly from "plotly.js-gl2d-dist-min";
 import { useLayoutEffect, useRef, useState } from "react";
 
-import { useCoefficients, useResults, type PcaPayload } from "@/api/queries";
+import { useCoefficients, useContributions, useResults, type PcaPayload } from "@/api/queries";
 import {
   coefficientTrace,
+  contributionTrace,
   ellipseTrace,
   loadingsTraces,
   outliers,
@@ -268,7 +269,16 @@ function Variance({ pca }: { pca: PcaPayload }) {
 
 /** Exported for its test: the caveat is a sentence the kernel wrote, and the
  * panel's one job with it is to put it beside the number it qualifies. */
-export function Diagnostics({ pca }: { pca: PcaPayload }) {
+export function Diagnostics({
+  pca,
+  picked = null,
+  onPick,
+}: {
+  pca: PcaPayload;
+  /** The dataset row whose contributions are open, if any (#186). */
+  picked?: number | null;
+  onPick?: (index: number) => void;
+}) {
   const beyond = outliers(pca);
   const { diagnostics } = pca;
   return (
@@ -316,7 +326,28 @@ export function Diagnostics({ pca }: { pca: PcaPayload }) {
           </thead>
           <tbody>
             {beyond.slice(0, 40).map((row) => (
-              <tr key={row.sample}>
+              // A row opens the sample's contributions (#186): which
+              // variables put it beyond the limit is the next question.
+              <tr
+                key={row.sample}
+                data-testid="outlier-row"
+                data-index={row.index}
+                role={onPick ? "button" : undefined}
+                tabIndex={onPick ? 0 : undefined}
+                aria-pressed={onPick ? picked === row.index : undefined}
+                onClick={onPick ? () => onPick(row.index) : undefined}
+                onKeyDown={
+                  onPick
+                    ? (event) => {
+                        if (event.key === "Enter" || event.key === " ") onPick(row.index);
+                      }
+                    : undefined
+                }
+                style={{
+                  cursor: onPick ? "pointer" : undefined,
+                  background: picked === row.index ? "var(--sunken)" : undefined,
+                }}
+              >
                 <td className="mono" style={{ color: "var(--ink)" }}>
                   {row.sample}
                 </td>
@@ -339,6 +370,70 @@ export function Diagnostics({ pca }: { pca: PcaPayload }) {
           </tbody>
         </table>
       </div>
+    </Panel>
+  );
+}
+
+/** Which variables put a picked sample where the diagnostics show it (#186,
+ * `pca.md` §7 and §8): signed `T²` contributions or squared residuals against
+ * the node's axis, served by the contributions endpoint and drawn, not
+ * computed. Empty until a row in the diagnostics table is picked. */
+function Contributions({ pca, sample }: { pca: PcaPayload; sample: number | null }) {
+  const [which, setWhich] = useState<"hotelling_t2" | "spe">("hotelling_t2");
+  const contributions = useContributions(sample === null ? undefined : pca.node_id, sample);
+  const payload = contributions.data;
+  const host = usePlot(
+    (theme) => ({
+      data: payload ? [contributionTrace(payload, which, theme)] : [],
+      layout: {
+        xaxis: axisLayout(theme, `${pca.loadings.axis.kind} (${pca.loadings.axis.unit ?? ""})`),
+        yaxis: axisLayout(theme, which === "spe" ? "e²" : "T² contribution"),
+        margin: { l: 48, r: 12, t: 8, b: 38 },
+      },
+    }),
+    [payload, which],
+  );
+  const total = payload ? (which === "spe" ? payload.spe.total : payload.hotelling_t2.total) : null;
+  const choose = (
+    <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <select
+        aria-label="Contribution view"
+        className="mono"
+        value={which}
+        onChange={(event) => setWhich(event.target.value as "hotelling_t2" | "spe")}
+        style={{
+          height: 18,
+          borderRadius: 3,
+          border: "1px solid var(--rule)",
+          background: "var(--surface)",
+          color: "var(--ink2)",
+          font: "inherit",
+          fontSize: 9.5,
+        }}
+      >
+        <option value="hotelling_t2">T²</option>
+        <option value="spe">SPE</option>
+      </select>
+      {payload ? (
+        <span className="mono" style={{ fontSize: 9.5, color: "var(--ink3)" }} data-testid="contributions-note">
+          {payload.sample.sample_id} · Σ = {total!.toPrecision(4)}
+        </span>
+      ) : null}
+    </span>
+  );
+  return (
+    <Panel title="Contributions" note={choose}>
+      {sample === null ? (
+        <div className="empty" data-testid="contributions-empty" style={{ padding: 12 }}>
+          Pick a sample in the diagnostics table to see which variables put it there.
+        </div>
+      ) : contributions.isError ? (
+        <div className="empty" role="note" data-testid="contributions-unavailable" style={{ padding: 12 }}>
+          {contributions.error instanceof Error ? contributions.error.message : "Could not load."}
+        </div>
+      ) : (
+        <div ref={host} data-testid="contributions-plot" style={{ flex: 1, minHeight: 0 }} />
+      )}
     </Panel>
   );
 }
@@ -497,6 +592,7 @@ function RegressionMetrics({ pca }: { pca: PcaPayload }) {
 
 export function AnalysisResults({ nodeId, title }: { nodeId: string; title: string }) {
   const results = useResults(nodeId);
+  const [picked, setPicked] = useState<number | null>(null);
 
   // A node with no result answers 404, and this used to render as a loading
   // message that never resolved (#181). The server's sentence says what to do.
@@ -604,7 +700,8 @@ export function AnalysisResults({ nodeId, title }: { nodeId: string; title: stri
         </div>
         <div style={{ display: "flex", gap: 12, flex: 1, minHeight: 0 }}>
           <Variance pca={pca} />
-          <Diagnostics pca={pca} />
+          <Diagnostics pca={pca} picked={picked} onPick={setPicked} />
+          <Contributions pca={pca} sample={picked} />
         </div>
         {/* The row this comment reserved in Phase 1.1, now filled. It arrives
             beside the two above rather than replacing them, exactly as the

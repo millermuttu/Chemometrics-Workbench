@@ -60,9 +60,9 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy.stats import beta, f, norm
 
-from chemometrics_workbench.arrays import as_float64
+from chemometrics_workbench.arrays import as_float64, as_float64_vector
 
-__all__ = ["PCA", "hotelling_t2_limit"]
+__all__ = ["PCA", "hotelling_t2_limit", "spe_contributions", "t2_contributions"]
 
 LimitFor = Literal["calibration", "new"]
 
@@ -119,6 +119,44 @@ def hotelling_t2_limit(
         quantile = float(f.ppf(1.0 - alpha, a, n - a))
         return a * (n**2 - 1) / (n * (n - a)) * quantile
     raise ValueError(f"samples must be 'calibration' or 'new', got {samples!r}")
+
+
+def t2_contributions(row: object, rotations: object, eigenvalues: object) -> NDArray[np.float64]:
+    """Per-variable contributions to one sample's `T^2` (§7, *Contributions*).
+
+    `c_j = x_j * sum_a (t_a / lambda_a) r_ja` with `t = x R`, so `sum_j c_j`
+    is `T^2` exactly. `rotations` is `p x a` - PCA's loadings, or PLS's
+    rotations (`pls-regression.md` §9) - and `eigenvalues` the `a` retained.
+    Module-level, and taking arrays rather than a model, because the executor
+    stores a fitted model as its arrays and this has to work from those.
+    """
+    x = as_float64_vector(row, "row")
+    big_r = as_float64(rotations, "rotations")
+    lam = np.asarray(eigenvalues, dtype=np.float64).ravel()
+    if big_r.shape != (x.size, lam.size):
+        raise ValueError(
+            f"rotations are {big_r.shape} for a row of {x.size} variables and "
+            f"{lam.size} eigenvalues; expected ({x.size}, {lam.size})."
+        )
+    scores = x @ big_r
+    contributions: NDArray[np.float64] = x * (big_r @ (scores / lam))
+    return contributions
+
+
+def spe_contributions(
+    row: object, rotations: object, loadings: object
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """The signed residual `e = x - (x R) P'` and its squares, whose sum is SPE (§8)."""
+    x = as_float64_vector(row, "row")
+    big_r = as_float64(rotations, "rotations")
+    big_p = as_float64(loadings, "loadings")
+    if big_r.shape != big_p.shape or big_r.shape[0] != x.size:
+        raise ValueError(
+            f"rotations {big_r.shape} and loadings {big_p.shape} must both be "
+            f"({x.size}, a) for a row of {x.size} variables."
+        )
+    residual: NDArray[np.float64] = x - (x @ big_r) @ big_p.T
+    return residual, residual**2
 
 
 class PCA:
