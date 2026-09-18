@@ -9,7 +9,11 @@ import type { Pipeline, PipelineNode, PipelineState } from "@/api/queries";
  * science.
  */
 
-export type NodeState = "complete" | "running" | "queued" | "stale" | "failed" | "not_run";
+/** The states `pipelines/{id}/state` actually serves. There is no `stale`:
+ * a node's result is found under its cache key or it is not, so an edited
+ * node's descendants come back `not_run` (#83), and a state the server never
+ * sends is an encoding nobody can reach (#181). */
+export type NodeState = "complete" | "running" | "queued" | "failed" | "not_run";
 
 export interface NodeData extends Record<string, unknown> {
   label: string;
@@ -82,8 +86,8 @@ export function nodeStateOf(
   return {
     state: entry.state as NodeState,
     progress: entry.progress,
-    // Stale carries why it is stale; failed carries what went wrong. Both are
-    // footers in the artboard, and both matter more than the state's name.
+    // Failed carries what went wrong, which matters more than the state's
+    // name. `reason` is the 1.1 contract's field and is kept for it.
     footer: entry.reason ?? entry.message,
   };
 }
@@ -180,8 +184,6 @@ export function toNodes(
  *
  * - 1.8px `--accent` along the path a run is currently on - an edge feeding a
  *   running or queued node
- * - dashed 4 3 in `--stale` wherever either end is stale, because a stale
- *   result must stay visible rather than vanish
  * - 1.4px `--rule` at rest
  *
  * Animation rides on the accent path only, and the caller turns it off under
@@ -190,26 +192,22 @@ export function toNodes(
 export function toEdges(
   pipeline: Pipeline,
   state: PipelineState | undefined,
-  colours: { rule: string; accent: string; stale: string },
+  colours: { rule: string; accent: string },
   animate: boolean,
 ): FlowEdge[] {
   const stateOf = (id: string) => state?.nodes[id]?.state;
   return pipeline.nodes.flatMap((node) =>
     node.inputs.map((input) => {
-      const source = stateOf(input);
       const target = stateOf(node.id);
-      const stale = source === "stale" || target === "stale";
       const active = target === "running" || target === "queued";
       return {
         id: `${input}->${node.id}`,
         source: input,
         target: node.id,
         animated: active && animate,
-        style: stale
-          ? { stroke: colours.stale, strokeWidth: 1.4, strokeDasharray: "4 3" }
-          : active
-            ? { stroke: colours.accent, strokeWidth: 1.8 }
-            : { stroke: colours.rule, strokeWidth: 1.4 },
+        style: active
+          ? { stroke: colours.accent, strokeWidth: 1.8 }
+          : { stroke: colours.rule, strokeWidth: 1.4 },
       };
     }),
   );

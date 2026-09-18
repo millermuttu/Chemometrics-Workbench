@@ -30,6 +30,27 @@ import { expect, test } from "@playwright/test";
 
 test.describe.configure({ timeout: 180_000 });
 
+test("a node that has never been run says so, rather than loading forever", async ({ page }) => {
+  // First in the file on purpose: nothing has run yet, so every node endpoint
+  // answers 404. Both screens used to render that as a loading message that
+  // never resolved (#181).
+  await page.goto("/?token=e2e-token");
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+
+  await outline.getByRole("button", { name: /PCA 5 PC/ }).first().dblclick();
+  const results = page.getByTestId("cannot-load");
+  await expect(results).toBeVisible();
+  await expect(results).toContainText("Nothing to show yet");
+  await expect(results).toContainText("has no fitted result yet");
+  await expect(page.getByText("Loading results…")).toHaveCount(0);
+
+  await outline.getByRole("button", { name: /^SNV/ }).first().dblclick();
+  const spectra = page.getByTestId("cannot-load");
+  await expect(spectra).toBeVisible();
+  await expect(spectra).toContainText("has no result yet");
+  await expect(page.getByText("Loading spectra…")).toHaveCount(0);
+});
+
 test("a run shows in all three places, and cancelling stops it", async ({ page }) => {
   await page.goto("/?token=e2e-token");
   await page.getByRole("button", { name: "Pipeline", exact: true }).click();

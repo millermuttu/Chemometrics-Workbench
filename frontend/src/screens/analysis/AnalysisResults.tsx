@@ -13,6 +13,7 @@ import {
 } from "@/plot/analysis";
 import { PLOT_CONFIG, axisLayout, baseLayout, readTheme } from "@/plot/theme";
 import { Panel } from "@/screens/analysis/Panel";
+import { CannotLoad } from "@/states/CannotLoad";
 
 /** One analysis tab, a grid of titled panels - the artboard's answer to open
  * design question 11.1, and the layout Phase 2's predicted-vs-measured panel
@@ -328,6 +329,11 @@ function RegressionMetrics({ pca }: { pca: PcaPayload }) {
 export function AnalysisResults({ nodeId, title }: { nodeId: string; title: string }) {
   const results = useResults(nodeId);
 
+  // A node with no result answers 404, and this used to render as a loading
+  // message that never resolved (#181). The server's sentence says what to do.
+  if (results.isError) {
+    return <CannotLoad error={results.error} />;
+  }
   if (!results.data) {
     return (
       <div className="pane">

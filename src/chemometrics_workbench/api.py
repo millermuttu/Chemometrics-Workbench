@@ -53,7 +53,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from numpy.typing import NDArray
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from chemometrics_workbench import preprocessing, readers
+from chemometrics_workbench import __version__, preprocessing, readers
 from chemometrics_workbench.checks import PipelineWarning, check_pipeline
 from chemometrics_workbench.executor import (
     EstimatorResult,
@@ -193,6 +193,16 @@ def _entry_json(entry: DatasetEntry) -> Any:
     return json.loads(entry.model_dump_json())
 
 
+def _project_json(project: Project) -> Any:
+    """The project, plus the version of the application serving it.
+
+    Additive: the inspector's provenance footer used to print a literal that
+    had not moved since 1.1 (#181), and the only number worth showing there is
+    the one `capture_environment` writes into every experiment.
+    """
+    return {**json.loads(project.model_dump_json()), "app_version": __version__}
+
+
 # --- Projects and datasets ------------------------------------------------
 #
 # ## Pagination is deferred (#89)
@@ -207,7 +217,7 @@ def _entry_json(entry: DatasetEntry) -> Any:
 @router.get("/projects")
 def list_projects() -> Any:
     _, project = _project()
-    return [json.loads(project.model_dump_json())]
+    return [_project_json(project)]
 
 
 @router.get("/projects/{project_id}")
@@ -215,7 +225,7 @@ def get_project(project_id: str) -> Any:
     _, project = _project()
     if str(project.project_id) != project_id:
         raise _fail(404, "not_found", f"no project {project_id} is open.", project_id=project_id)
-    return json.loads(project.model_dump_json())
+    return _project_json(project)
 
 
 @router.get("/projects/{project_id}/datasets")

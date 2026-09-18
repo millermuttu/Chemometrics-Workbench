@@ -99,7 +99,7 @@ export function Inspector({
             className="mono"
             style={{
               fontSize: 10,
-              color: status.state === "stale" ? "var(--stale)" : status.state === "failed" ? "var(--fail)" : "var(--ink3)",
+              color: status.state === "failed" ? "var(--fail)" : "var(--ink3)",
             }}
           >
             {status.state}
@@ -166,7 +166,7 @@ export function Inspector({
           ["Content hash", version?.v.content_hash ?? datasets?.[0]?.versions[0]?.content_hash ?? "—"],
           ["Pipeline", pipeline?.pipeline_id ?? "—"],
           ["Project", project?.project_id ?? "—"],
-          ["App version", "0.2.0"],
+          ["App version", project?.app_version ?? "—"],
         ]}
       />
       {version ? (

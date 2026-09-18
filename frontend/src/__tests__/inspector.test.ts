@@ -1,24 +1,22 @@
-/** The inspector's two rules that must not drift.
+/** The inspector's rule that must not drift: the parameter form is generated
+ * from `models.py`'s schema, so its bounds are the model's bounds.
  *
- * One: the parameter form is generated from `models.py`'s schema, so its
- * bounds are the model's bounds. Two: editing a parameter marks everything
- * computed from it stale - and stale means dimmed, never deleted.
+ * Staleness is not the inspector's to compute. The server derives a node's
+ * state from whether its result exists under its cache key, so an edited
+ * node's descendants come back `not_run` (#83, #181).
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import type { Pipeline } from "@/api/queries";
 import { checkBounds, specFor, stepSpecs, type StepSchema } from "@/inspector/schema";
-import { downstreamOf } from "@/inspector/stale";
 
 const FIXTURES = path.resolve(import.meta.dirname, "../../../tests/fixtures/contract");
 const read = <T,>(name: string) =>
   JSON.parse(readFileSync(path.join(FIXTURES, `${name}.json`), "utf8")) as T;
 
 const schema = read<StepSchema>("step_schema");
-const pipeline = read<Pipeline>("pipeline");
 
 describe("the form is generated, not restated", () => {
   it("covers every preprocessing step the schema can express", () => {
@@ -75,22 +73,5 @@ describe("the form is generated, not restated", () => {
     const savgol = specFor(schema, "savgol")!;
     const window = savgol.fields.find((field) => field.name === "window_length")!;
     expect(checkBounds(window, 10)).toBeNull();
-  });
-});
-
-describe("editing marks downstream stale", () => {
-  it("follows every branch below the edited node", () => {
-    expect(downstreamOf(pipeline, "snv").sort()).toEqual(
-      ["centre_a", "pca_a", "snv_savgol", "split_d", "centre_d", "pca_d"].sort(),
-    );
-  });
-
-  it("stops at a leaf and never includes the node itself", () => {
-    expect(downstreamOf(pipeline, "pca_a")).toEqual([]);
-    expect(downstreamOf(pipeline, "msc")).toEqual(["centre_b", "pca_b"]);
-  });
-
-  it("marks the whole graph when the source is edited", () => {
-    expect(downstreamOf(pipeline, "source")).toHaveLength(pipeline.nodes.length - 1);
   });
 });

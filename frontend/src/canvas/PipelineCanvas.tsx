@@ -182,7 +182,7 @@ export function PipelineCanvas({
       edges: toEdges(
         { ...pipeline.data, nodes },
         state.data,
-        { rule: token("rule"), accent: token("accent"), stale: token("stale") },
+        { rule: token("rule"), accent: token("accent") },
         usesMotion(),
       ),
     };
