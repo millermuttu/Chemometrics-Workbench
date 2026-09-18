@@ -11,19 +11,19 @@ Compact state for the next session. **Overwrite this file at the end of every se
 **Phase 1 is complete and released.** `main` is tagged `v0.5.0` (`015f9ec`, 2026-09-05) — a mid-phase
 snapshot, not a phase close; the tag's own message says so.
 
-**2026-09-18: a whole-repository review, two fixes merged, and Phase 2 written down.** The review
+**2026-09-18: a whole-repository review, three features merged, and Phase 2 written down.** The review
 found nothing in the science. It found seven things at the frontend edge and in provenance, and that
 `PROPOSAL.md` §16's Phase 2 items had no entries at all.
 
 | Priority | Feature | Issue | PR | Status |
 | --- | --- | --- | --- | --- |
 | 1 | One version source, an unrun node says so, no `stale` state the server never sends | #181 | #189 | passing, merged |
-| 1 | Estimator and split nodes edited in the inspector; PLS models a real column | #182 | #190 | passing, PR open at handoff |
+| 1 | Estimator and split nodes edited in the inspector; PLS models a real column | #182 | #190 | passing, merged |
 | 1 | Train/test split executes, and the canvas offers it | #183 | — | not_started |
 | 2 | VIP and the folded coefficient vector are drawn | #184 | — | not_started |
 | 2 | PLS-DA: specification, two-class kernel, confusion matrix | #185 | — | not_started |
 | 2 | The experiment record carries a regression's metrics | #188 | — | not_started |
-| 2 | Jackson–Mudholkar limit with `h0 <= 0` returned with a caveat | #71 | — | not_started |
+| 2 | Jackson–Mudholkar limit with `h0 <= 0` returned with a caveat | #71 | #192 | passing, merged |
 | 3 | Contribution plots | #186 | — | not_started |
 | 3 | Bruker OPUS reader | #187 | — | not_started |
 | 0 | The exit criterion demonstrated, not reasoned | — | — | not_started, depends on #183, #184, #188 |
@@ -32,8 +32,9 @@ found nothing in the science. It found seven things at the frontend edge and in 
 **Two decisions were taken this session and are recorded in the entries, not only here.**
 
 - **#71.** A non-positive `h0` returns the limit *with a caveat* in the result. Clamping hides the
-  failed assumption, raising refuses a plot for a dataset that is otherwise fine. `pca.md` §8 and
-  §13 get a line when it is implemented.
+  failed assumption, raising refuses a plot for a dataset that is otherwise fine. Implemented in
+  #192: `PCA.spe_limit_caveat`, `diagnostics.spe_limit_caveat` on the wire, the sentence under the
+  SPE limit in the diagnostics panel, and `pca.md` §8 and §13 say so.
 - **The exit criterion.** "Matches reference software within stated tolerance" means: the workflow
   driven over HTTP on a real dataset, compared against an independent PLS *on the experiment's own
   resolved folds*, within the parity tolerances. Kernel parity alone is not it, because the executor's
@@ -41,10 +42,10 @@ found nothing in the science. It found seven things at the frontend edge and in 
 
 ## Current work
 
-**Nothing is `in_progress`.** `docs/phase-2-entries` carries this file and the entries; it is cut
-from `feature/182_spec-editing` and its PR opens once #190 has merged.
+**Nothing is `in_progress`.** No feature branch remains; `docs/handoff-2026-09-18` carries this
+file. Every PR this session (#189, #190, #191, #192) was green on all six checks and merged.
 
-**Open issues:** #71 (now has an entry and a decision), #168 (macOS flake — fix the test as the
+**Open issues:** #168 (macOS flake — fix the test as the
 issue says: open a fixed number of tabs, wait on the split's settled state), #176 (run memory; a
 design), and #183–#188 (Phase 2, entered).
 
