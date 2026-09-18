@@ -2,7 +2,7 @@
 
 Compact state for the next session. **Overwrite this file at the end of every session** — it is a snapshot, not a log. Read it first, then `feature_list.json`, `git log` on `dev`, and the open issues.
 
-**Updated:** 2026-09-17
+**Updated:** 2026-09-18
 
 ---
 
@@ -11,34 +11,46 @@ Compact state for the next session. **Overwrite this file at the end of every se
 **Phase 1 is complete and released.** `main` is tagged `v0.5.0` (`015f9ec`, 2026-09-05) — a mid-phase
 snapshot, not a phase close; the tag's own message says so.
 
-**2026-09-17: a whole-repository review, and its findings fixed.** Three issues, three merged PRs,
-every check green on all three platforms:
+**2026-09-18: a whole-repository review, two fixes merged, and Phase 2 written down.** The review
+found nothing in the science. It found seven things at the frontend edge and in provenance, and that
+`PROPOSAL.md` §16's Phase 2 items had no entries at all.
 
 | Priority | Feature | Issue | PR | Status |
 | --- | --- | --- | --- | --- |
-| 0 | Cross-validated PLS metrics use each fold's own preprocessing | #173 | #177 | passing |
-| 1 | Import off the event loop, no array writes on a cache hit, RMSECV one fit per fold | #174 | #178 | passing |
-| 1 | Inspector metrics per node, visible save/run errors, Validate checks what is drawn | #175 | #179 | passing |
+| 1 | One version source, an unrun node says so, no `stale` state the server never sends | #181 | #189 | passing, merged |
+| 1 | Estimator and split nodes edited in the inspector; PLS models a real column | #182 | #190 | passing, PR open at handoff |
+| 1 | Train/test split executes, and the canvas offers it | #183 | — | not_started |
+| 2 | VIP and the folded coefficient vector are drawn | #184 | — | not_started |
+| 2 | PLS-DA: specification, two-class kernel, confusion matrix | #185 | — | not_started |
+| 2 | The experiment record carries a regression's metrics | #188 | — | not_started |
+| 2 | Jackson–Mudholkar limit with `h0 <= 0` returned with a caveat | #71 | — | not_started |
+| 3 | Contribution plots | #186 | — | not_started |
+| 3 | Bruker OPUS reader | #187 | — | not_started |
+| 0 | The exit criterion demonstrated, not reasoned | — | — | not_started, depends on #183, #184, #188 |
 | 2 | A run below a split does not hold every fold array of every node | #176 | — | not_started |
 
-**#173 was a science bug.** Below a split, `_pls` evaluated every fold's RMSECV, Q² and per-fold
-errors on fold zero's preprocessed array, so a scale or MSC fitted on the other folds' test rows. The
-old test used only `MeanCentre`, which the kernel re-centres per fold, so it could not see it. Any
-RMSECV computed before `10d15fd` with a fitted step other than mean centring below a split is
-slightly wrong.
+**Two decisions were taken this session and are recorded in the entries, not only here.**
 
-The earlier sixteen entries (#51 to #163) are unchanged and passing; `feature_list.json` has them.
+- **#71.** A non-positive `h0` returns the limit *with a caveat* in the result. Clamping hides the
+  failed assumption, raising refuses a plot for a dataset that is otherwise fine. `pca.md` §8 and
+  §13 get a line when it is implemented.
+- **The exit criterion.** "Matches reference software within stated tolerance" means: the workflow
+  driven over HTTP on a real dataset, compared against an independent PLS *on the experiment's own
+  resolved folds*, within the parity tolerances. Kernel parity alone is not it, because the executor's
+  fold handling is exactly what kernel parity cannot see — #173 was that.
 
 ## Current work
 
-**Nothing is `in_progress`.** No feature branch remains; `docs/handoff-review-fixes` carries this file.
+**Nothing is `in_progress`.** `docs/phase-2-entries` carries this file and the entries; it is cut
+from `feature/182_spec-editing` and its PR opens once #190 has merged.
 
-**Open issues:** #71 (Jackson-Mudholkar `h0`, a specification decision), #168 (macOS flake — it hit
-#177 once and passed on a re-run), and #176 (run memory; needs a design decision, see its body).
+**Open issues:** #71 (now has an entry and a decision), #168 (macOS flake — fix the test as the
+issue says: open a fixed number of tabs, wait on the split's settled state), #176 (run memory; a
+design), and #183–#188 (Phase 2, entered).
 
-**Untracked in the root, not this session's to decide:** `AGENTS.md` (a Codex copy of `CLAUDE.md`
-that will drift), `.codex/`, `openspec/` and `tecator.csv`. **`.agents/` was lost this session** —
-see *Also worth not rediscovering*.
+**Untracked in the root, still not decided:** `AGENTS.md` (a Codex copy of `CLAUDE.md` that will
+drift), `.codex/` and `tecator.csv`. Either gitignore them or commit them; leaving them is what
+makes every `git status` lie a little.
 
 **`./run.sh` is the way in.** It syncs, installs with **pnpm** — this project has no
 `package-lock.json` and `npm ci` refuses it — builds the bundle if there is not one, and serves,
@@ -48,6 +60,29 @@ printing `http://127.0.0.1:<port>/?token=<token>`. `--build` forces the rebuild 
 **Nothing openly licensed imports without a step.** Tecator is committed but carries a prose header;
 corn and gasoline are archives in `~/.cache`. `uv run python tests/seed_e2e.py --fresh --serve <dir>`
 is the way in: it seeds Tecator, a four-branch pipeline and every node run, then serves it.
+
+## Next action
+
+**Pick up #183, the train/test split.** It is first because #185 depends on it and because it is the
+only Phase 2 item whose whole shape already exists: `TrainTestSplit` is in `models.py`, the executor
+already handles one fold below a split, and `results_payload` already adds `validation`. What is
+missing is `validation.train_test`, one branch in `_folds_for`, a menu entry and the two labels.
+
+Then #184, which is a screen over two endpoints that already answer, and #188, which is a dozen
+lines. Those three are what the exit run depends on.
+
+## Things learned this session
+
+- **`pnpm build` typechecks `src/__tests__`.** A "prove the test fails on the unfixed code" run that
+  reverts the source but keeps the new unit tests fails to *build* and never runs Playwright, and the
+  grep afterwards prints nothing — which looks like a pass of the wrong kind. Revert the tests too.
+- **A docstring says "five states" and means it.** `NodeCard` still has five with `stale` gone:
+  complete, running, queued, failed, not_run. The contract fixture keeps `stale`; `graph.test.ts`
+  now asserts the canvas gives it no encoding.
+- **Outline buttons are named label plus dim.** `getByRole("button", { name: "SNV", exact: true })`
+  matches nothing because the row's accessible name is `SNV snv`. Use a regex anchored at the start.
+- **Tecator's targets are `moisture, fat, protein`, in that order.** The seeded PLS models `fat`; a
+  PLS added from the menu now models the *first* target, `moisture`.
 
 ## The lesson from #162, which shipped green and did not work
 

@@ -399,6 +399,154 @@
       "status": "passing",
       "evidence": "2026-09-18. Backend: /schema/steps serves one discriminated union of PreprocessStep, SplitSpec and EstimatorSpec and /steps/validate validates against it; test_the_schema_covers_estimators_and_splits_as_well and test_an_estimator_or_a_split_is_validated_like_a_step; `uv run pytest` 821 passed 1 skipped; ruff, format, mypy clean. Frontend: schema.ts skips $defs without a kind, resolves a $ref enum, and knows string and boolean fields; ParameterForm renders any field with options as a select and sends strings and booleans as such; Inspector builds the form from step or spec and offers the PLS target from the source version's target columns (sourceVersionOf); catalogue.stepMenu(targets) puts PLS on the menu only with a target, modelling the first. `pnpm test` 111 passed (5 new in inspector.test.ts, 2 in catalogue.test.ts); typecheck, lint, build clean. e2e `a split is edited like a step, and the edit reaches the pipeline` (n_splits 10 -> 5 -> 10 asserted on GET /pipelines/current) and `a PLS target is chosen from the dataset's own columns` (select with Tecator's moisture, fat, protein): against dev's Inspector.tsx, schema.ts and ParameterForm.tsx both FAILED with `element(s) not found` on the N Splits and Target fields; with the fix `pnpm exec playwright test` 51 passed (1.5m).",
       "notes": ""
+    },
+    {
+      "id": "train-test-split-executes",
+      "priority": 1,
+      "area": "backend",
+      "issue": 183,
+      "title": "A train/test split executes, and the canvas offers it",
+      "depends_on": [
+        "spec-nodes-are-edited"
+      ],
+      "user_visible_behavior": "A Train/test node is on the drop menu and edited in the inspector; below it a PLS reports RMSEP and SEP on the held-out set and its predicted-vs-measured plot draws the held-out points; RMSECV and Q2 stay absent because a single fold is not a cross-validation.",
+      "verification": [
+        "uv run pytest - validation.train_test partitions every sample exactly once and is deterministic under a seed; the executor resolves TrainTestSplit and refuses stratify_by with a sentence",
+        "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
+        "pnpm exec playwright test - a train/test split added below a PLS on the seeded project, run, and the result's validation.observed count equals round(test_size * n)"
+      ],
+      "status": "not_started",
+      "evidence": "",
+      "notes": "stratify_by stays unimplemented until PLS-DA brings a class column; a spec that sets it is refused at run time by name."
+    },
+    {
+      "id": "vip-and-coefficients-drawn",
+      "priority": 2,
+      "area": "frontend",
+      "issue": 184,
+      "title": "VIP and the folded coefficient vector are drawn",
+      "depends_on": [
+        "spec-nodes-are-edited"
+      ],
+      "user_visible_behavior": "A regression's analysis tab gains a panel toggling between VIP against the node's axis with the VIP = 1 line, and the coefficient vector on the raw axis from /results/{id}/coefficients - or the sentence naming the step that cannot be folded.",
+      "verification": [
+        "pnpm test - vipTrace and coefficientTrace in analysis.ts, and the unavailable sentence rendered",
+        "pnpm typecheck && pnpm lint && pnpm build",
+        "pnpm exec playwright test - the seeded PLS tab shows both plots and the raw-axis length equals the dataset's variable count"
+      ],
+      "status": "not_started",
+      "evidence": "",
+      "notes": "Backend is done: EstimatorResult.vip (#142) and folded_coefficients (#144). This is a screen."
+    },
+    {
+      "id": "plsda-two-class",
+      "priority": 2,
+      "area": "backend",
+      "issue": 185,
+      "title": "PLS-DA: a specification, a two-class kernel, and a confusion matrix",
+      "depends_on": [
+        "train-test-split-executes"
+      ],
+      "user_visible_behavior": "A PLS-DA node on a dataset with a two-valued class column is fitted; its tab shows a confusion matrix, accuracy, sensitivity and specificity, cross-validated below a split; more than two classes is refused with the count.",
+      "verification": [
+        "docs/algorithms/pls-da.md written before the kernel, with a reference and a parity fixture entry",
+        "uv run pytest - the kernel matches the reference on the fixture within the parity tolerance; the executor fits PLSDASpec and has_kernel says so",
+        "pnpm test && pnpm typecheck && pnpm lint && pnpm build",
+        "pnpm exec playwright test - a seeded two-class dataset's PLS-DA tab shows the confusion matrix with the expected totals"
+      ],
+      "status": "not_started",
+      "evidence": "",
+      "notes": "Two-class only, which is PLS1 on a {0, 1} response. PLS2 is deferred by pls-regression.md section 10. Needs a class role on import (#135's column roles)."
+    },
+    {
+      "id": "contribution-plots",
+      "priority": 3,
+      "area": "backend",
+      "issue": 186,
+      "title": "Contribution plots for a sample beyond a limit",
+      "depends_on": [
+        "vip-and-coefficients-drawn"
+      ],
+      "user_visible_behavior": "Clicking an outlier row in the diagnostics table opens a bar plot of that sample's per-variable contribution to SPE or T2, computed server-side from the stored array and result.",
+      "verification": [
+        "Formulas added to pca.md section 7 and 8 and pls-regression.md section 9 before implementing",
+        "uv run pytest - GET /results/{id}/contributions/{sample} matches a hand-computed two-variable case",
+        "pnpm test && pnpm typecheck && pnpm lint && pnpm build",
+        "pnpm exec playwright test - clicking the first outlier on the seeded PCA tab shows n_variables bars"
+      ],
+      "status": "not_started",
+      "evidence": "",
+      "notes": ""
+    },
+    {
+      "id": "opus-reader",
+      "priority": 3,
+      "area": "backend",
+      "issue": 187,
+      "title": "Bruker OPUS reader",
+      "depends_on": [],
+      "user_visible_behavior": "A .zip of OPUS files imports as one dataset: the preview names the block the spectrum was read from with the alternatives, the wavenumber axis comes from the parameter block, and sample ids are the filenames.",
+      "verification": [
+        "A licensed OPUS fixture in tests/fixtures/readers with its terms recorded",
+        "uv run pytest - sniff and read on the fixture; block choice; axis from FXV, LXV, NPT; a corrupt file is a ReaderError sentence",
+        "pnpm exec playwright test - the empty project imports the fixture zip and the dataset view shows the wavenumber axis"
+      ],
+      "status": "not_started",
+      "evidence": "",
+      "notes": "Parse the block table directly; no new dependency (PROPOSAL section 7)."
+    },
+    {
+      "id": "experiment-carries-pls-metrics",
+      "priority": 2,
+      "area": "backend",
+      "issue": 188,
+      "title": "The experiment record carries a regression's metrics",
+      "depends_on": [],
+      "user_visible_behavior": "GET /experiments/current for a run whose last estimator is a PLS carries rmsec, rmsecv, rmsep, r2, q2 and bias in metrics, not only explained variance.",
+      "verification": [
+        "uv run pytest - a seeded PLS run's experiment carries rmsecv equal to the node's result",
+        "pnpm typecheck - Experiment.metrics widened in queries.ts"
+      ],
+      "status": "not_started",
+      "evidence": "",
+      "notes": "One experiment still carries one set: the last estimator's, as #87 left it. The per-node results are where each branch's numbers live."
+    },
+    {
+      "id": "spe-limit-outside-jm-domain",
+      "priority": 2,
+      "area": "backend",
+      "issue": 71,
+      "title": "A Jackson-Mudholkar limit computed with a non-positive h0 is returned with its caveat",
+      "depends_on": [],
+      "user_visible_behavior": "A PCA whose residual spectrum gives h0 <= 0 still gets an SPE limit, and the result and the diagnostics panel say the approximation's assumption failed for it, so the plot keeps its line and the reader knows what it is worth. Nothing is clamped.",
+      "verification": [
+        "pca.md section 8 states the rule and section 13 records the divergence from mdatools's clamp",
+        "uv run pytest - gasoline at a = 5 (h0 = -0.0190) returns the computed limit and a caveat; corn and tecator return none; CHEMOMETRICS_DOWNLOAD_DATASETS=1 in CI",
+        "pnpm test - the diagnostics panel renders the caveat when present and nothing when absent"
+      ],
+      "status": "not_started",
+      "evidence": "",
+      "notes": "Decision recorded 2026-09-18 after the review: clamping (mdatools) hides that the assumption failed, raising (the bracket guard's answer) refuses a plot for a dataset that is otherwise fine, returning with a recorded caveat keeps the plot and tells the truth. Raising stays for the bracket <= 0 case, which has no real power at all."
+    },
+    {
+      "id": "phase-2-exit-run",
+      "priority": 0,
+      "area": "process",
+      "issue": null,
+      "title": "The exit criterion is demonstrated: a calibration workflow on a real NIR dataset matches a reference within tolerance",
+      "depends_on": [
+        "train-test-split-executes",
+        "vip-and-coefficients-drawn",
+        "experiment-carries-pls-metrics"
+      ],
+      "user_visible_behavior": "Recorded, not built: a real NIR dataset is imported through the application, preprocessed, split, fitted with PLS and cross-validated, and the RMSECV, Q2 and predictions read back over HTTP agree with an independent implementation on the same fold indices within the tolerances docs/parity-report.md publishes.",
+      "verification": [
+        "A script under tests/ that drives the served application over HTTP against a public dataset (Tecator, or the mango set the 2026-09-05 run used) and compares against scikit-learn on the experiment's own resolved_splits",
+        "Its output committed under docs/phase-2/ with the date, the dataset, the pipeline and every number compared"
+      ],
+      "status": "not_started",
+      "evidence": "",
+      "notes": "PROPOSAL.md section 16 leaves what 'matches reference software' means open; this entry decides it as: same folds, same preprocessing, an independent PLS, agreement within the parity tolerances. Kernel parity alone is not the criterion, because the executor's fold handling (#173) is exactly what kernel parity cannot see."
     }
   ]
 }
