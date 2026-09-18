@@ -252,3 +252,42 @@ test("a foldable chain draws its coefficients on the raw axis", async ({ page })
     )
     .toBe(1200);
 });
+
+test("the outline lists every run, and one opens to what it ran", async ({ page }) => {
+  // #209. This file's tests have each run the pipeline at least once, so by
+  // now the project has a history rather than a single run - which is the
+  // thing the outline drew one row for however many there were.
+  await page.goto("/?token=e2e-token");
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  const runs = outline.getByRole("button", { name: /^Run \d+/ });
+  // Polled, not counted once: `count()` does not wait, and the outline draws
+  // these from a query that has to resolve first. Counting a frame before it
+  // did is what failed on the Windows runner, and it is the flake this suite
+  // keeps finding - an assertion about a moment rather than about a state.
+  await expect.poll(() => runs.count()).toBeGreaterThan(1);
+  const count = await runs.count();
+
+  // The served history is what is drawn: same count, newest first.
+  const served = await page.evaluate(async () => {
+    const response = await fetch("/api/experiments", {
+      headers: { Authorization: `Bearer ${sessionStorage.getItem("token")}` },
+    });
+    return (await response.json()) as { experiment_id: string; started_at: string }[];
+  });
+  expect(served.length).toBe(count);
+  expect([...served].sort((a, b) => b.started_at.localeCompare(a.started_at))[0].experiment_id).toBe(
+    served[0].experiment_id,
+  );
+
+  // Opening the newest shows the record: what it ran, against what, what it
+  // scored, where - not the placeholder the experiment tab used to reach.
+  await runs.first().dblclick();
+  const view = page.getByTestId("experiment-view");
+  await expect(view).toBeVisible();
+  await expect(view).toContainText("What it ran");
+  await expect(view).toContainText("Against what");
+  await expect(view).toContainText("What it scored");
+  await expect(page.getByTestId("run-pipeline").locator("tbody tr")).not.toHaveCount(0);
+  // The placeholder the experiment tab used to reach is gone.
+  await expect(page.getByText("view — built in a later issue")).toHaveCount(0);
+});

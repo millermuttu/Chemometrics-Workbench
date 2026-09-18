@@ -16,6 +16,7 @@ import {
   useSavePipeline,
 } from "@/api/queries";
 import { DatasetView } from "@/screens/DatasetView";
+import { ExperimentView } from "@/screens/ExperimentView";
 import { EmptyProject } from "@/screens/EmptyProject";
 import { CannotLoad } from "@/states/CannotLoad";
 import { Import } from "@/screens/Import";
@@ -112,6 +113,7 @@ function Pane({
     );
   }
   if (tab?.kind === "results") return <AnalysisResults nodeId={tab.id} title={tab.title} />;
+  if (tab?.kind === "experiment") return <ExperimentView experimentId={tab.id} title={tab.title} />;
   if (tab?.kind === "compare") {
     // The id carries both nodes, so this tab is stable across opens the way
     // every other one is: picking the same pair twice reuses it.
@@ -225,6 +227,7 @@ export function Shell() {
     void queryClient.invalidateQueries({ queryKey: ["coefficients"] });
     void queryClient.invalidateQueries({ queryKey: ["contributions"] });
     void queryClient.invalidateQueries({ queryKey: ["experiment"] });
+    void queryClient.invalidateQueries({ queryKey: ["experiments"] });
   }, [settled, jobId, queryClient]);
 
   const startRun = useCallback(async () => {

@@ -849,3 +849,69 @@ def test_the_contributions_endpoint_serves_a_sample_and_refuses_one_it_has_not_g
     missing = client.get(f"/api/results/{estimator}/contributions/100000", headers=AUTH)
     assert missing.status_code == 404
     assert missing.json()["error"]["code"] == "not_found"
+
+
+def test_the_history_lists_every_run_newest_first_and_each_one_opens(
+    client: TestClient,
+) -> None:
+    """#209: `experiments` is the history and `experiments/current` its head.
+    A row carries what the outline draws, not the whole record."""
+    assert client.get("/api/experiments", headers=AUTH).json() == []
+
+    imported(client)
+    first = client.post("/api/experiments/current/run", headers=AUTH).json()
+    assert wait_for(client, first["job_id"])["status"] == "succeeded"
+
+    # A second run of a different recipe, so the two are told apart by more
+    # than their timestamps.
+    source = client.get("/api/pipelines/current", headers=AUTH).json()["nodes"][0]
+    nodes = [
+        source,
+        {
+            "id": "centre",
+            "type": "preprocess",
+            "inputs": ["source"],
+            "step": {"kind": "mean_centre"},
+        },
+        {
+            "id": "pca",
+            "type": "estimator",
+            "inputs": ["centre"],
+            "spec": {"kind": "pca", "n_components": 2},
+        },
+    ]
+    saved = client.put("/api/pipelines/current", json={"nodes": nodes}, headers=AUTH)
+    assert saved.status_code == 200, saved.text
+    second = client.post("/api/experiments/current/run", headers=AUTH).json()
+    assert wait_for(client, second["job_id"])["status"] == "succeeded"
+
+    history = client.get("/api/experiments", headers=AUTH).json()
+    assert len(history) == 2
+    assert history[0]["n_nodes"] == 3, "newest first: the three-node recipe"
+    assert history[0]["pipeline_hash"] != history[1]["pipeline_hash"]
+    assert {row["status"] for row in history} == {"succeeded"}
+    # A row is a summary, not the record: no snapshot, no splits, no environment.
+    assert set(history[0]) == {
+        "experiment_id",
+        "status",
+        "started_at",
+        "finished_at",
+        "pipeline_hash",
+        "n_nodes",
+        "dataset_version_id",
+        "error",
+        "metrics",
+    }
+
+    # The head of the history is what `current` means, and every row opens.
+    current = client.get("/api/experiments/current", headers=AUTH).json()
+    assert current["experiment_id"] == history[0]["experiment_id"]
+    for row in history:
+        full = client.get(f"/api/experiments/{row['experiment_id']}", headers=AUTH)
+        assert full.status_code == 200, full.text
+        body = full.json()
+        assert len(body["pipeline_snapshot"]["nodes"]) == row["n_nodes"]
+
+    unknown = client.get("/api/experiments/nonesuch", headers=AUTH)
+    assert unknown.status_code == 404
+    assert unknown.json()["error"]["code"] == "not_found"

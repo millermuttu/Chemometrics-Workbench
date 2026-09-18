@@ -9,7 +9,7 @@ contract the frontend was built against is kept in `tests/fixtures/contract/`.
 - `POST /api/import` — commits with the user's corrections applied, and starts
   a pipeline on the dataset if the project has none
 - `GET/PUT /api/pipelines/{id}`, `GET /state`, `PUT /layout`, `POST /validate`
-- `GET  /api/experiments/{id}`, `POST /api/experiments/{id}/run`
+- `GET  /api/experiments`, `GET /api/experiments/{id}`, `POST /api/experiments/{id}/run`
 - `GET  /api/jobs/{id}`, `POST /api/jobs/{id}/cancel`
 - `GET  /api/spectra/{node_id}`, `GET /api/results/{node_id}` and `/coefficients`
 - `GET  /api/schema/steps`, `POST /api/steps/validate`
@@ -70,6 +70,7 @@ from chemometrics_workbench.models import (
     Dataset,
     DatasetVersion,
     EstimatorSpec,
+    Experiment,
     NodeId,
     Pipeline,
     PipelineNode,
@@ -90,6 +91,7 @@ from chemometrics_workbench.project import (
     read_array,
     read_datasets,
     read_experiment,
+    read_experiments,
     read_layout,
     read_pipeline,
     write_array,
@@ -104,6 +106,7 @@ __all__ = [
     "MAX_TRACES",
     "MAX_UPLOAD_BYTES",
     "contributions_payload",
+    "experiment_row",
     "folded_coefficients",
     "node_axis",
     "open_project_directory",
@@ -1245,15 +1248,70 @@ def _layout(directory: Path, pipeline: Pipeline) -> dict[str, dict[str, float]]:
 # --- Experiments and jobs -------------------------------------------------
 
 
+def experiment_row(experiment: Experiment) -> dict[str, Any]:
+    """One line of the history: what a row in the outline needs, and no more.
+
+    The whole record - the pipeline snapshot, the resolved splits, the
+    environment - stays behind `experiments/{id}`, because a list of thirty
+    runs each carrying a ten-fold split's index sets is megabytes to draw a
+    list of thirty names. The pipeline is represented by its content hash,
+    which is the thing `design/data-model.md` says the model exists to make
+    comparable, and by how many nodes it had.
+    """
+    metrics = experiment.metrics
+    return {
+        "experiment_id": str(experiment.experiment_id),
+        "status": experiment.status.value,
+        "started_at": experiment.started_at.isoformat() if experiment.started_at else None,
+        "finished_at": experiment.finished_at.isoformat() if experiment.finished_at else None,
+        "pipeline_hash": experiment.pipeline_hash,
+        "n_nodes": len(experiment.pipeline_snapshot.nodes),
+        "dataset_version_id": str(experiment.dataset_version_id),
+        "error": experiment.error,
+        # §11: absent, never zero. A decomposition fills neither of these and a
+        # screen renders `null` as an em dash.
+        "metrics": None
+        if metrics is None
+        else {
+            "rmsecv": metrics.rmsecv,
+            "q2": metrics.q2,
+            "accuracy": metrics.accuracy,
+            "explained_variance": (
+                metrics.explained_variance[0] if metrics.explained_variance else None
+            ),
+        },
+    }
+
+
+@router.get("/experiments")
+def list_experiments() -> Any:
+    """Every run this project has recorded, newest first (#209).
+
+    A bare list, as the other list endpoints serve: `api.py`'s note on deferred
+    pagination applies - a project's runs are tens, and fixing the shape of an
+    answer before there is a question is what that note refuses.
+    """
+    directory, _ = _project()
+    try:
+        return [experiment_row(experiment) for experiment in read_experiments(directory)]
+    except ProjectError as error:
+        raise _fail(500, "project_unavailable", str(error)) from error
+
+
 @router.get("/experiments/{experiment_id}")
 def get_experiment(experiment_id: str) -> Any:
     directory, _ = _project()
     experiment = read_experiment(directory)
     if experiment is None:
         raise _fail(404, "not_found", "nothing has been run in this project yet.")
-    if experiment_id not in ("current", str(experiment.experiment_id)):
-        raise _fail(404, "not_found", f"no experiment {experiment_id}.")
-    return json.loads(experiment.model_dump_json())
+    if experiment_id in ("current", str(experiment.experiment_id)):
+        return json.loads(experiment.model_dump_json())
+    # Not the current one: it may still be in the history (#209). `current`
+    # keeps meaning the newest, which is what the frontend has always asked for.
+    for older in read_experiments(directory):
+        if str(older.experiment_id) == experiment_id:
+            return json.loads(older.model_dump_json())
+    raise _fail(404, "not_found", f"no experiment {experiment_id}.")
 
 
 @router.post("/experiments/{experiment_id}/run")

@@ -12,7 +12,7 @@
       "id": "experiment-history",
       "priority": 1,
       "area": "backend",
-      "issue": null,
+      "issue": 209,
       "title": "An experiment history, not only the last run",
       "depends_on": [],
       "user_visible_behavior": "The outline lists every experiment this project has run, newest first, with its status, its pipeline hash and its headline metric; opening one shows what it ran and what it scored.",
@@ -21,9 +21,9 @@
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
         "pnpm exec playwright test - the seeded project lists more than one experiment after a second run"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": "The table already keeps every experiment; `read_experiment` returns the most recently started and nothing reads the rest (project.py). This is the read side plus a screen, not a schema change. It is the spine the comparison view hangs from."
+      "status": "passing",
+      "evidence": "2026-09-18. Backend: project.read_experiments(directory, limit) returns every recorded run newest first, in read_experiment's own order so the two cannot disagree about which run is current, and skips a row that no longer validates rather than refusing the history; GET /api/experiments serves a summary row per run - id, status, timestamps, pipeline hash, node count, dataset version, error and the headline metrics - and GET /api/experiments/{id} now opens any run in the history, with `current` still meaning the newest. tests/test_experiment_history.py (3 tests): three runs come back newest first with read_experiment as the head and limit honoured, an empty project has an empty history, and a row whose document is not an Experiment costs only itself - written later than the good one, so a reader that gave up on the first bad row would return nothing. test_the_history_lists_every_run_newest_first_and_each_one_opens in test_server.py runs two different recipes and asserts the order, the differing pipeline hashes, the exact row keys and that every row opens to a record whose snapshot has the node count the row claimed. `uv run pytest` 868 passed 1 skipped; ruff, format, mypy clean. Frontend: useExperiments and useExperimentRecord; the outline lists every run with runLabel numbering from the project's first so a number does not move and runFigure carrying whichever headline the run has, or its status when it did not succeed; ExperimentView renders the record in four sections - what it ran (the snapshot as a node table), against what, what it scored, where - with a failed run's cause in an alert. experiments.test.ts (3 tests) covers the two helpers. `pnpm test` 126 passed; typecheck, lint, build clean. e2e `the outline lists every run, and one opens to what it ran` (runs project, which by then has several runs): the drawn count equals the served history, the newest is first, and opening it shows the record rather than the placeholder. Against HEAD's screens and backend it FAILED at `expect(received).toBeGreaterThan(expected)` - the outline drew one row however many runs there were. With the fix `pnpm exec playwright test` 58 passed (1.6m). CI found one more thing: the e2e counted the outline's rows with `count()`, which does not wait, so on the Windows runner it counted a frame before the query resolved and saw zero. Polled instead - the claim is the list's state, not a moment - and the runs project passes 7.",
+      "notes": "Pagination deliberately not added: a project's runs are tens, and api.py's note on deferred pagination applies - fixing the shape of an answer before there is a question. The row is a summary because a list of thirty runs each carrying a ten-fold split's index sets is megabytes to draw thirty names; the whole record stays behind experiments/{id}. lineage-comparison is the next thing to hang from this."
     },
     {
       "id": "model-artifact",

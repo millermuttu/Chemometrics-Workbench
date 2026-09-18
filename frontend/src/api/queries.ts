@@ -125,6 +125,8 @@ export interface Experiment {
     r2?: number | null;
     q2?: number | null;
     bias?: number | null;
+    /** A classification's, filled since #185; null for every other task. */
+    accuracy?: number | null;
     extra?: Record<string, number>;
   } | null;
 }
@@ -384,6 +386,61 @@ export function useSavePipeline() {
       void client.invalidateQueries({ queryKey: ["pipeline-state"] });
       void client.invalidateQueries({ queryKey: ["experiment"] });
     },
+  });
+}
+
+/** One line of the history (#209): what a row draws, not the whole record.
+ * The record is `GET /experiments/{id}`, which serves any run, not only the
+ * newest. */
+export interface ExperimentRow {
+  experiment_id: string;
+  status: string;
+  started_at: string | null;
+  finished_at: string | null;
+  pipeline_hash: string;
+  n_nodes: number;
+  dataset_version_id: string;
+  error: string | null;
+  /** Absent renders as an em dash: a metric that could not be computed is
+   * null, never zero (`metrics-and-validation.md` section 11). */
+  metrics: {
+    rmsecv: number | null;
+    q2: number | null;
+    accuracy: number | null;
+    explained_variance: number | null;
+  } | null;
+}
+
+/** The whole record of one run: what it ran, against what, and what it scored. */
+export interface ExperimentRecord extends Experiment {
+  project_id: string;
+  dataset_version_id: string;
+  dataset_content_hash: string;
+  error: string | null;
+  pipeline_snapshot: Pipeline;
+  resolved_splits: { node_id: string; train_indices: number[][]; test_indices: number[][] }[];
+  environment: {
+    app_version: string;
+    python_version: string;
+    platform: string;
+    packages: Record<string, string>;
+    recorded_at: string;
+  } | null;
+}
+
+export function useExperiments() {
+  return useQuery({
+    queryKey: ["experiments"],
+    queryFn: () => api<ExperimentRow[]>("/experiments"),
+  });
+}
+
+export function useExperimentRecord(experimentId: string | undefined) {
+  return useQuery({
+    queryKey: ["experiment-record", experimentId],
+    queryFn: () => api<ExperimentRecord>(`/experiments/${experimentId}`),
+    enabled: Boolean(experimentId),
+    staleTime: Infinity,
   });
 }
 
