@@ -524,8 +524,8 @@
         "uv run pytest - gasoline at a = 5 (h0 = -0.0190) returns the computed limit and a caveat; corn and tecator return none; CHEMOMETRICS_DOWNLOAD_DATASETS=1 in CI",
         "pnpm test - the diagnostics panel renders the caveat when present and nothing when absent"
       ],
-      "status": "not_started",
-      "evidence": "",
+      "status": "passing",
+      "evidence": "2026-09-18. Kernel: PCA.spe_limit_caveat() returns the sentence naming h0 when h0 <= 0 and None otherwise, from the same _jackson_mudholkar_terms spe_limit uses; nothing is clamped and the bracket guard still raises. Executor stores it on EstimatorResult.spe_limit_caveat (default None, so stored results read back), results_payload serves diagnostics.spe_limit_caveat, the diagnostics panel prints it (data-testid spe-limit-caveat). pca.md section 8 states the rule and section 13 the divergence. Tests: test_the_gasoline_spe_limit_differs_because_mdatools_clamps_h0 now also asserts the caveat carries h0 = -0.0190 and that corn and tecator have none (gasoline from the local cache; CI downloads it); test_a_well_behaved_residual_spectrum_has_no_caveat; test_the_results_payload_is_the_shape_the_fixture_publishes asserts the key is present and None on Tecator; diagnostics.test.tsx renders the panel with and without the caveat. `uv run pytest` 822 passed 1 skipped; ruff, format, mypy clean; `pnpm test` 113 passed; typecheck, lint, build clean. Before the change the new assertions fail on the missing method. No e2e: no seeded dataset has h0 <= 0.",
       "notes": "Decision recorded 2026-09-18 after the review: clamping (mdatools) hides that the assumption failed, raising (the bracket guard's answer) refuses a plot for a dataset that is otherwise fine, returning with a recorded caveat keeps the plot and tells the truth. Raising stays for the bracket <= 0 case, which has no real power at all."
     },
     {

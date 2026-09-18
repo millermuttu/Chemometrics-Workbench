@@ -283,6 +283,10 @@ class EstimatorResult:
     spe: list[float]
     spe_limit: float
     alpha: float = ALPHA
+    spe_limit_caveat: str | None = None
+    """Why `spe_limit` is outside its approximation's domain (#71): the kernel's
+    own sentence when Jackson-Mudholkar's `h0` is not positive, else `None`. A
+    regression's chi-squared limit has no such domain and leaves it `None`."""
     held_out: list[int] = field(default_factory=list)
     held_out_scores: list[list[float]] = field(default_factory=list)
     held_out_hotelling_t2: list[float] = field(default_factory=list)
@@ -853,6 +857,7 @@ def _estimator(
         hotelling_t2_limit=float(model.hotelling_t2_limit(ALPHA)),
         spe=_values(model.spe(calibration)),
         spe_limit=float(model.spe_limit(ALPHA)),
+        spe_limit_caveat=model.spe_limit_caveat(),
         held_out=[int(row) for row in held_out],
         # §9: the held-out rows are pushed through the training fold's
         # parameters, exactly as new samples are at prediction time. They are

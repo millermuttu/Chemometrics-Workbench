@@ -540,6 +540,13 @@ def test_the_gasoline_spe_limit_differs_because_mdatools_clamps_h0(
     )
     assert ours != pytest.approx(theirs, rel=1e-3)
 
+    # #71: the number is returned as computed, and the model says why it is
+    # not to be read as an ordinary limit. Corn and tecator, whose h0 is
+    # positive, say nothing.
+    caveat = model.spe_limit_caveat()
+    assert caveat is not None and f"{h0:.4f}" in caveat
+    assert all(pca_models[other].spe_limit_caveat() is None for other in ("corn", "tecator"))
+
     result = parity.record_divergence(
         f"{dataset}.pca.spe_limit.r_mdatools",
         reason=(

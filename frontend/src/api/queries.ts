@@ -158,6 +158,9 @@ export interface PcaPayload {
     hotelling_t2_limit: number;
     spe: number[];
     spe_limit: number;
+    /** The kernel's own sentence when the limit is outside Jackson-Mudholkar's
+     * domain (#71); `null` for every ordinary model and every regression. */
+    spe_limit_caveat?: string | null;
     alpha: number;
   };
   /** The held-out rows of the fitted fold, present only below a split. Its
