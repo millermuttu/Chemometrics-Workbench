@@ -564,6 +564,11 @@ def capture_environment() -> Environment:
     )
 
 
+#: The `Metrics` fields a regression fills by name (#188). Everything else in
+#: a result's metrics table travels in `extra`.
+_NAMED_METRICS = ("rmsec", "rmsecv", "rmsep", "r2", "q2", "bias")
+
+
 def experiment_for(
     pipeline: Pipeline,
     version: DatasetVersion,
@@ -584,15 +589,28 @@ def experiment_for(
     experiment carries one set, which is Phase 1.2's simplification and not a
     claim that a four-branch pipeline has a single explained variance; #87's
     per-node results are where each branch's own numbers live.
+
+    A regression's named metrics - RMSEC, RMSECV, RMSEP, R2, Q2, bias - fill
+    the `Metrics` fields that were written for them and stayed `None` until
+    #188; the rest of `EstimatorResult.metrics` (SEC, SEP, the RMSECV curve
+    and per-fold errors) goes into `extra` beside the two limits. A metric the
+    result does not carry stays `None`, which is §11's absence and not zero.
     """
     metrics: Metrics | None = None
     if run is not None and run.results:
         last = list(run.results.values())[-1]
+        named = {name: last.metrics.get(name) for name in _NAMED_METRICS}
         metrics = Metrics(
+            **named,
             explained_variance=[float(value) for value in last.explained_variance_ratio],
             extra={
                 "hotelling_t2_limit": float(last.hotelling_t2_limit),
                 "spe_limit": float(last.spe_limit),
+                **{
+                    key: float(value)
+                    for key, value in last.metrics.items()
+                    if key not in _NAMED_METRICS
+                },
             },
         )
     return Experiment(

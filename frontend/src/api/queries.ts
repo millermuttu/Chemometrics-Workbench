@@ -112,7 +112,18 @@ export interface Experiment {
   status: string;
   started_at: string | null;
   finished_at: string | null;
-  metrics: { explained_variance: number[] | null };
+  /** The last estimator's numbers. A regression fills the named fields
+   * (#188); a decomposition leaves them null, which is section 11's absence. */
+  metrics: {
+    explained_variance: number[] | null;
+    rmsec?: number | null;
+    rmsecv?: number | null;
+    rmsep?: number | null;
+    r2?: number | null;
+    q2?: number | null;
+    bias?: number | null;
+    extra?: Record<string, number>;
+  } | null;
 }
 
 /** What the spectra endpoint returns for one node. Decimation is consumed,
