@@ -491,9 +491,9 @@
         "uv run pytest - sniff and read on the fixture; block choice; axis from FXV, LXV, NPT; a corrupt file is a ReaderError sentence",
         "pnpm exec playwright test - the empty project imports the fixture zip and the dataset view shows the wavenumber axis"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": "Parse the block table directly; no new dependency (PROPOSAL section 7)."
+      "status": "passing",
+      "evidence": "2026-09-18. Fixture: four OPUS files from opusreader2's sample data (MIT, tests/fixtures/readers/opus/LICENSE.md records the commit, the licence and the copyright holder) plus soil_pair.zip of two same-instrument soil spectra. Reader: readers/opus.py parses the header, the 12-byte directory, the XXX/type/length parameter records and the float32 data blocks directly (written from the MIT brukeropus and opusreader2 parsers, nothing imported); offers AB, Refl, ScSm, ScRf as a Block choice (correctable, resniff), reads the post-processed absorbance where OPUS stored both, reconstructs the axis from FXV/LXV/NPT with DXU=WN as wavenumber_cm-1, takes the first file's axis when members drift by less than one point spacing and states the drift, refuses a larger drift, a different point count, a non-OPUS member, a truncated file and an empty archive by name; sample ids are the file names and SNM becomes a sample_name metadata column. reader_for routes .zip and any numeric suffix. tests/test_readers_opus.py (10 tests) asserts the files' own MNY/MXY against the values read, the 0.27 cm-1 drift note, the block choice and every refusal. `uv run pytest` 861 passed 1 skipped; ruff, format, mypy clean. Screen: the import preview renders a Block select when the reader offers one and the file hint names the format; `pnpm test` 123 passed; typecheck, lint, build clean. e2e `a zip of OPUS files previews as one dataset with a block to choose` (empty project: Block AB with the two alternatives, wavenumber_cm-1, Import 2 x 3578, cancelled): against HEAD's reader and screen FAILED (the server refused the zip, so the file name appeared twice and the Block select never did); with the fix `pnpm exec playwright test` 57 passed (1.7m).",
+      "notes": "Parsed directly per PROPOSAL section 7; no dependency. Only DXU=WN is mapped to an axis kind; any other unit is an index axis with a note. Multi-file upload in the import screen was not added: a zip of a folder is the smaller change and what users already do to move OPUS data."
     },
     {
       "id": "experiment-carries-pls-metrics",

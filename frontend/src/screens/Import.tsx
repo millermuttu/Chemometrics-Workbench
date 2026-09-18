@@ -29,6 +29,10 @@ const LABELS: Record<string, string> = {
   ".": "point .",
   samples_in_rows: "samples in rows",
   samples_in_columns: "samples in columns",
+  AB: "AB · absorbance",
+  Refl: "Refl · reflectance",
+  ScSm: "ScSm · sample single channel",
+  ScRf: "ScRf · reference single channel",
 };
 
 const label = (value: string) => LABELS[value] ?? value;
@@ -128,8 +132,8 @@ function Preview({
   const [corrections, setCorrections] = useState<Record<string, string>>({});
   const commit = useImportDataset();
 
-  const value = (key: "delimiter" | "decimal" | "orientation") =>
-    corrections[key] ?? detected[key].value;
+  const value = (key: "delimiter" | "decimal" | "orientation" | "block") =>
+    corrections[key] ?? detected[key]?.value ?? "";
 
   // Reading a file the other way round is the common wrong guess, and it
   // swaps what the counts mean. Say so before the import, not after.
@@ -201,6 +205,16 @@ function Preview({
             value={value("orientation")}
             onChange={(next) => setCorrections({ ...corrections, orientation: next })}
           />
+          {detected.block ? (
+            // An OPUS file holds several spectra of one measurement (#187);
+            // which one becomes the dataset is the user's to say.
+            <Choice
+              name="Block"
+              detected={detected.block}
+              value={value("block")}
+              onChange={(next) => setCorrections({ ...corrections, block: next })}
+            />
+          ) : null}
           <div className="kv">
             <b>Samples</b>
             <span>{samples}</span>
@@ -312,6 +326,9 @@ export function Import({ onImported, onCancel }: Props) {
         <h2 style={{ margin: "0 0 4px", fontSize: 13.5, fontWeight: 600 }}>Import data</h2>
         <p style={{ margin: "0 0 12px", color: "var(--ink3)" }}>
           Choose a file. Nothing is imported until you have seen what the reader found and said so.
+        </p>
+        <p className="mono" style={{ margin: "0 0 12px", fontSize: 10.5, color: "var(--ink3)" }}>
+          CSV or TXT · XLSX · JCAMP-DX · Bruker OPUS (one file, or a .zip of a folder of them)
         </p>
 
         {error ? <Failure error={error} onRetry={() => preview.reset()} /> : null}
