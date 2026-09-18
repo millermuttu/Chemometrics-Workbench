@@ -11,7 +11,7 @@ Compact state for the next session. **Overwrite this file at the end of every se
 **Phase 1 is complete and released.** `main` is tagged `v0.5.0` (`015f9ec`, 2026-09-05) — a mid-phase
 snapshot, not a phase close; the tag's own message says so.
 
-**2026-09-18: a whole-repository review, three features merged, and Phase 2 written down.** The review
+**2026-09-18: a whole-repository review, four features merged, and Phase 2 written down.** The review
 found nothing in the science. It found seven things at the frontend edge and in provenance, and that
 `PROPOSAL.md` §16's Phase 2 items had no entries at all.
 
@@ -19,7 +19,7 @@ found nothing in the science. It found seven things at the frontend edge and in 
 | --- | --- | --- | --- | --- |
 | 1 | One version source, an unrun node says so, no `stale` state the server never sends | #181 | #189 | passing, merged |
 | 1 | Estimator and split nodes edited in the inspector; PLS models a real column | #182 | #190 | passing, merged |
-| 1 | Train/test split executes, and the canvas offers it | #183 | — | not_started |
+| 1 | Train/test split executes, and the canvas offers it | #183 | #194 | passing, merged |
 | 2 | VIP and the folded coefficient vector are drawn | #184 | — | not_started |
 | 2 | PLS-DA: specification, two-class kernel, confusion matrix | #185 | — | not_started |
 | 2 | The experiment record carries a regression's metrics | #188 | — | not_started |
@@ -42,8 +42,8 @@ found nothing in the science. It found seven things at the frontend edge and in 
 
 ## Current work
 
-**Nothing is `in_progress`.** No feature branch remains; `docs/handoff-2026-09-18` carries this
-file. Every PR this session (#189, #190, #191, #192) was green on all six checks and merged.
+**Nothing is `in_progress`.** No feature branch remains; `docs/handoff-183` carries this file.
+Every PR this session (#189 to #194) was green on all six checks and merged.
 
 **Open issues:** #168 (macOS flake — fix the test as the
 issue says: open a fixed number of tabs, wait on the split's settled state), #176 (run memory; a
@@ -64,13 +64,19 @@ is the way in: it seeds Tecator, a four-branch pipeline and every node run, then
 
 ## Next action
 
-**Pick up #183, the train/test split.** It is first because #185 depends on it and because it is the
-only Phase 2 item whose whole shape already exists: `TrainTestSplit` is in `models.py`, the executor
-already handles one fold below a split, and `results_payload` already adds `validation`. What is
-missing is `validation.train_test`, one branch in `_folds_for`, a menu entry and the two labels.
+**Pick up #184, VIP and the folded coefficient vector drawn.** A screen over two endpoints that
+already answer: `regression.vip` in the results payload and `GET /results/{id}/coefficients`. One
+panel on the regression row of `AnalysisResults.tsx` with a two-way toggle, a `useCoefficients`
+query, two trace builders in `plot/analysis.ts`, and the "cannot be folded" sentence rendered
+rather than an empty plot. The seeded PLS tab is the e2e.
 
-Then #184, which is a screen over two endpoints that already answer, and #188, which is a dozen
-lines. Those three are what the exit run depends on.
+Then #188, a dozen lines in `experiment_for`. Those two are what the exit run still depends on.
+
+**What #183 left worth knowing.** A train/test split is one `Fold` and *not a partition*:
+`validate_partition` refuses it, `_State.display` returns the one array for a single fold, and
+`_pls` computes the CV block only for more than one fold. `stratify_by` is refused by name until
+#185 brings a class column. The `runs` e2e project's last test rewrites its pipeline through the
+API; anything added to that file after it sees a train/test split and no failing branch.
 
 ## Things learned this session
 
