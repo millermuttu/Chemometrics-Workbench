@@ -9,6 +9,22 @@
   ],
   "features": [
     {
+      "id": "fix-edit-restore-poll-budget",
+      "priority": 1,
+      "area": "frontend",
+      "issue": 222,
+      "title": "macOS e2e: an edit-and-restore poll runs out of budget",
+      "depends_on": [],
+      "user_visible_behavior": "None. A suite fix: the four polls that follow an Apply and re-run get a budget matched to what the press costs, so a restore that misses it stops leaving the seeded project edited for every later test.",
+      "verification": [
+        "pnpm exec playwright test --project=seeded - the seeded project passes",
+        "CI - e2e on macOS passes, which is the runner the default budget failed on"
+      ],
+      "status": "passing",
+      "evidence": "2026-09-18. `npx playwright test --project=seeded`: `44 passed (1.2m)` on Linux. The failure itself is the CI job on #221: `e2e (macos-latest)` red with `a split is edited like a step, and the edit reaches the pipeline` giving `expected 10, received 5` after a 5-second polling timeout, and `the branching pipeline renders with every node the executor ran` then failing to find `10 folds \u00b7 shuffle \u00b7 seed 42` - one cause, two red tests. **Not reproduced locally and deliberately not claimed to be**: a Linux machine lands the PUT well inside five seconds, so the proof that the budget was the problem is the macOS run going green on this branch, not a local failing run.",
+      "notes": "Found on #221, a markdown-only change whose macOS e2e went red while the same code had passed macOS on #220 minutes before. Two red tests, one cause: the split restore's poll timed out, so the split stayed at 5 and the next test read `5 folds` where it wanted 10. Not reproducible locally - a Linux machine is fast enough - so the evidence is the CI job rather than a local failing run."
+    },
+    {
       "id": "experiment-history",
       "priority": 1,
       "area": "backend",

@@ -10,6 +10,24 @@ async function selectNode(page: Page, name: RegExp) {
   return page.getByRole("complementary", { name: "Inspector" });
 }
 
+/** How long an `Apply and re-run` gets to reach the server (#222).
+ *
+ * The press validates, writes the pipeline and starts a run, and nothing on
+ * screen has to change before the `PUT` lands - so every check below polls.
+ * `expect.poll` defaults to five seconds, which a loaded macOS runner with a
+ * re-run in flight misses, and on #221 it did.
+ *
+ * **A restore that misses its budget is worse than an ordinary failure.** The
+ * seeded project is one directory that every spec in this project shares, so a
+ * test that edits and restores is borrowing state. When the restore times out
+ * the edit stays, and the next test reads a node it never touched and fails
+ * for a reason that is not its own. That is the second red test on #221.
+ *
+ * Not retries: `playwright.config.ts` says why, and a green check should mean
+ * the suite passed rather than that it passed on the third attempt.
+ */
+const APPLIED = { timeout: 30_000 };
+
 /** The window length the server holds for `savgol`, which is the claim an edit
  * makes: what is on disk, not what the form is showing. */
 async function savedWindow(page: Page): Promise<number | undefined> {
@@ -111,16 +129,14 @@ test("an accepted edit is written to the pipeline, not only to the screen", asyn
   await inspector.getByLabel("Window Length").fill("9");
   await inspector.getByRole("button", { name: "Apply and re-run" }).click();
 
-  // Polled, not read once: the press validates, saves and starts a run, and
-  // nothing on screen has to change before the save lands - so a single read
-  // races the PUT it is checking for.
-  await expect.poll(() => savedWindow(page)).toBe(9);
+  // Polled, not read once: a single read races the PUT it is checking for.
+  await expect.poll(() => savedWindow(page), APPLIED).toBe(9);
 
   // Put it back: the project outlives this test, and the file above opens by
   // asserting the seeded 11.
   await inspector.getByLabel("Window Length").fill("11");
   await inspector.getByRole("button", { name: "Apply and re-run" }).click();
-  await expect.poll(() => savedWindow(page)).toBe(11);
+  await expect.poll(() => savedWindow(page), APPLIED).toBe(11);
 });
 
 /** #175. The inspector's metrics came from the experiment, whose numbers are
@@ -177,12 +193,12 @@ test("a split is edited like a step, and the edit reaches the pipeline", async (
 
   await inspector.getByLabel("N Splits").fill("5");
   await inspector.getByRole("button", { name: "Apply and re-run" }).click();
-  await expect.poll(() => savedSplits(page)).toBe(5);
+  await expect.poll(() => savedSplits(page), APPLIED).toBe(5);
 
   // Put it back: the seeded project outlives this test.
   await inspector.getByLabel("N Splits").fill("10");
   await inspector.getByRole("button", { name: "Apply and re-run" }).click();
-  await expect.poll(() => savedSplits(page)).toBe(10);
+  await expect.poll(() => savedSplits(page), APPLIED).toBe(10);
 });
 
 test("a PLS target is chosen from the dataset's own columns", async ({ page }) => {
