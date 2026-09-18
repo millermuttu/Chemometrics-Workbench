@@ -49,22 +49,24 @@ is now Phase 3's.
 | --- | --- | --- | --- |
 | Every run kept, and one opened to its record | #209 | #210 | merged |
 | The model artifact, one file readable without this application | #211 | #212 | merged |
-| A plain JSON model and a standalone prediction snippet | #213 | #214 | **green, not merged** |
-| Two experiments compared step by step | #215 | #216 | open |
+| A plain JSON model and a standalone prediction snippet | #213 | #214 | merged |
+| Two experiments compared step by step | #215 | #216 | merged |
 
-**#214 is finished and blocked on a merge, not on work.** All six checks passed
-(`check (py3.12)`, `check (py3.13)`, `frontend`, and `e2e` on ubuntu, macOS and Windows). The merge
-call was refused by this session's permission mode, so it has to be merged by hand or with the
-permission granted. Nothing depends on it: #216 was cut from `dev` before it and touches only the
-frontend.
+**#217 is open against a mistake this session made.** `feature/215_lineage-comparison` was cut from
+`feature/213_json-and-snippet-export` rather than from `dev`, so #216 carried the export commit into
+`dev` and #214 then merged as a no-op returning the same sha. Both are on `dev` and the content is
+unaffected; what the mistake cost was an hour of treating #214 as blocked when it was already going
+to land through another pull request. **Cut every branch from a freshly pulled `dev`, and check with
+`git merge-base --is-ancestor origin/dev <branch>` before opening the pull request.**
 
 ## Current work
 
-**`lineage-comparison` (#215) is `in_progress` with its evidence recorded**, pending #216 going green
-and merging. The screen is built, the diff is unit-tested, and the e2e passes and was proved to fail
-with the source reverted.
+**Nothing is `in_progress`.** `lineage-comparison` passed with evidence and merged through #216, all
+six checks green. Three Phase 3 entries remain: `model-registry`, `html-report`, `phase-3-exit-run`.
 
-Three Phase 3 entries remain after it: `model-registry`, `html-report`, `phase-3-exit-run`.
+**#217 is the one open issue** and it is a process correction, not code: this file and #216's body
+both claimed an ancestry the history does not show. This file is fixed; the pull request body is not,
+and is not worth rewriting.
 
 **Untracked in the root, still not decided:** `AGENTS.md` (a Codex copy of `CLAUDE.md` that will
 drift), `.codex/` and `tecator.csv`. Either gitignore them or commit them; leaving them is what makes
@@ -81,9 +83,11 @@ the peak resident memory of a ten-fold branch, which is the number #176 is judge
 
 ## Next action
 
-**Merge #214, then #216, then pick up `model-registry`.** The registry is next because it is what
-gives the artifact a home: `artifact.py` takes a path and returns a hash, and recording that in the
-project's `model` table is deliberately not its job.
+**Pick up `model-registry`.** It is next because it is what gives the artifact a home: `artifact.py`
+takes a path and returns a hash, and recording that in the project's `model` table is deliberately
+not its job. `docs/model-artifact.md` §9 says so by name, and `docs/model-export.md` §6 leaves
+prediction on new data inside the application to a separate feature, so the registry is the whole of
+what is next rather than the start of something wider.
 
 ## What Phase 3 has added worth knowing
 
@@ -97,6 +101,8 @@ project's `model` table is deliberately not its job.
   writer may have added a field whose absence this reader would take as a default.
 - **The lineage diff matches nodes by id, so a renamed node reads as a remove plus an add.** That is
   the honest reading: nothing in the model says a rename is not a replacement.
+- **A branch cut from another feature branch carries that feature into the pull request.** #216
+  merged #213's export commit as a side effect, which nothing in the pull request said.
 - **`count()` does not wait.** A Playwright assertion of the form `expect(await x.count())` compares a
   frame rather than a state, and that is what failed on the Windows runner in #210. Use
   `expect.poll(() => x.count())`.
