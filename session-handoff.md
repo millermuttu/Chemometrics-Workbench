@@ -8,11 +8,11 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 ## Where things stand
 
-**Phase 1 is complete and released.** `main` is tagged `v0.6.0` (2026-09-18) — a mid-phase snapshot
-taken after the review fixes and #183, not a phase close; the tag's own message says so. `v0.5.0`
-(`015f9ec`, 2026-09-05) was the previous one.
+**Phase 1 is complete and released.** `main` is tagged `v0.6.0` (`386f49a`, 2026-09-18) — a mid-phase
+snapshot taken after the review fixes and #183, not a phase close; the tag's own message says so.
+#184 and #188 landed on `dev` after the tag.
 
-**2026-09-18: a whole-repository review, four features merged, and Phase 2 written down.** The review
+**2026-09-18: a whole-repository review, six features merged, `v0.6.0` tagged, and Phase 2 written down.** The review
 found nothing in the science. It found seven things at the frontend edge and in provenance, and that
 `PROPOSAL.md` §16's Phase 2 items had no entries at all.
 
@@ -21,13 +21,13 @@ found nothing in the science. It found seven things at the frontend edge and in 
 | 1 | One version source, an unrun node says so, no `stale` state the server never sends | #181 | #189 | passing, merged |
 | 1 | Estimator and split nodes edited in the inspector; PLS models a real column | #182 | #190 | passing, merged |
 | 1 | Train/test split executes, and the canvas offers it | #183 | #194 | passing, merged |
-| 2 | VIP and the folded coefficient vector are drawn | #184 | — | not_started |
+| 2 | VIP and the folded coefficient vector are drawn | #184 | #198 | passing, merged |
 | 2 | PLS-DA: specification, two-class kernel, confusion matrix | #185 | — | not_started |
-| 2 | The experiment record carries a regression's metrics | #188 | — | not_started |
+| 2 | The experiment record carries a regression's metrics | #188 | #199 | passing, merged |
 | 2 | Jackson–Mudholkar limit with `h0 <= 0` returned with a caveat | #71 | #192 | passing, merged |
 | 3 | Contribution plots | #186 | — | not_started |
 | 3 | Bruker OPUS reader | #187 | — | not_started |
-| 0 | The exit criterion demonstrated, not reasoned | — | — | not_started, depends on #183, #184, #188 |
+| 0 | The exit criterion demonstrated, not reasoned | — | — | not_started, **unblocked**: #183, #184, #188 all passing |
 | 2 | A run below a split does not hold every fold array of every node | #176 | — | not_started |
 
 **Two decisions were taken this session and are recorded in the entries, not only here.**
@@ -43,8 +43,9 @@ found nothing in the science. It found seven things at the frontend edge and in 
 
 ## Current work
 
-**Nothing is `in_progress`.** No feature branch remains; `docs/handoff-183` carries this file.
-Every PR this session (#189 to #194) was green on all six checks and merged.
+**Nothing is `in_progress`.** No feature branch remains; `docs/handoff-184-188` carries this file.
+Every PR this session (#189 to #199) was green on all six checks and merged; #197 was the release
+merge into `main`.
 
 **Open issues:** #168 (macOS flake — fix the test as the
 issue says: open a fixed number of tabs, wait on the split's settled state), #176 (run memory; a
@@ -65,13 +66,26 @@ is the way in: it seeds Tecator, a four-branch pipeline and every node run, then
 
 ## Next action
 
-**Pick up #184, VIP and the folded coefficient vector drawn.** A screen over two endpoints that
-already answer: `regression.vip` in the results payload and `GET /results/{id}/coefficients`. One
-panel on the regression row of `AnalysisResults.tsx` with a two-way toggle, a `useCoefficients`
-query, two trace builders in `plot/analysis.ts`, and the "cannot be folded" sentence rendered
-rather than an empty plot. The seeded PLS tab is the e2e.
+**The exit run is unblocked — or PLS-DA.** Two candidates, in the order the plan put them:
 
-Then #188, a dozen lines in `experiment_for`. Those two are what the exit run still depends on.
+1. **`phase-2-exit-run`** (priority 0). A script under `tests/` that drives the served application
+   over HTTP against a public dataset, pulls the experiment's `resolved_splits`, fits scikit-learn's
+   PLS on the same folds with the same preprocessing, and compares RMSECV, Q² and the predictions
+   within the parity tolerances. Its output goes under `docs/phase-2/`. **Waiting on one answer:**
+   Tecator (committed, 240 × 100) or mango (7413 × 306, needs a download and may hit #176's
+   memory)? Recommend Tecator for the record, mango as a second run once #176 is done.
+2. **#185, PLS-DA.** Biggest item, two sessions. Its first step is not code: `docs/algorithms/pls-da.md`
+   for the two-class case with a reference and a parity fixture entry. It also wants a "class" role
+   on import (#135's roles have target and metadata) — recommend a separate small issue before it.
+
+Then #186 (contribution plots, formulas into the algorithm docs first) and #187 (OPUS reader, find a
+licensed fixture first or go `blocked`).
+
+**What #184 left worth knowing.** The Variable importance panel sits on the *loadings* row, not
+the regression row, because VIP and coefficients are read against the variable axis. Every seeded
+chain carries an SNV, so the raw-axis coefficients are refused there by name; the `runs` project's
+last e2e adds a mean-centre-only branch through the API to see the available case. Two outline
+buttons now read "PLS 5 LV · fat" in that project; `.last()` is the added one.
 
 **What #183 left worth knowing.** A train/test split is one `Fold` and *not a partition*:
 `validate_partition` refuses it, `_State.display` returns the one array for a single fold, and
