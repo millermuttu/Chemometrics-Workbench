@@ -21,6 +21,7 @@ from uuid import UUID, uuid4
 import numpy as np
 import pytest
 
+from chemometrics_workbench import executor as executor_module
 from chemometrics_workbench import preprocessing, validation
 from chemometrics_workbench.datasets import load_tecator
 from chemometrics_workbench.decomposition import PCA
@@ -852,10 +853,13 @@ def test_an_unreadable_result_is_refitted_rather_than_refused(
     assert again.results["pca_a"].rank == first.results["pca_a"].rank
 
 
-def test_pls_da_has_no_kernel_here_and_is_named_rather_than_skipped(
-    project: tuple[Path, DatasetVersion],
+def test_an_estimator_without_a_kernel_is_named_rather_than_skipped(
+    project: tuple[Path, DatasetVersion], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """PLS itself is fitted since #142. PLS-DA still needs a second result shape."""
+    """Every spec has a kernel since #185, so PLS-DA's is taken away through the
+    one tuple `has_kernel` reads: the pending path has to keep working for the
+    next spec that lands before its kernel does."""
+    monkeypatch.setattr(executor_module, "_FITTED", (PCASpec, PLSRegressionSpec))
     directory, version = project
     pipeline = _pipeline(
         version.version_id,
@@ -1072,6 +1076,102 @@ def test_a_decompositions_experiment_leaves_the_regression_fields_absent(
     assert metrics is not None
     assert metrics.explained_variance and len(metrics.explained_variance) == 5
     assert (metrics.rmsec, metrics.rmsecv, metrics.r2, metrics.q2) == (None, None, None, None)
+
+
+def _with_classes(
+    version: DatasetVersion, tecator: Any, column: str = "fat_class"
+) -> DatasetVersion:
+    """Tecator with a two-valued metadata column derived from `fat` (pls-da.md §9)."""
+    fat = np.asarray(tecator.targets["fat"])
+    labels = ["high" if value > np.median(fat) else "low" for value in fat]
+    return version.model_copy(update={"metadata_columns": {column: labels}})
+
+
+def test_a_plsda_node_is_the_regression_on_a_dummy_response_and_tallies_it(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """`pls-da.md` §2 to §6: the model quantities are PLS1's on the {0, 1}
+    response, and what is added is the coding, the assignments and the
+    confusion matrix. Below a k-fold the `_cv` tally comes from the pooled
+    held-out predictions and the `_p` one from fold zero's rows (§7)."""
+    directory, version = project
+    version = _with_classes(version, tecator)
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=5, seed=42)),
+        PreprocessNode(id="centre", inputs=("split",), step=MeanCentre()),
+        EstimatorNode(
+            id="plsda",
+            inputs=("centre",),
+            spec=PLSDASpec(n_components=3, class_column="fat_class"),
+        ),
+        EstimatorNode(
+            id="pls", inputs=("centre",), spec=PLSRegressionSpec(n_components=3, target="fat")
+        ),
+    )
+    run = execute(directory, pipeline, version)
+    result = run.results["plsda"]
+
+    assert result.task == "classification"
+    assert result.classes == ["high", "low"]
+    assert result.target == "fat_class"
+    assert set(result.observed) == {0.0, 1.0}
+    # The class coded 1 is the sorted second label, and the coding matches the column.
+    labels = version.metadata_columns["fat_class"]
+    assert result.observed == [1.0 if labels[row] == "low" else 0.0 for row in result.rows]
+    assert result.predicted_class == [1 if value >= 0.5 else 0 for value in result.predicted]
+
+    (tn, fp), (fn, tp) = result.confusion["calibration"]
+    assert tn + fp + fn + tp == len(result.rows)
+    assert result.metrics["accuracy"] == (tp + tn) / len(result.rows)
+    assert result.metrics["sensitivity"] == tp / (tp + fn)
+    assert result.metrics["specificity"] == tn / (tn + fp)
+    assert result.metrics["accuracy"] > 0.8, "fat above its median is separable from NIR"
+
+    # Below a k-fold: a cross-validated tally over every sample, and fold
+    # zero's held-out tally, each with its suffix.
+    cv = result.confusion["cross_validation"]
+    assert sum(sum(row) for row in cv) == version.n_samples
+    assert "accuracy_cv" in result.metrics and "accuracy_p" in result.metrics
+    assert sum(sum(row) for row in result.confusion["held_out"]) == len(result.held_out)
+    assert len(result.cross_validated_predicted) == version.n_samples
+
+    # The regression half is filled in exactly as for a regression: the same
+    # kernel on the dummy response, and the same curve.
+    assert len(result.coefficients) == version.n_variables
+    assert "rmsecv" in result.metrics and len(result.vip) == version.n_variables
+    # And the sibling regression on `fat` itself is untouched by any of it.
+    assert run.results["pls"].task == "regression"
+    assert "accuracy" not in run.results["pls"].metrics
+
+
+def test_a_class_column_the_dataset_does_not_carry_or_with_three_values_is_refused(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    directory, version = project
+    two = _with_classes(version, tecator)
+    missing = _pipeline(
+        two.version_id,
+        PreprocessNode(id="centre", inputs=("source",), step=MeanCentre()),
+        EstimatorNode(
+            id="plsda", inputs=("centre",), spec=PLSDASpec(n_components=3, class_column="grade")
+        ),
+    )
+    with pytest.raises(ExecutorError, match="'grade', which this dataset does not carry"):
+        execute(directory, missing, two)
+
+    three = two.model_copy(
+        update={"metadata_columns": {"grade": ["a", "b", "c"] * (version.n_samples // 3)}}
+    )
+    pipeline = _pipeline(
+        three.version_id,
+        PreprocessNode(id="centre", inputs=("source",), step=MeanCentre()),
+        EstimatorNode(
+            id="plsda", inputs=("centre",), spec=PLSDASpec(n_components=3, class_column="grade")
+        ),
+    )
+    with pytest.raises(ExecutorError, match="has 3 distinct values"):
+        execute(directory, pipeline, three)
 
 
 def test_a_pls_node_above_a_split_reports_no_cross_validated_metric(

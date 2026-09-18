@@ -454,7 +454,7 @@
         "pnpm test && pnpm typecheck && pnpm lint && pnpm build",
         "pnpm exec playwright test - a seeded two-class dataset's PLS-DA tab shows the confusion matrix with the expected totals"
       ],
-      "status": "not_started",
+      "status": "in_progress",
       "evidence": "",
       "notes": "Two-class only, which is PLS1 on a {0, 1} response. PLS2 is deferred by pls-regression.md section 10. Needs a class role on import (#135's column roles)."
     },

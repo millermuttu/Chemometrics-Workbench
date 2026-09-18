@@ -6,6 +6,11 @@ has before it has ever been run. Nothing told the two apart, though
 `Run.pending_estimators` had named the node the whole time.
 
 This is not #88. Nothing here fits PLS; it says that nothing will.
+
+Every estimator spec has a kernel since #185, so the warning has nothing real
+to fire on. The cases below take PLS-DA's kernel away through `_FITTED` - the
+one tuple `has_kernel` reads - because the path has to keep working for the
+next spec that lands before its kernel does.
 """
 
 from __future__ import annotations
@@ -13,6 +18,9 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 
+import pytest
+
+from chemometrics_workbench import executor
 from chemometrics_workbench.api import ESTIMATOR_NOT_FITTED, validation_payload
 from chemometrics_workbench.checks import LEAK_BEFORE_SPLIT
 from chemometrics_workbench.executor import has_kernel
@@ -46,15 +54,23 @@ def codes(payload: dict[str, Any]) -> list[str]:
 # --- The one place that knows -----------------------------------------------
 
 
-def test_pca_and_pls_have_kernels_and_pls_da_does_not() -> None:
-    """#142 added PLS by adding to one tuple, not by editing two files.
+@pytest.fixture(autouse=True)
+def no_plsda_kernel(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Take PLS-DA's kernel away, so the warning has something to say."""
+    monkeypatch.setattr(executor, "_FITTED", (PCASpec, PLSRegressionSpec))
 
-    PLS-DA is what is left, and it is left on purpose: a class column and a
-    confusion matrix are a second result shape, not a second kernel call.
-    """
+
+def test_every_estimator_has_a_kernel_and_the_tuple_is_where_that_is_known(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#142 added PLS and #185 PLS-DA by adding to one tuple, not by editing two
+    files. With the tuple restored, all three fit; with PLS-DA removed from it,
+    `has_kernel` says so and nothing else has to be told."""
     assert has_kernel(PCASpec(n_components=2))
     assert has_kernel(PLSRegressionSpec(n_components=2, target="fat"))
     assert not has_kernel(PLSDASpec(n_components=2, class_column="grade"))
+    monkeypatch.setattr(executor, "_FITTED", (PCASpec, PLSRegressionSpec, PLSDASpec))
+    assert has_kernel(PLSDASpec(n_components=2, class_column="grade"))
 
 
 # --- What validate now says -------------------------------------------------

@@ -27,6 +27,7 @@ from scipy.stats import norm
 
 from chemometrics_workbench.datasets import load_corn, load_gasoline, load_tecator
 from chemometrics_workbench.decomposition import PCA
+from chemometrics_workbench.executor import assign_classes, confusion_matrix
 from chemometrics_workbench.preprocessing import (
     AutoscaleTransformer,
     BaselineCorrectTransformer,
@@ -929,3 +930,70 @@ def test_a_non_comparable_entry_cannot_be_checked_numerically() -> None:
     """The flag is load-bearing: check() refuses rather than quietly comparing."""
     with pytest.raises(ValueError, match="comparable=false"):
         parity.check("tecator.pls.sep.thodberg", 2.78)
+
+
+# --------------------------------------------------------------------------
+# PLS-DA, pls-da.md
+# --------------------------------------------------------------------------
+
+
+def _dummy_response(dataset: str) -> tuple[list[str], np.ndarray]:
+    """The fixture's class column, derived by the rule `pls-da.md` §9 records
+    rather than read from the fixture: the dataset's target above its median is
+    "high", else "low", and the sorted second label is coded 1 (§3)."""
+    target = _target(dataset)
+    labels = np.where(target > np.median(target), "high", "low")
+    classes = sorted(set(labels.tolist()))
+    return classes, (labels == classes[1]).astype(np.float64)
+
+
+@pytest.fixture(scope="module")
+def plsda_models() -> dict[str, tuple[PLS, np.ndarray]]:
+    models: dict[str, tuple[PLS, np.ndarray]] = {}
+    for name in DATASETS:
+        _, y = _dummy_response(name)
+        models[name] = (PLS(N_COMPONENTS).fit(_centred(name), y - y.mean()), y)
+    return models
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_plsda_is_pls1_on_the_dummy_response(
+    dataset: str, plsda_models: dict[str, tuple[PLS, np.ndarray]]
+) -> None:
+    """`pls-da.md` §2 and §4: nothing new is fitted. The continuous predictions
+    of the dummy response are the regression kernel's, un-centred."""
+    classes, _ = _dummy_response(dataset)
+    assert classes == ["high", "low"], "the coding the fixture notes record (§3)"
+    model, y = plsda_models[dataset]
+    predictions = model.predict(_centred(dataset)) + y.mean()
+    assert parity.check(f"{dataset}.plsda.dummy_predictions.sklearn", predictions).passed
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_plsda_assignment_and_tally_match_an_independent_count(
+    dataset: str, plsda_models: dict[str, tuple[PLS, np.ndarray]]
+) -> None:
+    """`pls-da.md` §5 and §6 against `sklearn.metrics`: the threshold at 0.5, the
+    confusion matrix's orientation, and accuracy as a count over n."""
+    model, y = plsda_models[dataset]
+    predictions = model.predict(_centred(dataset)) + y.mean()
+    confusion = confusion_matrix(y.astype(int), assign_classes(predictions))
+    flat = np.asarray(confusion, dtype=float).ravel()
+    assert parity.check(f"{dataset}.plsda.confusion.sklearn", flat).passed
+    (tn, _fp), (_fn, tp) = confusion
+    assert parity.check(f"{dataset}.plsda.accuracy.sklearn", (tp + tn) / y.size).passed
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_plsda_cross_validated_tally_matches_on_the_stored_folds(dataset: str) -> None:
+    """`pls-da.md` §7: the pooled held-out predictions, assigned, on the
+    fixture's own fold indices - never reseeded (§8.2)."""
+    entry = parity.entries_by_id()[f"{dataset}.plsda.confusion_cv.sklearn"]
+    folds = _folds_from_entry(entry)
+    _, y = _dummy_response(dataset)
+    held_out = cross_validated_predictions(LOADERS[dataset]().spectra, y, folds, N_COMPONENTS)
+    confusion = confusion_matrix(y.astype(int), assign_classes(held_out))
+    flat = np.asarray(confusion, dtype=float).ravel()
+    assert parity.check(f"{dataset}.plsda.confusion_cv.sklearn", flat).passed
+    (tn, _fp), (_fn, tp) = confusion
+    assert parity.check(f"{dataset}.plsda.accuracy_cv.sklearn", (tp + tn) / y.size).passed

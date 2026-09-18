@@ -251,7 +251,7 @@ The spec is kept too. `SplitSpec` on the node records *intent* — 5-fold, shuff
 | `rmsecv_std` | `extra` | §8.5 |
 | `r2_pearson` | `extra` | §6 |
 
-`Metrics.accuracy` is a classification field and is out of scope for this document; it is defined when PLS-DA lands.
+`Metrics.accuracy`, `sensitivity` and `specificity` are classification metrics and are defined in [`pls-da.md`](pls-da.md) §6, with the same absent-never-NaN rule.
 
 A metric that could not be computed is `None` — never `0.0`, never `NaN`. RMSEP without a prediction set is absent, not zero, and the UI renders absence as an em dash rather than a number.
 
