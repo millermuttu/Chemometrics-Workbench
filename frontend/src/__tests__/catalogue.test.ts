@@ -15,5 +15,6 @@ describe("the PLS menu entry", () => {
     const kinds = stepMenu([]).map((step) => step.kind);
     expect(kinds).not.toContain("PLS 5 LV");
     expect(kinds).toContain("K-fold 10");
+    expect(kinds).toContain("Train/test 25%");
   });
 });

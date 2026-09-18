@@ -319,9 +319,11 @@ test("a connector dropped on empty canvas adds a step onto the node it came from
   await expect(menu).toContainText("msc");
 
   // Only what the executor can actually fit: PLS-DA has no kernel, and
-  // train/test, repeated k-fold and external splits raise at run time.
+  // repeated k-fold and external splits raise at run time. Train/test runs
+  // since #183 and is offered.
   await expect(menu.getByRole("menuitem", { name: "PLS-DA" })).toHaveCount(0);
   await expect(menu.getByRole("menuitem", { name: "PLS 5 LV" })).toHaveCount(1);
+  await expect(menu.getByRole("menuitem", { name: "Train/test 25%" })).toHaveCount(1);
 
   await menu.getByRole("menuitem", { name: "Autoscale" }).click();
   await expect(page.getByTestId("add-step-menu")).toHaveCount(0);

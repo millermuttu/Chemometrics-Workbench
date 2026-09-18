@@ -66,6 +66,8 @@ export function parameterLine(node: PipelineNode): string {
       return `ddof ${step!.ddof}`;
     case "kfold":
       return `${spec!.n_splits} folds · ${spec!.shuffle ? "shuffle · " : ""}seed ${spec!.seed}`;
+    case "train_test":
+      return `${Math.round(Number(spec!.test_size) * 100)}% held out · seed ${spec!.seed}`;
     case "pca":
       return `${spec!.n_components} components`;
     case "snv":

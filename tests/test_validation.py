@@ -24,6 +24,7 @@ from chemometrics_workbench.validation import (
     rmse,
     sec,
     sep,
+    train_test,
     validate_partition,
 )
 
@@ -129,6 +130,31 @@ def test_more_folds_than_samples_is_an_error_naming_both() -> None:
 def test_fewer_than_two_folds_is_refused() -> None:
     with pytest.raises(ValueError, match="at least 2 folds"):
         k_fold(10, 1)
+
+
+def test_train_test_holds_out_the_ceiling_of_the_fraction_from_the_permutation() -> None:
+    """§8.6: `ceil(test_size * n)` samples, the first slice of §8.2's `perm`,
+    which for n = 10 and seed 42 is `[5, 6, 0, 7, 3, 2, 4, 9, 1, 8]`."""
+    [fold] = train_test(10, 0.25, seed=42)
+    assert fold.test.tolist() == [0, 5, 6]
+    assert fold.train.tolist() == [1, 2, 3, 4, 7, 8, 9]
+
+
+def test_a_train_test_split_is_one_fold_and_not_a_partition() -> None:
+    folds = train_test(50, 0.2, seed=7)
+    assert len(folds) == 1
+    assert np.intersect1d(folds[0].train, folds[0].test).size == 0
+    assert sorted([*folds[0].train, *folds[0].test]) == list(range(50))
+    with pytest.raises(ValueError, match="do not partition"):
+        validate_partition(folds, 50)
+    assert train_test(50, 0.2, seed=8)[0].test.tolist() != folds[0].test.tolist()
+
+
+def test_a_train_test_split_that_leaves_nothing_to_calibrate_on_is_refused() -> None:
+    with pytest.raises(ValueError, match="holds out 2 of 2 samples"):
+        train_test(2, 0.9)
+    with pytest.raises(ValueError, match="strictly between 0 and 1"):
+        train_test(10, 1.0)
 
 
 def test_leave_one_out_holds_out_one_sample_per_fold() -> None:
