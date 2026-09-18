@@ -11,9 +11,10 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import type { CoefficientsPayload, PcaPayload } from "@/api/queries";
+import type { CoefficientsPayload, ContributionsPayload, PcaPayload } from "@/api/queries";
 import {
   coefficientTrace,
+  contributionTrace,
   ellipseTrace,
   loadingsTraces,
   outliers,
@@ -247,5 +248,32 @@ describe("variable importance", () => {
       reason: "SNVTransformer cannot be folded into a coefficient vector",
     };
     expect(coefficientTrace(refused, theme)).toBeNull();
+  });
+});
+
+/** #186: a picked outlier's contributions, drawn from the server's numbers. */
+describe("contributions", () => {
+  const payload: ContributionsPayload = {
+    node_id: "pca_a",
+    sample: { index: 7, sample_id: "C008" },
+    axis: { kind: "wavelength_nm", unit: "nm", values: [850, 852, 854] },
+    hotelling_t2: { total: 1.5, contributions: [1.0, -0.5, 1.0] },
+    spe: { total: 0.06, residual: [0.1, -0.2, 0.1], contributions: [0.01, 0.04, 0.01] },
+  };
+
+  it("carries the dataset row on every outlier, so a contribution can be asked for", () => {
+    for (const row of outliers(pca)) {
+      expect(pca.samples.some((sample) => sample.index === row.index && sample.sample_id === row.sample)).toBe(true);
+    }
+  });
+
+  it("draws the picked quantity against the node's axis, filled to zero", () => {
+    const t2 = contributionTrace(payload, "hotelling_t2", theme);
+    expect(t2.x).toEqual([850, 852, 854]);
+    expect(t2.y).toEqual([1.0, -0.5, 1.0]);
+    expect(t2.fill).toBe("tozeroy");
+    const spe = contributionTrace(payload, "spe", theme);
+    expect(spe.y).toEqual([0.01, 0.04, 0.01]);
+    expect(String(spe.hovertemplate)).toContain("C008");
   });
 });

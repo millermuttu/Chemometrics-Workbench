@@ -55,6 +55,7 @@ from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
 from chemometrics_workbench import __version__, preprocessing, readers
 from chemometrics_workbench.checks import PipelineWarning, check_pipeline
+from chemometrics_workbench.decomposition import spe_contributions, t2_contributions
 from chemometrics_workbench.executor import (
     EstimatorResult,
     governing_folds,
@@ -62,6 +63,7 @@ from chemometrics_workbench.executor import (
     stored,
 )
 from chemometrics_workbench.executor import stored_display as _stored_display
+from chemometrics_workbench.executor import stored_fitted_matrix as _stored_fitted_matrix
 from chemometrics_workbench.executor import stored_result as _stored_result
 from chemometrics_workbench.jobs import Job, Jobs, submit_run
 from chemometrics_workbench.models import (
@@ -101,6 +103,7 @@ __all__ = [
     "MAX_POINTS",
     "MAX_TRACES",
     "MAX_UPLOAD_BYTES",
+    "contributions_payload",
     "folded_coefficients",
     "node_axis",
     "open_project_directory",
@@ -802,6 +805,69 @@ def folded_coefficients(
     }
 
 
+def contributions_payload(
+    result: EstimatorResult,
+    matrix: NDArray[np.float64],
+    sample: int,
+    version: DatasetVersion,
+    axis: NDArray[np.float64],
+) -> dict[str, Any]:
+    """Which variables put one sample where the diagnostics show it (#186).
+
+    `pca.md` §7 and §8: signed `T²` contributions summing to the sample's `T²`,
+    and the residual with its squares summing to its SPE. Computed here from the
+    stored result's rotations and loadings and the stored input row - nothing
+    is refitted, and the totals returned are these sums, so a reader can check
+    them against the diagnostics panel's numbers.
+
+    A regression or classification centred its rows by the fit rows' mean
+    inside the estimator (`pls-regression.md` §3), which no node did; the same
+    centring is applied to the row here, so the row is the one the model saw.
+    """
+    if not result.rotations:
+        raise _fail(
+            409,
+            "rerun_needed",
+            f"node {result.node_id!r} was fitted before its rotations were kept with the "
+            "result, so contributions cannot be computed from it. Run the pipeline again.",
+            node_id=result.node_id,
+        )
+    if not 0 <= sample < matrix.shape[0]:
+        raise _fail(
+            404,
+            "not_found",
+            f"node {result.node_id!r} has {matrix.shape[0]} samples and was asked for {sample}.",
+            node_id=result.node_id,
+        )
+    row = matrix[sample]
+    if result.task in ("regression", "classification"):
+        row = row - matrix[result.rows].mean(axis=0)
+
+    rotations = np.asarray(result.rotations, dtype=np.float64).T
+    loadings = np.asarray(result.loadings, dtype=np.float64).T
+    t2 = t2_contributions(row, rotations, result.eigenvalues)
+    residual, spe = spe_contributions(row, rotations, loadings)
+    return {
+        "node_id": result.node_id,
+        "sample": _samples([sample], version)[0],
+        "axis": {
+            "kind": version.axis.kind,
+            "unit": version.axis.unit,
+            "values": [float(value) for value in axis],
+        },
+        "hotelling_t2": {"total": float(t2.sum()), "contributions": _values(t2)},
+        "spe": {
+            "total": float(spe.sum()),
+            "residual": _values(residual),
+            "contributions": _values(spe),
+        },
+    }
+
+
+def _values(array: NDArray[np.float64]) -> list[float]:
+    return [float(value) for value in array]
+
+
 def spectra_payload(
     node_id: str,
     values: NDArray[np.float64],
@@ -1295,6 +1361,28 @@ def get_coefficients(node_id: str) -> Any:
             node_id=node_id,
         )
     return folded_coefficients(directory, pipeline, NodeId(node_id), version, result)
+
+
+@router.get("/results/{node_id}/contributions/{sample}")
+def get_contributions(node_id: str, sample: int) -> Any:
+    """One sample's per-variable contributions to its `T²` and SPE (#186)."""
+    directory, pipeline, version = _runnable()
+    result = _stored_result(directory, pipeline, version, node_id)
+    if result is None:
+        raise _fail(
+            404, "not_found", f"node {node_id!r} has no fitted result yet.", node_id=node_id
+        )
+    matrix = _stored_fitted_matrix(directory, pipeline, version, node_id)
+    if matrix is None:
+        raise _fail(
+            404,
+            "not_found",
+            f"node {node_id!r}'s input has no stored array to take a row from. Run the pipeline.",
+            node_id=node_id,
+        )
+    return contributions_payload(
+        result, matrix, sample, version, node_axis(pipeline, NodeId(node_id), version)
+    )
 
 
 def _indices(raw: str | None) -> list[int]:

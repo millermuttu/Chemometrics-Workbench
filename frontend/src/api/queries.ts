@@ -230,6 +230,18 @@ export interface CoefficientsPayload {
   axis?: { kind: string; unit: string | null; values: number[] };
 }
 
+/** `GET /results/{id}/contributions/{sample}` (#186): which variables put one
+ * sample where the diagnostics show it. Signed `T²` contributions summing to
+ * its `T²`, and the residual with its squares summing to its SPE, on the
+ * node's own axis. */
+export interface ContributionsPayload {
+  node_id: string;
+  sample: { index: number; sample_id: string };
+  axis: { kind: string; unit: string | null; values: number[] };
+  hotelling_t2: { total: number; contributions: number[] };
+  spe: { total: number; residual: number[]; contributions: number[] };
+}
+
 export interface Job {
   job_id: string;
   experiment_id: string;
@@ -406,6 +418,15 @@ export function useCoefficients(nodeId: string | undefined) {
     queryKey: ["coefficients", nodeId],
     queryFn: () => api<CoefficientsPayload>(`/results/${nodeId}/coefficients`),
     enabled: Boolean(nodeId),
+    staleTime: Infinity,
+  });
+}
+
+export function useContributions(nodeId: string | undefined, sample: number | null) {
+  return useQuery({
+    queryKey: ["contributions", nodeId, sample],
+    queryFn: () => api<ContributionsPayload>(`/results/${nodeId}/contributions/${sample}`),
+    enabled: Boolean(nodeId) && sample !== null,
     staleTime: Infinity,
   });
 }

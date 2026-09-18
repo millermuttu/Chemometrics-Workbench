@@ -1,4 +1,4 @@
-import type { CoefficientsPayload, PcaPayload } from "@/api/queries";
+import type { CoefficientsPayload, ContributionsPayload, PcaPayload } from "@/api/queries";
 
 import type { PlotTheme } from "./theme";
 
@@ -108,9 +108,13 @@ export function varianceFigure(pca: PcaPayload, theme: PlotTheme) {
 
 /** Which samples the server's own limits put outside. Comparison, not
  * statistics: both limits arrived with the payload. */
-export function outliers(pca: PcaPayload): { sample: string; t2: number; spe: number }[] {
+export function outliers(
+  pca: PcaPayload,
+): { index: number; sample: string; t2: number; spe: number }[] {
   return pca.samples
     .map((sample, index) => ({
+      // The dataset row, which is what a contribution is asked for by (#186).
+      index: sample.index,
       sample: sample.sample_id,
       t2: pca.diagnostics.hotelling_t2[index],
       spe: pca.diagnostics.spe[index],
@@ -233,5 +237,26 @@ export function coefficientTrace(payload: CoefficientsPayload, theme: PlotTheme)
     y: payload.coefficients,
     line: { width: 1.3, color: theme.series[1] },
     hovertemplate: "%{x:.1f} · b %{y:.4g}<extra></extra>",
+  };
+}
+
+/** One sample's contributions to its `T²` or its SPE against the node's axis
+ * (#186), filled to zero so a signed `T²` contribution reads as a bar. The
+ * numbers are the server's; their sum is the total the panel prints. */
+export function contributionTrace(
+  payload: ContributionsPayload,
+  which: "hotelling_t2" | "spe",
+  theme: PlotTheme,
+) {
+  const values = which === "spe" ? payload.spe.contributions : payload.hotelling_t2.contributions;
+  return {
+    type: "scattergl",
+    mode: "lines",
+    name: which === "spe" ? "SPE contribution" : "T² contribution",
+    x: payload.axis.values,
+    y: values,
+    fill: "tozeroy",
+    line: { width: 1.2, color: theme.series[which === "spe" ? 1 : 0] },
+    hovertemplate: `${payload.sample.sample_id}<br>%{x:.1f} · %{y:.4g}<extra></extra>`,
   };
 }

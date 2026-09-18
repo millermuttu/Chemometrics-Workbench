@@ -188,3 +188,43 @@ test("a classification tab tallies its classes, and is read by accuracy", async 
   await expect(page.getByTestId("metric-Accuracy")).not.toHaveText("—");
   await expect(page.getByTestId("metric-Accuracy (CV)")).not.toHaveText("—");
 });
+
+test("picking an outlier draws which variables put it there, summing to its own T²", async ({
+  page,
+}) => {
+  // #186. The diagnostics table lists what the limits put outside; a row
+  // opens that sample's contributions, served by the node's own endpoint.
+  await openResults(page);
+  await expect(page.getByTestId("contributions-empty")).toBeVisible();
+
+  const row = page.getByTestId("outlier-row").first();
+  const index = Number(await row.getAttribute("data-index"));
+  await row.click();
+  await expect(page.getByTestId("contributions-plot")).toBeVisible();
+  await expect(page.getByTestId("contributions-note")).toContainText("Σ =");
+
+  const drawn = await page.evaluate(() => {
+    const plot = document.querySelector("[data-testid=contributions-plot]") as HTMLElement & {
+      data?: { x?: number[]; y?: number[] }[];
+    };
+    const trace = plot.data?.[0];
+    return { points: trace?.x?.length ?? 0, sum: (trace?.y ?? []).reduce((a, b) => a + b, 0) };
+  });
+  expect(drawn.points).toBe(100);
+
+  // The sum is the sample's T² as the results payload serves it, to the
+  // store's float32 precision - the contributions are drawn, not decided.
+  const served = await page.evaluate(async (wanted: number) => {
+    const response = await fetch("/api/results/pca_a", {
+      headers: { Authorization: `Bearer ${sessionStorage.getItem("token")}` },
+    });
+    const pca = await response.json();
+    const position = pca.samples.findIndex((s: { index: number }) => s.index === wanted);
+    return pca.diagnostics.hotelling_t2[position] as number;
+  }, index);
+  expect(Math.abs(drawn.sum - served) / served).toBeLessThan(1e-3);
+
+  await page.getByLabel("Contribution view").selectOption("spe");
+  await expect(page.getByTestId("contributions-plot")).toBeVisible();
+  await expect(page.getByTestId("contributions-note")).toContainText("Σ =");
+});

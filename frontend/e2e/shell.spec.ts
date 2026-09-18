@@ -41,16 +41,21 @@ test("the outline previews into one transient tab and pins on a double click", a
 });
 
 test("tabs close, split and overflow into a searchable menu", async ({ page }) => {
+  // Opening tabs is the setup, not the claim, and each one mounts a screen.
+  // #168: opening every outline button inside the default 30 s budget timed
+  // out on the macOS runner twice, so this opens only until the strip
+  // overflows and carries a budget sized for a slow machine.
+  test.setTimeout(120_000);
   await open(page);
   const outline = page.getByRole("complementary", { name: "Project outline" });
   const rows = outline.getByRole("button");
   const count = await rows.count();
+  const overflow = page.getByRole("button", { name: /more tabs/ });
 
-  // Fifteen preprocessing variants is the normal case; open enough to overflow.
   for (let index = 0; index < count; index += 1) {
     await rows.nth(index).dblclick();
+    if (await overflow.isVisible()) break;
   }
-  const overflow = page.getByRole("button", { name: /more tabs/ });
   await expect(overflow).toBeVisible();
 
   await overflow.click();

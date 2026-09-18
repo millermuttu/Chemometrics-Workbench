@@ -173,6 +173,7 @@ __all__ = [
     "result_path",
     "stored",
     "stored_display",
+    "stored_fitted_matrix",
     "stored_result",
 ]
 
@@ -344,6 +345,13 @@ class EstimatorResult:
 
     y_loadings: list[float] = field(default_factory=list)
     vip: list[float] = field(default_factory=list)
+
+    rotations: list[list[float]] = field(default_factory=list)
+    """`a x p`, like `loadings`: what a row is multiplied by to get its scores.
+    PCA's are its loadings; PLS's are `R = W(P'W)^-1` (`pls-regression.md`
+    §5). Kept since #186 so a contribution plot can be computed from the
+    stored result and the stored input row without refitting anything. Empty
+    on a result stored before then, which the endpoint says."""
 
     y_explained_variance_ratio: list[float] = field(default_factory=list)
     """`pls-regression.md` §8's YVar. The x-block's stays in
@@ -944,6 +952,7 @@ def _estimator(
         rows=[int(row) for row in rows],
         scores=_rows(model.scores_),
         loadings=_rows(np.asarray(model.loadings_).T),
+        rotations=_rows(np.asarray(model.loadings_).T),
         eigenvalues=_values(np.asarray(model.eigenvalues_)[: model.n_components]),
         explained_variance_ratio=_values(model.explained_variance_ratio()),
         cumulative_explained_variance=_values(model.cumulative_explained_variance()),
@@ -1140,6 +1149,7 @@ def _fit_pls1(
         rows=[int(row) for row in rows],
         scores=_rows(model.x_scores_),
         loadings=_rows(np.asarray(model.x_loadings_).T),
+        rotations=_rows(np.asarray(model.rotations_).T),
         # The score variances, not a decomposition's spectrum of them - but the
         # same quantity `PCA.eigenvalues_` carries and the same one the T2
         # ellipse is drawn from. #142 published an empty list here on the
@@ -1355,6 +1365,31 @@ def stored_display(
     folds = governing_folds(node_id, by_id, version.n_samples)
     state = _from_cache(path, paths, folds)
     return None if state is None else state.display
+
+
+def stored_fitted_matrix(
+    directory: str | Path, pipeline: Pipeline, version: DatasetVersion, node_id: NodeId
+) -> NDArray[np.float64] | None:
+    """The array an estimator was fitted from, read back: its input's fold-zero array.
+
+    Every row of it, calibration and held-out alike, transformed with fold
+    zero's parameters - which is the matrix `_estimator` indexed with `rows`
+    and `held_out`. A contribution plot (#186) needs the sample's row from
+    *this* array, not from the display array a spectra plot draws, whose rows
+    below a split come from whichever fold held each one out. `None` when the
+    node is not an estimator or its input has not been run.
+    """
+    path = Path(directory)
+    by_id = {node.id: node for node in pipeline.nodes}
+    node = by_id.get(node_id)
+    if node is None or node.type != "estimator":
+        return None
+    parent = node.inputs[0]
+    paths = read_cache_index(path).get(node_keys(pipeline, version)[parent])
+    if not paths:
+        return None
+    state = _from_cache(path, paths, governing_folds(parent, by_id, version.n_samples))
+    return None if state is None else state.arrays[0]
 
 
 def stored_result(
