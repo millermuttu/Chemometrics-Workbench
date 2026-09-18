@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import type { DatasetEntry } from "@/api/queries";
 import {
+  sourceVersionOf,
   useCancelJob,
   useDatasets,
   useJob,
@@ -69,6 +70,7 @@ function useResizable(initial: number, min: number, max: number, side: "left" | 
 function Pane({
   tab,
   datasets,
+  targets,
   onImported,
   onCloseImport,
   onOpenNode,
@@ -76,6 +78,7 @@ function Pane({
 }: {
   tab: Tab | undefined;
   datasets: DatasetEntry[] | undefined;
+  targets: string[];
   onOpenNode: (id: string, label: string) => void;
   onCompare: (left: string, right: string) => void;
   onImported: (versionId: string, name: string) => void;
@@ -86,7 +89,7 @@ function Pane({
   }
 
   if (tab?.kind === "pipeline")
-    return <PipelineCanvas onOpenNode={onOpenNode} onCompare={onCompare} />;
+    return <PipelineCanvas onOpenNode={onOpenNode} onCompare={onCompare} targets={targets} />;
   if (tab?.kind === "spectra") {
     const shape = datasets?.[0]?.versions.at(-1);
     return (
@@ -297,6 +300,8 @@ export function Shell() {
   const splitTab = state.tabs.find((tab) => tab.id === state.splitId);
   const samples = datasets.data?.[0]?.versions.at(-1);
   const noDatasets = datasets.isSuccess && datasets.data.length === 0;
+  /** What a PLS node can model: the columns of the version the recipe runs on. */
+  const targets = Object.keys(sourceVersionOf(pipeline.data, datasets.data)?.targets ?? {});
 
   /** The active estimator node's headline numbers, from its own result. The
    * full results table is #48; this is what fits in 292px. */
@@ -448,11 +453,11 @@ export function Shell() {
             <EmptyProject onImport={openImport} />
           ) : state.splitId ? (
             <div className="split">
-              <Pane tab={activeTab} datasets={datasets.data} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} />
-              <Pane tab={splitTab} datasets={datasets.data} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} />
+              <Pane tab={activeTab} datasets={datasets.data} targets={targets} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} />
+              <Pane tab={splitTab} datasets={datasets.data} targets={targets} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} />
             </div>
           ) : (
-            <Pane tab={activeTab} datasets={datasets.data} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} />
+            <Pane tab={activeTab} datasets={datasets.data} targets={targets} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} />
           )}
         </main>
 

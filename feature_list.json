@@ -380,6 +380,25 @@
       "status": "passing",
       "evidence": "2026-09-18. Version: __init__.py reads importlib.metadata; GET /projects and /projects/{id} carry app_version; test_the_project_reports_the_version_pyproject_declares against the old __init__.py: `AssertionError: assert '0.2.0' == '0.5.0'`; with the fix `uv run pytest` 819 passed 1 skipped (22 s); ruff, format, mypy clean. 404: AnalysisResults and SpectraView render CannotLoad on a query error, and CannotLoad has a 404 case (\"Nothing to show yet\"); e2e `a node that has never been run says so, rather than loading forever` (runs.spec.ts, first in the file) against the unfixed screens FAILED at `expect(page.getByText(\"Loading results…\")).toHaveCount(0)`; with the fix `pnpm exec playwright test` 48 passed + this test failing on an exact-name locator for SNV, then `--project=runs` 4 passed after the locator became /^SNV/. Stale: NodeState, toEdges, NodeCard, Inspector and stale.ts no longer carry a state the server never sends; graph.test.ts asserts the fixture's stale nodes get the resting edge. `pnpm typecheck`, `pnpm lint` clean; `pnpm test` 106 passed (3 dead-code tests removed); `pnpm build` ok.",
       "notes": ""
+    },
+    {
+      "id": "spec-nodes-are-edited",
+      "priority": 1,
+      "area": "frontend",
+      "issue": 182,
+      "title": "Estimator and split nodes are edited in the inspector, and PLS models a real column",
+      "depends_on": [
+        "review-fixes-version-404-stale"
+      ],
+      "user_visible_behavior": "Selecting a PLS, PCA or k-fold node shows a typed form like a preprocessing step's; a PLS target is chosen from the dataset's own columns; the drop menu offers PLS only when the dataset has a target, modelling its first one rather than a column named fat.",
+      "verification": [
+        "uv run pytest - the schema endpoint serves estimators and splits; the validator refuses a one-fold k-fold",
+        "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
+        "pnpm exec playwright test - a k-fold's fold count edited in the inspector reaches the served pipeline; the PLS target is offered from the dataset's targets; both first run against the unfixed inspector"
+      ],
+      "status": "passing",
+      "evidence": "2026-09-18. Backend: /schema/steps serves one discriminated union of PreprocessStep, SplitSpec and EstimatorSpec and /steps/validate validates against it; test_the_schema_covers_estimators_and_splits_as_well and test_an_estimator_or_a_split_is_validated_like_a_step; `uv run pytest` 821 passed 1 skipped; ruff, format, mypy clean. Frontend: schema.ts skips $defs without a kind, resolves a $ref enum, and knows string and boolean fields; ParameterForm renders any field with options as a select and sends strings and booleans as such; Inspector builds the form from step or spec and offers the PLS target from the source version's target columns (sourceVersionOf); catalogue.stepMenu(targets) puts PLS on the menu only with a target, modelling the first. `pnpm test` 111 passed (5 new in inspector.test.ts, 2 in catalogue.test.ts); typecheck, lint, build clean. e2e `a split is edited like a step, and the edit reaches the pipeline` (n_splits 10 -> 5 -> 10 asserted on GET /pipelines/current) and `a PLS target is chosen from the dataset's own columns` (select with Tecator's moisture, fat, protein): against dev's Inspector.tsx, schema.ts and ParameterForm.tsx both FAILED with `element(s) not found` on the N Splits and Target fields; with the fix `pnpm exec playwright test` 51 passed (1.5m).",
+      "notes": ""
     }
   ]
 }

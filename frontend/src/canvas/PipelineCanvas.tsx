@@ -11,7 +11,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { ApiError, api } from "@/api/client";
 import type { PipelineNode } from "@/api/queries";
 import { usePipeline, usePipelineState, useSaveLayout, useSavePipeline } from "@/api/queries";
-import { STEP_MENU } from "@/canvas/catalogue";
+import { stepMenu } from "@/canvas/catalogue";
 import { NodeCard } from "@/canvas/NodeCard";
 import { StepList } from "@/canvas/StepList";
 import {
@@ -96,10 +96,14 @@ export function withDrafts(saved: PipelineNode[], drafts: DraftStep[]): Pipeline
 export function PipelineCanvas({
   onOpenNode,
   onCompare,
+  targets = [],
 }: {
   onOpenNode: (id: string, label: string) => void;
   /** Opens the comparison tab once two terminal estimators are picked (#51). */
   onCompare?: (left: string, right: string) => void;
+  /** The dataset's target columns, which decide whether PLS is on the menu
+   * and what it models (#182). */
+  targets?: string[];
 }) {
   const pipeline = usePipeline();
   const state = usePipelineState();
@@ -320,7 +324,7 @@ export function PipelineCanvas({
           <div className="ilabel" style={{ padding: "2px 8px 4px" }}>
             Add after {dropped.parent}
           </div>
-          {STEP_MENU.map((step) => (
+          {stepMenu(targets).map((step) => (
             <button
               key={step.kind}
               role="menuitem"

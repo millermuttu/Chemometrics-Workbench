@@ -74,18 +74,33 @@ export const STEPS: DraftableStep[] = [
 ];
 
 
-export const STEP_MENU: CatalogueStep[] = [
-  ...STEPS,
-  {
-    kind: "PLS 5 LV",
-    type: "estimator",
-    parameters: "5 components · fat",
-    payload: { spec: { kind: "pls", n_components: 5, algorithm: "nipals", target: "fat" } },
-  },
-  {
-    kind: "K-fold 10",
-    type: "split",
-    parameters: "10 folds · shuffle · seed 42",
-    payload: { spec: { kind: "kfold", n_splits: 10, shuffle: true, seed: 42 } },
-  },
-];
+/** The drop menu, for a dataset with these target columns.
+ *
+ * A function rather than a constant because a PLS node has to model
+ * *something*: this used to write `target: "fat"` - Tecator's column - into
+ * every PLS node, so on any other dataset the node validated, ran and failed
+ * by name (#182). The first target is the default and the inspector offers
+ * the rest; a dataset with no targets is offered no PLS at all.
+ */
+export function stepMenu(targets: string[]): CatalogueStep[] {
+  const [target] = targets;
+  return [
+    ...STEPS,
+    ...(target
+      ? [
+          {
+            kind: "PLS 5 LV",
+            type: "estimator" as const,
+            parameters: `5 components · ${target}`,
+            payload: { spec: { kind: "pls", n_components: 5, algorithm: "nipals", target } },
+          },
+        ]
+      : []),
+    {
+      kind: "K-fold 10",
+      type: "split",
+      parameters: "10 folds · shuffle · seed 42",
+      payload: { spec: { kind: "kfold", n_splits: 10, shuffle: true, seed: 42 } },
+    },
+  ];
+}

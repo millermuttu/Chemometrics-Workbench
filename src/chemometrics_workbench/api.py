@@ -51,7 +51,7 @@ from typing import Annotated, Any
 import numpy as np
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from numpy.typing import NDArray
-from pydantic import BaseModel, TypeAdapter, ValidationError
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
 from chemometrics_workbench import __version__, preprocessing, readers
 from chemometrics_workbench.checks import PipelineWarning, check_pipeline
@@ -67,6 +67,7 @@ from chemometrics_workbench.jobs import Job, Jobs, submit_run
 from chemometrics_workbench.models import (
     Dataset,
     DatasetVersion,
+    EstimatorSpec,
     NodeId,
     Pipeline,
     PipelineNode,
@@ -74,6 +75,7 @@ from chemometrics_workbench.models import (
     Project,
     RangeSelect,
     SourceNode,
+    SplitSpec,
 )
 from chemometrics_workbench.project import (
     DatasetEntry,
@@ -1293,22 +1295,32 @@ def _indices(raw: str | None) -> list[int]:
 
 # --- The step schema ------------------------------------------------------
 
+#: Everything a node can carry, told apart by `kind`. One adapter for the
+#: schema and the validator, so the form that is drawn and the check behind it
+#: agree on what a field is. Estimators and splits joined the preprocessing
+#: steps in #182: until then a PLS node's target and a k-fold's fold count
+#: could be set only by whatever the canvas menu wrote when the node was added.
+_NODE_PAYLOADS: TypeAdapter[Any] = TypeAdapter(
+    Annotated[PreprocessStep | SplitSpec | EstimatorSpec, Field(discriminator="kind")]
+)
+
 
 @router.get("/schema/steps")
 def step_schema() -> Any:
-    """The preprocessing steps' JSON Schema, from the live models.
+    """The JSON Schema of every step, split and estimator, from the live models.
 
     Served from `models.py` rather than from a file, which is a change of
     source and not of shape: the inspector builds its parameter forms from
     this, so a field's bounds come from the same place the backend enforces
-    them.
+    them. The `$defs` hold one entry per kind plus the enums they reference
+    (`PLSAlgorithm`); a form is built from the entries that carry a `kind`.
     """
-    return TypeAdapter(PreprocessStep).json_schema()
+    return _NODE_PAYLOADS.json_schema()
 
 
 @router.post("/steps/validate")
 def validate_step(step: dict[str, Any]) -> Any:
-    """Validate one step against the model that will enforce it.
+    """Validate one step, split or estimator against the model that will enforce it.
 
     The cross-field rules — an odd Savitzky-Golay window, `polyorder` below it,
     `start` below `end` — live in `model_validator` and have no JSON Schema
@@ -1316,7 +1328,7 @@ def validate_step(step: dict[str, Any]) -> Any:
     in TypeScript and drifting from it.
     """
     try:
-        TypeAdapter(PreprocessStep).validate_python(step)
+        _NODE_PAYLOADS.validate_python(step)
     except ValidationError as error:
         return {
             "valid": False,

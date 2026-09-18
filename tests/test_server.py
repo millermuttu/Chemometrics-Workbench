@@ -124,11 +124,46 @@ def test_an_empty_project_answers_every_url_it_can_and_says_so_for_the_rest(
 
 def test_the_step_schema_comes_from_the_models_rather_than_a_file(client: TestClient) -> None:
     schema = client.get("/api/schema/steps", headers=AUTH).json()
-    kinds = {entry["properties"]["kind"]["const"] for entry in schema["$defs"].values()}
+    kinds = {
+        entry["properties"]["kind"]["const"]
+        for entry in schema["$defs"].values()
+        if "properties" in entry  # the enums they reference have none
+    }
 
     assert {"snv", "msc", "savgol", "mean_centre", "autoscale", "normalise"} <= kinds
     assert schema["$defs"]["SavitzkyGolay"]["properties"]["deriv"]["maximum"] == 2
     assert schema["$defs"]["MSC"]["properties"]["reference"]["enum"] == ["mean", "median"]
+
+
+def test_the_schema_covers_estimators_and_splits_as_well(client: TestClient) -> None:
+    """#182: a PLS node's target and a k-fold's fold count are edited from the
+    same form the preprocessing steps get, so their schema has to be served."""
+    schema = client.get("/api/schema/steps", headers=AUTH).json()
+    kinds = {
+        entry["properties"]["kind"]["const"]
+        for entry in schema["$defs"].values()
+        if "properties" in entry
+    }
+    assert {"pca", "pls", "plsda", "kfold", "loo", "train_test"} <= kinds
+    pls = schema["$defs"]["PLSRegressionSpec"]["properties"]
+    assert pls["target"]["type"] == "string"
+    assert pls["n_components"]["minimum"] == 1
+    # An enum referenced rather than inlined; the form resolves the reference.
+    assert pls["algorithm"]["$ref"] == "#/$defs/PLSAlgorithm"
+    assert schema["$defs"]["PLSAlgorithm"]["enum"] == ["nipals", "simpls"]
+    assert schema["$defs"]["KFoldSplit"]["properties"]["shuffle"]["type"] == "boolean"
+
+
+def test_an_estimator_or_a_split_is_validated_like_a_step(client: TestClient) -> None:
+    good = {"kind": "pls", "n_components": 3, "algorithm": "nipals", "target": "fat"}
+    assert client.post("/api/steps/validate", json=good, headers=AUTH).json()["valid"] is True
+
+    few = client.post(
+        "/api/steps/validate", json={"kind": "kfold", "n_splits": 1}, headers=AUTH
+    ).json()
+    assert few["valid"] is False
+    assert few["errors"][0]["field"].endswith("n_splits")
+    assert "greater than or equal to 2" in few["errors"][0]["message"]
 
 
 def test_a_step_is_validated_against_the_model_that_will_enforce_it(client: TestClient) -> None:
