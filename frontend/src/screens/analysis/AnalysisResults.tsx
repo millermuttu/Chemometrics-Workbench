@@ -1,7 +1,13 @@
 import Plotly from "plotly.js-gl2d-dist-min";
 import { useLayoutEffect, useRef, useState } from "react";
 
-import { useCoefficients, useContributions, useResults, type PcaPayload } from "@/api/queries";
+import {
+  useCoefficients,
+  useContributions,
+  useResults,
+  useSaveModel,
+  type PcaPayload,
+} from "@/api/queries";
 import {
   coefficientTrace,
   contributionTrace,
@@ -590,6 +596,52 @@ function RegressionMetrics({ pca }: { pca: PcaPayload }) {
   );
 }
 
+/** Save this fitted estimator as a model the project holds (#219).
+ *
+ * The name is the user's, so it is an input rather than something generated:
+ * a registry of "pls", "pls (2)" and "pls (3)" is a list nobody can read. It
+ * starts as the node's title because that is the obvious first answer, and a
+ * saved model is not a correction of the last one - saving twice is two
+ * entries, which is what the server does.
+ */
+function SaveModel({ nodeId, title }: { nodeId: string; title: string }) {
+  const save = useSaveModel();
+  const [name, setName] = useState<string | null>(null);
+  const value = name ?? title;
+
+  return (
+    <form
+      style={{ display: "flex", alignItems: "center", gap: 6 }}
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (value.trim()) save.mutate({ nodeId, name: value.trim() });
+      }}
+    >
+      <input
+        aria-label="Model name"
+        data-testid="model-name"
+        value={value}
+        onChange={(event) => setName(event.target.value)}
+        style={{ width: 150 }}
+      />
+      <button type="submit" data-testid="save-model" disabled={save.isPending || !value.trim()}>
+        {save.isPending ? "Saving…" : "Save model"}
+      </button>
+      {/* A failed save says why. The server's sentence is the message, as
+          every other failure on this screen has it. */}
+      {save.isError ? (
+        <span className="mono" role="alert" style={{ fontSize: 10.5, color: "var(--fail)" }}>
+          {save.error instanceof Error ? save.error.message : "The save failed."}
+        </span>
+      ) : save.isSuccess ? (
+        <span className="pill mono" data-testid="model-saved" style={{ fontSize: 10.5 }}>
+          saved
+        </span>
+      ) : null}
+    </form>
+  );
+}
+
 export function AnalysisResults({ nodeId, title }: { nodeId: string; title: string }) {
   const results = useResults(nodeId);
   const [picked, setPicked] = useState<number | null>(null);
@@ -641,7 +693,10 @@ export function AnalysisResults({ nodeId, title }: { nodeId: string; title: stri
             components · {pca.n_samples} × {pca.n_variables}
           </span>
         </div>
-        <div style={{ display: "flex", alignItems: "stretch" }}>
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <div style={{ paddingRight: 11 }}>
+            <SaveModel nodeId={nodeId} title={title} />
+          </div>
           {(classification
             ? ([
                 ["ACCURACY (CV)", metric(pca.metrics?.accuracy_cv, 3)],

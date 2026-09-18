@@ -49,7 +49,7 @@
       "id": "model-registry",
       "priority": 2,
       "area": "frontend",
-      "issue": null,
+      "issue": 219,
       "title": "A model registry: which models this project holds",
       "depends_on": [
         "model-artifact"
@@ -59,9 +59,9 @@
         "uv run pytest - a saved model is recorded and served; its artifact reference is a path and never contents",
         "pnpm exec playwright test - a model saved from the analysis tab appears in the outline"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": "The `model` table and the `Model` schema exist. The database stores the reference; the artifact is a file, per PROPOSAL.md section 11."
+      "status": "passing",
+      "evidence": "2026-09-18. `uv run pytest`: `897 passed, 1 skipped` - tests/test_server.py's six registry tests cover a saved model recorded and served, the row holding a path and never contents (the artifact opened with zipfile and its manifest read), an unfitted node refused, a missing model as a 404, two saves as two models, and an empty name refused; tests/test_db.py covers the version-2 stamp, the `model` table, an older database gaining the table it lacks, and an upgrade leaving existing rows alone. `pnpm test` in frontend/: `Test Files 19 passed (19)`, `Tests 137 passed (137)`. `pnpm build && npx playwright test --project=runs`: `9 passed (34.9s)`, the new `a model saved from the analysis tab appears in the outline` among them; the whole suite before it gave `60 passed (1.8m)`. Proof both fail on unfixed code: with the four source modules and the two frontend screens reverted and the tests kept, pytest gave `assert 1 == 2` on the schema stamp, `no such table: model`, and `assert 404 == 201` on the save; the same whole-project Playwright run gave `1 failed` at `locator.fill: Test timeout of 180000ms exceeded. - waiting for getByLabel('Model name')`, 8 passed.",
+      "notes": "The `Model` schema exists in models.py; **the `model` table does not exist in db.py** - the note that said both did was wrong. That makes this the first schema change since 1.3, so SCHEMA_VERSION goes to 2 and a database stamped below it gets `create_all` and a re-stamp: additive only, which is exactly what an added table needs and no more. The database stores the reference; the artifact is a file, per PROPOSAL.md section 11. Out of scope by decision: downloading the artifact over HTTP, re-importing one as a model, and prediction on new data. Built: db.ModelRow with SCHEMA_VERSION 2 and an additive upgrade; project.read_models, read_model and write_model following the experiment helpers including the skip-a-bad-row rule; POST /results/{node_id}/save plus GET /models and /models/{model_id}; the outline's Models section, a save control on the analysis header and a ModelView screen. executor.metrics_for and executor.governing_split were extracted rather than duplicated - a saved model's metrics and its run's are the same numbers. The artifact is written before the row, so a failure leaves an orphan file rather than a row nobody can open, and the environment recorded is the experiment's rather than this moment's."
     },
     {
       "id": "json-and-snippet-export",

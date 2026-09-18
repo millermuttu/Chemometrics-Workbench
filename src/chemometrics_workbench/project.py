@@ -57,6 +57,7 @@ from chemometrics_workbench.models import (
     DatasetVersion,
     Experiment,
     Frozen,
+    Model,
     NodeId,
     Pipeline,
     Project,
@@ -69,6 +70,7 @@ __all__ = [
     "EXPERIMENT_FILE",
     "LAYOUT_FILE",
     "LAYOUT_VERSION",
+    "MODELS_DIR",
     "PIPELINE_FILE",
     "PROJECT_FILE",
     "DatasetEntry",
@@ -86,12 +88,15 @@ __all__ = [
     "read_experiment",
     "read_experiments",
     "read_layout",
+    "read_model",
+    "read_models",
     "read_pipeline",
     "write_array",
     "write_cache_index",
     "write_experiment",
     "write_json",
     "write_layout",
+    "write_model",
     "write_pipeline",
 ]
 
@@ -105,6 +110,11 @@ EXPERIMENT_FILE = "experiment.json"
 CACHE_FILE = "cache.json"
 
 ARRAYS_DIR = "arrays"
+
+#: Where a saved model's artifact file lands, inside the project directory.
+#: `PROPOSAL.md` §11: the database holds the reference, the directory holds the
+#: file, and the directory is the thing you zip and send.
+MODELS_DIR = "models"
 REGISTRY_FILE = "projects.json"
 
 #: The version those five files were written at. The database carries its own
@@ -349,6 +359,17 @@ def _experiment_row(experiment: Experiment) -> db.ExperimentRow:
         started_at=experiment.started_at.isoformat() if experiment.started_at else None,
         finished_at=experiment.finished_at.isoformat() if experiment.finished_at else None,
         document=experiment.model_dump_json(),
+    )
+
+
+def _model_row(model: Model) -> db.ModelRow:
+    return db.ModelRow(
+        model_id=str(model.model_id),
+        experiment_id=str(model.experiment_id),
+        name=model.name,
+        task=model.task.value,
+        created_at=model.created_at.isoformat(),
+        document=model.model_dump_json(),
     )
 
 
@@ -704,6 +725,68 @@ def write_experiment(directory: str | os.PathLike[str], experiment: Experiment) 
     path = Path(directory)
     with _session(path) as session:
         session.merge(_experiment_row(experiment))
+        session.commit()
+
+
+# --- The model registry ---------------------------------------------------
+
+
+def read_models(directory: str | os.PathLike[str]) -> list[Model]:
+    """Every model this project has saved, most recently created first.
+
+    A row that no longer validates is skipped rather than refusing the whole
+    registry, which is `read_experiments`' rule and is right for the same
+    reason: one model written by a version whose schema has since moved should
+    cost its own row, not every other model in the project.
+    """
+    path = Path(directory)
+    with _session(path) as session:
+        rows = session.scalars(
+            select(db.ModelRow).order_by(db.ModelRow.created_at.desc(), db.ModelRow.model_id)
+        ).all()
+
+    models: list[Model] = []
+    for row in rows:
+        try:
+            models.append(Model.model_validate_json(row.document))
+        except ValidationError:
+            continue
+    return models
+
+
+def read_model(directory: str | os.PathLike[str], model_id: str) -> Model | None:
+    """One saved model, or `None` if this project has no such row.
+
+    Stricter than `read_models`: a caller asking for *this* model gets it or an
+    error, never silence, because a row that cannot be read is the answer to
+    the question rather than one entry in a list.
+    """
+    path = Path(directory)
+    with _session(path) as session:
+        row = session.get(db.ModelRow, model_id)
+        document = None if row is None else row.document
+    if document is None:
+        return None
+    try:
+        return Model.model_validate_json(document)
+    except ValidationError as error:
+        raise ProjectError(
+            f"model {model_id} in {db.database_path(path)} is not valid: {error}"
+        ) from error
+
+
+def write_model(directory: str | os.PathLike[str], model: Model) -> None:
+    """Record one saved model. The artifact itself is already on disk.
+
+    This never touches the artifact: `artifact.write_artifact` wrote the file
+    and returned its hash, and what lands here is the reference to it. A
+    `Model` whose `artifact_path` pointed outside the project directory would
+    break the promise that a project directory is self-contained, so the
+    caller resolves it inside — `api.py` does, through `_resolve_inside`.
+    """
+    path = Path(directory)
+    with _session(path) as session:
+        session.merge(_model_row(model))
         session.commit()
 
 

@@ -1,9 +1,11 @@
 import {
   useDatasets,
   useExperiments,
+  useModels,
   usePipeline,
   usePipelineState,
   type ExperimentRow,
+  type ModelRow,
   type PipelineNode,
 } from "@/api/queries";
 import { DatasetIcon, FlaskIcon, ModelIcon, NodeIcon } from "@/shell/icons";
@@ -119,11 +121,24 @@ export function runFigure(run: ExperimentRow): string {
   return run.status;
 }
 
+/** The one figure a saved model carries: whichever headline its metrics hold.
+ * A decomposition has no error to quote and reads as what it is, because a
+ * metric it does not have is absent rather than zero (section 11). */
+export function modelFigure(model: ModelRow): string {
+  const m = model.metrics;
+  if (m.rmsecv != null) return `RMSECV ${m.rmsecv.toFixed(4)}`;
+  if (m.rmsec != null) return `RMSEC ${m.rmsec.toFixed(4)}`;
+  if (m.accuracy != null) return `accuracy ${m.accuracy.toFixed(3)}`;
+  if (m.explained_variance != null) return `PC1 ${(m.explained_variance * 100).toFixed(1)}%`;
+  return model.task;
+}
+
 export function Sidebar({ projectId, activeId, collapsed, onOpen }: Props) {
   const datasets = useDatasets(projectId);
   const pipeline = usePipeline();
   const pipelineState = usePipelineState();
   const experiments = useExperiments();
+  const models = useModels();
 
   return (
     <aside className={`side${collapsed ? " rail" : ""}`} aria-label="Project outline">
@@ -207,12 +222,29 @@ export function Sidebar({ projectId, activeId, collapsed, onOpen }: Props) {
           />
         ))}
 
-        <Head label="Models" note="0" />
-        {/* Models are Phase 2 (#51) and no fixture describes one, so the
-            section is here with its empty state rather than invented. */}
-        <div className="empty">
-          {collapsed ? <ModelIcon /> : "No models yet — a run produces the first."}
-        </div>
+        <Head label="Models" note={models.data ? String(models.data.length) : undefined} />
+        {/* What this project holds, newest first (#219). Saving a fitted
+            estimator from the analysis tab is what puts one here; a run on its
+            own does not, because which fitted node is worth keeping is the
+            user's judgement rather than the executor's. */}
+        {models.data?.length === 0 ? (
+          <div className="empty">
+            {collapsed ? <ModelIcon /> : "No models yet — save one from a fitted estimator."}
+          </div>
+        ) : null}
+        {models.data?.map((model) => (
+          <Row
+            key={model.model_id}
+            icon={<ModelIcon />}
+            label={model.name}
+            dim={modelFigure(model)}
+            depth={26}
+            selected={activeId === model.model_id}
+            onOpen={(transient) =>
+              onOpen({ id: model.model_id, kind: "model", title: model.name }, transient)
+            }
+          />
+        ))}
       </div>
     </aside>
   );
