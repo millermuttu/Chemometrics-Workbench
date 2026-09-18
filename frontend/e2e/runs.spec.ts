@@ -115,7 +115,12 @@ test("the failure names its cause, marks the node, and shows no trace", async ({
   await page.getByRole("button", { name: "Run pipeline" }).click();
 
   const failure = page.getByTestId("run-failed");
-  await expect(failure).toBeVisible({ timeout: 60_000 });
+  // The failing branch is last in topological order, so the banner arrives
+  // only after four PCA branches and a ten-fold PLS on 3,000 x 1,200 have
+  // run cold. That is about ten seconds here and has taken over sixty on a
+  // slow Windows runner (#202's first CI run). The budget is the file's,
+  // not a wall-clock guess: this waits on the run's own terminal state.
+  await expect(failure).toBeVisible({ timeout: 150_000 });
   await expect(failure).toContainText("RUN FAILED");
 
   // The kernel's own sentence. `decomposition.py` refuses to return fewer
