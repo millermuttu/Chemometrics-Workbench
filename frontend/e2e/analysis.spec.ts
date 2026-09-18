@@ -109,6 +109,24 @@ test("a regression tab draws what a decomposition has no counterpart for", async
   await expect(page.getByTestId("predicted-plot")).toBeVisible();
   await expect(page.getByTestId("rmsecv-plot")).toBeVisible();
 
+  // #184: VIP beside the loadings, on the same axis - one point per variable.
+  await expect(page.getByRole("region", { name: "Variable importance" })).toBeVisible();
+  await expect(page.getByTestId("vip-plot")).toBeVisible();
+  const points = await page.evaluate(() => {
+    const plot = document.querySelector("[data-testid=vip-plot]") as HTMLElement & {
+      data?: { x?: number[] }[];
+    };
+    return plot.data?.[0]?.x?.length ?? 0;
+  });
+  expect(points).toBe(100);
+
+  // The seeded chain has an SNV in it, which is not a fixed linear map, so
+  // the raw-axis coefficients are refused - and the refusal names the step.
+  await page.getByLabel("Variable importance view").selectOption("coefficients");
+  const refused = page.getByTestId("coefficients-unavailable");
+  await expect(refused).toBeVisible();
+  await expect(refused).toContainText("SNVTransformer cannot be folded");
+
   // The header says what the model is and leads with the two numbers that say
   // whether it generalises, rather than PC1 and cumulative variance.
   const header = page.getByTestId("analysis-header");
@@ -127,7 +145,12 @@ test("a decomposition tab is unchanged, and shows none of the regression panels"
   page,
 }) => {
   await openResults(page);
-  for (const panel of ["Predicted vs measured", "RMSECV", "Calibration metrics"]) {
+  for (const panel of [
+    "Predicted vs measured",
+    "RMSECV",
+    "Calibration metrics",
+    "Variable importance",
+  ]) {
     await expect(page.getByRole("region", { name: panel })).toHaveCount(0);
   }
 });

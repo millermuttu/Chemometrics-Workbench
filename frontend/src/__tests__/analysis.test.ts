@@ -11,8 +11,9 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import type { PcaPayload } from "@/api/queries";
+import type { CoefficientsPayload, PcaPayload } from "@/api/queries";
 import {
+  coefficientTrace,
   ellipseTrace,
   loadingsTraces,
   outliers,
@@ -20,6 +21,7 @@ import {
   rmsecvTrace,
   scoresTrace,
   varianceFigure,
+  vipFigure,
 } from "@/plot/analysis";
 import type { PlotTheme } from "@/plot/theme";
 
@@ -195,5 +197,55 @@ describe("a regression's own panels", () => {
     const trace = rmsecvTrace(pls, theme) as Record<string, unknown>;
     expect(trace.x).toEqual([1, 2, 3, 4]);
     expect(trace.y).toEqual([4.9, 3.2, 2.8, 2.5]);
+  });
+});
+
+/** #184: VIP against the node's axis with the VIP = 1 line, and the folded
+ * coefficients against the raw axis or nothing, with the reason left to the
+ * panel. */
+describe("variable importance", () => {
+  const pls: PcaPayload = {
+    ...pca,
+    task: "regression",
+    regression: {
+      target: "fat",
+      observed: [],
+      predicted: [],
+      coefficients: [],
+      vip: pca.loadings.axis.values.map((_, index) => (index % 2 ? 1.4 : 0.6)),
+      y_loadings: [],
+      y_explained_variance_ratio: [],
+    },
+  };
+
+  it("draws VIP against the node's own axis, with the rule-of-thumb line at 1", () => {
+    const { data, shapes } = vipFigure(pls, theme);
+    expect(data[0].x).toEqual(pca.loadings.axis.values);
+    expect(data[0].y).toEqual(pls.regression!.vip);
+    expect(shapes).toHaveLength(1);
+    expect(shapes[0]).toMatchObject({ y0: 1, y1: 1, xref: "paper" });
+  });
+
+  it("draws the folded vector against the axis the endpoint sent", () => {
+    const folded: CoefficientsPayload = {
+      node_id: "pls",
+      available: true,
+      target: "fat",
+      intercept: 2.5,
+      coefficients: [0.1, -0.2, 0.3],
+      axis: { kind: "wavelength_nm", unit: "nm", values: [850, 852, 854] },
+    };
+    const trace = coefficientTrace(folded, theme)!;
+    expect(trace.x).toEqual([850, 852, 854]);
+    expect(trace.y).toEqual([0.1, -0.2, 0.3]);
+  });
+
+  it("draws nothing when the chain cannot be folded, leaving the sentence to the panel", () => {
+    const refused: CoefficientsPayload = {
+      node_id: "pls",
+      available: false,
+      reason: "SNVTransformer cannot be folded into a coefficient vector",
+    };
+    expect(coefficientTrace(refused, theme)).toBeNull();
   });
 });

@@ -193,6 +193,19 @@ export interface PcaPayload {
   rmsecv_curve?: number[];
 }
 
+/** `GET /results/{id}/coefficients`: the model as `y = intercept + X_raw · b`
+ * on the dataset's own axis (#144), or `available: false` with the sentence
+ * naming the step that cannot be folded. */
+export interface CoefficientsPayload {
+  node_id: string;
+  available: boolean;
+  reason?: string;
+  target?: string | null;
+  intercept?: number;
+  coefficients?: number[];
+  axis?: { kind: string; unit: string | null; values: number[] };
+}
+
 export interface Job {
   job_id: string;
   experiment_id: string;
@@ -359,6 +372,15 @@ export function useResults(nodeId: string | undefined) {
   return useQuery({
     queryKey: ["results", nodeId],
     queryFn: () => api<PcaPayload>(`/results/${nodeId}`),
+    enabled: Boolean(nodeId),
+    staleTime: Infinity,
+  });
+}
+
+export function useCoefficients(nodeId: string | undefined) {
+  return useQuery({
+    queryKey: ["coefficients", nodeId],
+    queryFn: () => api<CoefficientsPayload>(`/results/${nodeId}/coefficients`),
     enabled: Boolean(nodeId),
     staleTime: Infinity,
   });

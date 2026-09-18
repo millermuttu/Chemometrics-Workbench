@@ -1,4 +1,4 @@
-import type { PcaPayload } from "@/api/queries";
+import type { CoefficientsPayload, PcaPayload } from "@/api/queries";
 
 import type { PlotTheme } from "./theme";
 
@@ -187,5 +187,51 @@ export function rmsecvTrace(pca: PcaPayload, theme: PlotTheme) {
     line: { width: 1.5, color: theme.series[0] },
     marker: { size: 5, color: theme.series[0] },
     hovertemplate: "A = %{x}<br>RMSECV %{y:.4g}<extra></extra>",
+  };
+}
+
+/** VIP against the node's own axis (#184), with the `VIP = 1` line
+ * `pls-regression.md` §8 explains: `Σ VIP² = p`, so 1 is the average and the
+ * origin of the rule of thumb. The line is a shape rather than a trace so it
+ * neither appears in the legend nor answers a hover. */
+export function vipFigure(pca: PcaPayload, theme: PlotTheme) {
+  return {
+    data: [
+      {
+        type: "scattergl",
+        mode: "lines",
+        name: "VIP",
+        x: pca.loadings.axis.values,
+        y: pca.regression?.vip ?? [],
+        line: { width: 1.3, color: theme.series[0] },
+        hovertemplate: "%{x:.1f} · VIP %{y:.3f}<extra></extra>",
+      },
+    ],
+    shapes: [
+      {
+        type: "line",
+        xref: "paper",
+        x0: 0,
+        x1: 1,
+        y0: 1,
+        y1: 1,
+        line: { width: 1, dash: "dot", color: theme.ink3 },
+      },
+    ],
+  };
+}
+
+/** The folded coefficient vector on the dataset's raw axis (#184), or `null`
+ * when the chain cannot be folded - the panel prints the reason instead. */
+export function coefficientTrace(payload: CoefficientsPayload, theme: PlotTheme) {
+  if (!payload.available || !payload.axis || !payload.coefficients) return null;
+  return {
+    type: "scattergl",
+    mode: "lines",
+    name: "b",
+    x: payload.axis.values,
+    y: payload.coefficients,
+    line: { width: 1.3, color: theme.series[1] },
+    hovertemplate: "%{x:.1f} · b %{y:.4g}<extra></extra>",
   };
 }

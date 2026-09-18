@@ -434,8 +434,8 @@
         "pnpm typecheck && pnpm lint && pnpm build",
         "pnpm exec playwright test - the seeded PLS tab shows both plots and the raw-axis length equals the dataset's variable count"
       ],
-      "status": "not_started",
-      "evidence": "",
+      "status": "passing",
+      "evidence": "2026-09-18. A Variable importance panel on the regression's loadings row toggles between VIP on the node's axis with the VIP = 1 line (vipFigure) and the folded coefficients on the raw axis from GET /results/{id}/coefficients (useCoefficients, coefficientTrace), rendering the server's sentence when the chain cannot be folded. Runs settling invalidate the coefficients query. `pnpm test` 116 passed (3 new in analysis.test.ts); typecheck, lint, build clean. e2e: analysis.spec.ts's regression test asserts the panel, 100 VIP points on the seeded PLS and the SNV refusal sentence; runs.spec.ts `a foldable chain draws its coefficients on the raw axis` adds a mean-centre-only branch through the API, runs, and reads 1200 raw-axis coefficients off the plot. Against dev's AnalysisResults, analysis.ts, queries.ts and Shell both FAILED - the seeded one on the missing panel (`element(s) not found`), the runs one for a different reason when run alone with -g (the failing branch was still present, so the run never reached Done). With the fix `pnpm exec playwright test` 53 passed (1.6m). No Python changed.",
       "notes": "Backend is done: EstimatorResult.vip (#142) and folded_coefficients (#144). This is a screen."
     },
     {
