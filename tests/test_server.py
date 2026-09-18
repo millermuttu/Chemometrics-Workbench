@@ -124,11 +124,46 @@ def test_an_empty_project_answers_every_url_it_can_and_says_so_for_the_rest(
 
 def test_the_step_schema_comes_from_the_models_rather_than_a_file(client: TestClient) -> None:
     schema = client.get("/api/schema/steps", headers=AUTH).json()
-    kinds = {entry["properties"]["kind"]["const"] for entry in schema["$defs"].values()}
+    kinds = {
+        entry["properties"]["kind"]["const"]
+        for entry in schema["$defs"].values()
+        if "properties" in entry  # the enums they reference have none
+    }
 
     assert {"snv", "msc", "savgol", "mean_centre", "autoscale", "normalise"} <= kinds
     assert schema["$defs"]["SavitzkyGolay"]["properties"]["deriv"]["maximum"] == 2
     assert schema["$defs"]["MSC"]["properties"]["reference"]["enum"] == ["mean", "median"]
+
+
+def test_the_schema_covers_estimators_and_splits_as_well(client: TestClient) -> None:
+    """#182: a PLS node's target and a k-fold's fold count are edited from the
+    same form the preprocessing steps get, so their schema has to be served."""
+    schema = client.get("/api/schema/steps", headers=AUTH).json()
+    kinds = {
+        entry["properties"]["kind"]["const"]
+        for entry in schema["$defs"].values()
+        if "properties" in entry
+    }
+    assert {"pca", "pls", "plsda", "kfold", "loo", "train_test"} <= kinds
+    pls = schema["$defs"]["PLSRegressionSpec"]["properties"]
+    assert pls["target"]["type"] == "string"
+    assert pls["n_components"]["minimum"] == 1
+    # An enum referenced rather than inlined; the form resolves the reference.
+    assert pls["algorithm"]["$ref"] == "#/$defs/PLSAlgorithm"
+    assert schema["$defs"]["PLSAlgorithm"]["enum"] == ["nipals", "simpls"]
+    assert schema["$defs"]["KFoldSplit"]["properties"]["shuffle"]["type"] == "boolean"
+
+
+def test_an_estimator_or_a_split_is_validated_like_a_step(client: TestClient) -> None:
+    good = {"kind": "pls", "n_components": 3, "algorithm": "nipals", "target": "fat"}
+    assert client.post("/api/steps/validate", json=good, headers=AUTH).json()["valid"] is True
+
+    few = client.post(
+        "/api/steps/validate", json={"kind": "kfold", "n_splits": 1}, headers=AUTH
+    ).json()
+    assert few["valid"] is False
+    assert few["errors"][0]["field"].endswith("n_splits")
+    assert "greater than or equal to 2" in few["errors"][0]["message"]
 
 
 def test_a_step_is_validated_against_the_model_that_will_enforce_it(client: TestClient) -> None:
@@ -215,6 +250,71 @@ def test_node_state_is_derived_from_what_is_on_disk(client: TestClient) -> None:
     assert after["nodes"]["source"]["state"] == "complete"
 
 
+def test_a_moved_node_is_remembered_and_the_recipe_is_untouched(client: TestClient) -> None:
+    """Moving a node must not change the science.
+
+    The whole reason layout has its own table and its own route: a position is
+    written without touching `Pipeline.content_hash()`, so an executor cache
+    entry keyed on that hash still matches and a node that was `complete` stays
+    `complete`. Asserting the recipe is byte-identical either side of the move
+    is what proves it - a layout folded into `PipelineWrite` would pass every
+    other assertion here and fail this one.
+    """
+    imported(client)
+    recipe = client.get("/api/pipelines/current", headers=AUTH).json()
+
+    written = client.put(
+        "/api/pipelines/current/layout",
+        json={"layout": {"source": {"x": 500, "y": 300}}},
+        headers=AUTH,
+    )
+    assert written.status_code == 200, written.text
+    assert written.json()["layout"] == {"source": {"x": 500.0, "y": 300.0}}
+
+    state = client.get("/api/pipelines/current/state", headers=AUTH).json()
+    assert state["layout"]["source"] == {"x": 500.0, "y": 300.0}
+    assert client.get("/api/pipelines/current", headers=AUTH).json() == recipe
+
+
+def test_a_position_for_a_node_that_is_gone_is_dropped(client: TestClient) -> None:
+    """A drag can land after another tab deleted the node it moved.
+
+    Refusing the whole write there would be an error about a race the user
+    cannot see, and would lose the positions that *are* valid. Dropping is also
+    the cheapest garbage collection available: a removed node's coordinates go
+    with it instead of accumulating in a table nothing prunes.
+    """
+    imported(client)
+    written = client.put(
+        "/api/pipelines/current/layout",
+        json={"layout": {"source": {"x": 10, "y": 20}, "ghost": {"x": 1, "y": 2}}},
+        headers=AUTH,
+    )
+    assert written.status_code == 200, written.text
+    assert written.json()["layout"] == {"source": {"x": 10.0, "y": 20.0}}
+    assert "ghost" not in client.get("/api/pipelines/current/state", headers=AUTH).json()["layout"]
+
+
+def test_a_coordinate_that_is_not_a_number_is_refused(client: TestClient) -> None:
+    imported(client)
+    refused = client.put(
+        "/api/pipelines/current/layout",
+        json={"layout": {"source": {"x": "left", "y": 0}}},
+        headers=AUTH,
+    )
+    assert refused.status_code == 422, refused.text
+
+
+def test_an_unknown_pipeline_has_no_layout_to_write(client: TestClient) -> None:
+    imported(client)
+    missing = client.put(
+        "/api/pipelines/00000000-0000-0000-0000-000000000000/layout",
+        json={"layout": {}},
+        headers=AUTH,
+    )
+    assert missing.status_code == 404, missing.text
+
+
 def test_a_run_is_submitted_and_answers_before_it_has_finished(client: TestClient) -> None:
     imported(client)
     job = client.post("/api/experiments/current/run", headers=AUTH).json()
@@ -273,6 +373,39 @@ def test_the_validator_runs_against_the_stored_pipeline(client: TestClient) -> N
 
     assert set(body) == {"pipeline_id", "valid", "problems", "warnings"}
     assert body["valid"] is True, "a source node alone has nothing wrong with it"
+
+
+def test_the_validator_checks_the_recipe_it_is_sent_and_writes_nothing(
+    client: TestClient,
+) -> None:
+    """#175: the canvas validates what it is drawing, drafts and all."""
+    imported(client)
+    stored = client.get("/api/pipelines/current", headers=AUTH).json()
+    drafted = [
+        *stored["nodes"],
+        {
+            "id": "plsda",
+            "type": "estimator",
+            "inputs": ["source"],
+            "spec": {"kind": "plsda", "n_components": 2, "class_column": "c"},
+        },
+    ]
+
+    body = client.post(
+        "/api/pipelines/current/validate", json={"nodes": drafted}, headers=AUTH
+    ).json()
+    assert body["valid"] is False
+    assert "estimator_not_fitted" in {w["code"] for w in body["warnings"]}
+    assert {w["node_id"] for w in body["warnings"]} == {"plsda"}
+    assert client.get("/api/pipelines/current", headers=AUTH).json() == stored
+
+    unknown = client.post(
+        "/api/pipelines/current/validate",
+        json={"nodes": [*stored["nodes"], {**drafted[-1], "inputs": ["ghost"]}]},
+        headers=AUTH,
+    )
+    assert unknown.status_code == 422
+    assert unknown.json()["error"]["code"] == "invalid_pipeline"
 
 
 # --------------------------------------------------------------------------

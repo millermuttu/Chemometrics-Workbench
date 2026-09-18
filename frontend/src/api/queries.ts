@@ -4,8 +4,9 @@ import type { StepSchema } from "@/inspector/schema";
 
 import { api } from "./client";
 
-/** The payload shapes are the stub server's, generated from the kernels by
- * stub/generate_fixtures.py. Only the fields the shell reads are typed. */
+/** The payload shapes the server publishes; the Phase 1.1 contract they grew
+ * from is kept in tests/fixtures/contract/. Only the fields the shell reads are
+ * typed. */
 
 export interface Project {
   project_id: string;
@@ -13,6 +14,8 @@ export interface Project {
   description: string;
   directory: string;
   created_at: string;
+  /** The server's own version, which is what every experiment records. */
+  app_version: string;
 }
 
 export interface DatasetVersion {
@@ -107,7 +110,7 @@ export interface PipelineState {
 export interface Experiment {
   experiment_id: string;
   status: string;
-  started_at: string;
+  started_at: string | null;
   finished_at: string | null;
   metrics: { explained_variance: number[] | null };
 }
@@ -155,6 +158,9 @@ export interface PcaPayload {
     hotelling_t2_limit: number;
     spe: number[];
     spe_limit: number;
+    /** The kernel's own sentence when the limit is outside Jackson-Mudholkar's
+     * domain (#71); `null` for every ordinary model and every regression. */
+    spe_limit_caveat?: string | null;
     alpha: number;
   };
   /** The held-out rows of the fitted fold, present only below a split. Its
@@ -196,6 +202,21 @@ export interface Job {
   /** Which node the run is on, or the one a failure stopped at. Added by #85;
    * the five fields above are Phase 1.1's and did not change. */
   node_id: string | null;
+}
+
+/** The dataset version the pipeline's source node names.
+ *
+ * Not `datasets[0]`: a project can hold more than one import, and the one the
+ * recipe runs on is the one whose columns a PLS node can model (#182). */
+export function sourceVersionOf(
+  pipeline: Pipeline | undefined,
+  datasets: DatasetEntry[] | undefined,
+): DatasetVersion | undefined {
+  const wanted = pipeline?.nodes.find((node) => node.type === "source")?.version_id;
+  if (!wanted) return undefined;
+  return datasets
+    ?.flatMap((entry) => entry.versions)
+    .find((version) => version.version_id === wanted);
 }
 
 export function useProjects() {
@@ -249,8 +270,8 @@ export function useImportDataset() {
   });
 }
 
-/** Phase 1.1 has one pipeline and one experiment, and the stub server returns
- * them whatever id it is given. 1.2 keeps the URLs and stops ignoring the id. */
+/** A project holds one pipeline and serves it, and its latest experiment, as
+ * `current`. */
 export function usePipeline() {
   return useQuery({ queryKey: ["pipeline"], queryFn: () => api<Pipeline>("/pipelines/current") });
 }
@@ -278,6 +299,25 @@ export function usePipelineState() {
  * arrays under the new key and comes back `not_run`. Nothing here writes
  * staleness; it is read back out of the store.
  */
+/** Where the canvas put its nodes.
+ *
+ * Its own mutation against its own endpoint, mirroring the split the server
+ * makes: a position lives outside `Pipeline.content_hash()`, so writing one
+ * must not go through the body that carries the recipe. Nothing is
+ * invalidated afterwards - the canvas already holds the position it just
+ * sent, and the next `pipeline-state` fetch will echo the same value back.
+ */
+export function useSaveLayout() {
+  return useMutation({
+    mutationFn: (layout: Record<string, { x: number; y: number }>) =>
+      api<{ layout: Record<string, { x: number; y: number }> }>("/pipelines/current/layout", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ layout }),
+      }),
+  });
+}
+
 export function useSavePipeline() {
   const client = useQueryClient();
   return useMutation({

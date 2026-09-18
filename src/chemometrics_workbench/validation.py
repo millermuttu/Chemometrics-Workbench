@@ -33,6 +33,7 @@ these are arrays in, arrays out, as in `preprocessing.py` and
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -52,6 +53,7 @@ __all__ = [
     "rmse",
     "sec",
     "sep",
+    "train_test",
     "validate_partition",
 ]
 
@@ -226,6 +228,30 @@ def leave_one_out(n_samples: int) -> list[Fold]:
         raise ValueError(f"leave-one-out needs at least 2 samples, got {n_samples}")
     every = np.arange(n_samples)
     return [Fold(train=np.delete(every, i), test=np.array([i], dtype=np.intp)) for i in every]
+
+
+def train_test(n_samples: int, test_size: float, *, seed: int = 42) -> list[Fold]:
+    """One hold-out fold, per §8.6: `ceil(test_size * n)` samples as the first
+    slice of the §8.2 permutation, the remainder the calibration set.
+
+    A list of one `Fold`, so everything below a split handles it the way it
+    handles a K-fold - but it is **not a partition**: the training rows are
+    never held out, `validate_partition` refuses it, and nothing about it is a
+    cross-validation. Its metrics carry the P suffix (§8.6), never CV.
+    """
+    if not 0.0 < test_size < 1.0:
+        raise ValueError(f"test_size must be strictly between 0 and 1, got {test_size}")
+    if n_samples < 2:
+        raise ValueError(f"a train/test split needs at least 2 samples, got {n_samples}")
+    held = math.ceil(test_size * n_samples)
+    if held >= n_samples:
+        raise ValueError(
+            f"a test size of {test_size} holds out {held} of {n_samples} samples and leaves "
+            "nothing to calibrate on. Reduce test_size, or add samples."
+        )
+    perm = np.random.default_rng(seed).permutation(n_samples)
+    test = np.sort(perm[:held])
+    return [Fold(train=np.setdiff1d(np.arange(n_samples), test), test=test)]
 
 
 def folds_from_indices(

@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -202,6 +203,10 @@ def database_path(directory: str | os.PathLike[str]) -> Path:
 #: than opening the file twice.
 _ENGINES: dict[Path, Engine] = {}
 
+#: Request handlers and the executor open engines from different threads; two
+#: of them racing on a new directory would each create one and one would leak.
+_ENGINES_LOCK = threading.Lock()
+
 
 @event.listens_for(Engine, "connect")
 def _sqlite_pragmas(connection: Any, _record: Any) -> None:
@@ -243,6 +248,11 @@ def engine_for(directory: str | os.PathLike[str], *, create: bool = False) -> En
     may have written columns this one would read as absent.
     """
     path = Path(directory).resolve() / DATABASE_FILE
+    with _ENGINES_LOCK:
+        return _engine_locked(path, create=create)
+
+
+def _engine_locked(path: Path, *, create: bool) -> Engine:
     cached = _ENGINES.get(path)
     if cached is not None:
         return cached
@@ -285,6 +295,7 @@ def open_session(directory: str | os.PathLike[str], *, create: bool = False) -> 
 
 def dispose_all() -> None:
     """Close every cached engine. For tests, and for a server shutting down."""
-    for engine in _ENGINES.values():
-        engine.dispose()
-    _ENGINES.clear()
+    with _ENGINES_LOCK:
+        for engine in _ENGINES.values():
+            engine.dispose()
+        _ENGINES.clear()

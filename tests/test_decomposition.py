@@ -424,6 +424,17 @@ def test_a_full_rank_model_has_zero_residual_and_no_limit() -> None:
         model.spe_limit()
 
 
+def test_a_well_behaved_residual_spectrum_has_no_caveat() -> None:
+    """#71's ordinary case: `h0 > 0`, the limit stands on its own. The case
+    where it does not is gasoline's, and lives in `test_parity.py` beside the
+    divergence it explains."""
+    model = PCA(3).fit(_structured(n=200, p=10, a=3, seed=0))
+    assert model.spe_limit_caveat() is None
+
+    with pytest.raises(ValueError, match="no SPE limit exists"):
+        PCA(5).fit(_centred(_spectra(n=8, p=5))).spe_limit_caveat()
+
+
 def test_the_spe_limit_covers_about_alpha_of_the_calibration_samples() -> None:
     """The Jackson–Mudholkar limit has no reference implementation available
     here — the R `mdatools` fixture entries are unsourced because R is not

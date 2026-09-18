@@ -1,74 +1,39 @@
-"""The HTTP surface: the real handlers, growing one issue at a time.
+"""The HTTP surface: every `/api` route the frontend calls.
 
 Phase 1.1 built the frontend against a stub server so that 1.2 could replace
-handlers behind unchanged URLs rather than integrate in one moment. This module
-is where the replacements live, and in #89 it becomes the whole server.
+handlers behind unchanged URLs; #89 finished that and deleted `stub/`. The
+contract the frontend was built against is kept in `tests/fixtures/contract/`.
 
-**Not one URL changes.** That was the point of building the frontend against
-these paths from its first commit.
-
-#99 recorded why these could not be swapped in one at a time: the project the
-frontend lists, the dataset it opens and the pipeline it runs are one chain, so
-the swap is one cut. This is that cut.
-
-## What is here now
-
-The import endpoints (#81) and the project and dataset reads they need to be
-reachable at all: a preview cannot be confirmed if the dataset it produces has
-nowhere to appear.
-
-- `GET  /api/projects`, `GET /api/projects/{id}` — the open project
-- `GET  /api/projects/{id}/datasets` — read from `datasets.json` on disk
+- `GET  /api/projects`, `GET /api/projects/{id}`, `GET /api/projects/{id}/datasets`
 - `POST /api/import/preview` — the reader's detection, nothing committed
 - `POST /api/import` — commits with the user's corrections applied, and starts
   a pipeline on the dataset if the project has none
-- `GET  /api/pipelines/{id}` and `/state`, `POST /api/pipelines/{id}/validate`
+- `GET/PUT /api/pipelines/{id}`, `GET /state`, `PUT /layout`, `POST /validate`
 - `GET  /api/experiments/{id}`, `POST /api/experiments/{id}/run`
 - `GET  /api/jobs/{id}`, `POST /api/jobs/{id}/cancel`
-- `GET  /api/spectra/{node_id}`, `GET /api/results/{node_id}`
+- `GET  /api/spectra/{node_id}`, `GET /api/results/{node_id}` and `/coefficients`
 - `GET  /api/schema/steps`, `POST /api/steps/validate`
 
-`current` is a real id here: the frontend has asked for `pipelines/current` and
-`experiments/current` since its first commit, and a project holds one of each
-until there is a database to hold more.
-
-`results_payload` (#87) renders an estimator result for `results/{node_id}`,
-`spectra_payload` (#86) renders `spectra/{node_id}`, and `validation_payload`
-(#84) renders `pipelines/{id}/validate`. Neither
-endpoint is served here yet: both take a pipeline, and there is nowhere to keep
-one until #89's pipeline store — the same cut #99 describes. The stub calls
-`validation_payload` for the one pipeline it has, so that response is computed
-rather than constant.
+`current` is a real id: a project holds one pipeline, and the frontend has
+asked for `pipelines/current` and `experiments/current` since its first commit.
 
 ## The open project
 
-There is no project browser yet and no database to list projects from, so the
-server opens exactly one: `CHEMOMETRICS_PROJECT` if it is set, else
-`<config dir>/projects/default`, created on first use. `known_projects()` from
-#77 keeps the registry up to date, which is what a project browser will read
-when #89 or 1.3 adds one.
+There is no project browser yet, so the server opens exactly one:
+`CHEMOMETRICS_PROJECT` if it is set, else `<config dir>/projects/default`,
+created on first use. Its index is `project.db` inside the directory.
 
 ## Uploads
 
 A file arrives as a multipart upload and is written to a temporary file, whose
-suffix is the original's because `reader_for` chooses by suffix. The readers
-take a path, so the temporary file is what they are given, and it is deleted
-whether or not the read succeeded.
-
-`MAX_UPLOAD_BYTES` bounds it. §4.3 calls localhost a trust boundary, not a
-private room, and an unbounded upload is a way to fill the user's disk from a
-page in their own browser.
-
-The file is uploaded once to preview and once to commit. On a loopback socket
-that is a memory copy, and staging the first upload to serve the second would
-mean a lifetime to manage — when it expires, what happens on a restart, what
-happens when the user previews ten files and imports none.
+name is the original's because `reader_for` chooses by suffix. It is deleted
+whether or not the read succeeded. `MAX_UPLOAD_BYTES` bounds it: §4.3 calls
+localhost a trust boundary, and an unbounded upload fills the user's disk.
 
 ## Errors
 
-Every failure has a body: `{"error": {"code", "message", "detail"}}`, which is
-what `stub/fixtures/error.json` documents and every screen renders. A
-`ReaderError` or a `ProjectError` becomes one, with its own sentence intact —
+Every failure has a body: `{"error": {"code", "message", "detail"}}`. A
+`ReaderError` or a `ProjectError` becomes one with its own sentence intact —
 §6's rule that an unreadable file produces a specific diagnostic rather than a
 stack trace.
 """
@@ -86,9 +51,9 @@ from typing import Annotated, Any
 import numpy as np
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from numpy.typing import NDArray
-from pydantic import BaseModel, TypeAdapter, ValidationError
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
-from chemometrics_workbench import preprocessing, readers
+from chemometrics_workbench import __version__, preprocessing, readers
 from chemometrics_workbench.checks import PipelineWarning, check_pipeline
 from chemometrics_workbench.executor import (
     EstimatorResult,
@@ -102,6 +67,7 @@ from chemometrics_workbench.jobs import Job, Jobs, submit_run
 from chemometrics_workbench.models import (
     Dataset,
     DatasetVersion,
+    EstimatorSpec,
     NodeId,
     Pipeline,
     PipelineNode,
@@ -109,6 +75,7 @@ from chemometrics_workbench.models import (
     Project,
     RangeSelect,
     SourceNode,
+    SplitSpec,
 )
 from chemometrics_workbench.project import (
     DatasetEntry,
@@ -165,8 +132,8 @@ _BLOCK = 1 << 20
 
 router = APIRouter()
 
-#: The one job table this process has. Jobs do not survive a restart, which is
-#: Phase 1.3's; see `jobs.py`.
+#: The one job table this process has. Jobs deliberately do not survive a
+#: restart; see `jobs.py`.
 JOBS = Jobs()
 
 #: Where the canvas puts a node it has never seen. Left to right by depth, in
@@ -191,7 +158,7 @@ def open_project_directory() -> Path:
     # Check-then-act, under a lock. A page load asks six questions at once and
     # every one of them opens the project, so on a directory that is not a
     # project yet every one of them tries to create it. `create_project` makes
-    # `arrays/` before it writes `project.json`, so the losers found a
+    # `arrays/` before it writes `project.db`, so the losers found a
     # directory that was neither empty nor yet a project and refused - turning
     # the first load of a new project into a 500, intermittently.
     #
@@ -228,31 +195,31 @@ def _entry_json(entry: DatasetEntry) -> Any:
     return json.loads(entry.model_dump_json())
 
 
+def _project_json(project: Project) -> Any:
+    """The project, plus the version of the application serving it.
+
+    Additive: the inspector's provenance footer used to print a literal that
+    had not moved since 1.1 (#181), and the only number worth showing there is
+    the one `capture_environment` writes into every experiment.
+    """
+    return {**json.loads(project.model_dump_json()), "app_version": __version__}
+
+
 # --- Projects and datasets ------------------------------------------------
 #
-# ## Pagination is deferred, and this is the reason (#89)
+# ## Pagination is deferred (#89)
 #
-# Phase 1.1 marked pagination a GUESS: the list endpoints return a bare JSON
-# array, with no envelope to hang `next` or `total` off. #89 keeps that, and
-# the decision is recorded here rather than left to be rediscovered.
-#
-# There is nothing to page. A project holds one pipeline and, until SQLite
-# arrives in Phase 1.3, its datasets are a JSON file read whole - paging a list
-# that is already entirely in memory adds a cursor the client must thread
-# through and buys nothing. `GET /projects` returns the single open project for
-# the same reason: the server has one.
-#
-# What would change the answer is Phase 1.3's database and more than one
-# project per server, and by then the store can page properly instead of
-# slicing a list it just parsed. Adding the envelope now would fix the shape of
-# an answer before knowing the question - which is what Phase 1.1 existed to
-# avoid, and why these endpoints were built against a published contract.
+# The list endpoints return a bare JSON array. A server opens one project, and
+# a project's datasets are a handful of rows, so a cursor would buy nothing.
+# When there is a project browser and more than one pipeline, the store can
+# page properly; adding the envelope before then fixes the shape of an answer
+# before knowing the question.
 
 
 @router.get("/projects")
 def list_projects() -> Any:
     _, project = _project()
-    return [json.loads(project.model_dump_json())]
+    return [_project_json(project)]
 
 
 @router.get("/projects/{project_id}")
@@ -260,7 +227,7 @@ def get_project(project_id: str) -> Any:
     _, project = _project()
     if str(project.project_id) != project_id:
         raise _fail(404, "not_found", f"no project {project_id} is open.", project_id=project_id)
-    return json.loads(project.model_dump_json())
+    return _project_json(project)
 
 
 @router.get("/projects/{project_id}/datasets")
@@ -278,9 +245,9 @@ def list_datasets(project_id: str) -> Any:
 
 
 @router.post("/import/preview")
-async def import_preview(file: Annotated[UploadFile, File()]) -> Any:
+def import_preview(file: Annotated[UploadFile, File()]) -> Any:
     """What the reader found, with alternatives. Nothing is committed."""
-    async with _uploaded(file) as path:
+    with _uploaded(file) as path:
         try:
             return readers.preview(path)
         except readers.ReaderError as error:
@@ -288,7 +255,7 @@ async def import_preview(file: Annotated[UploadFile, File()]) -> Any:
 
 
 @router.post("/import")
-async def import_dataset(
+def import_dataset(
     file: Annotated[UploadFile, File()],
     corrections: Annotated[str, Form()] = "{}",
     name: Annotated[str | None, Form()] = None,
@@ -302,7 +269,7 @@ async def import_dataset(
     directory, project = _project()
     corrected = _corrections(corrections)
 
-    async with _uploaded(file) as path:
+    with _uploaded(file) as path:
         try:
             imported = readers.read(path, corrected)
         except readers.ReaderError as error:
@@ -378,13 +345,20 @@ class _uploaded:
     upload calling itself `../../project.json` writes a file called
     `project.json` in a temporary directory and nothing else. §4.3 calls
     localhost a trust boundary.
+
+    **Synchronous on purpose, and so are the handlers that use it** (#174).
+    Reading a file at §13's envelope takes seconds of CPU and disk; in an
+    `async def` handler that time was spent on the event loop, and every other
+    request - the job poll included - waited behind the import. A plain `def`
+    handler runs on FastAPI's thread pool, and the multipart body is already
+    spooled by the time it is called, so reading `file.file` blocks nothing.
     """
 
     def __init__(self, file: UploadFile) -> None:
         self._file = file
         self._directory: tempfile.TemporaryDirectory[str] | None = None
 
-    async def __aenter__(self) -> Path:
+    def __enter__(self) -> Path:
         name = Path(self._file.filename or "").name
         if not Path(name).suffix:
             raise _fail(
@@ -400,7 +374,7 @@ class _uploaded:
         written = 0
         try:
             with path.open("wb") as handle:
-                while block := await self._file.read(_BLOCK):
+                while block := self._file.file.read(_BLOCK):
                     written += len(block)
                     if written > MAX_UPLOAD_BYTES:
                         raise _fail(
@@ -417,7 +391,7 @@ class _uploaded:
             raise
         return path
 
-    async def __aexit__(self, *_: object) -> None:
+    def __exit__(self, *_: object) -> None:
         self._cleanup()
 
     def _cleanup(self) -> None:
@@ -440,7 +414,7 @@ def results_payload(
     The kernel's numbers come from the executor unrounded; the sample ids and
     the variable axis come from the `DatasetVersion`, because a model does not
     know what its rows and columns were called. The shape is the one
-    `stub/fixtures/pca.json` publishes and the analysis screen already renders.
+    `tests/fixtures/contract/pca.json` publishes and the analysis screen already renders.
 
     **`axis` is the node's own**, from `node_axis`, because a model fitted
     under a range selection has fewer loadings than the dataset has variables.
@@ -495,6 +469,8 @@ def results_payload(
             "hotelling_t2_limit": result.hotelling_t2_limit,
             "spe": result.spe,
             "spe_limit": result.spe_limit,
+            # Additive (#71): `null` unless the limit is outside its domain.
+            "spe_limit_caveat": result.spe_limit_caveat,
             "alpha": result.alpha,
         },
     }
@@ -829,7 +805,7 @@ def spectra_payload(
 ) -> dict[str, Any]:
     """One spectra plot's worth of data, decimated for the wire.
 
-    The shape is the one `stub/fixtures/spectra.json` publishes and the plot
+    The shape is the one `tests/fixtures/contract/spectra.json` publishes and the plot
     screen already renders: a shared axis, individually drawn traces, and a
     band when there are more spectra than the cap. `highlighted` is added
     beside them for §13's "selected or highlighted spectra are drawn at full
@@ -1017,25 +993,7 @@ def put_pipeline(pipeline_id: str, body: PipelineWrite) -> Any:
     if pipeline_id not in ("current", str(existing.pipeline_id)):
         raise _fail(404, "not_found", f"no pipeline {pipeline_id}.", pipeline_id=pipeline_id)
 
-    # Constructed rather than `model_copy(update=...)`, which does not re-run
-    # validators: the DAG rules - unique ids, known inputs, at least one
-    # source, no cycles - are on `Pipeline` itself, and a copy would skip them.
-    try:
-        updated = Pipeline(
-            pipeline_id=existing.pipeline_id,
-            project_id=existing.project_id,
-            name=body.name or existing.name,
-            nodes=body.nodes,
-            created_at=existing.created_at,
-        )
-    except ValidationError as error:
-        first = error.errors()[0]
-        raise _fail(
-            422,
-            "invalid_pipeline",
-            str(first.get("msg", "the pipeline is not valid")),
-            field=".".join(str(part) for part in first["loc"]),
-        ) from error
+    updated = _replaced(existing, body)
 
     # A source node naming a dataset this project does not hold would be
     # accepted by the schema and then fail at run time with nothing to point
@@ -1054,10 +1012,103 @@ def put_pipeline(pipeline_id: str, body: PipelineWrite) -> Any:
     return json.loads(updated.model_dump_json())
 
 
-@router.post("/pipelines/{pipeline_id}/validate")
-def validate_pipeline(pipeline_id: str) -> Any:
+class Position(BaseModel):
+    """One node's place on the canvas.
+
+    Typed rather than a bare dict so a coordinate that is not a number is
+    refused at the boundary, where the message can say which node and which
+    field - `write_layout` would coerce it and store something undrawable.
+    """
+
+    x: float
+    y: float
+
+
+class LayoutWrite(BaseModel):
+    """Where the canvas put each node.
+
+    Its own body and its own endpoint, for the reason `PipelineWrite` gives for
+    not carrying it: a position lives outside `Pipeline.content_hash()` so that
+    moving a node cannot invalidate an executor cache entry, and a field on the
+    recipe's body would undo that in one line. Separate table, separate route,
+    separate write.
+    """
+
+    layout: dict[str, Position]
+
+
+@router.put("/pipelines/{pipeline_id}/layout")
+def put_layout(pipeline_id: str, body: LayoutWrite) -> Any:
+    """Replace the stored layout with the one sent.
+
+    **The whole map, not a patch**, for the same reason `put_pipeline` takes
+    the whole node list: one project holds one pipeline and one person moves
+    its nodes, so last-write-wins needs no conflict rules and the canvas
+    already knows where everything is.
+
+    **A position for a node that is not in the pipeline is dropped, not
+    refused.** The canvas and the recipe are written by two different requests,
+    so a drag can land after another tab has deleted the node it moved; a 422
+    there would be an error message about a race the user cannot see. Dropping
+    is also the only garbage collection in this codebase that costs nothing -
+    a removed node's coordinates go with it rather than accumulating in a table
+    nobody prunes.
+    """
     directory, _ = _project()
-    return validation_payload(_current_pipeline(directory))
+    pipeline = _current_pipeline(directory)
+    if pipeline_id not in ("current", str(pipeline.pipeline_id)):
+        raise _fail(404, "not_found", f"no pipeline {pipeline_id}.", pipeline_id=pipeline_id)
+
+    known = {node.id for node in pipeline.nodes}
+    placed = {
+        node_id: {"x": float(place.x), "y": float(place.y)}
+        for node_id, place in body.layout.items()
+        if node_id in known
+    }
+    try:
+        write_layout(directory, placed)
+    except ProjectError as error:
+        raise _fail(500, "project_unavailable", str(error)) from error
+    return {"pipeline_id": str(pipeline.pipeline_id), "layout": placed}
+
+
+def _replaced(existing: Pipeline, body: PipelineWrite) -> Pipeline:
+    """The stored pipeline with the client's recipe, validated as a whole.
+
+    Constructed rather than `model_copy(update=...)`, which does not re-run
+    validators: the DAG rules - unique ids, known inputs, at least one source,
+    no cycles - are on `Pipeline` itself, and a copy would skip them.
+    """
+    try:
+        return Pipeline(
+            pipeline_id=existing.pipeline_id,
+            project_id=existing.project_id,
+            name=body.name or existing.name,
+            nodes=body.nodes,
+            created_at=existing.created_at,
+        )
+    except ValidationError as error:
+        first = error.errors()[0]
+        raise _fail(
+            422,
+            "invalid_pipeline",
+            str(first.get("msg", "the pipeline is not valid")),
+            field=".".join(str(part) for part in first["loc"]),
+        ) from error
+
+
+@router.post("/pipelines/{pipeline_id}/validate")
+def validate_pipeline(pipeline_id: str, body: PipelineWrite | None = None) -> Any:
+    """Check the stored pipeline, or the recipe in the body if one is sent.
+
+    The body is what the canvas is drawing, unsaved edits and drafts included
+    (#175). Validating the stored pipeline while the screen showed three draft
+    steps reported "valid" about a graph the user was not looking at. Nothing
+    is written either way.
+    """
+    directory, _ = _project()
+    pipeline = _current_pipeline(directory)
+    return validation_payload(pipeline if body is None else _replaced(pipeline, body))
 
 
 def _node_state(
@@ -1246,22 +1297,32 @@ def _indices(raw: str | None) -> list[int]:
 
 # --- The step schema ------------------------------------------------------
 
+#: Everything a node can carry, told apart by `kind`. One adapter for the
+#: schema and the validator, so the form that is drawn and the check behind it
+#: agree on what a field is. Estimators and splits joined the preprocessing
+#: steps in #182: until then a PLS node's target and a k-fold's fold count
+#: could be set only by whatever the canvas menu wrote when the node was added.
+_NODE_PAYLOADS: TypeAdapter[Any] = TypeAdapter(
+    Annotated[PreprocessStep | SplitSpec | EstimatorSpec, Field(discriminator="kind")]
+)
+
 
 @router.get("/schema/steps")
 def step_schema() -> Any:
-    """The preprocessing steps' JSON Schema, from the live models.
+    """The JSON Schema of every step, split and estimator, from the live models.
 
     Served from `models.py` rather than from a file, which is a change of
     source and not of shape: the inspector builds its parameter forms from
     this, so a field's bounds come from the same place the backend enforces
-    them.
+    them. The `$defs` hold one entry per kind plus the enums they reference
+    (`PLSAlgorithm`); a form is built from the entries that carry a `kind`.
     """
-    return TypeAdapter(PreprocessStep).json_schema()
+    return _NODE_PAYLOADS.json_schema()
 
 
 @router.post("/steps/validate")
 def validate_step(step: dict[str, Any]) -> Any:
-    """Validate one step against the model that will enforce it.
+    """Validate one step, split or estimator against the model that will enforce it.
 
     The cross-field rules — an odd Savitzky-Golay window, `polyorder` below it,
     `start` below `end` — live in `model_validator` and have no JSON Schema
@@ -1269,7 +1330,7 @@ def validate_step(step: dict[str, Any]) -> Any:
     in TypeScript and drifting from it.
     """
     try:
-        TypeAdapter(PreprocessStep).validate_python(step)
+        _NODE_PAYLOADS.validate_python(step)
     except ValidationError as error:
         return {
             "valid": False,

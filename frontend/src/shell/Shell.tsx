@@ -2,16 +2,18 @@ import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 
 import { useQueryClient } from "@tanstack/react-query";
 
-import type { DatasetEntry, PipelineState } from "@/api/queries";
+import type { DatasetEntry } from "@/api/queries";
 import {
+  sourceVersionOf,
   useCancelJob,
   useDatasets,
-  useExperiment,
   useJob,
   usePipeline,
   usePipelineState,
   useProjects,
+  useResults,
   useRunExperiment,
+  useSavePipeline,
 } from "@/api/queries";
 import { DatasetView } from "@/screens/DatasetView";
 import { EmptyProject } from "@/screens/EmptyProject";
@@ -26,7 +28,7 @@ import { Sidebar } from "@/shell/Sidebar";
 import { StatusBar } from "@/shell/StatusBar";
 import { TabStrip } from "@/shell/TabStrip";
 import { FlaskIcon, KIND_ICONS } from "@/shell/icons";
-import { downstreamOf } from "@/inspector/stale";
+import { nodeMetrics } from "@/shell/nodeMetrics";
 import { emptyTabs, tabsReducer, type Tab } from "@/shell/tabs";
 
 /** The frame every screen opens inside. The measurements are the artboard's -
@@ -68,6 +70,7 @@ function useResizable(initial: number, min: number, max: number, side: "left" | 
 function Pane({
   tab,
   datasets,
+  targets,
   onImported,
   onCloseImport,
   onOpenNode,
@@ -75,6 +78,7 @@ function Pane({
 }: {
   tab: Tab | undefined;
   datasets: DatasetEntry[] | undefined;
+  targets: string[];
   onOpenNode: (id: string, label: string) => void;
   onCompare: (left: string, right: string) => void;
   onImported: (versionId: string, name: string) => void;
@@ -85,7 +89,7 @@ function Pane({
   }
 
   if (tab?.kind === "pipeline")
-    return <PipelineCanvas onOpenNode={onOpenNode} onCompare={onCompare} />;
+    return <PipelineCanvas onOpenNode={onOpenNode} onCompare={onCompare} targets={targets} />;
   if (tab?.kind === "spectra") {
     const shape = datasets?.[0]?.versions.at(-1);
     return (
@@ -160,14 +164,16 @@ export function Shell() {
   const datasets = useDatasets(project?.project_id);
   const pipeline = usePipeline();
   const pipelineState = usePipelineState();
-  const experiment = useExperiment();
 
-  const [staleFrom, setStaleFrom] = useState<string | null>(null);
   const [dismissedFailure, setDismissedFailure] = useState(false);
+  /** A save or a run the server refused. Its sentence is the message: without
+   * this, Apply and Run failed as an unhandled rejection and nothing moved. */
+  const [actionError, setActionError] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const job = useJob(jobId);
   const run = useRunExperiment();
+  const save = useSavePipeline();
   const cancel = useCancelJob();
 
   /** A run moves the canvas, so the canvas has to be asked again.
@@ -187,6 +193,43 @@ export function Shell() {
     if (!jobId) return;
     void queryClient.invalidateQueries({ queryKey: ["pipeline-state"] });
   }, [advanced, jobId, queryClient]);
+
+  /** A run rewrites the arrays every open tab is drawing, and #157 was that
+   * nothing said so: only `pipeline-state` was invalidated, so a tab kept
+   * drawing what it fetched before the run and a re-run read as a run that
+   * did nothing.
+   *
+   * Once it has settled, not on every advance. A node whose arrays are being
+   * recomputed has none under its new key, so refetching mid-run asks for
+   * something that does not exist yet, takes a 404 and leaves the tab holding
+   * an error instead of the stale plot it is supposed to keep showing. */
+  // A cancelled run settles too: the nodes it finished wrote new arrays.
+  const settled =
+    job.data?.status === "succeeded" ||
+    job.data?.status === "failed" ||
+    job.data?.status === "cancelled";
+  useEffect(() => {
+    if (!jobId || !settled) return;
+    void queryClient.invalidateQueries({ queryKey: ["spectra"] });
+    void queryClient.invalidateQueries({ queryKey: ["results"] });
+    void queryClient.invalidateQueries({ queryKey: ["experiment"] });
+  }, [settled, jobId, queryClient]);
+
+  const startRun = useCallback(async () => {
+    const started = await run.mutateAsync();
+    setJobId(started.job_id);
+    setStartedAt(Date.now());
+  }, [run]);
+
+  /** Run an action, and put the server's refusal on screen if it refuses. */
+  const attempt = useCallback(async (action: () => Promise<void>) => {
+    setActionError(null);
+    try {
+      await action();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "The request failed.");
+    }
+  }, []);
 
   const open = useCallback(
     (tab: Omit<Tab, "transient">, transient: boolean) =>
@@ -225,54 +268,45 @@ export function Shell() {
     [open],
   );
 
-  /** Editing a parameter invalidates everything computed from it. The results
-   * stay on screen, dimmed - a stale result must not vanish. */
-  const markStale = useCallback(
-    (nodeId: string) => {
+  /** Applying a parameter writes it through and runs it.
+   *
+   * It used to take two presses: Apply marked the node stale and a banner
+   * offered a re-run, which is one press more than an edit is worth and read
+   * as an application refusing its own form. Only the edited node and what is
+   * below it are recomputed - everything else is still in the store under an
+   * unchanged key - so the second press was buying a saving nobody asked for.
+   *
+   * Which field the step lands in follows the node: preprocessing carries
+   * `step`, estimators and splits carry `spec`. The run is started from the
+   * saved pipeline rather than the sent one, because #157 was exactly the gap
+   * between what was on screen and what was on disk. */
+  const applyEdit = useCallback(
+    async (nodeId: string, step: Record<string, unknown>) => {
       if (!pipeline.data) return;
-      const affected = [nodeId, ...downstreamOf(pipeline.data, nodeId)];
-      queryClient.setQueryData<PipelineState>(["pipeline-state"], (current) =>
-        current
-          ? {
-              ...current,
-              nodes: {
-                ...current.nodes,
-                ...Object.fromEntries(
-                  affected.map((id) => [
-                    id,
-                    {
-                      ...current.nodes[id],
-                      state: "stale",
-                      reason: id === nodeId ? "edited - downstream stale" : "upstream changed",
-                    },
-                  ]),
-                ),
-              },
-            }
-          : current,
+      const nodes = pipeline.data.nodes.map((node) =>
+        node.id === nodeId
+          ? { ...node, [node.step ? "step" : "spec"]: step as { kind: string } }
+          : node,
       );
-      setStaleFrom(nodeId);
+      await attempt(async () => {
+        await save.mutateAsync(nodes);
+        await startRun();
+      });
     },
-    [pipeline.data, queryClient],
+    [pipeline.data, save, startRun, attempt],
   );
 
   const activeTab = state.tabs.find((tab) => tab.id === state.activeId);
   const splitTab = state.tabs.find((tab) => tab.id === state.splitId);
   const samples = datasets.data?.[0]?.versions.at(-1);
   const noDatasets = datasets.isSuccess && datasets.data.length === 0;
+  /** What a PLS node can model: the columns of the version the recipe runs on. */
+  const targets = Object.keys(sourceVersionOf(pipeline.data, datasets.data)?.targets ?? {});
 
-  /** An estimator node's headline numbers, in .kv form with tabular numerals.
-   * The full results table is #48; this is what fits in 292px. */
-  const metricsFor = (tab: Tab | undefined) => {
-    const node = pipeline.data?.nodes.find((candidate) => candidate.id === tab?.id);
-    if (node?.type !== "estimator" || !experiment.data) return undefined;
-    const variance = experiment.data.metrics.explained_variance ?? [];
-    return {
-      "PC1 variance": variance[0] ?? null,
-      "PC1-5 cumulative": variance.slice(0, 5).reduce((total, item) => total + item, 0) || null,
-      components: (node.spec?.n_components as number) ?? null,
-    };
-  };
+  /** The active estimator node's headline numbers, from its own result. The
+   * full results table is #48; this is what fits in 292px. */
+  const activeNode = pipeline.data?.nodes.find((candidate) => candidate.id === activeTab?.id);
+  const activeResult = useResults(activeNode?.type === "estimator" ? activeNode.id : undefined);
 
   return (
     <div className={`app ${theme}`} style={{ position: "relative" }}>
@@ -310,11 +344,9 @@ export function Shell() {
           </button>
           <button
             className="btn btn-p"
-            onClick={async () => {
+            onClick={() => {
               setDismissedFailure(false);
-              const started = await run.mutateAsync();
-              setJobId(started.job_id);
-              setStartedAt(Date.now());
+              void attempt(startRun);
             }}
           >
             Run pipeline
@@ -359,6 +391,33 @@ export function Shell() {
             <CannotLoad error={projects.error} />
           ) : null}
 
+          {actionError ? (
+            <div
+              role="alert"
+              data-testid="action-failed"
+              style={{
+                margin: 12,
+                padding: "10px 12px",
+                borderRadius: 3,
+                border: "1px solid var(--fail)",
+                background: "var(--failSoft)",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <span style={{ color: "var(--ink)" }}>{actionError}</span>
+              <button
+                className="tabx"
+                aria-label="Dismiss error"
+                style={{ marginLeft: "auto" }}
+                onClick={() => setActionError(null)}
+              >
+                ×
+              </button>
+            </div>
+          ) : null}
+
           {!projects.isError && job.data?.status === "failed" && !dismissedFailure ? (
             <div
               role="alert"
@@ -394,11 +453,11 @@ export function Shell() {
             <EmptyProject onImport={openImport} />
           ) : state.splitId ? (
             <div className="split">
-              <Pane tab={activeTab} datasets={datasets.data} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} />
-              <Pane tab={splitTab} datasets={datasets.data} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} />
+              <Pane tab={activeTab} datasets={datasets.data} targets={targets} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} />
+              <Pane tab={splitTab} datasets={datasets.data} targets={targets} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} />
             </div>
           ) : (
-            <Pane tab={activeTab} datasets={datasets.data} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} />
+            <Pane tab={activeTab} datasets={datasets.data} targets={targets} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} />
           )}
         </main>
 
@@ -413,49 +472,14 @@ export function Shell() {
               datasets={datasets.data}
               pipeline={pipeline.data}
               state={pipelineState.data}
-              metrics={metricsFor(activeTab)}
+              metrics={activeNode?.type === "estimator" ? nodeMetrics(activeResult.data) : undefined}
               collapsed={inspectorCollapsed}
-              onEdit={markStale}
+              onEdit={applyEdit}
             />
           </div>
         </div>
       </div>
 
-      {staleFrom ? (
-        <div
-          role="status"
-          style={{
-            position: "absolute",
-            right: 304,
-            bottom: 36,
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "6px 10px",
-            borderRadius: 3,
-            border: "1px solid var(--stale)",
-            background: "var(--staleSoft)",
-            fontSize: 11.5,
-          }}
-        >
-          <span style={{ color: "var(--stale)" }}>Downstream results are stale.</span>
-          <button
-            className="btn"
-            style={{ height: 22 }}
-            onClick={async () => {
-              const started = await run.mutateAsync();
-              setJobId(started.job_id);
-              setStartedAt(Date.now());
-              setStaleFrom(null);
-            }}
-          >
-            Re-run
-          </button>
-          <button className="tabx" aria-label="Dismiss" onClick={() => setStaleFrom(null)}>
-            ×
-          </button>
-        </div>
-      ) : null}
 
       <StatusBar
         job={job.data}
@@ -464,9 +488,6 @@ export function Shell() {
           if (jobId) cancel.mutate(jobId);
         }}
       />
-      {/* experiment is read for the outline's Experiments section; keeping the
-          query here means one fetch shared by both regions. */}
-      <span hidden>{experiment.data?.status}</span>
     </div>
   );
 }

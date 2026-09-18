@@ -3,18 +3,22 @@ import { useState } from "react";
 import { api } from "@/api/client";
 import { checkBounds, type FieldSpec, type StepSpec } from "@/inspector/schema";
 
-/** The typed editor for one preprocessing step.
+/** The typed editor for one node's step, split or estimator spec.
  *
  * Field bounds come from the schema and are checked as you type. The rules
  * that span fields are checked by the server against `models.py` itself, so
  * "window_length must be odd" is the model's sentence, not one written here.
+ *
+ * A field with `options` is a select whatever its kind: an enum's are the
+ * schema's, a boolean's are true and false, and a PLS target's are the
+ * dataset's columns, put there by the inspector (#182).
  */
 
 interface Props {
   spec: StepSpec;
   values: Record<string, string>;
   onChange: (values: Record<string, string>) => void;
-  onApply: () => void;
+  onApply: (step: Record<string, unknown>) => void;
 }
 
 function Field({
@@ -33,7 +37,7 @@ function Field({
     <div style={{ padding: "3px 12px" }}>
       <div className="kv" style={{ padding: 0, alignItems: "center" }}>
         <b title={field.description}>{field.title}</b>
-        {field.kind === "enum" ? (
+        {field.options ? (
           <select
             aria-label={field.title}
             className="mono"
@@ -60,14 +64,14 @@ function Field({
           <input
             aria-label={field.title}
             className="mono"
-            inputMode="numeric"
+            inputMode={field.kind === "string" ? "text" : "numeric"}
             value={value}
             onChange={(event) => onChange(event.target.value)}
             style={{
               width: 116,
               height: 22,
               padding: "0 6px",
-              textAlign: "right",
+              textAlign: field.kind === "string" ? "left" : "right",
               borderRadius: 3,
               border: `1px solid ${border}`,
               background: "var(--surface)",
@@ -106,7 +110,12 @@ export function ParameterForm({ spec, values, onChange, onApply }: Props) {
     for (const field of spec.fields) {
       const raw = values[field.name];
       if (raw === "" || raw === undefined) continue;
-      payload[field.name] = field.kind === "enum" ? raw : Number(raw);
+      payload[field.name] =
+        field.kind === "enum" || field.kind === "string"
+          ? raw
+          : field.kind === "boolean"
+            ? raw === "true"
+            : Number(raw);
     }
     const result = await api<{ valid: boolean; errors: { field: string; message: string }[] }>(
       "/steps/validate",
@@ -115,7 +124,9 @@ export function ParameterForm({ spec, values, onChange, onApply }: Props) {
     setChecking(false);
     if (result.valid) {
       setServerProblems({});
-      onApply();
+      // The payload the server just accepted is the one that gets saved: a
+      // second coercion of `values` could differ from the one validated.
+      onApply(payload);
       return;
     }
     // A field-level complaint lands on its field; a cross-field one - which
@@ -161,7 +172,7 @@ export function ParameterForm({ spec, values, onChange, onApply }: Props) {
       {spec.fields.length > 0 ? (
         <div style={{ padding: "8px 12px 0" }}>
           <button className="btn" style={{ height: 24 }} disabled={blocked || checking} onClick={apply}>
-            {checking ? "Checking…" : "Apply"}
+            {checking ? "Checking…" : "Apply and re-run"}
           </button>
         </div>
       ) : null}

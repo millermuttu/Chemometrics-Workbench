@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import type { PipelineNode } from "@/api/queries";
 import {
+  add,
   connect,
   connectionRefusal,
   duplicate,
@@ -188,5 +189,42 @@ describe("terminal nodes", () => {
 
   it("is the last node of a plain chain", () => {
     expect(terminals(chain).map((node) => node.id)).toEqual(["pca"]);
+  });
+});
+
+describe("adding a step", () => {
+  // The parent is the node whose connector was dragged, so it is never the
+  // "first terminal node" guess `withDrafts` makes and admits to.
+  it("hangs the new node off the parent it was given, not off an end", () => {
+    const grown = add(chain, "source", { type: "preprocess", step: { kind: "msc" } }, "MSC");
+    expect(grown).toHaveLength(4);
+    expect(grown.at(-1)!.inputs).toEqual(["source"]);
+    // The branch it was added to is untouched: this is a fork, not an insert.
+    expect(grown.find((node) => node.id === "snv")!.inputs).toEqual(["source"]);
+  });
+
+  it("derives an id from the step, and does not collide with itself", () => {
+    const once = add(chain, "snv", { type: "preprocess", step: { kind: "msc" } }, "MSC");
+    const twice = add(once, "snv", { type: "preprocess", step: { kind: "msc" } }, "MSC");
+    const added = twice.slice(chain.length).map((node) => node.id);
+    expect(added).toEqual(["msc", "msc_2"]);
+    expect(new Set(twice.map((node) => node.id)).size).toBe(twice.length);
+  });
+
+  it("refuses a parent that is not in the pipeline", () => {
+    expect(() => add(chain, "ghost", { type: "preprocess", step: { kind: "msc" } }, "MSC")).toThrow(
+      "not in this pipeline",
+    );
+  });
+
+  it("can add a split, which the side list cannot draft", () => {
+    const split = add(
+      chain,
+      "snv",
+      { type: "split", spec: { kind: "kfold", n_splits: 10, shuffle: true, seed: 42 } },
+      "K-fold 10",
+    );
+    expect(split.at(-1)!.type).toBe("split");
+    expect(split.at(-1)!.id).toBe("k_fold_10");
   });
 });

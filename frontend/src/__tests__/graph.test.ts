@@ -1,9 +1,10 @@
 /** The canvas's encodings: what each node says, and what each edge means.
  *
  * These are the artboard's rules, checked against the committed fixture. The
- * screen is the signature one and its states carry meaning - a stale result
- * must stay visible rather than vanish - so the rules are tested here rather
- * than only looked at.
+ * screen is the signature one and its states carry meaning, so the rules are
+ * tested here rather than only looked at. The fixture still carries the 1.1
+ * contract's `stale`, which the server never sends (#181): what is asserted
+ * is that the canvas gives it no encoding of its own.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -12,7 +13,15 @@ import { describe, expect, it } from "vitest";
 
 import type { Pipeline, PipelineNode, PipelineState } from "@/api/queries";
 import { withDrafts } from "@/canvas/PipelineCanvas";
-import { draftGraph, nodeStateOf, parameterLine, toEdges, toNodes, type DraftStep } from "@/canvas/graph";
+import {
+  draftGraph,
+  nodeStateOf,
+  parameterLine,
+  placements,
+  toEdges,
+  toNodes,
+  type DraftStep,
+} from "@/canvas/graph";
 
 const FIXTURES = path.resolve(import.meta.dirname, "../../../tests/fixtures/contract");
 const read = <T,>(name: string) =>
@@ -20,11 +29,11 @@ const read = <T,>(name: string) =>
 
 const pipeline = read<Pipeline>("pipeline");
 const state = read<PipelineState>("pipeline_state");
-const colours = { rule: "#D2DAD8", accent: "#0B6B62", stale: "#9A6206" };
+const colours = { rule: "#D2DAD8", accent: "#0B6B62" };
 
-it("carries all five states at once, which is what the artboard shows", () => {
+it("carries every served state at once, which is what the artboard shows", () => {
   const states = new Set(Object.values(state.nodes).map((node) => node.state));
-  for (const required of ["complete", "running", "stale", "failed", "not_run"]) {
+  for (const required of ["complete", "running", "queued", "failed", "not_run"]) {
     expect(states, required).toContain(required);
   }
 });
@@ -35,9 +44,17 @@ describe("nodes", () => {
     expect(parameterLine(savgol)).toBe("window 11 · poly 2 · deriv 1");
     const split = pipeline.nodes.find((node) => node.id === "split_d")!;
     expect(parameterLine(split)).toBe("10 folds · shuffle · seed 42");
+    // #183: a hold-out reads as its fraction, which is what the menu offered.
+    const holdout: PipelineNode = {
+      id: "holdout",
+      type: "split",
+      inputs: ["source"],
+      spec: { kind: "train_test", test_size: 0.25, seed: 42 },
+    };
+    expect(parameterLine(holdout)).toBe("25% held out · seed 42");
   });
 
-  it("carry why they are stale and what failed, because that is the useful part", () => {
+  it("carry the reason and the failure as footers, because that is the useful part", () => {
     expect(nodeStateOf("savgol", state).footer).toBe("edited - downstream stale");
     expect(nodeStateOf("pca_d", state).footer).toContain("rank 4");
   });
@@ -64,12 +81,9 @@ describe("edges", () => {
     expect(edge("centre_b->pca_b").style.stroke).toBe(colours.accent);
   });
 
-  it("run dashed stale wherever either end is stale", () => {
-    expect(edge("source->savgol").style).toMatchObject({
-      stroke: colours.stale,
-      strokeDasharray: "4 3",
-    });
-    expect(edge("savgol->autoscale_c").style.stroke).toBe(colours.stale);
+  it("give the fixture's stale nodes the resting edge, not one of their own", () => {
+    expect(edge("source->savgol").style).toEqual({ stroke: colours.rule, strokeWidth: 1.4 });
+    expect(edge("savgol->autoscale_c").style.strokeDasharray).toBeUndefined();
   });
 
   it("run rule-coloured and still at rest", () => {
@@ -168,5 +182,32 @@ describe("withDrafts", () => {
   it("returns the saved nodes untouched when there is nothing drafted", () => {
     const saved = [source];
     expect(withDrafts(saved, [])).toBe(saved);
+  });
+});
+
+describe("a node the server has never placed", () => {
+  // A duplicate, or a step added to a branch, exists on the canvas before the
+  // server has seen it. It used to fall back to the origin, so every new node
+  // appeared in the same spot and copies stacked on top of each other.
+  const added: PipelineNode = { id: "msc_2", type: "preprocess", inputs: ["snv"], step: { kind: "msc" } };
+  const extended: Pipeline = { ...pipeline, nodes: [...pipeline.nodes, added] };
+
+  it("lands beside its parent, not at the origin", () => {
+    const placed = placements(extended, state.layout);
+    expect(placed.msc_2).not.toEqual({ x: 0, y: 0 });
+    expect(placed.msc_2.x).toBe(placed.snv.x + 170);
+  });
+
+  it("leaves every placed node exactly where the server put it", () => {
+    const placed = placements(extended, state.layout);
+    for (const [id, position] of Object.entries(state.layout)) {
+      expect(placed[id]).toEqual(position);
+    }
+  });
+
+  it("does not stack two new children of the same parent", () => {
+    const second: PipelineNode = { id: "msc_3", type: "preprocess", inputs: ["snv"], step: { kind: "msc" } };
+    const placed = placements({ ...extended, nodes: [...extended.nodes, second] }, state.layout);
+    expect(placed.msc_2).not.toEqual(placed.msc_3);
   });
 });

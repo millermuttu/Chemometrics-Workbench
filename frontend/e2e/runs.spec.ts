@@ -30,6 +30,27 @@ import { expect, test } from "@playwright/test";
 
 test.describe.configure({ timeout: 180_000 });
 
+test("a node that has never been run says so, rather than loading forever", async ({ page }) => {
+  // First in the file on purpose: nothing has run yet, so every node endpoint
+  // answers 404. Both screens used to render that as a loading message that
+  // never resolved (#181).
+  await page.goto("/?token=e2e-token");
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+
+  await outline.getByRole("button", { name: /PCA 5 PC/ }).first().dblclick();
+  const results = page.getByTestId("cannot-load");
+  await expect(results).toBeVisible();
+  await expect(results).toContainText("Nothing to show yet");
+  await expect(results).toContainText("has no fitted result yet");
+  await expect(page.getByText("Loading results…")).toHaveCount(0);
+
+  await outline.getByRole("button", { name: /^SNV/ }).first().dblclick();
+  const spectra = page.getByTestId("cannot-load");
+  await expect(spectra).toBeVisible();
+  await expect(spectra).toContainText("has no result yet");
+  await expect(page.getByText("Loading spectra…")).toHaveCount(0);
+});
+
 test("a run shows in all three places, and cancelling stops it", async ({ page }) => {
   await page.goto("/?token=e2e-token");
   await page.getByRole("button", { name: "Pipeline", exact: true }).click();
@@ -141,4 +162,41 @@ test("the canvas marks the node that failed, and the ones that never ran", async
       });
   expect((await border("failed")).left).toBe("3px");
   expect((await border("not_run")).style).toBe("dashed");
+});
+
+test("a train/test split runs, and its PLS reports on the held-out set", async ({ page }) => {
+  // #183. Last in the file: it rewrites the pipeline, which the tests above
+  // read as seeded. The recipe is changed through the API - the split's spec
+  // swapped and the failing branch dropped, so the run can succeed - and the
+  // screen is what is asserted on: the split's form, the run, and the PLS
+  // tab's held-out count and P-suffixed metrics.
+  const headers = { Authorization: "Bearer e2e-token" };
+  const pipeline = (await (await page.request.get("/api/pipelines/current", { headers })).json()) as {
+    nodes: { id: string; spec?: Record<string, unknown> }[];
+  };
+  const failing = new Set(["range_e", "centre_e", "pca_e"]);
+  const nodes = pipeline.nodes
+    .filter((node) => !failing.has(node.id))
+    .map((node) =>
+      node.id === "split_d"
+        ? { ...node, spec: { kind: "train_test", test_size: 0.25, seed: 42 } }
+        : node,
+    );
+  const saved = await page.request.put("/api/pipelines/current", { headers, data: { nodes } });
+  expect(saved.ok()).toBe(true);
+
+  await page.goto("/?token=e2e-token");
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /Train\/test 25%/ }).first().dblclick();
+  const inspector = page.getByRole("complementary", { name: "Inspector" });
+  await expect(inspector.getByLabel("Test Size")).toHaveValue("0.25");
+
+  await page.getByRole("button", { name: "Run pipeline" }).click();
+  await expect(page.locator(".status")).toContainText("Done", { timeout: 150_000 });
+
+  await outline.getByRole("button", { name: /PLS 5 LV/ }).first().dblclick();
+  // 3,000 synthetic samples: ceil(0.25 * 3000) held out, the rest calibrated.
+  await expect(page.getByText("2250 calibration · 750 held out")).toBeVisible();
+  await expect(page.getByTestId("metric-RMSEP")).not.toHaveText("—");
+  await expect(page.getByTestId("metric-RMSECV")).toHaveText("—");
 });

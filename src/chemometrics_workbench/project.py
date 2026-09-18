@@ -37,6 +37,7 @@ import hashlib
 import io
 import json
 import os
+import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -413,12 +414,12 @@ def _session(path: Path, *, create: bool = False) -> Iterator[Session]:
 def write_json(path: Path, document: Any) -> None:
     """Write JSON through a temporary file, so an interrupted write loses nothing.
 
-    A half-written `project.json` is a project the user can no longer open. The
+    A half-written JSON document is one the user can no longer open. The
     rename is atomic on every platform we ship to. Public because every small
     document written inside a project directory wants the same guarantee - the
     executor's cache index is the second.
     """
-    temporary = path.with_name(path.name + ".tmp")
+    temporary = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
     try:
         temporary.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
         temporary.replace(path)
@@ -431,12 +432,10 @@ def write_json(path: Path, document: Any) -> None:
 
 
 class DatasetEntry(Frozen):
-    """One dataset and its versions, as `datasets.json` holds them.
+    """One dataset and its versions, as `GET /projects/{id}/datasets` serves them.
 
-    The file is the project's index of what has been imported: SQLite arrives
-    in Phase 1.3 and takes this over, and until then a restart must not lose
-    the dataset list the way it currently loses the project list. The shape is
-    the one the Phase 1.1 frontend already reads, so #81 serves it unchanged.
+    Assembled from the `dataset` and `dataset_version` tables. The shape is the
+    one the Phase 1.1 frontend already reads, so #81 serves it unchanged.
 
     Contents still live in files. This holds a `DatasetVersion`, which holds an
     `array_path` - never an array.
@@ -522,7 +521,7 @@ def add_dataset(
 
 # --- The pipeline store ---------------------------------------------------
 #
-# One pipeline per project, until there is a database to hold more. The
+# One pipeline per project. The table could hold more; the screens cannot. The
 # frontend has asked for `pipelines/current` since its first commit, which is
 # the shape this matches: a project is a dataset and the recipe being built on
 # it. A second pipeline is a schema question and a screen that does not exist.
@@ -567,10 +566,20 @@ def read_layout(directory: str | os.PathLike[str]) -> dict[NodeId, dict[str, flo
     `design/data-model.md` says so and #83's keys depend on it. A separate
     table rather than a column on `pipeline` is the same argument in schema
     form - writing a position touches a different row than the recipe.
+
+    **Keyed on the pipeline, not `.first()`.** A project can hold more than one
+    row here - `start_pipeline` writes one when the project is created, and the
+    canvas writes another against whichever pipeline is current. Taking the
+    first row returned every position the canvas wrote to the wrong graph and
+    generated one for the right one, which is #170: the write succeeded, the
+    read looked past it, and a dragged node came back where it started.
     """
     path = Path(directory)
+    pipeline = read_pipeline(path)
+    if pipeline is None:
+        return {}
     with _session(path) as session:
-        row = session.scalars(select(db.PipelineLayoutRow)).first()
+        row = session.get(db.PipelineLayoutRow, str(pipeline.pipeline_id))
         document = json.loads(row.document) if row is not None else None
     if not isinstance(document, dict):
         return {}
@@ -693,7 +702,7 @@ def write_array(directory: str | os.PathLike[str], values: object) -> tuple[str,
     # Content-addressed, so an identical array is already stored and rewriting
     # it would only risk truncating a file something else is reading.
     if not target.exists():
-        temporary = target.with_name(target.name + ".tmp")
+        temporary = target.with_name(f"{target.name}.{uuid.uuid4().hex}.tmp")
         try:
             temporary.write_bytes(blob)
             temporary.replace(target)

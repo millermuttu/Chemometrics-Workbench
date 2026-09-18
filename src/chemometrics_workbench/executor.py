@@ -32,6 +32,14 @@ once — that is what `validate_partition` guarantees — so the assembled array
 is the same shape as an unsplit node's, and every row in it was produced by
 parameters that never saw that row.
 
+A **train/test split** (#183) is one fold, and not a partition: its training
+rows are never held out. A node below it has one array, every row transformed
+with the training rows' parameters — the calibration rows fitted them and the
+held-out rows were pushed through — and that array is what it displays. An
+estimator below it reports RMSEP and SEP on the held-out rows and nothing with
+a CV suffix, because one hold-out is not a cross-validation
+(`metrics-and-validation.md` §8.6).
+
 ## Caching, and what invalidates it
 
 Each node has a key: the SHA-256 of its own JSON together with the keys of its
@@ -116,6 +124,7 @@ from chemometrics_workbench.models import (
     PipelineNode,
     PLSRegressionSpec,
     ResolvedSplit,
+    TrainTestSplit,
 )
 from chemometrics_workbench.project import (
     ProjectError,
@@ -130,7 +139,13 @@ from chemometrics_workbench.regression import (
     cross_validated_predictions,
     rmsecv_curve,
 )
-from chemometrics_workbench.validation import Fold, k_fold, leave_one_out, validate_partition
+from chemometrics_workbench.validation import (
+    Fold,
+    k_fold,
+    leave_one_out,
+    train_test,
+    validate_partition,
+)
 
 __all__ = [
     "ALPHA",
@@ -283,6 +298,10 @@ class EstimatorResult:
     spe: list[float]
     spe_limit: float
     alpha: float = ALPHA
+    spe_limit_caveat: str | None = None
+    """Why `spe_limit` is outside its approximation's domain (#71): the kernel's
+    own sentence when Jackson-Mudholkar's `h0` is not positive, else `None`. A
+    regression's chi-squared limit has no such domain and leaves it `None`."""
     held_out: list[int] = field(default_factory=list)
     held_out_scores: list[list[float]] = field(default_factory=list)
     held_out_hotelling_t2: list[float] = field(default_factory=list)
@@ -381,7 +400,11 @@ class _State:
 
     @property
     def display(self) -> NDArray[np.float64]:
-        if self.folds is None:
+        # One fold is a hold-out, not a partition: its training rows are never
+        # held out, so there is nothing to assemble from. The one array has
+        # every row through the training rows' parameters, which is the
+        # picture §9 asks for.
+        if self.folds is None or len(self.folds) == 1:
             return self.arrays[0]
         assembled = np.empty_like(self.arrays[0])
         for fold, values in zip(self.folds, self.arrays, strict=True):
@@ -466,10 +489,18 @@ def execute(
 
         stored: list[str] = []
         hashes: list[str] = []
-        for values in state.arrays:
-            array_path, content_hash = write_array(path, values)
-            stored.append(array_path)
-            hashes.append(content_hash)
+        if cached is not None:
+            # Already on disk under these paths. Writing them again cost a
+            # float32 copy, a serialisation and a SHA-256 per array, per fold,
+            # on every run that recomputed nothing (#174). The store is
+            # content-addressed, so the hash is the file's name.
+            stored = list(index[key])
+            hashes = [f"sha256:{Path(p).stem}" for p in stored]
+        else:
+            for values in state.arrays:
+                array_path, content_hash = write_array(path, values)
+                stored.append(array_path)
+                hashes.append(content_hash)
 
         if cached is None:
             # Read back what was written, so a node's successors are fed the
@@ -670,6 +701,23 @@ def _folds_for(node: PipelineNode, parent: _State | None, n_samples: int) -> lis
         )
 
     spec = node.spec
+    if isinstance(spec, TrainTestSplit):
+        if spec.stratify_by is not None:
+            raise ExecutorError(
+                f"node {node.id!r} asks to stratify by {spec.stratify_by!r}, which is not "
+                "implemented: metrics-and-validation.md section 8.7 defines it, and it arrives "
+                "with the class column PLS-DA needs (#185). Remove stratify_by to run this "
+                "split.",
+                node.id,
+            )
+        try:
+            # A hold-out, not a partition: `validate_partition` is §7's rule
+            # for pooling residuals across folds and this has one.
+            return train_test(n_samples, spec.test_size, seed=spec.seed)
+        except ValueError as error:
+            raise ExecutorError(f"node {node.id!r} (train_test) failed: {error}", node.id) from (
+                error
+            )
     if isinstance(spec, KFoldSplit):
         folds = k_fold(n_samples, spec.n_splits, shuffle=spec.shuffle, seed=spec.seed)
     elif isinstance(spec, LeaveOneOut):
@@ -677,7 +725,7 @@ def _folds_for(node: PipelineNode, parent: _State | None, n_samples: int) -> lis
     else:
         raise ExecutorError(
             f"node {node.id!r} asks for the {spec.kind!r} split, which has no splitter "
-            "yet. K-fold and leave-one-out are implemented; train/test, repeated "
+            "yet. K-fold, leave-one-out and train/test are implemented; repeated "
             "K-fold and an external set are not.",
             node.id,
         )
@@ -845,6 +893,7 @@ def _estimator(
         hotelling_t2_limit=float(model.hotelling_t2_limit(ALPHA)),
         spe=_values(model.spe(calibration)),
         spe_limit=float(model.spe_limit(ALPHA)),
+        spe_limit_caveat=model.spe_limit_caveat(),
         held_out=[int(row) for row in held_out],
         # §9: the held-out rows are pushed through the training fold's
         # parameters, exactly as new samples are at prediction time. They are
@@ -932,8 +981,12 @@ def _pls(
         "rmsec": validation.rmse(train_y, predicted),
         "r2": validation.r2(train_y, predicted),
         "bias": validation.bias(train_y, predicted),
-        "r2_pearson": float(np.corrcoef(train_y, predicted)[0, 1] ** 2),
     }
+    # §11: absent, never NaN. A constant prediction has no correlation to square.
+    with np.errstate(invalid="ignore", divide="ignore"):
+        pearson = float(np.corrcoef(train_y, predicted)[0, 1] ** 2)
+    if np.isfinite(pearson):
+        metrics["r2_pearson"] = pearson
     # §5: `n - A - 1 <= 0` makes SEC undefined. Absent, and never a fallback
     # denominator - that would be a number which is not SEC.
     if train_y.size - a - 1 > 0:
@@ -951,14 +1004,22 @@ def _pls(
     # §9: one split, one pass, one curve. The whole fold assignment, not fold
     # zero's, and `A` is never re-selected inside a fold - every fold model is
     # fitted with the same `A` and the curve is a property of the split.
-    if parent.folds is not None:
+    #
+    # Each fold is evaluated on its own array, preprocessed with that fold's
+    # training rows. Fold zero's array fitted its preprocessing on every other
+    # fold's test rows, so using it for all of them leaked (#173).
+    #
+    # One fold is a train/test hold-out (#183), and one hold-out is not a
+    # cross-validation: its training rows are never predicted, so there is no
+    # RMSECV and no Q2 - §11 says absent, and RMSEP above is its number.
+    if parent.folds is not None and len(parent.folds) > 1:
         folds = parent.folds
-        curve = rmsecv_curve(matrix, response, folds, a)
+        curve = rmsecv_curve(parent.arrays, response, folds, a)
         for index, value in enumerate(curve, start=1):
             metrics[f"rmsecv_a{index}"] = float(value)
         metrics["rmsecv"] = float(curve[-1])
 
-        cross_validated = cross_validated_predictions(matrix, response, folds, a)
+        cross_validated = cross_validated_predictions(parent.arrays, response, folds, a)
         # §6: PRESS over the whole calibration set, against the full
         # calibration mean. Never a per-fold mean - packages differ on this and
         # it is what keeps Q2 and R2 on a common denominator.

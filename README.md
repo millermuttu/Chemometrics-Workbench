@@ -4,9 +4,39 @@ An open-source, local-first chemometrics workbench: a Python backend and a React
 shipped as one double-clickable desktop application, aimed at research and academic users of
 closed tools such as Unscrambler, SIMCA and OPUS. Your data never leaves your machine.
 
-**Status: Phase 0, the numerical foundation. There is no user interface yet**, and the
-application does not run. What exists is the part everything else has to stand on — the
-algorithm kernels, their specifications, and the evidence that their numbers are right.
+**Status: Phase 1 is complete and released; `v0.6.0` is the snapshot Phase 2 starts from.**
+The application runs: import a
+dataset, build a preprocessing pipeline on a canvas, fit PCA or PLS, cross-validate, and read
+the result. Everything stands on the numerical foundation Phase 0 laid — the algorithm
+kernels, their specifications, and the evidence that their numbers are right.
+
+Phase 2 is under way, with every §16 item on `feature_list.json`. The train/test split is in;
+VIP and coefficient plots, PLS-DA, contribution plots and the Bruker OPUS reader are still open.
+
+## Running it
+
+```bash
+./run.sh
+```
+
+It syncs the environment, builds the frontend bundle if there is not one, and starts the
+server. Open the URL it prints — `http://127.0.0.1:<port>/?token=<token>`. The port is
+ephemeral so two copies never fight over a number, and the token is a real check: every `/api`
+request carries it, so a bare `127.0.0.1` address without the token gets a 401.
+
+`./run.sh --build` rebuilds the bundle first, which is what you want after changing anything
+under `frontend/src`.
+
+Working on the interface is two processes instead, so Vite can serve its own:
+
+```bash
+WORKBENCH_PORT=8000 WORKBENCH_TOKEN=dev uv run python -m chemometrics_workbench.server
+cd frontend && pnpm dev             # http://localhost:5173
+```
+
+The port is pinned because the Vite proxy has to be told a target in advance, and the token
+because a fresh one on every restart is tedious to paste. `localhost:5173` is already an
+allowed origin.
 
 ## The parity report
 

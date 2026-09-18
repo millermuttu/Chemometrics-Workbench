@@ -52,7 +52,7 @@ it("keeps the accent off the data palette", () => {
   // --fail and --stale are semantic and --d1 to --d6 are Okabe-Ito.
   for (const theme of ["t-light", "t-dark"]) {
     const data = ["d1", "d2", "d3", "d4", "d5", "d6"].map((n) => ported[theme][n]);
-    for (const semantic of ["accent", "fail", "stale"]) {
+    for (const semantic of ["accent", "ok", "fail", "stale"]) {
       expect(data).not.toContain(ported[theme][semantic]);
     }
   }

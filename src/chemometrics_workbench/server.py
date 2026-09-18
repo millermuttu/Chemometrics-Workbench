@@ -72,7 +72,8 @@ PORT = int(os.environ.get("WORKBENCH_PORT", "0"))
 
 
 def require_token(authorization: Annotated[str | None, Header()] = None) -> None:
-    if authorization != f"Bearer {TOKEN}":
+    # Constant-time, so the comparison does not leak how much of a guess matched.
+    if not secrets.compare_digest(authorization or "", f"Bearer {TOKEN}"):
         raise HTTPException(status_code=401, detail="Invalid or missing bearer token")
 
 

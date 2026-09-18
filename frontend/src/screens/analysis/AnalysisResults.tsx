@@ -13,6 +13,7 @@ import {
 } from "@/plot/analysis";
 import { PLOT_CONFIG, axisLayout, baseLayout, readTheme } from "@/plot/theme";
 import { Panel } from "@/screens/analysis/Panel";
+import { CannotLoad } from "@/states/CannotLoad";
 
 /** One analysis tab, a grid of titled panels - the artboard's answer to open
  * design question 11.1, and the layout Phase 2's predicted-vs-measured panel
@@ -176,7 +177,9 @@ function Variance({ pca }: { pca: PcaPayload }) {
   );
 }
 
-function Diagnostics({ pca }: { pca: PcaPayload }) {
+/** Exported for its test: the caveat is a sentence the kernel wrote, and the
+ * panel's one job with it is to put it beside the number it qualifies. */
+export function Diagnostics({ pca }: { pca: PcaPayload }) {
   const beyond = outliers(pca);
   const { diagnostics } = pca;
   return (
@@ -190,6 +193,18 @@ function Diagnostics({ pca }: { pca: PcaPayload }) {
           <b>SPE limit</b>
           <span>{diagnostics.spe_limit.toExponential(3)}</span>
         </div>
+        {diagnostics.spe_limit_caveat ? (
+          // #71: a limit outside its approximation's domain is drawn, and
+          // said to be. The sentence is the kernel's, not one written here.
+          <p
+            role="note"
+            data-testid="spe-limit-caveat"
+            className="mono"
+            style={{ margin: "2px 12px 4px", fontSize: 10, color: "var(--stale)", lineHeight: 1.35 }}
+          >
+            {diagnostics.spe_limit_caveat}
+          </p>
+        ) : null}
         <div className="kv">
           <b>Rank</b>
           <span>{pca.rank}</span>
@@ -328,6 +343,11 @@ function RegressionMetrics({ pca }: { pca: PcaPayload }) {
 export function AnalysisResults({ nodeId, title }: { nodeId: string; title: string }) {
   const results = useResults(nodeId);
 
+  // A node with no result answers 404, and this used to render as a loading
+  // message that never resolved (#181). The server's sentence says what to do.
+  if (results.isError) {
+    return <CannotLoad error={results.error} />;
+  }
   if (!results.data) {
     return (
       <div className="pane">

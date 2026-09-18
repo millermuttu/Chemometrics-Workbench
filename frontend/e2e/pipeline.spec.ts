@@ -6,14 +6,25 @@ import { expect, test, type Page } from "@playwright/test";
  * The stub could show all five node states at once because its fixture said
  * so. A real state is a fact about the project: every node here has its arrays
  * on disk, so every node is `complete`. `running`, `failed` and `not_run` are
- * asserted in `runs.spec.ts`, where a run really runs, and `stale` in
- * `inspector.spec.ts`, where an edit really invalidates one. */
+ * asserted in `runs.spec.ts`, where a run really runs. `stale` is asserted
+ * nowhere: the server never reports it (`api.py:955-958`) and #159 removed the
+ * client-side marking that used to, so a node edited but not re-run comes back
+ * `not_run`. The state stays defined and styled against the day it is
+ * derivable. */
 
 async function openCanvas(page: Page) {
   await page.goto("/?token=e2e-token");
   await page.getByRole("button", { name: "Pipeline", exact: true }).click();
   await expect(page.getByTestId("pipeline-canvas")).toBeVisible();
   await expect(page.locator(".react-flow__node").first()).toBeVisible();
+}
+
+/** `getComputedStyle` reports a border colour as `rgb(r, g, b)`; the token is
+ * a hex string. One of them has to be converted, and the hex is the shorter
+ * trip. */
+function hexOf(rgb: string): string {
+  const [r, g, b] = rgb.match(/\d+/g)!.map(Number);
+  return `#${[r, g, b].map((part) => part.toString(16).padStart(2, "0")).join("")}`;
 }
 
 test("the branching pipeline renders with every node the executor ran", async ({ page }) => {
@@ -43,6 +54,21 @@ test("a node that has been run is complete, and says so by form", async ({ page 
     });
   expect(drawn.style).toBe("solid");
   expect(drawn.opacity).toBe(1);
+
+  // Colour as well as form: a node holding a result reads green, and green is
+  // its own token rather than the accent - the accent means *running*, and a
+  // finished node must not be the same colour as one still working.
+  const paint = await page.evaluate(() => {
+    const style = getComputedStyle(document.querySelector(".app")!);
+    const complete = document.querySelector('[data-testid="node-complete"]')!;
+    return {
+      border: getComputedStyle(complete).borderTopColor,
+      ok: style.getPropertyValue("--ok").trim(),
+      accent: style.getPropertyValue("--accent").trim(),
+    };
+  });
+  expect(hexOf(paint.border)).toBe(paint.ok.toLowerCase());
+  expect(paint.ok).not.toBe(paint.accent);
 });
 
 test("selecting a node focuses its tab", async ({ page }) => {
@@ -188,4 +214,127 @@ test("picking two terminal nodes opens a comparison tab", async ({ page }) => {
   // difference column is an em dash rather than a number.
   await expect(page.getByRole("region", { name: "Metrics" })).toBeVisible();
   await expect(page.getByTestId("delta-RMSECV")).toHaveText("—");
+});
+
+/** Dragging a node writes its position through on the drop, without waiting on
+ * Save - a position is not part of the recipe.
+ *
+ * The survival of a reload is asserted against the layout the server holds,
+ * not against a screen coordinate: `fitView` re-fits the viewport on every
+ * mount, so a node that has not moved an inch in the graph still lands on a
+ * different pixel. Reading the box either side of a reload compares two
+ * different zoom levels and fails on a change that did not happen. That the
+ * canvas draws what the layout says is `graph.test.ts`'s job, and it has one.
+ *
+ * Unlike the edits above, this one *does* change the seeded project on 8765.
+ * Safe because every other spec there asserts node counts, edges and states,
+ * never coordinates - said out loud so the next person to assert a position
+ * knows why theirs might move.
+ */
+test("a dragged node is written through on the drop, and not opened by the drag", async ({
+  page,
+}) => {
+  await openCanvas(page);
+  const node = page.locator('.react-flow__node[data-id="snv"]');
+  const before = (await node.boundingBox())!;
+
+  // A real mouse path, for the same reason `connect` uses one: React Flow
+  // follows pointer movement rather than a drop event.
+  await page.mouse.move(before.x + before.width / 2, before.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(before.x + before.width / 2 + 160, before.y + 130, { steps: 12 });
+  await page.mouse.up();
+
+  // Within one mount the viewport is fixed, so the box is a fair comparison.
+  const after = (await node.boundingBox())!;
+  expect(Math.round(after.x - before.x)).toBeGreaterThan(100);
+
+  // The drag consumed the click that ends it: moving a node must not open it.
+  await expect(page.getByRole("tab", { name: /SNV/ })).toHaveCount(0);
+
+  // The claim: the server holds the position it was actually dropped at.
+  //
+  // Asserted as an equality against what the canvas is drawing, not as "it
+  // changed". #170 was a write that succeeded and a read that looked past it,
+  // so every node came back at the position the server *generates* - and a
+  // `.not.toEqual(the old value)` is satisfied by a generated position just as
+  // well as by a stored one. The test passed while the feature did nothing.
+  const drawn = await page
+    .locator('.react-flow__node[data-id="snv"]')
+    .evaluate((element) => {
+      const [x, y] = getComputedStyle(element)
+        .transform.match(/-?\d+\.?\d*/g)!
+        .slice(-2)
+        .map(Number);
+      return { x, y };
+    });
+
+  await expect
+    .poll(async () => {
+      const state = await page.request.get("/api/pipelines/current/state", {
+        headers: { Authorization: "Bearer e2e-token" },
+      });
+      const stored = (await state.json()).layout.snv;
+      return { x: Math.round(stored.x), y: Math.round(stored.y) };
+    })
+    .toEqual({ x: Math.round(drawn.x), y: Math.round(drawn.y) });
+
+  // And the positions of the nodes that were *not* dragged survive the write,
+  // which sends the whole map because the endpoint replaces rather than merges.
+  const stored = await (
+    await page.request.get("/api/pipelines/current/state", {
+      headers: { Authorization: "Bearer e2e-token" },
+    })
+  ).json();
+  expect(Object.keys(stored.layout).length).toBeGreaterThan(1);
+});
+
+/** Dropping a connector on empty canvas offers the steps this build can run,
+ * and the one that is picked hangs off the node the drag started from.
+ *
+ * This is the answer to the parent `withDrafts` has to guess: it appends to
+ * the first terminal node and says in its own docstring that choosing a branch
+ * was left undone. Here the parent is not chosen at all - it is wherever the
+ * connector came from.
+ *
+ * Edits and never saves, so the seeded project on 8765 is left as the other
+ * specs expect.
+ */
+test("a connector dropped on empty canvas adds a step onto the node it came from", async ({
+  page,
+}) => {
+  await openCanvas(page);
+  const before = await page.locator(".react-flow__node").count();
+
+  const port = page.locator('.react-flow__node[data-id="msc"] .react-flow__handle-right');
+  const source = (await port.boundingBox())!;
+  await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
+  await page.mouse.down();
+  // Into empty space well below the graph, so the drop lands on nothing.
+  await page.mouse.move(source.x + 220, source.y + 300, { steps: 12 });
+  await page.mouse.up();
+
+  const menu = page.getByTestId("add-step-menu");
+  await expect(menu).toBeVisible();
+  await expect(menu).toContainText("msc");
+
+  // Only what the executor can actually fit: PLS-DA has no kernel, and
+  // repeated k-fold and external splits raise at run time. Train/test runs
+  // since #183 and is offered.
+  await expect(menu.getByRole("menuitem", { name: "PLS-DA" })).toHaveCount(0);
+  await expect(menu.getByRole("menuitem", { name: "PLS 5 LV" })).toHaveCount(1);
+  await expect(menu.getByRole("menuitem", { name: "Train/test 25%" })).toHaveCount(1);
+
+  await menu.getByRole("menuitem", { name: "Autoscale" }).click();
+  await expect(page.getByTestId("add-step-menu")).toHaveCount(0);
+  await expect(page.locator(".react-flow__node")).toHaveCount(before + 1);
+
+  // Hung off the node the connector came from, not off a terminal node.
+  await expect(page.locator('.react-flow__edge[data-id="msc->autoscale"]')).toHaveCount(1);
+
+  // And placed where it was dropped rather than at the origin, where every
+  // unplaced node used to land on top of every other.
+  const added = (await page.locator('.react-flow__node[data-id="autoscale"]').boundingBox())!;
+  expect(added.x).toBeGreaterThan(source.x);
+  expect(added.y).toBeGreaterThan(source.y);
 });

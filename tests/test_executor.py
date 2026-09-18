@@ -12,6 +12,7 @@ finding rather than a failure: see
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from pathlib import Path
 from typing import Any
@@ -44,6 +45,7 @@ from chemometrics_workbench.models import (
     PLSRegressionSpec,
     PreprocessNode,
     RangeSelect,
+    RepeatedKFoldSplit,
     SavitzkyGolay,
     SourceNode,
     SplitNode,
@@ -317,6 +319,26 @@ def test_a_second_run_recomputes_nothing(project: tuple[Path, DatasetVersion]) -
     np.testing.assert_array_equal(first.displays["centre_d"], second.displays["centre_d"])
 
 
+def test_a_cached_run_writes_no_array_and_reports_the_same_outputs(
+    project: tuple[Path, DatasetVersion], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#174: a cache hit used to re-serialise and re-hash every stored array."""
+    directory, version = project
+    pipeline = fixture_pipeline(version.version_id)
+    first = execute(directory, pipeline, version)
+
+    def refuse(*_: object) -> None:
+        raise AssertionError("a cached node wrote an array")
+
+    monkeypatch.setattr("chemometrics_workbench.executor.write_array", refuse)
+    second = execute(directory, pipeline, version)
+
+    assert second.outputs == {
+        node_id: dataclasses.replace(output, from_cache=True)
+        for node_id, output in first.outputs.items()
+    }
+
+
 def test_editing_one_node_recomputes_it_and_its_descendants_and_nothing_else(
     project: tuple[Path, DatasetVersion],
 ) -> None:
@@ -563,13 +585,71 @@ def test_a_split_below_a_split_is_refused_by_name(
 
 
 def test_a_split_with_no_splitter_yet_says_so(project: tuple[Path, DatasetVersion]) -> None:
-    """Three of the five split specs have no kernel. That is said, not guessed at."""
+    """Two of the five split specs have no kernel. That is said, not guessed at."""
     directory, version = project
     pipeline = _pipeline(
         version.version_id,
-        SplitNode(id="holdout", inputs=("source",), spec=TrainTestSplit(test_size=0.3)),
+        SplitNode(
+            id="repeated",
+            inputs=("source",),
+            spec=RepeatedKFoldSplit(n_splits=3, n_repeats=2),
+        ),
     )
-    with pytest.raises(ExecutorError, match="'train_test' split, which has no splitter yet"):
+    with pytest.raises(ExecutorError, match="'repeated_kfold' split, which has no splitter yet"):
+        execute(directory, pipeline, version)
+
+
+def test_a_train_test_split_holds_out_once_and_reports_p_metrics(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    """#183, `metrics-and-validation.md` §8.6: one fold, metrics with the P
+    suffix and none with CV, and the node below it displays the one array its
+    training rows' parameters produced."""
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="holdout", inputs=("source",), spec=TrainTestSplit(test_size=0.25, seed=42)),
+        PreprocessNode(id="centre", inputs=("holdout",), step=MeanCentre()),
+        EstimatorNode(
+            id="pls", inputs=("centre",), spec=PLSRegressionSpec(n_components=3, target="fat")
+        ),
+    )
+    run = execute(directory, pipeline, version)
+
+    [resolved] = run.resolved_splits
+    [fold] = validation.train_test(version.n_samples, 0.25, seed=42)
+    assert resolved.test_indices == [fold.test.tolist()]
+    assert len(fold.test) == 60
+
+    result = run.results["pls"]
+    assert result.fold == 0
+    assert result.held_out == fold.test.tolist()
+    assert {"rmsec", "r2", "rmsep", "sep"} <= set(result.metrics)
+    for absent in ("rmsecv", "q2", "rmsecv_std", "rmsecv_a1"):
+        assert absent not in result.metrics
+    assert len(result.held_out_predicted) == 60
+
+    # One array, centred by the training rows' mean: those rows average to
+    # zero and the held-out ones, pushed through the same mean, do not.
+    display = run.displays["centre"]
+    assert display.shape == (version.n_samples, version.n_variables)
+    np.testing.assert_allclose(display[fold.train].mean(axis=0), 0.0, atol=1e-4)
+    assert abs(display[fold.test].mean()) > 1e-4
+
+
+def test_stratifying_a_train_test_split_is_refused_by_name(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(
+            id="holdout",
+            inputs=("source",),
+            spec=TrainTestSplit(test_size=0.25, stratify_by="batch"),
+        ),
+    )
+    with pytest.raises(ExecutorError, match="stratify by 'batch', which is not implemented"):
         execute(directory, pipeline, version)
 
 
@@ -1011,3 +1091,47 @@ def test_sep_and_rmsep_satisfy_the_identity_the_specification_names(
     left = result.metrics["rmsep"] ** 2
     right = held_out_bias**2 + ((n_p - 1) / n_p) * result.metrics["sep"] ** 2
     assert left == pytest.approx(right)
+
+
+def _held_out_predictions(arrays: list[np.ndarray], y: np.ndarray, folds: Any, a: int) -> Any:
+    """Each fold's held-out rows predicted from the array given for that fold."""
+    predicted = np.empty_like(y)
+    for fold, values in zip(folds, arrays, strict=True):
+        x_mean = values[fold.train].mean(axis=0)
+        y_mean = y[fold.train].mean()
+        model = PLS(a).fit(values[fold.train] - x_mean, y[fold.train] - y_mean)
+        predicted[fold.test] = model.predict(values[fold.test] - x_mean) + y_mean
+    return predicted
+
+
+def test_each_fold_is_cross_validated_through_its_own_preprocessing(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    """#173: fold `i`'s held-out rows go through fold `i`'s fitted preprocessing.
+
+    Autoscale rather than MeanCentre, because the kernel re-centres every fold
+    and would hide the leak: a mean fitted on the wrong rows is removed again,
+    a scale is not. The fold-zero computation is asserted to *differ*, so the
+    test says which of the two the executor matched rather than that it moved.
+    """
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=5, seed=42)),
+        PreprocessNode(id="scale", inputs=("split",), step=Autoscale()),
+        EstimatorNode(
+            id="pls", inputs=("scale",), spec=PLSRegressionSpec(n_components=6, target="fat")
+        ),
+    )
+    run = execute(directory, pipeline, version)
+    metrics = run.results["pls"].metrics
+
+    arrays = [read_array(directory, path) for path in run.outputs["scale"].array_paths]
+    y = np.asarray(version.targets["fat"], dtype=np.float64)
+    folds = k_fold(version.n_samples, 5, seed=42)
+
+    own = rmse(y, _held_out_predictions(arrays, y, folds, 6))
+    leaked = rmse(y, _held_out_predictions([arrays[0]] * 5, y, folds, 6))
+
+    assert own != pytest.approx(leaked, abs=1e-6)
+    assert metrics["rmsecv"] == pytest.approx(own, rel=1e-9)

@@ -35,7 +35,7 @@ from chemometrics_workbench.api import (
     spectra_payload,
 )
 from chemometrics_workbench.datasets import load_tecator
-from chemometrics_workbench.executor import Run, execute
+from chemometrics_workbench.executor import Run, capture_environment, execute
 from chemometrics_workbench.models import AxisKind, DatasetVersion, VariableAxis
 from chemometrics_workbench.project import (
     create_project,
@@ -110,6 +110,19 @@ def test_the_open_project_is_created_on_first_use_and_is_a_real_directory(
     assert body[0]["directory"] == str(project)
     assert (project / "project.db").exists()
     assert body[0]["project_id"] == str(open_project(project).project_id)
+
+
+def test_the_project_reports_the_version_pyproject_declares(client: TestClient) -> None:
+    """One number, from the package metadata. `__version__` was a literal that
+    stayed at 0.2.0 for three releases while every experiment recorded it
+    (#181); this reads the declared version so the drift cannot recur."""
+    import tomllib
+
+    declared = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text())
+    expected = declared["project"]["version"]
+    assert capture_environment().app_version == expected
+    assert client.get("/api/projects").json()[0]["app_version"] == expected
+    assert client.get(f"/api/projects/{project_id(client)}").json()["app_version"] == expected
 
 
 def test_a_project_that_is_not_the_open_one_is_a_404_with_a_body(client: TestClient) -> None:
@@ -405,7 +418,10 @@ def test_the_results_payload_is_the_shape_the_fixture_publishes(tmp_path: Path) 
 
     assert set(payload) == set(published)
     assert set(payload["loadings"]) == set(published["loadings"])
-    assert set(payload["diagnostics"]) == set(published["diagnostics"])
+    # Additive since the fixture: #71's caveat, `None` on Tecator, whose h0 is
+    # positive. A screen that ignores the key renders what it rendered before.
+    assert set(payload["diagnostics"]) == set(published["diagnostics"]) | {"spe_limit_caveat"}
+    assert payload["diagnostics"]["spe_limit_caveat"] is None
     assert payload["samples"][:2] == published["samples"][:2]
     assert len(payload["scores"]) == len(published["scores"]) == 240
     assert len(payload["loadings"]["components"]) == 5
@@ -647,3 +663,14 @@ def test_the_payload_is_built_inside_the_interaction_budget() -> None:
     assert payload["decimation"]["variables_kept"] == MAX_POINTS
     assert payload["decimation"]["traces_drawn"] == MAX_TRACES
     assert elapsed < 1.0, f"took {elapsed:.3f}s"
+
+
+def test_the_import_handlers_run_on_the_thread_pool() -> None:
+    """#174: reading a file is seconds of CPU. In an `async def` handler it ran
+    on the event loop and every other request, the job poll included, waited."""
+    import inspect
+
+    from chemometrics_workbench import api
+
+    assert not inspect.iscoroutinefunction(api.import_preview)
+    assert not inspect.iscoroutinefunction(api.import_dataset)

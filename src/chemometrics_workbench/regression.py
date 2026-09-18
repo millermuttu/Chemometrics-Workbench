@@ -590,15 +590,23 @@ def cross_validated_predictions(
 
     `folds` are realised index arrays, never a seed (§10), so a stored
     `ResolvedSplit` replays through `validation.folds_from_indices()`.
+
+    **`X` may be one matrix per fold.** Below a split every preprocessing node
+    is refitted on each training fold, so fold `i` has its own matrix, and its
+    held-out rows must be predicted from *that* matrix. Evaluating every fold
+    on one fold's preprocessing fits the preprocessing on the other folds'
+    test rows, which is the leak §9 forbids (#173). A list of 2-D arrays is
+    never a valid single matrix, so the two forms cannot be confused.
     """
-    values = as_float64(X, "X")
+    matrices = _fold_matrices(X, folds)
     response = as_float64_vector(y, "y")
-    if response.size != values.shape[0]:
-        raise ValueError(f"X has {values.shape[0]} samples and y has {response.size}")
-    validate_partition(folds, values.shape[0])
+    n_samples = matrices[0].shape[0]
+    if response.size != n_samples:
+        raise ValueError(f"X has {n_samples} samples and y has {response.size}")
+    validate_partition(folds, n_samples)
 
     held_out = np.empty_like(response)
-    for fold in folds:
+    for fold, values in zip(folds, matrices, strict=True):
         train_x = values[fold.train]
         train_y = response[fold.train]
         x_mean = train_x.mean(axis=0)
@@ -606,6 +614,22 @@ def cross_validated_predictions(
         model = PLS(n_components).fit(train_x - x_mean, train_y - y_mean)
         held_out[fold.test] = model.predict(values[fold.test] - x_mean) + y_mean
     return held_out
+
+
+def _fold_matrices(X: object, folds: list[Fold]) -> list[NDArray[np.float64]]:
+    """One checked matrix per fold: the same one repeated, or the caller's own."""
+    if (
+        isinstance(X, list | tuple)
+        and X
+        and all(isinstance(item, np.ndarray) and item.ndim == 2 for item in X)
+    ):
+        if len(X) != len(folds):
+            raise ValueError(f"{len(X)} fold matrices were given for {len(folds)} folds")
+        matrices = [as_float64(item, f"X[{index}]") for index, item in enumerate(X)]
+        if len({matrix.shape for matrix in matrices}) != 1:
+            raise ValueError("every fold matrix must have the same shape")
+        return matrices
+    return [as_float64(X, "X")] * len(folds)
 
 
 def rmsecv_curve(
@@ -621,13 +645,35 @@ def rmsecv_curve(
     experiment rather than `A` unrelated ones. Choosing `A` at its minimum and
     then quoting that minimum as the model's expected error is optimistic; that
     is the user's call and the application does not make it for them.
+
+    **One fit per fold, not one per fold per `A`** (#174). NIPALS deflates one
+    component at a time, so the first `a` components of an `A`-component fit
+    are the `a`-component fit, and `R[:, :a] @ q[:a]` is its coefficient
+    vector. Refitting for every `A` cost `A(A+1)/2` fits per fold for the same
+    numbers. A fit that stopped early predicts with every component it has,
+    exactly as a separate fit asked for more would have.
     """
     if max_components < 1:
         raise ValueError(f"a curve needs at least one component, got {max_components}")
+    matrices = _fold_matrices(X, folds)
     response = as_float64_vector(y, "y")
-    return np.asarray(
-        [
-            rmse(response, cross_validated_predictions(X, response, folds, a))
-            for a in range(1, max_components + 1)
-        ]
-    )
+    n_samples = matrices[0].shape[0]
+    if response.size != n_samples:
+        raise ValueError(f"X has {n_samples} samples and y has {response.size}")
+    validate_partition(folds, n_samples)
+
+    held_out = np.empty((max_components, n_samples), dtype=np.float64)
+    for fold, values in zip(folds, matrices, strict=True):
+        train_x = values[fold.train]
+        train_y = response[fold.train]
+        x_mean = train_x.mean(axis=0)
+        y_mean = float(train_y.mean())
+        model = PLS(max_components).fit(train_x - x_mean, train_y - y_mean)
+        rotations = model._fitted("rotations_")
+        y_loadings = model._fitted("y_loadings_")
+        scores = (values[fold.test] - x_mean) @ rotations
+        # Column `a` of the running sum is the prediction with `a + 1` components.
+        partial = np.cumsum(scores * y_loadings, axis=1)
+        for a in range(max_components):
+            held_out[a, fold.test] = partial[:, min(a, partial.shape[1] - 1)] + y_mean
+    return np.asarray([rmse(response, predicted) for predicted in held_out])

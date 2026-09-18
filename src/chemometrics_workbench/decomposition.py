@@ -343,8 +343,50 @@ class PCA:
 
         Raises when `a == r`: the residual is zero by construction, so there is
         no distribution to take a quantile of and no limit should be drawn.
+
+        **`h0 <= 0` is not raised and not clamped** (#71). The approximation
+        assumes `h0` positive; a residual spectrum that decays slowly enough
+        gives a negative one, and the formula still produces a number. R
+        `mdatools` clamps `h0` to 0.001, which keeps a number and hides that
+        the assumption failed; raising would refuse a plot for a dataset that
+        is otherwise fine. The limit is returned as computed and
+        `spe_limit_caveat` says so, so a result can carry the sentence beside
+        the number.
         """
         self._check_alpha(alpha)
+        theta1, theta2, h0 = self._jackson_mudholkar_terms()
+        bracket = float(
+            float(norm.ppf(1.0 - alpha)) * np.sqrt(2.0 * theta2 * h0**2) / theta1
+            + 1.0
+            + theta2 * h0 * (h0 - 1.0) / theta1**2
+        )
+        if bracket <= 0.0:
+            raise ValueError(
+                f"the Jackson-Mudholkar bracket came out at {bracket:g}, which has no "
+                f"real {1 / h0:g} power. The residual eigenvalue spectrum is too "
+                "degenerate for this approximation; report the SPE values without a limit."
+            )
+        return float(theta1 * bracket ** (1.0 / h0))
+
+    def spe_limit_caveat(self) -> str | None:
+        """Why `spe_limit` is outside its approximation's domain, or `None`.
+
+        The one place the sentence is written: the executor stores it beside
+        the limit and the diagnostics panel prints it, and neither restates the
+        rule. `None` is the ordinary case, and the one corn and tecator are in.
+        """
+        _, _, h0 = self._jackson_mudholkar_terms()
+        if h0 > 0.0:
+            return None
+        return (
+            f"Jackson-Mudholkar assumes h0 > 0 and this model's h0 is {h0:.4f}: the "
+            "residual eigenvalues decay too slowly for the approximation. The limit is "
+            "the formula's own number, not clamped; treat it as indicative "
+            "(pca.md section 8)."
+        )
+
+    def _jackson_mudholkar_terms(self) -> tuple[float, float, float]:
+        """`theta_1`, `theta_2` and `h0` over the discarded eigenvalues (§8)."""
         eigenvalues = self._fitted_eigenvalues()
         discarded = eigenvalues[self.n_components :]
         if discarded.size == 0:
@@ -358,18 +400,7 @@ class PCA:
         # theta is never driven by numerical noise from a null direction.
         theta1, theta2, theta3 = (float((discarded**m).sum()) for m in (1, 2, 3))
         h0 = 1.0 - (2.0 * theta1 * theta3) / (3.0 * theta2**2)
-        bracket = float(
-            float(norm.ppf(1.0 - alpha)) * np.sqrt(2.0 * theta2 * h0**2) / theta1
-            + 1.0
-            + theta2 * h0 * (h0 - 1.0) / theta1**2
-        )
-        if bracket <= 0.0:
-            raise ValueError(
-                f"the Jackson-Mudholkar bracket came out at {bracket:g}, which has no "
-                f"real {1 / h0:g} power. The residual eigenvalue spectrum is too "
-                "degenerate for this approximation; report the SPE values without a limit."
-            )
-        return float(theta1 * bracket ** (1.0 / h0))
+        return theta1, theta2, h0
 
     # ----------------------------------------------------------------------
     # shared checks

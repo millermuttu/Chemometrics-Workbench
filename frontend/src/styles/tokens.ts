@@ -8,7 +8,7 @@ export const TOKEN_GROUPS = [
   { label: "Ink", names: ["ink", "ink2", "ink3"] },
   { label: "Rules", names: ["rule", "rule2"] },
   { label: "Accent", names: ["accent", "accentSoft", "accentInk"] },
-  { label: "Run state", names: ["stale", "staleSoft", "fail", "failSoft"] },
+  { label: "Run state", names: ["ok", "stale", "staleSoft", "fail", "failSoft"] },
   { label: "Data series", names: ["d1", "d2", "d3", "d4", "d5", "d6"] },
   { label: "Plot furniture", names: ["grid", "band"] },
 ] as const;

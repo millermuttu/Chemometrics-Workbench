@@ -1,17 +1,18 @@
 import { useEffect, useState } from "react";
 
 import type { DatasetEntry, Pipeline, PipelineNode, PipelineState, Project } from "@/api/queries";
-import { useStepSchema } from "@/api/queries";
+import { sourceVersionOf, useStepSchema } from "@/api/queries";
 import { ParameterForm } from "@/inspector/ParameterForm";
 import { Provenance } from "@/inspector/Provenance";
-import { specFor } from "@/inspector/schema";
+import { specFor, type StepSpec } from "@/inspector/schema";
 import type { Tab } from "@/shell/tabs";
 
-/** The right sidebar, and in Phase 1.1 the only place a parameter is edited.
+/** The right sidebar, and the only place a parameter is edited.
  *
- * Context-sensitive: a dataset shows its metadata and its source, a
- * preprocessing node shows a typed form built from the schema, an estimator
- * shows its metrics. Provenance sits at the foot of all of them, collapsed.
+ * Context-sensitive: a dataset shows its metadata and its source, a node
+ * shows a typed form built from the schema - a preprocessing step, a split or
+ * an estimator alike (#182) - and an estimator shows its metrics beneath it.
+ * Provenance sits at the foot of all of them, collapsed.
  */
 
 interface Props {
@@ -22,7 +23,7 @@ interface Props {
   state: PipelineState | undefined;
   metrics: Record<string, number | null> | undefined;
   collapsed: boolean;
-  onEdit: (nodeId: string) => void;
+  onEdit: (nodeId: string, step: Record<string, unknown>) => void;
 }
 
 function Kv({ label, value }: { label: string; value: string | number }) {
@@ -36,6 +37,22 @@ function Kv({ label, value }: { label: string; value: string | number }) {
 
 function short(hash: string): string {
   return hash.length > 22 ? `${hash.slice(0, 11)}…${hash.slice(-4)}` : hash;
+}
+
+/** A PLS target is a string in the schema and a column in the dataset. The
+ * form offers the columns, because a name that is not one is refused at run
+ * time anyway - and a dataset with no targets leaves it a text field, which
+ * is at least honest about why the node cannot run. */
+function withDatasetColumns(spec: StepSpec, targets: string[]): StepSpec {
+  if (targets.length === 0) return spec;
+  return {
+    ...spec,
+    fields: spec.fields.map((field) =>
+      field.name === "target" && field.kind === "string"
+        ? { ...field, kind: "enum", options: targets }
+        : field,
+    ),
+  };
 }
 
 /** The step's current values, as strings, so the form has one representation. */
@@ -83,7 +100,12 @@ export function Inspector({
     ?.flatMap((entry) => entry.versions.map((v) => ({ entry, v })))
     .find((pair) => pair.v.version_id === tab.id);
   const status = node ? state?.nodes[node.id] : undefined;
-  const spec = node?.step ? specFor(schema.data, String(node.step.kind)) : undefined;
+  // Preprocessing carries `step`; estimators and splits carry `spec`. The
+  // same form serves both, and `onEdit` already writes whichever the node has.
+  const kind = node?.step?.kind ?? node?.spec?.kind;
+  const found = kind ? specFor(schema.data, String(kind)) : undefined;
+  const source = sourceVersionOf(pipeline, datasets);
+  const spec = found && withDatasetColumns(found, Object.keys(source?.targets ?? {}));
 
   return (
     <aside className="insp" aria-label="Inspector" style={{ overflowY: "auto" }}>
@@ -99,7 +121,7 @@ export function Inspector({
             className="mono"
             style={{
               fontSize: 10,
-              color: status.state === "stale" ? "var(--stale)" : status.state === "failed" ? "var(--fail)" : "var(--ink3)",
+              color: status.state === "failed" ? "var(--fail)" : "var(--ink3)",
             }}
           >
             {status.state}
@@ -136,7 +158,7 @@ export function Inspector({
           spec={spec}
           values={values}
           onChange={setValues}
-          onApply={() => onEdit(node!.id)}
+          onApply={(step) => onEdit(node!.id, step)}
         />
       ) : node ? (
         <div style={{ padding: "8px 0", borderBottom: "1px solid var(--rule)" }}>
@@ -166,7 +188,7 @@ export function Inspector({
           ["Content hash", version?.v.content_hash ?? datasets?.[0]?.versions[0]?.content_hash ?? "—"],
           ["Pipeline", pipeline?.pipeline_id ?? "—"],
           ["Project", project?.project_id ?? "—"],
-          ["App version", "0.2.0"],
+          ["App version", project?.app_version ?? "—"],
         ]}
       />
       {version ? (

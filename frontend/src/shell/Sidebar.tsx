@@ -81,6 +81,8 @@ export function nodeLabel(node: PipelineNode): string {
       return `SG d${step?.deriv} w${step?.window_length}`;
     case "kfold":
       return `K-fold ${spec?.n_splits} · seed ${spec?.seed}`;
+    case "train_test":
+      return `Train/test ${Math.round(Number(spec?.test_size) * 100)}% · seed ${spec?.seed}`;
     case "pca":
       return `PCA ${spec?.n_components} PC`;
     case "pls":

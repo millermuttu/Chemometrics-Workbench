@@ -2,65 +2,173 @@
 
 Compact state for the next session. **Overwrite this file at the end of every session** — it is a snapshot, not a log. Read it first, then `feature_list.json`, `git log` on `dev`, and the open issues.
 
-**Updated:** 2026-09-05
+**Updated:** 2026-09-18
 
 ---
 
 ## Where things stand
 
-**Phase 1 is complete and released** — `v0.1.0`, `v0.2.0`, `v0.3.0`, `v0.4.0`, the last merged into
-`main` and tagged on 2026-08-30 (`2277b5b`).
+**Phase 1 is complete and released.** `main` is tagged `v0.6.0` (2026-09-18) — a mid-phase snapshot
+taken after the review fixes and #183, not a phase close; the tag's own message says so. `v0.5.0`
+(`015f9ec`, 2026-09-05) was the previous one.
 
-**Every entry on the live Phase 2 list is `passing`, and one issue is open.** The list is twelve
-entries; the twelve are done. That is not the same as the phase being finished — see *Next action*.
+**2026-09-18: a whole-repository review, four features merged, and Phase 2 written down.** The review
+found nothing in the science. It found seven things at the frontend edge and in provenance, and that
+`PROPOSAL.md` §16's Phase 2 items had no entries at all.
 
-| Priority | Feature | Issue | Status |
-| --- | --- | --- | --- |
-| 0 | A node under a range selection can be plotted | #134 | passing |
-| 0 | Each model-to-row mapping is written once | #131 | passing |
-| 0 | The checklist's third check has a command | #138 | passing |
-| 1 | A branch is dragged on the canvas, and a node removed | #51 | passing |
-| 1 | A pipeline says which estimator nodes will not be fitted | #136 | passing |
-| 1 | The seeded demo walks the exit criterion | #146 | passing |
-| 1 | The analysis screen draws a regression | #148 | passing |
-| 2 | The executor fits PLS, and a PLS result has a shape | #142 | passing |
-| 2 | Duplicate a subgraph, compare two terminal nodes | #51 | passing |
-| 3 | Coefficients readable against the raw axis | #144 | passing |
-| 3 | A numeric id column is not imported as a target | #135 | passing |
-| 4 | `data/tecator/README.md` records tecator's terms | #137 | passing |
+| Priority | Feature | Issue | PR | Status |
+| --- | --- | --- | --- | --- |
+| 1 | One version source, an unrun node says so, no `stale` state the server never sends | #181 | #189 | passing, merged |
+| 1 | Estimator and split nodes edited in the inspector; PLS models a real column | #182 | #190 | passing, merged |
+| 1 | Train/test split executes, and the canvas offers it | #183 | #194 | passing, merged |
+| 2 | VIP and the folded coefficient vector are drawn | #184 | — | not_started |
+| 2 | PLS-DA: specification, two-class kernel, confusion matrix | #185 | — | not_started |
+| 2 | The experiment record carries a regression's metrics | #188 | — | not_started |
+| 2 | Jackson–Mudholkar limit with `h0 <= 0` returned with a caveat | #71 | #192 | passing, merged |
+| 3 | Contribution plots | #186 | — | not_started |
+| 3 | Bruker OPUS reader | #187 | — | not_started |
+| 0 | The exit criterion demonstrated, not reasoned | — | — | not_started, depends on #183, #184, #188 |
+| 2 | A run below a split does not hold every fold array of every node | #176 | — | not_started |
+
+**Two decisions were taken this session and are recorded in the entries, not only here.**
+
+- **#71.** A non-positive `h0` returns the limit *with a caveat* in the result. Clamping hides the
+  failed assumption, raising refuses a plot for a dataset that is otherwise fine. Implemented in
+  #192: `PCA.spe_limit_caveat`, `diagnostics.spe_limit_caveat` on the wire, the sentence under the
+  SPE limit in the diagnostics panel, and `pca.md` §8 and §13 say so.
+- **The exit criterion.** "Matches reference software within stated tolerance" means: the workflow
+  driven over HTTP on a real dataset, compared against an independent PLS *on the experiment's own
+  resolved folds*, within the parity tolerances. Kernel parity alone is not it, because the executor's
+  fold handling is exactly what kernel parity cannot see — #173 was that.
 
 ## Current work
 
-**Nothing is `in_progress`.** The tree is clean, no branches remain and no pull requests are open.
-`main` is tagged `v0.4.0`; `dev` is **thirty-one commits ahead of it** — nothing merges to `main`
-until the phase closes. Merged on 2026-09-05: #139 (#138), #140 (#134), #141 (#136), #143 the
-stale-reference correction, #145 (#142), #147 (#146), #149 (#148), #150 (#137), #151 (#135),
-#152 (#144) and #153 (#51).
+**Nothing is `in_progress`.** No feature branch remains; `docs/handoff-183` carries this file.
+Every PR this session (#189 to #194) was green on all six checks and merged.
 
-**The demo runs the whole path.** Import, preprocess, split, fit PLS, cross-validate, read the
-result — on the seeded Tecator project, walked by CI on three platforms. Opening `PLS 5 LV · fat`
-gives scores with a T² ellipse, loadings, explained variance, diagnostics, predicted versus
-measured, the RMSECV curve and the calibration metrics. Terminal nodes can be picked in pairs and
-compared, and a branch can be duplicated and edited rather than rebuilt.
+**Open issues:** #168 (macOS flake — fix the test as the
+issue says: open a fixed number of tabs, wait on the split's settled state), #176 (run memory; a
+design), and #183–#188 (Phase 2, entered).
+
+**Untracked in the root, still not decided:** `AGENTS.md` (a Codex copy of `CLAUDE.md` that will
+drift), `.codex/` and `tecator.csv`. Either gitignore them or commit them; leaving them is what
+makes every `git status` lie a little.
+
+**`./run.sh` is the way in.** It syncs, installs with **pnpm** — this project has no
+`package-lock.json` and `npm ci` refuses it — builds the bundle if there is not one, and serves,
+printing `http://127.0.0.1:<port>/?token=<token>`. `--build` forces the rebuild a changed
+`frontend/src` needs.
+
+**Nothing openly licensed imports without a step.** Tecator is committed but carries a prose header;
+corn and gasoline are archives in `~/.cache`. `uv run python tests/seed_e2e.py --fresh --serve <dir>`
+is the way in: it seeds Tecator, a four-branch pipeline and every node run, then serves it.
 
 ## Next action
 
-**Two decisions, neither of them coding, and they are the only things left.**
+**Pick up #184, VIP and the folded coefficient vector drawn.** A screen over two endpoints that
+already answer: `regression.vip` in the results payload and `GET /results/{id}/coefficients`. One
+panel on the regression row of `AnalysisResults.tsx` with a two-way toggle, a `useCoefficients`
+query, two trace builders in `plot/analysis.ts`, and the "cannot be folded" sentence rendered
+rather than an empty plot. The seeded PLS tab is the e2e.
+
+Then #188, a dozen lines in `experiment_for`. Those two are what the exit run still depends on.
+
+**What #183 left worth knowing.** A train/test split is one `Fold` and *not a partition*:
+`validate_partition` refuses it, `_State.display` returns the one array for a single fold, and
+`_pls` computes the CV block only for more than one fold. `stratify_by` is refused by name until
+#185 brings a class column. The `runs` e2e project's last test rewrites its pipeline through the
+API; anything added to that file after it sees a train/test split and no failing branch.
+
+## Things learned this session
+
+- **`pnpm build` typechecks `src/__tests__`.** A "prove the test fails on the unfixed code" run that
+  reverts the source but keeps the new unit tests fails to *build* and never runs Playwright, and the
+  grep afterwards prints nothing — which looks like a pass of the wrong kind. Revert the tests too.
+- **A docstring says "five states" and means it.** `NodeCard` still has five with `stale` gone:
+  complete, running, queued, failed, not_run. The contract fixture keeps `stale`; `graph.test.ts`
+  now asserts the canvas gives it no encoding.
+- **Outline buttons are named label plus dim.** `getByRole("button", { name: "SNV", exact: true })`
+  matches nothing because the row's accessible name is `SNV snv`. Use a regex anchored at the start.
+- **Tecator's targets are `moisture, fat, protein`, in that order.** The seeded PLS models `fat`; a
+  PLS added from the menu now models the *first* target, `moisture`.
+
+## The lesson from #162, which shipped green and did not work
+
+Worth reading before trusting any test that asserts a change rather than a value.
+
+`read_layout` took the **first** layout row in the project rather than the current pipeline's, and a
+seeded project holds two — one written by `start_pipeline` at creation, one by the canvas. Every
+position the canvas wrote was read off the wrong graph and replaced by a generated one. The drag did
+nothing.
+
+Its e2e test asserted the stored position was **not** the pre-drag value:
+
+```ts
+.not.toEqual({ x: 40, y: 170 })
+```
+
+A generated position satisfies that as well as a stored one, so **the test passed while the feature
+did nothing, and CI was green on all three platforms**. It was caught by driving the real
+application by hand after the merge.
+
+- *"It changed"* is not the claim *"it is what I set it to"*. Wherever a fallback exists, the two
+  come apart silently.
+- The replacement test was confirmed to **fail against the unfixed backend** before being trusted.
+  A regression test nobody has seen fail is a test nobody has tested.
+- The `feature_list.json` entry for #162 carries a correction rather than a rewrite: it is the
+  record of what was verified, and it was wrong.
+
+## Three canvas traps, all of which cost time
+
+- **A node's label is built from its parameters.** Editing `SG d1 w11` to a window of 9 renames it
+  `SG d1 w9`, and `snv_savgol` — same window, same label — inherits the old name alone. Re-finding an
+  edited node by the name it used to have finds a *different* node and reads a plausible wrong value
+  off it.
+- **Making nodes draggable breaks two things silently.** A drag ends with a click on the node it
+  moved, which opens its tab — so no node can be moved without being opened, unless the drag consumes
+  that click. And any header button becomes a drag handle without React Flow's `nodrag` class.
+- **`fitView` re-fits the viewport on every mount**, so comparing a node's screen box either side of
+  a reload compares two zoom levels and fails on a change that did not happen.
+
+## Also worth not rediscovering
+
+- **This project uses pnpm.** `run.sh` said `npm ci` until #160 and failed on any clean checkout;
+  the verification missed it because `frontend/dist` already existed, so the broken branch never ran.
+  **Delete the artefact before verifying the code that builds it.**
+- **A stray `pkill` takes Playwright's own web servers with it**, failing tests that had nothing
+  wrong with them. `fuser -k -n tcp 8765 8766 8767 8768` before a run, never during one.
+- **Never `git stash -u` with a pathspec in this checkout.** On 2026-09-17 the untracked `.agents/`
+  (openspec skills for Codex) disappeared during `git stash -q -u -- src tests pyproject.toml` and a
+  branch switch; the stash's untracked tree was empty and nothing reached the trash. A copy of the
+  same skill set lives at `~/Desktop/DAC_Adc_USB/.agents/skills/`, or `openspec init` regenerates it.
+  Commit to the branch instead of stashing.
+- **A regression test is trusted only after it fails on the unfixed code** — done for every test
+  added on 2026-09-17. One e2e first "failed" for the wrong reason (`-g` skipped the import it
+  depends on); run a spec file whole when its tests share a project.
+- **#168: `shell.spec.ts:43` is flaky on macOS**, in two different ways. It failed the same way on
+  `dev` from a merge touching only `run.sh` and two markdown files, so it is the test, not the code.
+  It opens every outline button as a tab inside one 30 s budget.
+
+## Next action
+
+**Write the five missing entries.** `PROPOSAL.md` §16 names **PLS-DA, VIP scores, contribution
+plots, a train/test splitting UI and the Bruker OPUS reader**. None has a `feature_list.json` entry.
+Sixteen green entries means the list is finished, not the phase.
+
+Note the coupling: the canvas menu deliberately omits PLS-DA and the train/test splitter because the
+executor cannot run them (`executor.py` `_FITTED`, and only `kfold`/`loo` execute). Those two §16
+features are what would let the menu offer them.
+
+**Two decisions, neither of them coding.**
 
 **1. Is the exit criterion met?** §16 asks that the workflow "match reference software within stated
-tolerance". PLS is parity-covered at kernel level in `docs/parity-report.md`, and the workflow now
-runs end to end in the application. Whether that combination *is* the criterion, or whether it wants
-its own recorded comparison as evidence, has not been decided. Nothing is blocked on it; the phase's
-close is.
+tolerance". PLS is parity-covered at kernel level in `docs/parity-report.md`, and the workflow runs
+end to end. Whether that combination *is* the criterion has not been decided. Nothing is blocked on
+it; the phase's close is.
 
-**2. #71 — what a non-positive `h0` should do** in the Jackson–Mudholkar SPE limit. Gasoline's `h0`
-is −0.0190; this kernel uses it as computed, `mdatools` clamps it to 0.001. The divergence is
-recorded and proven. It is a specification decision and has been waiting since Phase 0.
-
-**And the list is not the phase.** §16 also names **PLS-DA, VIP and contribution plots, a train/test
-splitting UI, and the Bruker OPUS reader**. None has an entry. The exit criterion text says so, and
-it stays true: the twelve entries being green means the list is finished, not the phase. Writing
-those five entries is the natural next session's first job.
+**2. #71 — what a non-positive `h0` should do** in the Jackson-Mudholkar SPE limit. Gasoline's `h0`
+is −0.0190; this kernel uses it as computed, `mdatools` clamps it to 0.001. Recorded and proven, and
+waiting since Phase 0.
 
 ## What an end-to-end run against a public dataset found
 
@@ -134,7 +242,7 @@ to be torn up", with the second row carrying the slot in a literal comment. Phas
 it. Before treating a design gap as a blocker, read what the screen says about itself.
 
 **Three things about the frontend suite, learned the slow way.** Playwright serves `frontend/dist`,
-a **built** bundle, so an app-source change needs `npm run build` before the e2e suite sees it — a
+a **built** bundle, so an app-source change needs `pnpm build` before the e2e suite sees it — a
 run that passes without it proves nothing about the change. `getByText` is a strict-mode violation
 on any word a screen repeats, and "RMSECV" appears four times on the analysis tab, so `Panel` now
 names its `<section>` with `aria-label` and panels are addressed by role and name. And a new

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-**Phase 1 is complete: Phase 0 is tagged `v0.1.0`, 1.1 `v0.2.0`, 1.2 `v0.3.0` and 1.3 `v0.4.0`.** The kernels, the parity programme and the reproducibility schema are green in CI, and the React shell walks its screens over the real backend: readers, the array store, the executor, real jobs, the HTTP surface, and **SQLite in each project directory**. A project directory is now `project.db`, `arrays/` and `results/` — no JSON index anywhere in it — and a killed server restarts onto its datasets, its pipeline, its layout and its last experiment. Phase 2 is next.
+**Phase 1 is complete: Phase 0 is tagged `v0.1.0`, 1.1 `v0.2.0`, 1.2 `v0.3.0` and 1.3 `v0.4.0`; `v0.5.0` and `v0.6.0` are mid-phase snapshots, the latter taken 2026-09-18 after the repository review and the first Phase 2 feature (#183).** The kernels, the parity programme and the reproducibility schema are green in CI, and the React shell walks its screens over the real backend: readers, the array store, the executor, real jobs, the HTTP surface, and **SQLite in each project directory**. A project directory is now `project.db`, `arrays/` and `results/` — no JSON index anywhere in it — and a killed server restarts onto its datasets, its pipeline, its layout and its last experiment. Phase 2 is next.
 
 - `PROPOSAL.md` — the specification. Read it before proposing or writing anything.
 - `feature_list.json` — the **live** task list. It covers Phase 2, whose first feature (#51's branch drag and node removal) was built ahead of 1.3 and whose second half is still open.
