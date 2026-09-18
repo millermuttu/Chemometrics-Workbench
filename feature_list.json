@@ -67,7 +67,7 @@
       "id": "json-and-snippet-export",
       "priority": 1,
       "area": "backend",
-      "issue": null,
+      "issue": 213,
       "title": "JSON model and a standalone Python prediction snippet",
       "depends_on": [
         "model-artifact"
@@ -78,9 +78,9 @@
         "uv run pytest - the exported snippet, executed in a subprocess with only NumPy importable, reproduces the served predictions within the parity harness's prediction tolerance",
         "The same test covers a chain that cannot be folded: the snippet carries the residual preprocessing and still reproduces the predictions"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": "PROPOSAL.md section 9. `regression.coefficients_original_units` already folds a foldable chain and says by name when it cannot (#144), and `/results/{id}/coefficients` serves it. The constraint section 9 places on the codebase - exported predictions match in-application predictions within a stated tolerance, verified in CI - is this entry's verification, not a promise."
+      "status": "passing",
+      "evidence": "2026-09-18. Schema first: docs/model-export.md is normative and states the JSON model's fields, the snippet's contract, the residual-chain arithmetic written out, and section 5's tolerance with its measured reason. export.py splits the chain at the last unfoldable step, folds the tail through coefficients_original_units with the estimator's own centring folded into the intercept, carries SNV, MSC (with the reference spectrum it was fitted with) and Normalise as residual steps, and refuses a baseline by name. GET /api/results/{id}/export.json and /export.py serve the two forms; a chain that cannot be carried is a 422 not_exportable with the step's name, not a 500. tests/test_export.py, 9 tests: a foldable chain exports a bare coefficient vector; SNV then Savitzky-Golay then centring carries only the SNV; MSC carries its reference; a range selection folds and leaves the dropped channels at exactly zero weight while the model still takes a full raw spectrum; a classification exports its classes and the 0.5 threshold and the snippet returns labels matching the served assignments; a model below a ten-fold split reproduces both its calibration and its held-out predictions; a baseline and a decomposition are each refused by name. PROPOSAL.md section 9's constraint is held in a subprocess that installs a meta-path finder raising on any import of chemometrics_workbench: the exported file predicts, sys.modules holds nothing of ours, and the predictions agree with the served ones within docs/model-export.md section 5's rtol 1e-4 / atol 1e-6. Measured on the SNV + SG(d1) + centre chain: 6.2e-6 relative, which is the float32 store's contribution that docs/phase-2/exit-run.md measured at 7.09e-6, an order of magnitude inside the stated tolerance. test_server.py covers both endpoints and the 422. `uv run pytest` 889 passed 1 skipped; ruff, format, mypy clean; frontend unchanged, 126 tests and build clean.",
+      "notes": "The tolerance is stated rather than discovered: the application predicts from float32-stored arrays and an export computes in float64, so rtol 1e-4 is an order of magnitude above the largest difference the store can produce rather than a number that happened to pass. If the store ever becomes float64 this should come down to the parity harness's prediction class, and the test holding it is what would notice. A baseline in the residual chain is refused by name - AsLS is a sparse solve per spectrum and does not belong in a copy-pasteable file; the artifact still carries such a model. No UI: the endpoints are the surface, and a download affordance belongs with model-registry's save."
     },
     {
       "id": "lineage-comparison",

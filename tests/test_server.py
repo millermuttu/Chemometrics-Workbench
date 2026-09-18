@@ -915,3 +915,57 @@ def test_the_history_lists_every_run_newest_first_and_each_one_opens(
     unknown = client.get("/api/experiments/nonesuch", headers=AUTH)
     assert unknown.status_code == 404
     assert unknown.json()["error"]["code"] == "not_found"
+
+
+def test_the_export_endpoints_serve_both_forms_and_refuse_by_name(client: TestClient) -> None:
+    """#213: the two URLs `docs/model-export.md` names, and the 422 a chain
+    that cannot be carried gets - not a 500, because nothing went wrong."""
+    imported(client)
+    source = client.get("/api/pipelines/current", headers=AUTH).json()["nodes"][0]
+    nodes = [
+        source,
+        {"id": "snv", "type": "preprocess", "inputs": ["source"], "step": {"kind": "snv"}},
+        {"id": "centre", "type": "preprocess", "inputs": ["snv"], "step": {"kind": "mean_centre"}},
+        {
+            "id": "pls",
+            "type": "estimator",
+            "inputs": ["centre"],
+            "spec": {"kind": "pls", "n_components": 3, "algorithm": "nipals", "target": "fat"},
+        },
+    ]
+    assert (
+        client.put("/api/pipelines/current", json={"nodes": nodes}, headers=AUTH).status_code == 200
+    )
+    job = client.post("/api/experiments/current/run", headers=AUTH).json()
+    assert wait_for(client, job["job_id"])["status"] == "succeeded"
+
+    model = client.get("/api/results/pls/export.json", headers=AUTH)
+    assert model.status_code == 200, model.text
+    assert [step["kind"] for step in model.json()["preprocessing"]] == ["snv"]
+    assert model.json()["provenance"]["metrics"]["rmsec"]
+
+    snippet = client.get("/api/results/pls/export.py", headers=AUTH)
+    assert snippet.status_code == 200
+    assert snippet.headers["content-type"].startswith("text/x-python")
+    assert "pls_predict.py" in snippet.headers["content-disposition"]
+    assert "def predict(X):" in snippet.text
+    assert "import numpy as np" in snippet.text
+
+    # A baseline in the chain: refused by name, and a 422 rather than a 500 -
+    # nothing went wrong, this model cannot be carried in this form.
+    nodes[1] = {
+        "id": "snv",
+        "type": "preprocess",
+        "inputs": ["source"],
+        "step": {"kind": "baseline", "method": "asls"},
+    }
+    assert (
+        client.put("/api/pipelines/current", json={"nodes": nodes}, headers=AUTH).status_code == 200
+    )
+    job = client.post("/api/experiments/current/run", headers=AUTH).json()
+    assert wait_for(client, job["job_id"], seconds=120)["status"] == "succeeded"
+
+    refused = client.get("/api/results/pls/export.json", headers=AUTH)
+    assert refused.status_code == 422
+    assert refused.json()["error"]["code"] == "not_exportable"
+    assert "baseline" in refused.json()["error"]["message"]
