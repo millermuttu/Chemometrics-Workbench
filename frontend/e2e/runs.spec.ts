@@ -340,3 +340,48 @@ test("two runs compare step by step, and the differing node is named", async ({ 
   await expect(view.getByTestId("lineage-node-unchanged").first()).toBeVisible();
   await expect(view).toContainText("What each scored");
 });
+
+test("a model saved from the analysis tab appears in the outline", async ({ page }) => {
+  // #219. The project has a fitted PLS by now - the tests above ran one under
+  // a train/test split and added a second on a foldable chain - so this saves
+  // one and reads the registry back, rather than fitting anything of its own.
+  await page.goto("/?token=e2e-token");
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+
+  // Before: the section says what would put one there.
+  await expect(outline).toContainText("No models yet");
+
+  await outline.getByRole("button", { name: /PLS 5 LV/ }).last().dblclick();
+  await expect(page.getByTestId("analysis-header")).toBeVisible();
+
+  await page.getByLabel("Model name").fill("Fat, mean centre only");
+  await page.getByTestId("save-model").click();
+  await expect(page.getByTestId("model-saved")).toBeVisible();
+
+  // The outline lists it, with the one figure a saved regression carries.
+  const row = outline.getByRole("button", { name: /^Fat, mean centre only/ });
+  await expect(row).toBeVisible();
+  await expect(outline).not.toContainText("No models yet");
+
+  // And one opens to its record: what it scored, where it came from, and the
+  // file it points at. The artifact is a path, never contents - the database
+  // holds the reference (PROPOSAL.md section 11).
+  await row.dblclick();
+  const view = page.getByTestId("model-view");
+  await expect(view).toBeVisible();
+  await expect(view).toContainText("What it scored");
+  await expect(view).toContainText("Where it came from");
+  await expect(view).toContainText(/models\/.+\.cwmodel/);
+  await expect(view).toContainText("sha256:");
+  await expect(page.getByTestId("model-metric-RMSEC")).not.toHaveText("—");
+
+  // The registry is what the server serves, not what the screen remembers.
+  const served = await page.evaluate(async () => {
+    const response = await fetch("/api/models", {
+      headers: { Authorization: `Bearer ${sessionStorage.getItem("token")}` },
+    });
+    return (await response.json()) as { name: string; artifact_path: string }[];
+  });
+  expect(served.map((model) => model.name)).toEqual(["Fat, mean centre only"]);
+  expect(served[0].artifact_path).toMatch(/^models\/.+\.cwmodel$/);
+});

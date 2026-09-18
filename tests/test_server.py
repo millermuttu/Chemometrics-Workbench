@@ -12,8 +12,12 @@ was for.
 
 from __future__ import annotations
 
+import hashlib
 import importlib
+import json
+import sqlite3
 import time
+import zipfile
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -969,3 +973,154 @@ def test_the_export_endpoints_serve_both_forms_and_refuse_by_name(client: TestCl
     assert refused.status_code == 422
     assert refused.json()["error"]["code"] == "not_exportable"
     assert "baseline" in refused.json()["error"]["message"]
+
+
+# --------------------------------------------------------------------------
+# the model registry
+# --------------------------------------------------------------------------
+
+
+def _pls_recipe(source: Any) -> list[dict[str, Any]]:
+    """SNV, mean centre and a PLS on `fat`, under a two-fold split.
+
+    Two components, not three: the fixture is eight samples, a two-fold split
+    fits on four, and `decomposition.py` refuses a limit unless `n > a + 1`.
+    That refusal is right and the recipe bends to it.
+    """
+    return [
+        source,
+        {"id": "snv", "type": "preprocess", "inputs": ["source"], "step": {"kind": "snv"}},
+        {"id": "centre", "type": "preprocess", "inputs": ["snv"], "step": {"kind": "mean_centre"}},
+        {
+            "id": "split",
+            "type": "split",
+            "inputs": ["centre"],
+            "spec": {"kind": "kfold", "n_splits": 2, "shuffle": False},
+        },
+        {
+            "id": "pls",
+            "type": "estimator",
+            "inputs": ["split"],
+            "spec": {"kind": "pls", "n_components": 2, "algorithm": "nipals", "target": "fat"},
+        },
+    ]
+
+
+def _fitted_pls(client: TestClient) -> None:
+    imported(client)
+    source = client.get("/api/pipelines/current", headers=AUTH).json()["nodes"][0]
+    assert (
+        client.put(
+            "/api/pipelines/current", json={"nodes": _pls_recipe(source)}, headers=AUTH
+        ).status_code
+        == 200
+    )
+    job = client.post("/api/experiments/current/run", headers=AUTH).json()
+    assert wait_for(client, job["job_id"])["status"] == "succeeded"
+
+
+def test_a_saved_model_is_recorded_and_served(client: TestClient) -> None:
+    """#219. Saving a fitted estimator records it with its name, its task, the
+    experiment it came from and its metrics; the registry lists it and one can
+    be read back on its own."""
+    _fitted_pls(client)
+
+    saved = client.post("/api/results/pls/save", json={"name": "Fat, SNV + centre"}, headers=AUTH)
+    assert saved.status_code == 201, saved.text
+    row = saved.json()
+
+    assert row["name"] == "Fat, SNV + centre"
+    assert row["task"] == "regression"
+    assert row["node_id"] == "pls"
+    # The experiment it came from, by id - the lineage PROPOSAL.md section 8.2
+    # asks for, not a timestamp that happens to be close.
+    current = client.get("/api/experiments/current", headers=AUTH).json()
+    assert row["experiment_id"] == current["experiment_id"]
+    assert row["metrics"]["rmsec"] is not None
+
+    listed = client.get("/api/models", headers=AUTH)
+    assert listed.status_code == 200
+    assert [entry["model_id"] for entry in listed.json()] == [row["model_id"]]
+
+    one = client.get(f"/api/models/{row['model_id']}", headers=AUTH)
+    assert one.status_code == 200
+    assert one.json() == row
+
+
+def test_the_registry_holds_a_reference_and_never_the_contents(
+    client: TestClient, tmp_path: Path
+) -> None:
+    """PROPOSAL.md section 11: the database stores references to files, never
+    file contents. The artifact is a file in the project directory, which is
+    the thing that gets zipped and sent, and the row points at it."""
+    _fitted_pls(client)
+    row = client.post("/api/results/pls/save", json={"name": "Fat"}, headers=AUTH).json()
+
+    artifact = tmp_path / "project" / row["artifact_path"]
+    assert artifact.is_file()
+    assert row["artifact_path"] == f"models/{row['model_id']}.cwmodel"
+
+    # The hash the row carries is the hash of the bytes that landed.
+    digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+    assert row["artifact_hash"] == f"sha256:{digest}"
+
+    # And the database holds none of those bytes. The manifest names every
+    # array; not one of them is in the row, which is the whole point of the
+    # split.
+    document = json.loads(
+        sqlite3.connect(tmp_path / "project" / "project.db")
+        .execute("SELECT document FROM model WHERE model_id = ?", (row["model_id"],))
+        .fetchone()[0]
+    )
+    assert document["artifact_path"] == row["artifact_path"]
+    assert "coefficients" not in json.dumps(document)
+
+    # Readable without this application, which is what the file is for.
+    with zipfile.ZipFile(artifact) as archive:
+        manifest = json.loads(archive.read("manifest.json"))
+    assert manifest["model"]["node_id"] == "pls"
+    assert manifest["model"]["task"] == "regression"
+    # Fitted under a split, so the artifact carries which fold it is.
+    assert manifest["split"]["node_id"] == "split"
+    assert manifest["split"]["n_folds"] == 2
+
+
+def test_saving_a_node_that_was_never_fitted_says_so(client: TestClient) -> None:
+    imported(client)
+    refused = client.post("/api/results/pls/save", json={"name": "Nothing"}, headers=AUTH)
+
+    assert refused.status_code == 404
+    assert refused.json()["error"]["code"] == "not_found"
+    assert client.get("/api/models", headers=AUTH).json() == []
+
+
+def test_a_model_this_project_does_not_hold_is_a_404(client: TestClient) -> None:
+    imported(client)
+    missing = client.get("/api/models/nope", headers=AUTH)
+
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "not_found"
+
+
+def test_two_saves_of_one_node_are_two_models(client: TestClient) -> None:
+    """A registry records what was saved, not what is current. Saving the same
+    node twice under two names is two entries, because the name is the user's
+    and the second is not a correction of the first."""
+    _fitted_pls(client)
+    first = client.post("/api/results/pls/save", json={"name": "First"}, headers=AUTH).json()
+    second = client.post("/api/results/pls/save", json={"name": "Second"}, headers=AUTH).json()
+
+    assert first["model_id"] != second["model_id"]
+    assert first["artifact_path"] != second["artifact_path"]
+    assert {entry["name"] for entry in client.get("/api/models", headers=AUTH).json()} == {
+        "First",
+        "Second",
+    }
+
+
+def test_a_model_needs_a_name(client: TestClient) -> None:
+    _fitted_pls(client)
+    refused = client.post("/api/results/pls/save", json={"name": ""}, headers=AUTH)
+
+    assert refused.status_code == 422
+    assert client.get("/api/models", headers=AUTH).json() == []

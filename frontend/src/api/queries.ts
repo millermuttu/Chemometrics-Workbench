@@ -525,3 +525,64 @@ export function useCancelJob() {
     onSuccess: (job) => client.setQueryData(["job", job.job_id], job),
   });
 }
+
+/** One saved model, as the registry lists it and its screen reads it (#219).
+ *
+ * `artifact_path` is a path inside the project directory and never contents:
+ * `PROPOSAL.md` section 11 splits storage so a project directory can be zipped
+ * and sent, and the database holds the reference.
+ */
+export interface ModelRow {
+  model_id: string;
+  experiment_id: string;
+  name: string;
+  task: string;
+  node_id: string;
+  artifact_path: string;
+  artifact_hash: string;
+  created_at: string;
+  metrics: {
+    rmsec: number | null;
+    rmsecv: number | null;
+    rmsep: number | null;
+    r2: number | null;
+    q2: number | null;
+    accuracy: number | null;
+    explained_variance: number | null;
+  };
+}
+
+export function useModels() {
+  return useQuery({ queryKey: ["models"], queryFn: () => api<ModelRow[]>("/models") });
+}
+
+export function useModel(modelId: string | undefined) {
+  return useQuery({
+    queryKey: ["model", modelId],
+    queryFn: () => api<ModelRow>(`/models/${modelId}`),
+    enabled: Boolean(modelId),
+    staleTime: Infinity,
+  });
+}
+
+/** Save one fitted estimator as a model this project holds.
+ *
+ * The saved row is seeded into its own cache entry as well as invalidating the
+ * list, so opening the model the save just produced does not wait for a second
+ * request to say what the first already returned.
+ */
+export function useSaveModel() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ nodeId, name }: { nodeId: string; name: string }) =>
+      api<ModelRow>(`/results/${nodeId}/save`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      }),
+    onSuccess: (model) => {
+      client.setQueryData(["model", model.model_id], model);
+      void client.invalidateQueries({ queryKey: ["models"] });
+    },
+  });
+}

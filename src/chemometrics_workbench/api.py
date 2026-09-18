@@ -13,6 +13,8 @@ contract the frontend was built against is kept in `tests/fixtures/contract/`.
 - `GET  /api/jobs/{id}`, `POST /api/jobs/{id}/cancel`
 - `GET  /api/spectra/{node_id}`, `GET /api/results/{node_id}` and `/coefficients`
 - `GET  /api/results/{node_id}/export.json` and `/export.py` — the portable model
+- `POST /api/results/{node_id}/save` — save the fitted node as a model
+- `GET  /api/models`, `GET /api/models/{model_id}` — what this project holds
 - `GET  /api/schema/steps`, `POST /api/steps/validate`
 
 `current` is a real id: a project holds one pipeline, and the frontend has
@@ -56,12 +58,15 @@ from numpy.typing import NDArray
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
 from chemometrics_workbench import __version__, preprocessing, readers
+from chemometrics_workbench.artifact import ArtifactError, write_artifact
 from chemometrics_workbench.checks import PipelineWarning, check_pipeline
 from chemometrics_workbench.decomposition import spe_contributions, t2_contributions
 from chemometrics_workbench.executor import (
     EstimatorResult,
     governing_folds,
+    governing_split,
     has_kernel,
+    metrics_for,
     stored,
 )
 from chemometrics_workbench.executor import stored_display as _stored_display
@@ -74,6 +79,7 @@ from chemometrics_workbench.models import (
     DatasetVersion,
     EstimatorSpec,
     Experiment,
+    Model,
     NodeId,
     Pipeline,
     PipelineNode,
@@ -84,6 +90,7 @@ from chemometrics_workbench.models import (
     SplitSpec,
 )
 from chemometrics_workbench.project import (
+    MODELS_DIR,
     DatasetEntry,
     ProjectError,
     add_dataset,
@@ -96,9 +103,12 @@ from chemometrics_workbench.project import (
     read_experiment,
     read_experiments,
     read_layout,
+    read_model,
+    read_models,
     read_pipeline,
     write_array,
     write_layout,
+    write_model,
     write_pipeline,
 )
 from chemometrics_workbench.regression import coefficients_original_units
@@ -111,6 +121,7 @@ __all__ = [
     "contributions_payload",
     "experiment_row",
     "folded_coefficients",
+    "model_row",
     "node_axis",
     "open_project_directory",
     "results_payload",
@@ -1499,6 +1510,160 @@ def get_python_snippet(node_id: str) -> PlainTextResponse:
         media_type="text/x-python",
         headers={"Content-Disposition": f'attachment; filename="{node_id}_predict.py"'},
     )
+
+
+# --- The model registry (#219) --------------------------------------------
+
+
+class ModelSave(BaseModel):
+    """What a client may say about a model it is saving: what to call it.
+
+    Everything else is the server's, and deliberately: the task, the node, the
+    experiment, the metrics and the artifact's hash are all facts about what
+    was fitted. A client that could send them could record a model that never
+    existed.
+    """
+
+    name: str = Field(min_length=1, max_length=120)
+
+
+def model_row(model: Model) -> dict[str, Any]:
+    """One saved model as the outline and its screen read it.
+
+    `artifact_path` is served because it is what `PROPOSAL.md` §11 promises —
+    a reference to a file in the project directory — and a reader who has the
+    directory can open it with `zipfile` and NumPy alone. The contents are not
+    served: this endpoint lists what the project holds, and a model's
+    parameters are the file's job.
+    """
+    metrics = model.metrics
+    return {
+        "model_id": str(model.model_id),
+        "experiment_id": str(model.experiment_id),
+        "name": model.name,
+        "task": model.task.value,
+        "node_id": model.node_id,
+        "artifact_path": model.artifact_path,
+        "artifact_hash": model.artifact_hash,
+        "created_at": model.created_at.isoformat(),
+        # §11 again: absent, never zero. A decomposition fills none of these.
+        "metrics": {
+            "rmsec": metrics.rmsec,
+            "rmsecv": metrics.rmsecv,
+            "rmsep": metrics.rmsep,
+            "r2": metrics.r2,
+            "q2": metrics.q2,
+            "accuracy": metrics.accuracy,
+            "explained_variance": (
+                metrics.explained_variance[0] if metrics.explained_variance else None
+            ),
+        },
+    }
+
+
+@router.post("/results/{node_id}/save", status_code=201)
+def save_model(node_id: str, body: ModelSave) -> Any:
+    """Save one fitted estimator as a model this project holds.
+
+    Two things happen and the order matters: the artifact is written to the
+    project directory first, and only then is the row recorded. A row pointing
+    at a file that was never written is a registry entry nobody can open; a
+    file with no row is an orphan in `models/` that costs disk and nothing
+    else. If this is going to fail it should fail leaving the cheaper mess.
+
+    The environment recorded is the *experiment's*, not this moment's:
+    `docs/model-artifact.md` §3 asks what was installed when the model was
+    fitted, and saving it an hour later on an upgraded machine would answer a
+    different question.
+    """
+    directory, pipeline, version = _runnable()
+    result = _stored_result(directory, pipeline, version, node_id)
+    if result is None:
+        raise _fail(
+            404, "not_found", f"node {node_id!r} has no fitted result yet.", node_id=node_id
+        )
+
+    experiment = read_experiment(directory)
+    if experiment is None:
+        # A fitted result with no experiment means the arrays outlived the
+        # record, which a pruned database does. Saying so beats inventing an
+        # experiment id the lineage would then point at.
+        raise _fail(
+            409,
+            "no_experiment",
+            f"node {node_id!r} has a fitted result but this project has recorded no run, "
+            "so there is no experiment to attribute the model to. Run the pipeline.",
+            node_id=node_id,
+        )
+
+    model = Model(
+        project_id=pipeline.project_id,
+        experiment_id=experiment.experiment_id,
+        name=body.name,
+        task=result.task,
+        node_id=NodeId(node_id),
+        # Filled below, once the file it names exists.
+        artifact_path="",
+        artifact_hash="sha256:" + "0" * 64,
+        metrics=metrics_for(result),
+    )
+    relative = f"{MODELS_DIR}/{model.model_id}.cwmodel"
+
+    by_id = {node.id: node for node in pipeline.nodes}
+    split_node = governing_split(NodeId(node_id), by_id)
+    split = next(
+        (
+            resolved
+            for resolved in experiment.resolved_splits
+            if split_node is not None and resolved.node_id == split_node.id
+        ),
+        None,
+    )
+
+    try:
+        artifact_hash = write_artifact(
+            Path(directory) / relative,
+            result,
+            pipeline=pipeline,
+            version=version,
+            node_axis=node_axis(pipeline, NodeId(node_id), version),
+            split=split,
+            environment=experiment.environment,
+        )
+    except ArtifactError as error:
+        raise _fail(500, "artifact_unwritable", str(error), node_id=node_id) from error
+
+    saved = model.model_copy(update={"artifact_path": relative, "artifact_hash": artifact_hash})
+    try:
+        write_model(directory, saved)
+    except ProjectError as error:
+        raise _fail(500, "project_unavailable", str(error)) from error
+    return model_row(saved)
+
+
+@router.get("/models")
+def list_models() -> Any:
+    """Every model this project holds, newest first."""
+    directory, _ = _project()
+    try:
+        return [model_row(model) for model in read_models(directory)]
+    except ProjectError as error:
+        raise _fail(500, "project_unavailable", str(error)) from error
+
+
+@router.get("/models/{model_id}")
+def get_model(model_id: str) -> Any:
+    """One saved model's record."""
+    directory, _ = _project()
+    try:
+        model = read_model(directory, model_id)
+    except ProjectError as error:
+        raise _fail(500, "project_unavailable", str(error)) from error
+    if model is None:
+        raise _fail(
+            404, "not_found", f"this project holds no model {model_id!r}.", model_id=model_id
+        )
+    return model_row(model)
 
 
 def _indices(raw: str | None) -> list[int]:

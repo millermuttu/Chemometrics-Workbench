@@ -18,6 +18,7 @@ import {
 import { DatasetView } from "@/screens/DatasetView";
 import { ExperimentView } from "@/screens/ExperimentView";
 import { LineageView } from "@/screens/LineageView";
+import { ModelView } from "@/screens/ModelView";
 import { EmptyProject } from "@/screens/EmptyProject";
 import { CannotLoad } from "@/states/CannotLoad";
 import { Import } from "@/screens/Import";
@@ -116,6 +117,7 @@ function Pane({
     );
   }
   if (tab?.kind === "results") return <AnalysisResults nodeId={tab.id} title={tab.title} />;
+  if (tab?.kind === "model") return <ModelView modelId={tab.id} title={tab.title} />;
   if (tab?.kind === "experiment")
     return (
       <ExperimentView experimentId={tab.id} title={tab.title} onCompareRuns={onCompareRuns} />
