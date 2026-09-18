@@ -51,22 +51,23 @@ is now Phase 3's.
 | The model artifact, one file readable without this application | #211 | #212 | merged |
 | A plain JSON model and a standalone prediction snippet | #213 | #214 | merged |
 | Two experiments compared step by step | #215 | #216 | merged |
+| A model registry, and the first schema change | #219 | #220 | merged |
+| An edit-and-restore poll gets a real budget | #222 | #223 | merged |
 
-**#217 is open against a mistake this session made.** `feature/215_lineage-comparison` was cut from
+**#217 recorded a mistake this session made, and is fixed and merged.** `feature/215_lineage-comparison` was cut from
 `feature/213_json-and-snippet-export` rather than from `dev`, so #216 carried the export commit into
 `dev` and #214 then merged as a no-op returning the same sha. Both are on `dev` and the content is
-unaffected; what the mistake cost was an hour of treating #214 as blocked when it was already going
-to land through another pull request. **Cut every branch from a freshly pulled `dev`, and check with
+unaffected; what it cost was an hour of treating #214 as blocked when it was already going to land
+through another pull request. **Cut every branch from a freshly pulled `dev`, and check with
 `git merge-base --is-ancestor origin/dev <branch>` before opening the pull request.**
 
 ## Current work
 
-**Nothing is `in_progress`.** `lineage-comparison` passed with evidence and merged through #216, all
-six checks green. Three Phase 3 entries remain: `model-registry`, `html-report`, `phase-3-exit-run`.
+**Nothing is `in_progress`.** `model-registry` passed with evidence and merged through #220, all six
+checks green. Two Phase 3 entries remain: `html-report`, then `phase-3-exit-run`.
 
-**#217 is the one open issue** and it is a process correction, not code: this file and #216's body
-both claimed an ancestry the history does not show. This file is fixed; the pull request body is not,
-and is not worth rewriting.
+**No open issues.** #217's process correction and #222's suite fix are both merged, and every branch
+that carried this session's work is deleted locally and on origin.
 
 **Untracked in the root, still not decided:** `AGENTS.md` (a Codex copy of `CLAUDE.md` that will
 drift), `.codex/` and `tecator.csv`. Either gitignore them or commit them; leaving them is what makes
@@ -83,11 +84,11 @@ the peak resident memory of a ten-fold branch, which is the number #176 is judge
 
 ## Next action
 
-**Pick up `model-registry`.** It is next because it is what gives the artifact a home: `artifact.py`
-takes a path and returns a hash, and recording that in the project's `model` table is deliberately
-not its job. `docs/model-artifact.md` §9 says so by name, and `docs/model-export.md` §6 leaves
-prediction on new data inside the application to a separate feature, so the registry is the whole of
-what is next rather than the start of something wider.
+**Pick up `html-report`**, then `phase-3-exit-run` closes the phase. The exit criterion is
+`PROPOSAL.md` §16's: *two models differing only in preprocessing can be compared step by step*, which
+#215 built, *and an exported model reproduces application predictions within tolerance in a clean
+environment*, which #213 built and `docs/model-export.md` §5 states the number for. The exit run
+demonstrates both rather than citing them, as `docs/phase-2/exit-run.md` did for Phase 2.
 
 ## What Phase 3 has added worth knowing
 
@@ -101,6 +102,22 @@ what is next rather than the start of something wider.
   writer may have added a field whose absence this reader would take as a default.
 - **The lineage diff matches nodes by id, so a renamed node reads as a remove plus an add.** That is
   the honest reading: nothing in the model says a rename is not a replacement.
+- **`db.SCHEMA_VERSION` is 2, and the upgrade it added is additive only.** A database stamped below it
+  gets `create_all` and a re-stamp, which writes a missing table and leaves an existing one alone. A
+  column that is added, renamed, retyped or dropped is *not* covered, and shipping one means writing
+  real migration machinery rather than widening that branch.
+- **Saving a model writes the artifact before the row.** A row pointing at a file that was never
+  written is a registry entry nobody can open; a file with no row costs disk. The failure mode was
+  chosen, not stumbled into.
+- **A feature list note can be wrong.** #219's said the `model` table existed. It did not. Check the
+  code before believing a note about what is already built.
+- **A test that edits and restores is borrowing the seeded project.** When the restore misses its
+  poll budget the edit stays, and the next test fails for a reason that is not its own — which is how
+  #222 produced two red tests from one cause. `APPLIED` in `inspector.spec.ts` is the budget, and
+  `expect.poll`'s default five seconds is what a loaded macOS runner misses.
+- **A red macOS check on a markdown-only change is a flake, and it still has a cause.** #221 went red
+  with no source change. Reading the job log found a real ordering problem worth fixing rather than a
+  reason to press the button again.
 - **A branch cut from another feature branch carries that feature into the pull request.** #216
   merged #213's export commit as a side effect, which nothing in the pull request said.
 - **`count()` does not wait.** A Playwright assertion of the form `expect(await x.count())` compares a
