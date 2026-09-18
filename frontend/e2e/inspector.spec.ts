@@ -156,3 +156,41 @@ test("an estimator's metrics are its own result's", async ({ page }) => {
   );
   await expect(inspector.getByText("PC1 variance")).toHaveCount(0);
 });
+
+/** The fold count the server holds for `split_d`, which is the claim an edit
+ * to a split makes - the same rule `savedWindow` states for a step. */
+async function savedSplits(page: Page): Promise<number | undefined> {
+  const response = await page.request.get("/api/pipelines/current", {
+    headers: { Authorization: "Bearer e2e-token" },
+  });
+  const nodes = (await response.json()).nodes as { id: string; spec?: { n_splits?: number } }[];
+  return nodes.find((node) => node.id === "split_d")?.spec?.n_splits;
+}
+
+test("a split is edited like a step, and the edit reaches the pipeline", async ({ page }) => {
+  // #182. A split or an estimator carries `spec` rather than `step`, and the
+  // inspector built a form only for the latter - so a k-fold's fold count
+  // and a PLS node's target could be set only by the menu that added them.
+  const inspector = await selectNode(page, /K-fold 10/);
+  await expect(inspector.getByLabel("N Splits")).toHaveValue("10");
+  await expect(inspector.getByLabel("Shuffle")).toHaveValue("true");
+
+  await inspector.getByLabel("N Splits").fill("5");
+  await inspector.getByRole("button", { name: "Apply and re-run" }).click();
+  await expect.poll(() => savedSplits(page)).toBe(5);
+
+  // Put it back: the seeded project outlives this test.
+  await inspector.getByLabel("N Splits").fill("10");
+  await inspector.getByRole("button", { name: "Apply and re-run" }).click();
+  await expect.poll(() => savedSplits(page)).toBe(10);
+});
+
+test("a PLS target is chosen from the dataset's own columns", async ({ page }) => {
+  const inspector = await selectNode(page, /PLS 5 LV/);
+  const target = inspector.getByLabel("Target");
+  await expect(target).toHaveValue("fat");
+  // A select over the columns, not a free text field: Tecator carries
+  // exactly these, and a name that is not one is refused at run time anyway.
+  await expect(target.locator("option")).toHaveText(["moisture", "fat", "protein"]);
+  await expect(inspector.getByLabel("N Components")).toHaveValue("5");
+});

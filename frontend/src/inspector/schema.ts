@@ -15,7 +15,7 @@ export interface FieldSpec {
   name: string;
   title: string;
   description?: string;
-  kind: "number" | "integer" | "enum" | "unsupported";
+  kind: "number" | "integer" | "enum" | "boolean" | "string" | "unsupported";
   options?: string[];
   minimum?: number;
   maximum?: number;
@@ -43,13 +43,20 @@ interface JsonSchemaField {
   exclusiveMinimum?: number;
   exclusiveMaximum?: number;
   anyOf?: JsonSchemaField[];
+  /** An enum Pydantic writes once under `$defs` and points at - `PLSAlgorithm`. */
+  $ref?: string;
+}
+
+/** One `$defs` entry: a step, split or estimator with its `properties`, or a
+ * bare enum they reference, which has none. */
+interface JsonSchemaDefinition {
+  title: string;
+  properties?: Record<string, JsonSchemaField & { const?: string }>;
+  enum?: string[];
 }
 
 export interface StepSchema {
-  $defs: Record<
-    string,
-    { title: string; properties: Record<string, JsonSchemaField & { const?: string }> }
-  >;
+  $defs: Record<string, JsonSchemaDefinition>;
 }
 
 /** Pydantic writes an optional field as `anyOf: [{...}, {type: "null"}]`. The
@@ -60,8 +67,16 @@ function unwrap(field: JsonSchemaField): { field: JsonSchemaField; optional: boo
   return { field: { ...field, ...real }, optional: field.anyOf.some((o) => o.type === "null") };
 }
 
-function toField(name: string, raw: JsonSchemaField): FieldSpec {
-  const { field, optional } = unwrap(raw);
+/** A `$ref` to an enum under `$defs` is that enum: `algorithm` on a PLS spec
+ * is written as a reference to `PLSAlgorithm` rather than inlined. */
+function resolve(field: JsonSchemaField, defs: StepSchema["$defs"]): JsonSchemaField {
+  const name = field.$ref?.split("/").at(-1);
+  const target = name ? defs[name] : undefined;
+  return target?.enum ? { ...field, enum: target.enum, type: "string" } : field;
+}
+
+function toField(name: string, raw: JsonSchemaField, defs: StepSchema["$defs"]): FieldSpec {
+  const { field, optional } = unwrap(resolve(raw, defs));
   const options = field.enum ?? (field.const ? [field.const] : undefined);
   const kind = options
     ? "enum"
@@ -69,7 +84,11 @@ function toField(name: string, raw: JsonSchemaField): FieldSpec {
       ? "integer"
       : field.type === "number"
         ? "number"
-        : "unsupported";
+        : field.type === "boolean"
+          ? "boolean"
+          : field.type === "string"
+            ? "string"
+            : "unsupported";
   return {
     name,
     title: field.title ?? name,
@@ -86,15 +105,19 @@ function toField(name: string, raw: JsonSchemaField): FieldSpec {
 }
 
 export function stepSpecs(schema: StepSchema): StepSpec[] {
-  return Object.values(schema.$defs).map((definition) => ({
-    kind: definition.properties.kind.const ?? definition.title.toLowerCase(),
-    title: definition.title,
-    // `kind` is the discriminator, not a parameter: it names the step and is
-    // never edited.
-    fields: Object.entries(definition.properties)
-      .filter(([name]) => name !== "kind")
-      .map(([name, field]) => toField(name, field)),
-  }));
+  return Object.values(schema.$defs)
+    // A `$defs` entry without properties is an enum another entry refers to,
+    // not a kind of node.
+    .filter((definition) => definition.properties?.kind)
+    .map((definition) => ({
+      kind: definition.properties!.kind.const ?? definition.title.toLowerCase(),
+      title: definition.title,
+      // `kind` is the discriminator, not a parameter: it names the step and is
+      // never edited.
+      fields: Object.entries(definition.properties!)
+        .filter(([name]) => name !== "kind")
+        .map(([name, field]) => toField(name, field, schema.$defs)),
+    }));
 }
 
 export function specFor(schema: StepSchema | undefined, kind: string): StepSpec | undefined {
@@ -112,6 +135,12 @@ export function checkBounds(field: FieldSpec, value: number | string | null): st
       ? null
       : `${field.title} must be one of ${field.options?.join(", ")}`;
   }
+  if (field.kind === "boolean") {
+    return value === "true" || value === "false" ? null : `${field.title} must be true or false`;
+  }
+  // A string has no bounds the schema can state; a target that is not in the
+  // dataset is refused at run time, by name.
+  if (field.kind === "string") return null;
   const number = Number(value);
   if (Number.isNaN(number)) return `${field.title} must be a number`;
   if (field.kind === "integer" && !Number.isInteger(number)) {

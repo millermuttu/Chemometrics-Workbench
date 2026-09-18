@@ -75,3 +75,54 @@ describe("the form is generated, not restated", () => {
     expect(checkBounds(window, 10)).toBeNull();
   });
 });
+
+/** #182: the same form serves estimators and splits, whose schema carries
+ * things a preprocessing step's never did - a referenced enum, a boolean, and
+ * a bare string for the PLS target. Built inline rather than read from the
+ * contract fixture, which is the 1.1 preprocessing-only shape and stays so. */
+describe("an estimator's or a split's spec", () => {
+  const withSpecs: StepSchema = {
+    $defs: {
+      PLSAlgorithm: { title: "PLSAlgorithm", enum: ["nipals", "simpls"] },
+      PLSRegressionSpec: {
+        title: "PLSRegressionSpec",
+        properties: {
+          kind: { const: "pls", type: "string" },
+          n_components: { type: "integer", minimum: 1, title: "N Components" },
+          algorithm: { $ref: "#/$defs/PLSAlgorithm", default: "nipals" },
+          target: { type: "string", title: "Target" },
+        },
+      },
+      KFoldSplit: {
+        title: "KFoldSplit",
+        properties: {
+          kind: { const: "kfold", type: "string" },
+          n_splits: { type: "integer", minimum: 2, title: "N Splits" },
+          shuffle: { type: "boolean", default: true, title: "Shuffle" },
+        },
+      },
+    },
+  };
+
+  it("is a kind of node only when it carries a kind - a bare enum is not one", () => {
+    expect(stepSpecs(withSpecs).map((spec) => spec.kind)).toEqual(["pls", "kfold"]);
+  });
+
+  it("resolves a referenced enum into a choice", () => {
+    const algorithm = specFor(withSpecs, "pls")!.fields.find((f) => f.name === "algorithm")!;
+    expect(algorithm.kind).toBe("enum");
+    expect(algorithm.options).toEqual(["nipals", "simpls"]);
+  });
+
+  it("reads a string and a boolean as what they are, and bounds neither by number", () => {
+    const target = specFor(withSpecs, "pls")!.fields.find((f) => f.name === "target")!;
+    expect(target.kind).toBe("string");
+    expect(checkBounds(target, "fat")).toBeNull();
+    expect(checkBounds(target, "")).toBe("Target is required");
+
+    const shuffle = specFor(withSpecs, "kfold")!.fields.find((f) => f.name === "shuffle")!;
+    expect(shuffle.kind).toBe("boolean");
+    expect(checkBounds(shuffle, "true")).toBeNull();
+    expect(checkBounds(shuffle, "yes")).toBe("Shuffle must be true or false");
+  });
+});

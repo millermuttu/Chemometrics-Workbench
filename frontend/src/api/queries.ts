@@ -201,6 +201,21 @@ export interface Job {
   node_id: string | null;
 }
 
+/** The dataset version the pipeline's source node names.
+ *
+ * Not `datasets[0]`: a project can hold more than one import, and the one the
+ * recipe runs on is the one whose columns a PLS node can model (#182). */
+export function sourceVersionOf(
+  pipeline: Pipeline | undefined,
+  datasets: DatasetEntry[] | undefined,
+): DatasetVersion | undefined {
+  const wanted = pipeline?.nodes.find((node) => node.type === "source")?.version_id;
+  if (!wanted) return undefined;
+  return datasets
+    ?.flatMap((entry) => entry.versions)
+    .find((version) => version.version_id === wanted);
+}
+
 export function useProjects() {
   return useQuery({ queryKey: ["projects"], queryFn: () => api<Project[]>("/projects") });
 }
