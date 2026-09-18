@@ -84,8 +84,11 @@ The response is centred by the estimator rather than by a node, because `y` is
 not on the canvas and no `MeanCentre` can reach it. Predictions come back in
 the response's original units.
 
-`PLSDASpec` is still not fitted and is reported in `Run.pending_estimators`. It
-needs a class column and a confusion matrix, which is a second result shape.
+A `PLSDASpec` node is fitted since #185, as `pls-da.md` specifies: two classes
+from a metadata column, coded {0, 1} in Unicode order of the labels, PLS1 on
+that dummy response through the same `_fit_pls1` a regression uses, and a class
+assigned at 0.5. What is added to the result is the coding, the assignments and
+the confusion matrices; every model quantity is the regression's.
 
 ## What is not here
 
@@ -99,7 +102,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Callable
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import asdict, dataclass, field, fields, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -122,6 +125,7 @@ from chemometrics_workbench.models import (
     PCASpec,
     Pipeline,
     PipelineNode,
+    PLSDASpec,
     PLSRegressionSpec,
     ResolvedSplit,
     TrainTestSplit,
@@ -156,7 +160,10 @@ __all__ = [
     "Progress",
     "Run",
     "RunCancelled",
+    "assign_classes",
     "capture_environment",
+    "classification_metrics",
+    "confusion_matrix",
     "execute",
     "experiment_for",
     "governing_folds",
@@ -181,9 +188,10 @@ def has_kernel(spec: EstimatorSpec) -> bool:
     return isinstance(spec, _FITTED)
 
 
-#: What `_estimator` can fit. `PLSDASpec` is absent: it needs a class column
-#: and a confusion matrix, which is a second result shape.
-_FITTED: tuple[type, ...] = (PCASpec, PLSRegressionSpec)
+#: What `_estimator` can fit. All three since #185; the tuple stays because
+#: `has_kernel` is the one place the answer lives, and the next estimator will
+#: not have a kernel on the day its spec lands either.
+_FITTED: tuple[type, ...] = (PCASpec, PLSRegressionSpec, PLSDASpec)
 
 
 RESULTS_DIR = "results"
@@ -341,6 +349,32 @@ class EstimatorResult:
     """`pls-regression.md` §8's YVar. The x-block's stays in
     `explained_variance_ratio`, shared with PCA, because a screen plotting
     "variance captured" wants both blocks."""
+
+    cross_validated_predicted: list[float] = field(default_factory=list)
+    """One held-out prediction per sample, pooled over the folds
+    (`metrics-and-validation.md` §7). Empty above a split and below a single
+    hold-out. Kept since #185 because a classification tallies its
+    cross-validated confusion matrix from it; a regression could draw a
+    cross-validated predicted-versus-measured from the same list."""
+
+    # --- The classification half (#185) ----------------------------------
+    #
+    # Additive again, and for the same reason as the regression half: a
+    # two-class PLS-DA *is* the regression above on a dummy response
+    # (`pls-da.md` §2), so everything up to here is filled in the same way and
+    # `task` says "classification". These are what a classification adds.
+
+    classes: list[str] = field(default_factory=list)
+    """`[C_0, C_1]` in Unicode order; `C_1` is the class coded 1 (§3)."""
+
+    predicted_class: list[int] = field(default_factory=list)
+    """Calibration assignments as indices into `classes` (§5)."""
+
+    held_out_predicted_class: list[int] = field(default_factory=list)
+
+    confusion: dict[str, list[list[int]]] = field(default_factory=dict)
+    """`calibration`, and below a split `cross_validation` and `held_out`: rows
+    observed, columns assigned, in `classes` order (§6)."""
 
     metrics: dict[str, float] = field(default_factory=dict)
     """`metrics-and-validation.md` §11's table, flattened.
@@ -566,7 +600,7 @@ def capture_environment() -> Environment:
 
 #: The `Metrics` fields a regression fills by name (#188). Everything else in
 #: a result's metrics table travels in `extra`.
-_NAMED_METRICS = ("rmsec", "rmsecv", "rmsep", "r2", "q2", "bias")
+_NAMED_METRICS = ("rmsec", "rmsecv", "rmsep", "r2", "q2", "bias", "accuracy")
 
 
 def experiment_for(
@@ -879,6 +913,12 @@ def _estimator(
         write_json(stored, result.as_json())
         return result
 
+    if isinstance(node.spec, PLSDASpec):
+        result = _plsda(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
+        stored.parent.mkdir(parents=True, exist_ok=True)
+        write_json(stored, result.as_json())
+        return result
+
     assert isinstance(node.spec, PCASpec)
     try:
         # Every array reaches here through the store, which is float32 on disk
@@ -976,24 +1016,58 @@ def _pls(
     `checks.py` warns separately when `X` has no centring above it.
     """
     response = _response(version, node, spec.target)
+    return _fit_pls1(
+        node,
+        "pls",
+        spec.n_components,
+        spec.target,
+        response,
+        parent,
+        key,
+        matrix,
+        rows,
+        held_out,
+        fold,
+    )
+
+
+def _fit_pls1(
+    node: PipelineNode,
+    kind: str,
+    n_components: int,
+    target: str,
+    response: NDArray[np.float64],
+    parent: _State,
+    key: str,
+    matrix: NDArray[np.float64],
+    rows: NDArray[np.intp],
+    held_out: NDArray[np.intp],
+    fold: int | None,
+) -> EstimatorResult:
+    """PLS1 on `response`, with every quantity `pls-regression.md` §13 names.
+
+    Shared by a regression and a two-class PLS-DA, which is this on a dummy
+    response (`pls-da.md` §2). `kind` is only for the sentences.
+    """
     if response.size != matrix.shape[0]:
         raise ExecutorError(
-            f"node {node.id!r} (pls) has {matrix.shape[0]} samples and target "
-            f"{spec.target!r} has {response.size} values.",
+            f"node {node.id!r} ({kind}) has {matrix.shape[0]} samples and target "
+            f"{target!r} has {response.size} values.",
             node.id,
         )
+    spec_components = n_components
 
     train_x, train_y = matrix[rows], response[rows]
     x_mean = train_x.mean(axis=0)
     y_mean = float(train_y.mean())
 
     try:
-        model = PLS(spec.n_components).fit(train_x - x_mean, train_y - y_mean)
+        model = PLS(spec_components).fit(train_x - x_mean, train_y - y_mean)
     except (ValueError, RuntimeError) as error:
-        raise ExecutorError(f"node {node.id!r} (pls) failed: {error}", node.id) from error
+        raise ExecutorError(f"node {node.id!r} ({kind}) failed: {error}", node.id) from error
 
     predicted = model.predict(train_x - x_mean) + y_mean
-    a = model.n_components_ or spec.n_components
+    a = model.n_components_ or spec_components
 
     metrics: dict[str, float] = {
         "rmsec": validation.rmse(train_y, predicted),
@@ -1030,6 +1104,7 @@ def _pls(
     # One fold is a train/test hold-out (#183), and one hold-out is not a
     # cross-validation: its training rows are never predicted, so there is no
     # RMSECV and no Q2 - §11 says absent, and RMSEP above is its number.
+    cross_validated = np.array([], dtype=np.float64)
     if parent.folds is not None and len(parent.folds) > 1:
         folds = parent.folds
         curve = rmsecv_curve(parent.arrays, response, folds, a)
@@ -1078,12 +1153,13 @@ def _pls(
         hotelling_t2_limit=float(model.hotelling_t2_limit(ALPHA)),
         spe=_values(model.spe(train_x - x_mean)),
         spe_limit=float(model.spe_limit(ALPHA)),
-        target=spec.target,
+        target=target,
         observed=_values(train_y),
         predicted=_values(predicted),
         coefficients=_values(model.coefficients_),
         y_loadings=_values(model.y_loadings_),
         vip=_values(model.vip()),
+        cross_validated_predicted=_values(cross_validated),
         metrics=metrics,
         held_out=[int(row) for row in held_out],
         held_out_observed=_values(held_y) if held_out.size else [],
@@ -1093,6 +1169,126 @@ def _pls(
             _values(model.hotelling_t2(held_x - x_mean)) if held_out.size else []
         ),
         held_out_spe=_values(model.spe(held_x - x_mean)) if held_out.size else [],
+    )
+
+
+def _class_response(
+    version: DatasetVersion, node: PipelineNode, name: str
+) -> tuple[list[str], NDArray[np.float64]]:
+    """The two classes in Unicode order and the {0, 1} dummy response (`pls-da.md` §3).
+
+    Refused here, by name, when the column is not in the dataset or does not
+    hold exactly two distinct values: three classes are PLS2, which
+    `pls-regression.md` §10 defers, and reducing them to two would be a model
+    nobody asked for.
+    """
+    labels = version.metadata_columns.get(name)
+    if labels is None:
+        available = ", ".join(sorted(version.metadata_columns)) or "none"
+        raise ExecutorError(
+            f"node {node.id!r} (plsda) classifies by {name!r}, which this dataset does not "
+            f"carry as a metadata column. It has: {available}.",
+            node.id,
+        )
+    classes = sorted(set(labels))
+    if len(classes) != 2:
+        shown = ", ".join(repr(value) for value in classes[:6]) + (
+            ", …" if len(classes) > 6 else ""
+        )
+        raise ExecutorError(
+            f"node {node.id!r} (plsda) classifies by {name!r}, which has {len(classes)} distinct "
+            f"values ({shown}). Two-class PLS-DA needs exactly two (pls-da.md section 2); more "
+            "is PLS2, which is not in this build.",
+            node.id,
+        )
+    response = np.asarray([1.0 if label == classes[1] else 0.0 for label in labels])
+    return classes, response
+
+
+def assign_classes(predicted: object) -> NDArray[np.intp]:
+    """`pls-da.md` §5: at or above 0.5 is the class coded 1."""
+    return (np.asarray(predicted, dtype=np.float64) >= 0.5).astype(np.intp)
+
+
+def confusion_matrix(observed: object, assigned: object) -> list[list[int]]:
+    """`pls-da.md` §6: rows observed, columns assigned, `[[TN, FP], [FN, TP]]`."""
+    truth = np.asarray(observed, dtype=np.intp)
+    guess = np.asarray(assigned, dtype=np.intp)
+
+    def count(o: int, g: int) -> int:
+        return int(np.count_nonzero((truth == o) & (guess == g)))
+
+    return [[count(0, 0), count(0, 1)], [count(1, 0), count(1, 1)]]
+
+
+def classification_metrics(confusion: list[list[int]], suffix: str = "") -> dict[str, float]:
+    """`pls-da.md` §6, with the "absent, never NaN" rule for an empty class."""
+    (tn, fp), (fn, tp) = confusion
+    total = tn + fp + fn + tp
+    metrics: dict[str, float] = {}
+    if total:
+        metrics[f"accuracy{suffix}"] = (tp + tn) / total
+    if tp + fn:
+        metrics[f"sensitivity{suffix}"] = tp / (tp + fn)
+    if tn + fp:
+        metrics[f"specificity{suffix}"] = tn / (tn + fp)
+    return metrics
+
+
+def _plsda(
+    node: PipelineNode,
+    spec: PLSDASpec,
+    parent: _State,
+    key: str,
+    matrix: NDArray[np.float64],
+    rows: NDArray[np.intp],
+    held_out: NDArray[np.intp],
+    fold: int | None,
+    version: DatasetVersion,
+) -> EstimatorResult:
+    """Two-class PLS-DA (#185): the regression fit on a dummy response, tallied."""
+    classes, response = _class_response(version, node, spec.class_column)
+    fitted = _fit_pls1(
+        node,
+        "plsda",
+        spec.n_components,
+        spec.class_column,
+        response,
+        parent,
+        key,
+        matrix,
+        rows,
+        held_out,
+        fold,
+    )
+
+    observed = assign_classes(fitted.observed)
+    predicted_class = assign_classes(fitted.predicted)
+    confusion = {"calibration": confusion_matrix(observed, predicted_class)}
+    metrics = {**fitted.metrics, **classification_metrics(confusion["calibration"])}
+
+    held_out_class = (
+        assign_classes(fitted.held_out_predicted) if held_out.size else np.array([], dtype=np.intp)
+    )
+    if held_out.size:
+        confusion["held_out"] = confusion_matrix(
+            assign_classes(fitted.held_out_observed), held_out_class
+        )
+        metrics.update(classification_metrics(confusion["held_out"], "_p"))
+    if fitted.cross_validated_predicted:
+        confusion["cross_validation"] = confusion_matrix(
+            assign_classes(response), assign_classes(fitted.cross_validated_predicted)
+        )
+        metrics.update(classification_metrics(confusion["cross_validation"], "_cv"))
+
+    return replace(
+        fitted,
+        task="classification",
+        classes=classes,
+        predicted_class=[int(value) for value in predicted_class],
+        held_out_predicted_class=[int(value) for value in held_out_class],
+        confusion=confusion,
+        metrics=metrics,
     )
 
 

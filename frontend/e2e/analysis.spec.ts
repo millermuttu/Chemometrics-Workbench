@@ -154,3 +154,37 @@ test("a decomposition tab is unchanged, and shows none of the regression panels"
     await expect(page.getByRole("region", { name: panel })).toHaveCount(0);
   }
 });
+
+test("a classification tab tallies its classes, and is read by accuracy", async ({ page }) => {
+  // #185. The seeded PLS-DA sits below the ten-fold split beside the PLS, on
+  // `fat_class` - Tecator's fat above its median. Every regression panel
+  // applies, because the model is PLS1 on a dummy response; what differs is
+  // the confusion panel where predicted-vs-measured would be, and the header.
+  await page.goto("/?token=e2e-token");
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /PLS-DA 5 LV/ }).first().dblclick();
+
+  const header = page.getByTestId("analysis-header");
+  await expect(header).toContainText("PLS-DA on fat_class 5 components");
+  await expect(header).toContainText("ACCURACY (CV)");
+
+  await expect(page.getByRole("region", { name: "Confusion" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Predicted vs measured" })).toHaveCount(0);
+  for (const panel of ["Scores", "Loadings", "Variable importance", "RMSECV", "Calibration metrics"]) {
+    await expect(page.getByRole("region", { name: panel })).toBeVisible();
+  }
+
+  // Fold zero's calibration tally sums to its rows, and the cross-validated
+  // one to every sample; both are counts the server tallied, not the page.
+  const totals = await page.evaluate(() => {
+    const sum = (id: string) =>
+      Array.from(document.querySelectorAll(`[data-testid=confusion-${id}] td.n`)).reduce(
+        (total, cell) => total + Number(cell.textContent),
+        0,
+      );
+    return { calibration: sum("calibration"), cv: sum("cross_validation") };
+  });
+  expect(totals).toEqual({ calibration: 216, cv: 240 });
+  await expect(page.getByTestId("metric-Accuracy")).not.toHaveText("—");
+  await expect(page.getByTestId("metric-Accuracy (CV)")).not.toHaveText("—");
+});

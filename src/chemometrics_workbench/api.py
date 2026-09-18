@@ -482,15 +482,19 @@ def results_payload(
             "hotelling_t2": result.held_out_hotelling_t2,
             "spe": result.held_out_spe,
         }
-        if result.task == "regression":
+        if result.task in ("regression", "classification"):
             payload["validation"]["observed"] = result.held_out_observed
             payload["validation"]["predicted"] = result.held_out_predicted
+        if result.task == "classification":
+            payload["validation"]["predicted_class"] = result.held_out_predicted_class
 
     # A regression's own half, added rather than substituted: `scores`,
     # `loadings`, the x-variances and both diagnostics above mean the same
     # thing for both tasks, so a screen that draws those draws either. What is
-    # here is what has no counterpart on a decomposition.
-    if result.task == "regression":
+    # here is what has no counterpart on a decomposition. A classification is
+    # this on a dummy response (#185, `pls-da.md` §2), so it carries the same
+    # block and adds `classification` beside it.
+    if result.task in ("regression", "classification"):
         payload["regression"] = {
             "target": result.target,
             "observed": result.observed,
@@ -511,6 +515,13 @@ def results_payload(
             for key in (f"rmsecv_a{a}" for a in range(1, result.n_components + 1))
             if key in result.metrics
         ]
+    if result.task == "classification":
+        payload["classification"] = {
+            "class_column": result.target,
+            "classes": result.classes,
+            "predicted_class": result.predicted_class,
+            "confusion": result.confusion,
+        }
     return payload
 
 

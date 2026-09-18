@@ -73,8 +73,23 @@ def tecator_csv() -> bytes:
     tecator = load_tecator()
     buffer = io.StringIO()
     writer = csv.writer(buffer)
+    # A class column, so the seeded project has something a PLS-DA can classify
+    # by (#185): `fat` above its median is "high", else "low" - the rule
+    # pls-da.md section 9 derives the parity fixture's column by too. Text, so
+    # the reader files it as metadata rather than as a target.
+    fat = tecator.targets["fat"]
+    median = (
+        float(sorted(fat)[len(fat) // 2])
+        if len(fat) % 2
+        else float((sorted(fat)[len(fat) // 2 - 1] + sorted(fat)[len(fat) // 2]) / 2)
+    )
     writer.writerow(
-        ["sample_id", *[f"{value:.4f}" for value in tecator.axis.values], *tecator.targets]
+        [
+            "sample_id",
+            *[f"{value:.4f}" for value in tecator.axis.values],
+            *tecator.targets,
+            "fat_class",
+        ]
     )
     for index, sample_id in enumerate(tecator.sample_ids):
         writer.writerow(
@@ -82,6 +97,7 @@ def tecator_csv() -> bytes:
                 sample_id,
                 *[f"{value:.6f}" for value in tecator.spectra[index]],
                 *[f"{tecator.targets[name][index]:.4f}" for name in tecator.targets],
+                "high" if fat[index] > median else "low",
             ]
         )
     return buffer.getvalue().encode("utf-8")
@@ -174,7 +190,7 @@ def synthetic_dataset(directory: Path, project, n_samples: int = 3000, n_variabl
     return version
 
 
-def build_pipeline(project_id: UUID, version_id: UUID):  # type: ignore[no-untyped-def]
+def build_pipeline(project_id: UUID, version_id: UUID, class_column: str | None = None):  # type: ignore[no-untyped-def]
     """Four preprocessing branches off one source, as the artboard draws it.
 
     The same graph the Phase 1.1 fixture generator built, kept because the screens
@@ -191,6 +207,7 @@ def build_pipeline(project_id: UUID, version_id: UUID):  # type: ignore[no-untyp
         MeanCentre,
         PCASpec,
         Pipeline,
+        PLSDASpec,
         PLSRegressionSpec,
         PreprocessNode,
         SavitzkyGolay,
@@ -230,6 +247,21 @@ def build_pipeline(project_id: UUID, version_id: UUID):  # type: ignore[no-untyp
                 id="pls_d",
                 inputs=("centre_d",),
                 spec=PLSRegressionSpec(n_components=5, target="fat"),
+            ),
+            # ...and the classification beside it (#185), on the class column
+            # the CSV above carries. Only when the version has one: the runs
+            # project's synthetic dataset does not, and a PLS-DA there would
+            # fail by name before the branch that is meant to.
+            *(
+                [
+                    EstimatorNode(
+                        id="plsda_d",
+                        inputs=("centre_d",),
+                        spec=PLSDASpec(n_components=5, class_column=class_column),
+                    )
+                ]
+                if class_column
+                else []
             ),
         ],
     )
@@ -316,7 +348,8 @@ def seed(directory: Path, *, run: bool = True, failing: bool = False) -> None:
         )
         assert version is not None, "the import did not leave a dataset version behind"
 
-    pipeline = build_pipeline(project.project_id, version.version_id)
+    class_column = "fat_class" if "fat_class" in version.metadata_columns else None
+    pipeline = build_pipeline(project.project_id, version.version_id, class_column)
     if failing:
         axis = version.axis.values
         # Six channels off the front of whatever axis was seeded. Six, not

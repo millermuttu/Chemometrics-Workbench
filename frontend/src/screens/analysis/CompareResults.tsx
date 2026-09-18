@@ -27,6 +27,8 @@ const METRICS: [string, string][] = [
   ["Bias", "bias"],
   ["SEC", "sec"],
   ["SEP", "sep"],
+  ["Accuracy", "accuracy"],
+  ["Accuracy (CV)", "accuracy_cv"],
 ];
 
 function figure(value: number | undefined, digits = 4) {
@@ -110,14 +112,17 @@ function Row({ label, a, b, delta, better }: CompareRow) {
 }
 
 function Column({ payload }: { payload: PcaPayload }) {
-  const regression = payload.task === "regression";
+  const model =
+    payload.task === "classification"
+      ? `PLS-DA · ${payload.classification?.class_column ?? "?"}`
+      : payload.task === "regression"
+        ? `PLS · ${payload.regression?.target ?? "?"}`
+        : "PCA";
   return (
     <>
       <div className="kv">
         <b>Model</b>
-        <span className="mono">
-          {regression ? `PLS · ${payload.regression?.target ?? "?"}` : "PCA"}
-        </span>
+        <span className="mono">{model}</span>
       </div>
       <div className="kv">
         <b>Components</b>

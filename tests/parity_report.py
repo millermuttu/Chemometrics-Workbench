@@ -47,9 +47,10 @@ REPORT = Path(__file__).parent.parent / "docs" / "parity-report.md"
 ALGORITHM_TITLES = {
     "pca": "Principal component analysis",
     "pls": "PLS regression",
+    "plsda": "PLS-DA (two-class)",
     "preprocess": "Preprocessing",
 }
-ALGORITHM_ORDER = ["preprocess", "pca", "pls"]
+ALGORITHM_ORDER = ["preprocess", "pca", "pls", "plsda"]
 DATASET_ORDER = ["corn", "gasoline", "tecator"]
 
 TIER_LABELS = {

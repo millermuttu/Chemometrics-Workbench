@@ -394,8 +394,10 @@ def test_the_validator_checks_the_recipe_it_is_sent_and_writes_nothing(
     body = client.post(
         "/api/pipelines/current/validate", json={"nodes": drafted}, headers=AUTH
     ).json()
+    # The drafted PLS-DA sits on the source with no centring above it, which
+    # `checks.py` warns about; until #185 it was also the node with no kernel.
     assert body["valid"] is False
-    assert "estimator_not_fitted" in {w["code"] for w in body["warnings"]}
+    assert "pls_without_centring" in {w["code"] for w in body["warnings"]}
     assert {w["node_id"] for w in body["warnings"]} == {"plsda"}
     assert client.get("/api/pipelines/current", headers=AUTH).json() == stored
 

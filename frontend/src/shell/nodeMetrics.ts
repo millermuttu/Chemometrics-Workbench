@@ -9,6 +9,16 @@ import type { PcaPayload } from "@/api/queries";
  * never zero. */
 export function nodeMetrics(result: PcaPayload | undefined): Record<string, number | null> | undefined {
   if (!result) return undefined;
+  if (result.task === "classification") {
+    const metric = (name: string) => result.metrics?.[name] ?? null;
+    return {
+      Accuracy: metric("accuracy"),
+      "Accuracy (CV)": metric("accuracy_cv"),
+      Sensitivity: metric("sensitivity"),
+      Specificity: metric("specificity"),
+      components: result.n_components,
+    };
+  }
   if (result.task === "regression") {
     const metric = (name: string) => result.metrics?.[name] ?? null;
     return {

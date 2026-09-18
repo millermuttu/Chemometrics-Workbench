@@ -52,6 +52,13 @@ describe("nodes", () => {
       spec: { kind: "train_test", test_size: 0.25, seed: 42 },
     };
     expect(parameterLine(holdout)).toBe("25% held out · seed 42");
+    const plsda: PipelineNode = {
+      id: "plsda",
+      type: "estimator",
+      inputs: ["centre"],
+      spec: { kind: "plsda", n_components: 5, class_column: "fat_class" },
+    };
+    expect(parameterLine(plsda)).toBe("5 components · fat_class");
   });
 
   it("carry the reason and the failure as footers, because that is the useful part", () => {

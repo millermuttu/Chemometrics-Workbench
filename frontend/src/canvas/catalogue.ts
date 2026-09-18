@@ -10,11 +10,11 @@
  * Editing them is the inspector's job once the node is saved.
  *
  * **Only kinds this build can actually run.** `models.py` defines sixteen;
- * these are the ones with a kernel behind them. PLS-DA has no kernel
- * (`executor.py` `_FITTED`), and of the splitters k-fold, leave-one-out and
- * train/test execute - `repeated_kfold` and `external` raise at run time.
- * Offering those here would let the canvas build a pipeline that looks fine
- * and dies when it is run, which is a worse answer than a shorter menu.
+ * these are the ones with a kernel behind them. Every estimator has one since
+ * #185; of the splitters k-fold, leave-one-out and train/test execute -
+ * `repeated_kfold` and `external` raise at run time. Offering those here
+ * would let the canvas build a pipeline that looks fine and dies when it is
+ * run, which is a worse answer than a shorter menu.
  */
 import type { DraftStep } from "@/canvas/graph";
 
@@ -81,8 +81,9 @@ export const STEPS: DraftableStep[] = [
  * by name (#182). The first target is the default and the inspector offers
  * the rest; a dataset with no targets is offered no PLS at all.
  */
-export function stepMenu(targets: string[]): CatalogueStep[] {
+export function stepMenu(targets: string[], classColumns: string[] = []): CatalogueStep[] {
   const [target] = targets;
+  const [classColumn] = classColumns;
   return [
     ...STEPS,
     ...(target
@@ -92,6 +93,20 @@ export function stepMenu(targets: string[]): CatalogueStep[] {
             type: "estimator" as const,
             parameters: `5 components · ${target}`,
             payload: { spec: { kind: "pls", n_components: 5, algorithm: "nipals", target } },
+          },
+        ]
+      : []),
+    // Two-class only (#185, pls-da.md section 2): offered when the dataset
+    // has a metadata column with exactly two values, and it models the first.
+    ...(classColumn
+      ? [
+          {
+            kind: "PLS-DA 5 LV",
+            type: "estimator" as const,
+            parameters: `5 components · ${classColumn}`,
+            payload: {
+              spec: { kind: "plsda", n_components: 5, algorithm: "nipals", class_column: classColumn },
+            },
           },
         ]
       : []),
