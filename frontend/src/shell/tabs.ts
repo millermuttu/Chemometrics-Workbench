@@ -14,6 +14,7 @@ export type TabKind =
   | "results"
   | "compare"
   | "experiment"
+  | "lineage"
   | "model";
 
 export interface Tab {

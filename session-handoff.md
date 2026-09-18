@@ -43,13 +43,28 @@ is now Phase 3's.
   existing parity claims cover. Three classes are PLS2, which `pls-regression.md` §10 defers, and are
   refused by name rather than reduced.
 
+## Phase 3 so far
+
+| Feature | Issue | PR | State |
+| --- | --- | --- | --- |
+| Every run kept, and one opened to its record | #209 | #210 | merged |
+| The model artifact, one file readable without this application | #211 | #212 | merged |
+| A plain JSON model and a standalone prediction snippet | #213 | #214 | **green, not merged** |
+| Two experiments compared step by step | #215 | #216 | open |
+
+**#214 is finished and blocked on a merge, not on work.** All six checks passed
+(`check (py3.12)`, `check (py3.13)`, `frontend`, and `e2e` on ubuntu, macOS and Windows). The merge
+call was refused by this session's permission mode, so it has to be merged by hand or with the
+permission granted. Nothing depends on it: #216 was cut from `dev` before it and touches only the
+frontend.
+
 ## Current work
 
-**Nothing is `in_progress`.** No feature branch remains; `docs/close-phase-2` carries this file, the
-archived list, the Phase 3 list and the version bump.
+**`lineage-comparison` (#215) is `in_progress` with its evidence recorded**, pending #216 going green
+and merging. The screen is built, the diff is unit-tested, and the e2e passes and was proved to fail
+with the source reverted.
 
-**Open issues:** none from Phase 2. #71, #168, #176 and #181 to #188 all closed with their pull
-requests.
+Three Phase 3 entries remain after it: `model-registry`, `html-report`, `phase-3-exit-run`.
 
 **Untracked in the root, still not decided:** `AGENTS.md` (a Codex copy of `CLAUDE.md` that will
 drift), `.codex/` and `tecator.csv`. Either gitignore them or commit them; leaving them is what makes
@@ -66,21 +81,25 @@ the peak resident memory of a ten-fold branch, which is the number #176 is judge
 
 ## Next action
 
-**Pick up `experiment-history`, the first Phase 3 entry.** It is first because the comparison view
-(§8.3's "single feature most likely to make a researcher prefer this tool to a notebook") and the
-model registry both hang from it, and because the data is already there: the `experiment` table keeps
-every run and `read_experiment` returns only the most recently started, which nothing but
-`/experiments/current` reads.
+**Merge #214, then #216, then pick up `model-registry`.** The registry is next because it is what
+gives the artifact a home: `artifact.py` takes a path and returns a hash, and recording that in the
+project's `model` table is deliberately not its job.
 
-Then `model-artifact` and `json-and-snippet-export` — §9's constraint, that exported predictions match
-in-application predictions within a stated tolerance verified in CI, is that entry's verification.
-`lineage-comparison` can go in parallel with either.
+## What Phase 3 has added worth knowing
 
-**One thing to decide before the export work.** `docs/phase-2/exit-run.md` records that the float32
-array store is visible at the prediction level against a float64 reference (7e-6 relative) and at the
-coefficient level on a derivative chain. An exported snippet computes in float64, so it will differ
-from the served numbers at that level, and §9's "stated tolerance" has to be stated with that in mind
-rather than discovered by a failing test.
+- **The export splits the chain at the last unfoldable step.** Everything after it folds into the
+  coefficient vector; everything up to and including it is carried as a residual chain. SNV, MSC and
+  normalise are written out; a baseline is refused by name rather than approximated.
+- **The export tolerance is `rtol = 1e-4` and the number is measured, not chosen.** The store is
+  float32 and an export computes float64, so `docs/phase-2/exit-run.md`'s 7.09e-6 relative difference
+  is the floor. `docs/model-export.md` §5 says so, and says what to do if the store ever goes float64.
+- **An artifact is refused by schema version, the way `db.py` refuses a newer database.** A newer
+  writer may have added a field whose absence this reader would take as a default.
+- **The lineage diff matches nodes by id, so a renamed node reads as a remove plus an add.** That is
+  the honest reading: nothing in the model says a rename is not a replacement.
+- **`count()` does not wait.** A Playwright assertion of the form `expect(await x.count())` compares a
+  frame rather than a state, and that is what failed on the Windows runner in #210. Use
+  `expect.poll(() => x.count())`.
 
 ## What Phase 2 left worth knowing
 

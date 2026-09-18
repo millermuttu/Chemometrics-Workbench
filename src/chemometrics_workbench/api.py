@@ -12,6 +12,7 @@ contract the frontend was built against is kept in `tests/fixtures/contract/`.
 - `GET  /api/experiments`, `GET /api/experiments/{id}`, `POST /api/experiments/{id}/run`
 - `GET  /api/jobs/{id}`, `POST /api/jobs/{id}/cancel`
 - `GET  /api/spectra/{node_id}`, `GET /api/results/{node_id}` and `/coefficients`
+- `GET  /api/results/{node_id}/export.json` and `/export.py` — the portable model
 - `GET  /api/schema/steps`, `POST /api/steps/validate`
 
 `current` is a real id: a project holds one pipeline, and the frontend has
@@ -50,6 +51,7 @@ from typing import Annotated, Any
 
 import numpy as np
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import PlainTextResponse
 from numpy.typing import NDArray
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
@@ -65,6 +67,7 @@ from chemometrics_workbench.executor import (
 from chemometrics_workbench.executor import stored_display as _stored_display
 from chemometrics_workbench.executor import stored_fitted_matrix as _stored_fitted_matrix
 from chemometrics_workbench.executor import stored_result as _stored_result
+from chemometrics_workbench.export import ExportError, json_model, python_snippet
 from chemometrics_workbench.jobs import Job, Jobs, submit_run
 from chemometrics_workbench.models import (
     Dataset,
@@ -1447,6 +1450,54 @@ def get_contributions(node_id: str, sample: int) -> Any:
         )
     return contributions_payload(
         result, matrix, sample, version, node_axis(pipeline, NodeId(node_id), version)
+    )
+
+
+def _exported(node_id: str) -> dict[str, Any]:
+    """The JSON model for one node, or the sentence saying why there is none.
+
+    `PROPOSAL.md` §9's constraint - exported predictions match the
+    application's within a stated tolerance - is `docs/model-export.md` §5's
+    number and `tests/test_export.py`'s to hold, not this handler's.
+    """
+    directory, pipeline, version = _runnable()
+    result = _stored_result(directory, pipeline, version, node_id)
+    if result is None:
+        raise _fail(
+            404, "not_found", f"node {node_id!r} has no fitted result yet.", node_id=node_id
+        )
+    try:
+        raw = read_array(directory, version.array_path)
+    except ProjectError as error:
+        raise _fail(500, "project_unavailable", str(error)) from error
+    try:
+        return json_model(result, pipeline=pipeline, version=version, raw=raw)
+    except ExportError as error:
+        # Not a 500: nothing went wrong. This model cannot be carried in this
+        # form, and the sentence names the step - §7's "says so when it is not
+        # available", which is the same answer `/coefficients` gives.
+        raise _fail(422, "not_exportable", str(error), node_id=node_id) from error
+
+
+@router.get("/results/{node_id}/export.json")
+def get_json_model(node_id: str) -> Any:
+    """The portable JSON model: preprocessing to re-execute, plus `b` and an
+    intercept (`docs/model-export.md` §2)."""
+    return _exported(node_id)
+
+
+@router.get("/results/{node_id}/export.py")
+def get_python_snippet(node_id: str) -> PlainTextResponse:
+    """The same model as one file that needs nothing but NumPy (§3).
+
+    Served as text rather than JSON because it is a file someone saves, and
+    with a filename so a browser saving it gets a name that says what it is.
+    """
+    source = python_snippet(_exported(node_id))
+    return PlainTextResponse(
+        source,
+        media_type="text/x-python",
+        headers={"Content-Disposition": f'attachment; filename="{node_id}_predict.py"'},
     )
 
 
