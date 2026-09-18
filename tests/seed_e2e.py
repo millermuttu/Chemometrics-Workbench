@@ -302,7 +302,8 @@ def seed(directory: Path, *, run: bool = True, failing: bool = False) -> None:
     os.environ["CHEMOMETRICS_PROJECT"] = str(directory)
     from fastapi.testclient import TestClient
 
-    from chemometrics_workbench import api, server
+    import chemometrics_workbench.api as api
+    import chemometrics_workbench.server as server
     from chemometrics_workbench.executor import execute, experiment_for
     from chemometrics_workbench.project import (
         create_project,
@@ -410,7 +411,7 @@ def _serve(argv: list[str]) -> int:
     """Run the server over what was just seeded, if asked to."""
     if "--serve" not in argv:
         return 0
-    from chemometrics_workbench import server
+    import chemometrics_workbench.server as server
 
     server.main()
     return 0

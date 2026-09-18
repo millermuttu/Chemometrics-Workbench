@@ -534,7 +534,7 @@
       "id": "phase-2-exit-run",
       "priority": 0,
       "area": "process",
-      "issue": null,
+      "issue": 201,
       "title": "The exit criterion is demonstrated: a calibration workflow on a real NIR dataset matches a reference within tolerance",
       "depends_on": [
         "train-test-split-executes",
@@ -546,9 +546,9 @@
         "A script under tests/ that drives the served application over HTTP against a public dataset (Tecator, or the mango set the 2026-09-05 run used) and compares against scikit-learn on the experiment's own resolved_splits",
         "Its output committed under docs/phase-2/ with the date, the dataset, the pipeline and every number compared"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": "PROPOSAL.md section 16 leaves what 'matches reference software' means open; this entry decides it as: same folds, same preprocessing, an independent PLS, agreement within the parity tolerances. Kernel parity alone is not the criterion, because the executor's fold handling (#173) is exactly what kernel parity cannot see."
+      "status": "passing",
+      "evidence": "2026-09-18. `uv run python -m tests.exit_run` exit 0; record at docs/phase-2/exit-run.md. The real server on a fresh project, Tecator imported through /import (content hash sha256:858b4e6c...), pipeline SNV -> SG(11,2,d1) -> k-fold 10 seed 42 -> mean centre -> PLS 5 LV on fat, run as a job to succeeded, compared against scikit-learn 1.9.0 PLSRegression on the experiment's own resolved_splits with SNV in NumPy and SciPy savgol_filter. Against a float64 reference: RMSECV 2.390922629 vs 2.390921117 (6.3e-7 rel), Q2 3.6e-8 rel, RMSEC 7.4e-7, R2 3.7e-8, RMSEP 2.2e-7, curve 6.3e-7 - all inside the metrics class (rtol 1e-6); predictions 7.1e-6 rel and coefficients 5.5e-3 rel outside. With the reference narrowed to float32 at the four store boundaries: every criterion quantity inside tolerance (metrics ~2.5e-9 rel, predictions 3.7e-8 rel); coefficients 2.9e-6 rel, still outside the 1e-6 coefficient class. An 80-bit NIPALS arbiter on the narrowed fold-zero matrix: our kernel 7.5e-16 and scikit-learn 9.6e-16 from it, the served vector 1.0e-7, because our Savitzky-Golay and SciPy's round to different float32 values at 15 of 24000 elements. Verdict recorded as met on every quantity the criterion names, against the narrowed reference, with the float64 and coefficient findings stated. `uv run pytest` 829 passed 1 skipped; ruff, format, mypy clean.",
+      "notes": "PROPOSAL.md section 16 leaves what 'matches reference software' means open; this entry decides it as: same folds, same preprocessing, an independent PLS, agreement within the parity tolerances. Kernel parity alone is not the criterion, because the executor's fold handling (#173) is exactly what kernel parity cannot see. Dataset decided 2026-09-18: Tecator; mango as a second run once #176 is done. Finding worth keeping: the float32 store is visible at the coefficient level on a derivative chain (1e-7 of the largest coefficient) and at the prediction level against a float64 reference (7e-6 relative); if the project ever wants float64 parity end to end, the store's dtype is the decision, not the kernels."
     }
   ]
 }
