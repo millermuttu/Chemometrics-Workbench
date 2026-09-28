@@ -1,0 +1,158 @@
+{
+  "phase": "Phase 3 - reproducibility and export",
+  "exit_criterion": "PROPOSAL.md section 16: \"Two models differing only in preprocessing can be compared step by step; an exported model reproduces application predictions within tolerance in a clean environment.\" Concretely, and demonstrated rather than reasoned: the application exports a fitted PLS model as the three artifacts section 9 names, a script installs nothing but NumPy in a fresh environment, runs the exported snippet against the same spectra, and the predictions agree with the served ones within a tolerance this list states; and the comparison view shows, for two experiments on one dataset, exactly which pipeline nodes differ and what each model scored. The phase ends when both are recorded with their evidence.",
+  "status_values": [
+    "not_started",
+    "in_progress",
+    "blocked",
+    "passing"
+  ],
+  "features": [
+    {
+      "id": "fix-edit-restore-poll-budget",
+      "priority": 1,
+      "area": "frontend",
+      "issue": 222,
+      "title": "macOS e2e: an edit-and-restore poll runs out of budget",
+      "depends_on": [],
+      "user_visible_behavior": "None. A suite fix: the four polls that follow an Apply and re-run get a budget matched to what the press costs, so a restore that misses it stops leaving the seeded project edited for every later test.",
+      "verification": [
+        "pnpm exec playwright test --project=seeded - the seeded project passes",
+        "CI - e2e on macOS passes, which is the runner the default budget failed on"
+      ],
+      "status": "passing",
+      "evidence": "2026-09-18. `npx playwright test --project=seeded`: `44 passed (1.2m)` on Linux. The failure itself is the CI job on #221: `e2e (macos-latest)` red with `a split is edited like a step, and the edit reaches the pipeline` giving `expected 10, received 5` after a 5-second polling timeout, and `the branching pipeline renders with every node the executor ran` then failing to find `10 folds \u00b7 shuffle \u00b7 seed 42` - one cause, two red tests. **Not reproduced locally and deliberately not claimed to be**: a Linux machine lands the PUT well inside five seconds, so the proof that the budget was the problem is the macOS run going green on this branch, not a local failing run.",
+      "notes": "Found on #221, a markdown-only change whose macOS e2e went red while the same code had passed macOS on #220 minutes before. Two red tests, one cause: the split restore's poll timed out, so the split stayed at 5 and the next test read `5 folds` where it wanted 10. Not reproducible locally - a Linux machine is fast enough - so the evidence is the CI job rather than a local failing run."
+    },
+    {
+      "id": "experiment-history",
+      "priority": 1,
+      "area": "backend",
+      "issue": 209,
+      "title": "An experiment history, not only the last run",
+      "depends_on": [],
+      "user_visible_behavior": "The outline lists every experiment this project has run, newest first, with its status, its pipeline hash and its headline metric; opening one shows what it ran and what it scored.",
+      "verification": [
+        "uv run pytest - read_experiments returns every recorded run in order and GET /experiments serves them; the existing /experiments/current is unchanged",
+        "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
+        "pnpm exec playwright test - the seeded project lists more than one experiment after a second run"
+      ],
+      "status": "passing",
+      "evidence": "2026-09-18. Backend: project.read_experiments(directory, limit) returns every recorded run newest first, in read_experiment's own order so the two cannot disagree about which run is current, and skips a row that no longer validates rather than refusing the history; GET /api/experiments serves a summary row per run - id, status, timestamps, pipeline hash, node count, dataset version, error and the headline metrics - and GET /api/experiments/{id} now opens any run in the history, with `current` still meaning the newest. tests/test_experiment_history.py (3 tests): three runs come back newest first with read_experiment as the head and limit honoured, an empty project has an empty history, and a row whose document is not an Experiment costs only itself - written later than the good one, so a reader that gave up on the first bad row would return nothing. test_the_history_lists_every_run_newest_first_and_each_one_opens in test_server.py runs two different recipes and asserts the order, the differing pipeline hashes, the exact row keys and that every row opens to a record whose snapshot has the node count the row claimed. `uv run pytest` 868 passed 1 skipped; ruff, format, mypy clean. Frontend: useExperiments and useExperimentRecord; the outline lists every run with runLabel numbering from the project's first so a number does not move and runFigure carrying whichever headline the run has, or its status when it did not succeed; ExperimentView renders the record in four sections - what it ran (the snapshot as a node table), against what, what it scored, where - with a failed run's cause in an alert. experiments.test.ts (3 tests) covers the two helpers. `pnpm test` 126 passed; typecheck, lint, build clean. e2e `the outline lists every run, and one opens to what it ran` (runs project, which by then has several runs): the drawn count equals the served history, the newest is first, and opening it shows the record rather than the placeholder. Against HEAD's screens and backend it FAILED at `expect(received).toBeGreaterThan(expected)` - the outline drew one row however many runs there were. With the fix `pnpm exec playwright test` 58 passed (1.6m). CI found one more thing: the e2e counted the outline's rows with `count()`, which does not wait, so on the Windows runner it counted a frame before the query resolved and saw zero. Polled instead - the claim is the list's state, not a moment - and the runs project passes 7.",
+      "notes": "Pagination deliberately not added: a project's runs are tens, and api.py's note on deferred pagination applies - fixing the shape of an answer before there is a question. The row is a summary because a list of thirty runs each carrying a ten-fold split's index sets is megabytes to draw thirty names; the whole record stays behind experiments/{id}. lineage-comparison is the next thing to hang from this."
+    },
+    {
+      "id": "model-artifact",
+      "priority": 1,
+      "area": "backend",
+      "issue": 211,
+      "title": "The model artifact: one self-describing file",
+      "depends_on": [
+        "experiment-history"
+      ],
+      "user_visible_behavior": "A fitted estimator can be saved as one file that carries the pipeline definition, the fitted parameters, the provenance record and the metrics, and that file can be read back without this application.",
+      "verification": [
+        "docs/model-artifact.md, normative, written before the writer",
+        "uv run pytest tests/test_artifact.py - every array round-trips bit for bit; a decomposition carries what it has and not what it does not; a newer schema version is refused by name; five malformed files each give a sentence",
+        "The same suite opens an artifact in a subprocess where this package is made unreachable, so the format is proven not to need it",
+        "uv run ruff check && uv run ruff format --check && uv run mypy && uv run pytest"
+      ],
+      "status": "passing",
+      "evidence": "2026-09-18. Format first: docs/model-artifact.md is normative and states the container (a zip of manifest.json and one .npy per array), the version rule, every manifest field, every array name with its shape and task, the prediction arithmetic, and what is deliberately not in it. artifact.py implements it: write_artifact returns the content hash of the bytes that landed and writes through a temporary file; read_artifact refuses a file stamped newer by name, as db.py refuses a newer database. EstimatorResult gained x_mean and y_mean - the estimator's own centring, which _fit_pls1 computed and threw away and folded_coefficients recovered by refitting the chain; that endpoint now reads them, with the refit kept as the fallback for a result stored before #211. tests/test_artifact.py, 11 tests: a PLS below a ten-fold split round-trips its coefficients, x_mean, VIP, loadings, rotations and both index sets bit for bit with float64 and int64 dtypes; the pipeline travels by value and parses back to the same content hash; a PCA carries no coefficients, no x_mean, no indices and a null split, because a reader must not assume an array that absent is absent rather than empty; a file stamped schema_version 4 is refused naming both numbers; five malformed files (not a zip, no manifest, bad JSON, no schema_version, an array the archive does not hold) each give a sentence. The claim that matters - PROPOSAL.md section 8.4's 'readable without this application' - is tested by reading an artifact in a subprocess that installs a meta-path finder raising on any import of chemometrics_workbench, and asserting afterwards that sys.modules holds nothing of ours. Blocking rather than relying on absence, because in a developer's environment the package is installed and a test that merely did not import it would prove nothing. `uv run pytest` 879 passed 1 skipped; ruff, format, mypy clean; frontend typecheck, tests (126) and build unchanged and clean.",
+      "notes": "A zip of JSON and .npy rather than a pickle: a pickle needs this package importable and executes what it is sent, and an artifact is a thing people email to each other. Scores, predictions and per-sample diagnostics are deliberately absent - they are properties of the samples the model saw, recomputable from the model and the data, where the artifact is what you need to use and explain the model. Prediction from an artifact is json-and-snippet-export; recording one in the project is model-registry; no endpoint is added here."
+    },
+    {
+      "id": "model-registry",
+      "priority": 2,
+      "area": "frontend",
+      "issue": 219,
+      "title": "A model registry: which models this project holds",
+      "depends_on": [
+        "model-artifact"
+      ],
+      "user_visible_behavior": "Saving a fitted estimator records it in the project with its name, its task, the experiment it came from and its metrics; the outline lists them and one can be opened.",
+      "verification": [
+        "uv run pytest - a saved model is recorded and served; its artifact reference is a path and never contents",
+        "pnpm exec playwright test - a model saved from the analysis tab appears in the outline"
+      ],
+      "status": "passing",
+      "evidence": "2026-09-18. `uv run pytest`: `897 passed, 1 skipped` - tests/test_server.py's six registry tests cover a saved model recorded and served, the row holding a path and never contents (the artifact opened with zipfile and its manifest read), an unfitted node refused, a missing model as a 404, two saves as two models, and an empty name refused; tests/test_db.py covers the version-2 stamp, the `model` table, an older database gaining the table it lacks, and an upgrade leaving existing rows alone. `pnpm test` in frontend/: `Test Files 19 passed (19)`, `Tests 137 passed (137)`. `pnpm build && npx playwright test --project=runs`: `9 passed (34.9s)`, the new `a model saved from the analysis tab appears in the outline` among them; the whole suite before it gave `60 passed (1.8m)`. Proof both fail on unfixed code: with the four source modules and the two frontend screens reverted and the tests kept, pytest gave `assert 1 == 2` on the schema stamp, `no such table: model`, and `assert 404 == 201` on the save; the same whole-project Playwright run gave `1 failed` at `locator.fill: Test timeout of 180000ms exceeded. - waiting for getByLabel('Model name')`, 8 passed.",
+      "notes": "The `Model` schema exists in models.py; **the `model` table does not exist in db.py** - the note that said both did was wrong. That makes this the first schema change since 1.3, so SCHEMA_VERSION goes to 2 and a database stamped below it gets `create_all` and a re-stamp: additive only, which is exactly what an added table needs and no more. The database stores the reference; the artifact is a file, per PROPOSAL.md section 11. Out of scope by decision: downloading the artifact over HTTP, re-importing one as a model, and prediction on new data. Built: db.ModelRow with SCHEMA_VERSION 2 and an additive upgrade; project.read_models, read_model and write_model following the experiment helpers including the skip-a-bad-row rule; POST /results/{node_id}/save plus GET /models and /models/{model_id}; the outline's Models section, a save control on the analysis header and a ModelView screen. executor.metrics_for and executor.governing_split were extracted rather than duplicated - a saved model's metrics and its run's are the same numbers. The artifact is written before the row, so a failure leaves an orphan file rather than a row nobody can open, and the environment recorded is the experiment's rather than this moment's."
+    },
+    {
+      "id": "json-and-snippet-export",
+      "priority": 1,
+      "area": "backend",
+      "issue": 213,
+      "title": "JSON model and a standalone Python prediction snippet",
+      "depends_on": [
+        "model-artifact"
+      ],
+      "user_visible_behavior": "A fitted regression exports as a documented JSON model - the preprocessing steps with their parameters, the coefficients, the intercept and the scaling - and as a self-contained Python function that depends only on NumPy and reproduces the application's predictions.",
+      "verification": [
+        "A documented JSON schema under docs/, written before the writer",
+        "uv run pytest - the exported snippet, executed in a subprocess with only NumPy importable, reproduces the served predictions within the parity harness's prediction tolerance",
+        "The same test covers a chain that cannot be folded: the snippet carries the residual preprocessing and still reproduces the predictions"
+      ],
+      "status": "passing",
+      "evidence": "2026-09-18. Schema first: docs/model-export.md is normative and states the JSON model's fields, the snippet's contract, the residual-chain arithmetic written out, and section 5's tolerance with its measured reason. export.py splits the chain at the last unfoldable step, folds the tail through coefficients_original_units with the estimator's own centring folded into the intercept, carries SNV, MSC (with the reference spectrum it was fitted with) and Normalise as residual steps, and refuses a baseline by name. GET /api/results/{id}/export.json and /export.py serve the two forms; a chain that cannot be carried is a 422 not_exportable with the step's name, not a 500. tests/test_export.py, 9 tests: a foldable chain exports a bare coefficient vector; SNV then Savitzky-Golay then centring carries only the SNV; MSC carries its reference; a range selection folds and leaves the dropped channels at exactly zero weight while the model still takes a full raw spectrum; a classification exports its classes and the 0.5 threshold and the snippet returns labels matching the served assignments; a model below a ten-fold split reproduces both its calibration and its held-out predictions; a baseline and a decomposition are each refused by name. PROPOSAL.md section 9's constraint is held in a subprocess that installs a meta-path finder raising on any import of chemometrics_workbench: the exported file predicts, sys.modules holds nothing of ours, and the predictions agree with the served ones within docs/model-export.md section 5's rtol 1e-4 / atol 1e-6. Measured on the SNV + SG(d1) + centre chain: 6.2e-6 relative, which is the float32 store's contribution that docs/phase-2/exit-run.md measured at 7.09e-6, an order of magnitude inside the stated tolerance. test_server.py covers both endpoints and the 422. `uv run pytest` 889 passed 1 skipped; ruff, format, mypy clean; frontend unchanged, 126 tests and build clean.",
+      "notes": "The tolerance is stated rather than discovered: the application predicts from float32-stored arrays and an export computes in float64, so rtol 1e-4 is an order of magnitude above the largest difference the store can produce rather than a number that happened to pass. If the store ever becomes float64 this should come down to the parity harness's prediction class, and the test holding it is what would notice. A baseline in the residual chain is refused by name - AsLS is a sparse solve per spectrum and does not belong in a copy-pasteable file; the artifact still carries such a model. No UI: the endpoints are the surface, and a download affordance belongs with model-registry's save."
+    },
+    {
+      "id": "lineage-comparison",
+      "priority": 1,
+      "area": "frontend",
+      "issue": 215,
+      "title": "Two experiments compared step by step",
+      "depends_on": [
+        "experiment-history"
+      ],
+      "user_visible_behavior": "Two experiments on one dataset are shown side by side with exactly which pipeline nodes differ - added, removed or edited - and what each scored, so a reader can see that two models differ only in their scatter correction.",
+      "verification": [
+        "pnpm test - the diff of two pipeline snapshots is pure and tested: a node added, a node removed, a parameter changed, and a graph that differs only in layout reported as identical",
+        "pnpm exec playwright test - the seeded project compares two experiments and names the node that differs"
+      ],
+      "status": "passing",
+      "evidence": "2026-09-18. `pnpm test` in frontend/: `Test Files 18 passed (18)`, `Tests 132 passed (132)` - src/__tests__/lineage.test.ts covers a node added, a node removed, a parameter changed, a renamed node read as remove plus add, a rewired input, and a graph differing only in layout reported identical. `pnpm build && npx playwright test --project=runs`: `8 passed (33.4s)`, the new `two runs compare step by step, and the differing node is named` among them. Proof it fails on unfixed code: with src/lineage/, LineageView.tsx and the four wiring edits reverted and the spec kept, the same whole-project run gave `1 failed` at `locator.selectOption: Test timeout of 180000ms exceeded. - waiting for getByTestId('compare-with')`, 7 passed.",
+      "notes": "PROPOSAL.md section 8.3 calls this the single feature most likely to make a researcher prefer this tool to a notebook, and says it is free once the model is correct. `Experiment.pipeline_snapshot` is the snapshot by value that makes it possible; `CompareResults` already compares two results and is the screen to build on. Built as `src/lineage/diff.ts` (pure, matched by node id) plus `src/screens/LineageView.tsx`, not on `CompareResults`: that screen compares two nodes' results inside one run and shares no state with a comparison of two runs' recipes. Pairing is a select on the run record, which already has the history loaded. The e2e picks its pair from the served history rather than assuming one, because which two runs differ depends on what the tests above it ran."
+    },
+    {
+      "id": "html-report",
+      "priority": 3,
+      "area": "backend",
+      "issue": 224,
+      "title": "An HTML report of one experiment",
+      "depends_on": [
+        "experiment-history",
+        "lineage-comparison"
+      ],
+      "user_visible_behavior": "One experiment exports as a standalone HTML file carrying its pipeline, its metrics, its plots and its provenance, openable in a browser with no application and no network.",
+      "verification": [
+        "uv run pytest - the report is one file, references nothing external, and carries the experiment's own numbers",
+        "pnpm exec playwright test - the exported file opens and shows the scores plot"
+      ],
+      "status": "passing",
+      "evidence": "2026-09-28. `uv run pytest`: `905 passed, 1 skipped`; `uv run pytest tests/test_report.py`: `8 passed` - one file with no link, script, external src, url() or @import; served as an attachment named for the run; the record's experiment id, dataset hash, pipeline id, every node id, rmsec to four places and the Python version all in the document; one circle per sample in the scores and predicted-against-measured plots and one bar per component in the scree; every inline svg parses as XML; a run whose stored arrays and results are deleted still reports its record with a sentence in place of the plots; `current` and the id give the same document and an unknown id is a 404; an error message holding <script> is escaped. `pnpm exec playwright test`: `61 passed (1.8m)`, the new `e2e/report.spec.ts` among them - the report fetched from the seeded project, saved to disk and opened from a file URL with the browser context offline shows the `Scores, 216 samples` figure with 216 circles. Proof it fails on a broken report: with report.py's scores plot drawing `<ellipse` rather than `<circle`, the spec failed with `Expected: 216 Received: 0`; restored. The pytest run found the report omitted the pipeline id, now a row of its provenance table.",
+      "notes": "PROPOSAL.md section 16 names HTML/PDF reporting. HTML first and PDF deferred: a browser prints a PDF and a PDF library is a dependency with weight, which section 7's rule is about. The plots are hand-written inline SVG: standalone with no network rules out a CDN, bundling Plotly is 3 MB of a frontend dependency the backend does not have, and matplotlib is heavier than every runtime dependency combined for three scatter plots. It renders, it does not compute - tests/parity_report.py's rule - so the store is asked for the experiment's own pipeline snapshot's keys and a run whose arrays are gone gets a sentence where the plots would be. Out of scope by decision: PDF, a report of a comparison, a report of a saved model, and embedding the dataset."
+    },
+    {
+      "id": "phase-3-exit-run",
+      "priority": 0,
+      "area": "process",
+      "issue": 227,
+      "title": "The exit criterion demonstrated: an exported model predicts in a clean environment",
+      "depends_on": [
+        "json-and-snippet-export",
+        "lineage-comparison"
+      ],
+      "user_visible_behavior": "Recorded, not built: a fitted model is exported from the served application, its snippet is run in a fresh environment with only NumPy installed, and its predictions agree with the application's within the stated tolerance; and the comparison view is shown naming the one node two models differ by.",
+      "verification": [
+        "A script under tests/ that drives the served application over HTTP, exports the model, runs the snippet in a subprocess with an isolated environment, and compares",
+        "Its output committed under docs/phase-3/ with the date, the dataset, the pipeline, every number compared and the tolerance each is judged against"
+      ],
+      "status": "passing",
+      "evidence": "2026-09-28. `uv run python -m tests.exit_run_phase3`: exit 0, `docs/phase-3/exit-run.md` committed from that run, verdict `Met. Export met; comparison met.` Export: Tecator 240 x 100 imported over HTTP; SNV, Savitzky-Golay (11, 2, d1), train/test split 0.25 seed 42, mean centre, PLS 5 LV on `fat`; `/results/pls/export.py` (residual chain: snv, 100 coefficients) run with `python -I` in a `uv venv` holding only `numpy 2.5.3`, `chemometrics_workbench` not importable and no module of ours, SciPy or scikit-learn loaded. Against the served predictions at docs/model-export.md section 5's rtol 1e-4, atol 1e-6: calibration rows (180) max rel diff 7.97e-06, held-out rows (60) 2.51e-06, both pass. Comparison: the Savitzky-Golay window changed from 11 to 15 and run again; both records read back from `/experiments/{id}` and diffed by diff.ts's rule: `savgol` changed on `window_length`, every other node unchanged. Proof both halves fail when they should: with rtol 1e-7, atol 0 and the second run also changing `polyorder`, the same script's verdict was `Not met. Export not met; comparison not met.`, both prediction rows FAIL and `savgol` changed on `polyorder, window_length`; the record was written elsewhere and the committed one left untouched. `uv run ruff check`, `ruff format --check` and `uv run mypy` clean.",
+      "notes": "The shape Phase 2's exit run set: tests/exit_run.py drives the application over HTTP and writes docs/phase-2/exit-run.md, and this is the same thing for section 16's Phase 3 criterion. The float32 store finding from that run applies here too - an exported snippet computing in float64 will differ from the served numbers at the level docs/phase-2/exit-run.md records, and the tolerance has to be stated with that in mind. #227's two open questions, decided 2026-09-28: the clean environment is `uv venv` plus `uv pip install numpy`, since uv is how this project makes environments and installs from its cache; and the script diffs the snapshots itself with diff.ts's rule written again in Python (twenty lines), so the record stands without a browser, while runs.spec.ts keeps covering the drawn view. The script is tests/exit_run_phase3.py beside tests/exit_run.py rather than an extension of it, because each rewrites its own phase's record."
+    }
+  ]
+}
