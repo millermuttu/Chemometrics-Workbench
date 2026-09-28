@@ -8,11 +8,17 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 ## Where things stand
 
-**Phase 3 is complete, and its release is in progress.** Every entry on `feature_list.json` passed
-with evidence, and the exit criterion is recorded in `docs/phase-3/exit-run.md` rather than argued.
-The release is a pull request from `dev` into `main`, then the tag `v0.8.0` on `main`. The version in
-`pyproject.toml` and `uv.lock` went to `0.8.0` with this file, the way `v0.7.0`'s close did it.
-**Check that the tag exists on `main` before assuming the release happened.**
+**Phase 3 is complete and released as `v0.8.0`**, merged into `main` through #230 and tagged on
+2026-09-28. Its completed list is archived at `docs/phase-3/feature_list.json`, and its exit
+criterion is recorded in `docs/phase-3/exit-run.md`.
+
+**Phase 4, package and release, is open.** `feature_list.json` is its list: nine entries, issues
+#231 to #239, and a `decisions` block recording what was settled on 2026-09-28:
+- The exit run is done by a real non-developer the maintainer arranges.
+- Packages ship unsigned, with a "How to open this" page.
+- The docs site is MkDocs Material (development dependency only), published on GitHub Pages.
+- Package formats: Windows `.zip`, Apple Silicon `.dmg`, Linux `.tar.gz`.
+- The name stays "Chemometrics Workbench".
 
 **Phase 3's exit criterion**, `PROPOSAL.md` §16: *two models differing only in preprocessing can be
 compared step by step; an exported model reproduces application predictions within tolerance in a
@@ -48,14 +54,17 @@ clean environment.* `uv run python -m tests.exit_run_phase3` shows both over HTT
 
 ## Current work
 
-**Nothing is `in_progress`.** All eight Phase 3 entries are `passing`. No issue or pull request is
-open apart from the release's own. #221 (a handoff made stale by #225) was closed unmerged and folded
-into this file.
+**Nothing is `in_progress`.** Every Phase 4 entry is `not_started`. The open issues are Phase 4's
+nine, #231 to #239.
 
-**Not done at the phase close, on purpose, and owed at the start of Phase 4:**
-- `feature_list.json` is still Phase 3's. Archive it to `docs/phase-3/feature_list.json` and write
-  Phase 4's list, as `fe58f29` did for Phase 2.
-- `CLAUDE.md`'s *Repository state* and the README still describe Phase 2 as the latest phase.
+**What already stands against §4.3**, found when the list was written: the server binds 127.0.0.1
+only, takes an ephemeral port, checks a per-session bearer token in constant time, uses no cookies,
+and confines bundle paths. It does **not** check `Host` or `Origin`, and `DEV_ORIGINS` (the Vite
+origins) is accepted in production too. That gap is `localhost-hardening`.
+
+**The auto mode permission check failed for a stretch on 2026-09-28**: every Bash and GitHub write
+answered "the classifier gave no verdict". It was transient, and leaving auto mode got past it. If
+it happens again, stop retrying (repeated failures end the turn) and say so.
 
 **An unexplained Windows e2e failure.** #221's last run went red on `e2e (windows-latest)` only, on a
 markdown-only change. Nobody has read that job's log. If a Windows e2e check goes red again, read the
@@ -77,12 +86,10 @@ which is the number #176 is judged by.
 
 ## Next action
 
-**Confirm the release, then open Phase 4.** If `v0.8.0` is not on `main`, finish that first. Phase 4
-is *Package and release* (`PROPOSAL.md` §16): PyInstaller builds on three platforms in CI, localhost
-security hardening (§4.3), a documentation site, a published parity report, worked examples and
-`CONTRIBUTING.md`. Its exit criterion is *a non-developer on a clean machine downloads, installs and
-completes a PCA in under ten minutes*. Start by archiving Phase 3's list, writing Phase 4's with
-issues, and updating `CLAUDE.md`, all in one pull request into `dev`.
+**Pick up `localhost-hardening` (#231).** It is priority 1 with no dependencies, and it has to be in
+place before a package puts the server on anyone else's machine. `launcher` (#232) is the other
+priority-1 entry with no dependencies, and `pyinstaller-build` (#233) waits on it. The exit run
+(#239) needs the release workflow and the docs site, and a person the maintainer arranges.
 
 ## What Phase 2 added
 

@@ -4,11 +4,13 @@ An open-source, local-first chemometrics workbench: a Python backend and a React
 shipped as one double-clickable desktop application, aimed at research and academic users of
 closed tools such as Unscrambler, SIMCA and OPUS. Your data never leaves your machine.
 
-**Status: Phase 2 is complete and released, `v0.7.0`.**
+**Status: Phase 3 is complete and released, `v0.8.0`. Phase 4 — packaging and release — is in progress.**
 The application runs: import a dataset — CSV, XLSX, JCAMP-DX or Bruker OPUS — build a
 preprocessing pipeline on a canvas, split it, fit PCA, PLS or two-class PLS-DA,
 cross-validate, and read the result: scores, loadings, VIP, coefficients on the raw axis,
-contributions, a confusion matrix. Everything stands on the numerical foundation Phase 0 laid — the algorithm
+contributions, a confusion matrix. Every run is kept and two can be compared step by step;
+a fitted model exports as a self-describing artifact, a plain JSON model, or a Python
+snippet that needs only NumPy; and a run exports as a standalone HTML report. Everything stands on the numerical foundation Phase 0 laid — the algorithm
 kernels, their specifications, and the evidence that their numbers are right.
 
 Its exit criterion is demonstrated rather than asserted: [`docs/phase-2/exit-run.md`](docs/phase-2/exit-run.md)
