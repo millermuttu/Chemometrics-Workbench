@@ -65,7 +65,8 @@ def reported(client: TestClient) -> str:  # noqa: F811
 
     response = client.get("/api/experiments/current/report.html", headers=AUTH)
     assert response.status_code == 200, response.text
-    return response.text
+    document: str = response.text
+    return document
 
 
 def test_the_report_is_one_file_and_references_nothing_external(
