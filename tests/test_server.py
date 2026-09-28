@@ -27,6 +27,7 @@ from fastapi.testclient import TestClient
 
 READER_FILES = Path(__file__).resolve().parent / "fixtures" / "readers"
 AUTH = {"Authorization": "Bearer test-token"}
+LOOPBACK_URL = "http://127.0.0.1:8765"
 
 
 @pytest.fixture
@@ -47,7 +48,9 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClie
 
     importlib.reload(api_module)
     server = importlib.reload(server_module)
-    with TestClient(server.app) as test_client:
+    # A loopback base URL: `TestClient` says `Host: testserver` otherwise, and
+    # the server refuses any name that is not the loopback interface.
+    with TestClient(server.app, base_url=LOOPBACK_URL) as test_client:
         yield test_client
     api_module.JOBS.shutdown(wait=False)
 
@@ -96,16 +99,100 @@ def test_a_failure_from_the_router_itself_carries_the_same_body(client: TestClie
     assert response.json()["error"]["code"] == "not_found"
 
 
-def test_the_dev_server_may_call_the_api_across_origins(client: TestClient) -> None:
-    response = client.options(
+# The rest of §4.3, one requirement to a test. Each was run against the server
+# before the Host and Origin checks existed, and the two below them failed.
+
+
+def test_a_rebound_hostname_is_refused_on_the_api_and_on_the_bundle(client: TestClient) -> None:
+    """DNS rebinding: a page on `attacker.example`, re-pointed at 127.0.0.1,
+    arrives with its own name in `Host`. The token does not save a request the
+    bundle answers without one, so the check is on every route."""
+    for path in ("/api/projects", "/", "/index.html"):
+        response = client.get(path, headers={**AUTH, "Host": "attacker.example:8765"})
+        assert response.status_code == 403, path
+        assert response.json()["error"]["code"] == "forbidden"
+
+    # Both loopback names, with or without a port, are this machine.
+    for host in ("127.0.0.1:8765", "localhost:8765", "127.0.0.1", "localhost"):
+        assert client.get("/api/projects", headers={**AUTH, "Host": host}).status_code == 200
+
+
+def test_a_foreign_origin_is_refused_even_with_the_token(client: TestClient) -> None:
+    """Strict Origin: a request a browser sends on behalf of another page
+    names that page, and is refused whatever else it carries."""
+    for origin in (
+        "http://attacker.example",
+        "http://127.0.0.1:9999",
+        "http://localhost:5173",
+        "null",
+    ):
+        response = client.post(
+            "/api/pipelines/current/validate", headers={**AUTH, "Origin": origin}
+        )
+        assert response.status_code == 403, origin
+        assert response.json()["error"]["code"] == "forbidden"
+
+    # The application's own origin, and no origin at all (a non-browser client).
+    for headers in ({**AUTH, "Origin": LOOPBACK_URL}, AUTH):
+        assert client.get("/api/projects", headers=headers).status_code == 200
+
+
+def test_the_dev_server_origin_is_accepted_only_in_development(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The Vite proxy forwards the browser's `Origin: http://localhost:5173`.
+    `WORKBENCH_DEV=1` accepts it; a packaged application never sets it."""
+    import chemometrics_workbench.server as server_module
+
+    headers = {**AUTH, "Origin": "http://localhost:5173"}
+    assert client.get("/api/projects", headers=headers).status_code == 403
+    monkeypatch.setattr(server_module, "DEV", True)
+    assert client.get("/api/projects", headers=headers).status_code == 200
+
+    # And no CORS: nothing is ever called across origins, so nothing grants it.
+    preflight = client.options(
         "/api/projects",
-        headers={
-            "Origin": "http://localhost:5173",
-            "Access-Control-Request-Method": "GET",
-            "Access-Control-Request-Headers": "authorization",
-        },
+        headers={"Origin": "http://localhost:5173", "Access-Control-Request-Method": "GET"},
     )
-    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+    assert "access-control-allow-origin" not in preflight.headers
+
+
+def test_no_response_sets_a_cookie_and_a_cookie_is_not_a_token(client: TestClient) -> None:
+    """No cookie authentication, so a cross-site request has no ambient
+    session to ride."""
+    for response in (
+        client.get("/api/projects", headers=AUTH),
+        client.get("/api/projects"),
+        client.get("/"),
+    ):
+        assert "set-cookie" not in response.headers
+    client.cookies.set("token", "test-token")
+    assert client.get("/api/projects").status_code == 401
+
+
+def test_the_server_binds_the_loopback_interface_on_an_ephemeral_port(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """127.0.0.1 only, never 0.0.0.0; port zero unless `WORKBENCH_PORT` pins it."""
+    import chemometrics_workbench.server as server_module
+
+    seen: dict[str, Any] = {}
+
+    class Captured:
+        def __init__(self, config: Any) -> None:
+            seen["host"], seen["port"] = config.host, config.port
+
+        async def startup(self, sockets: Any = None) -> None:
+            return None
+
+        def run(self) -> None:
+            return None
+
+    monkeypatch.delenv("WORKBENCH_PORT", raising=False)
+    server = importlib.reload(server_module)
+    monkeypatch.setattr(server.uvicorn, "Server", Captured)
+    server.main()
+    assert seen == {"host": "127.0.0.1", "port": 0}
 
 
 # --------------------------------------------------------------------------
@@ -208,7 +295,7 @@ def test_the_pipeline_is_read_back_after_a_restart(
     import chemometrics_workbench.server as server_module
 
     restarted = importlib.reload(server_module)
-    with TestClient(restarted.app) as second_client:
+    with TestClient(restarted.app, base_url=LOOPBACK_URL) as second_client:
         again = second_client.get(
             "/api/pipelines/current",
             headers={"Authorization": f"Bearer {restarted.TOKEN}"},
