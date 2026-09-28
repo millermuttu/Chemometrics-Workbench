@@ -1,8 +1,11 @@
 import {
   useDatasets,
-  useExperiment,
+  useExperiments,
+  useModels,
   usePipeline,
   usePipelineState,
+  type ExperimentRow,
+  type ModelRow,
   type PipelineNode,
 } from "@/api/queries";
 import { DatasetIcon, FlaskIcon, ModelIcon, NodeIcon } from "@/shell/icons";
@@ -99,11 +102,43 @@ export function nodeLabel(node: PipelineNode): string {
   }
 }
 
+/** "Run 12", counted from the project's first rather than from the top of the
+ * list, so a run keeps its number as later ones arrive. */
+export function runLabel(run: ExperimentRow, index: number, total: number): string {
+  void run;
+  return `Run ${total - index}`;
+}
+
+/** The one figure a row carries: whichever headline the run has. A run that
+ * failed says so instead, because a failed experiment is a result (section 8.2)
+ * and its status is the thing to read. */
+export function runFigure(run: ExperimentRow): string {
+  if (run.status !== "succeeded") return run.status;
+  const m = run.metrics;
+  if (m?.rmsecv != null) return `RMSECV ${m.rmsecv.toFixed(4)}`;
+  if (m?.accuracy != null) return `accuracy ${m.accuracy.toFixed(3)}`;
+  if (m?.explained_variance != null) return `PC1 ${(m.explained_variance * 100).toFixed(1)}%`;
+  return run.status;
+}
+
+/** The one figure a saved model carries: whichever headline its metrics hold.
+ * A decomposition has no error to quote and reads as what it is, because a
+ * metric it does not have is absent rather than zero (section 11). */
+export function modelFigure(model: ModelRow): string {
+  const m = model.metrics;
+  if (m.rmsecv != null) return `RMSECV ${m.rmsecv.toFixed(4)}`;
+  if (m.rmsec != null) return `RMSEC ${m.rmsec.toFixed(4)}`;
+  if (m.accuracy != null) return `accuracy ${m.accuracy.toFixed(3)}`;
+  if (m.explained_variance != null) return `PC1 ${(m.explained_variance * 100).toFixed(1)}%`;
+  return model.task;
+}
+
 export function Sidebar({ projectId, activeId, collapsed, onOpen }: Props) {
   const datasets = useDatasets(projectId);
   const pipeline = usePipeline();
   const pipelineState = usePipelineState();
-  const experiment = useExperiment();
+  const experiments = useExperiments();
+  const models = useModels();
 
   return (
     <aside className={`side${collapsed ? " rail" : ""}`} aria-label="Project outline">
@@ -156,29 +191,60 @@ export function Sidebar({ projectId, activeId, collapsed, onOpen }: Props) {
           );
         })}
 
-        <Head label="Experiments" note={experiment.data ? "1" : undefined} />
-        {experiment.data ? (
+        <Head
+          label="Experiments"
+          note={experiments.data ? String(experiments.data.length) : undefined}
+        />
+        {/* Every run this project has recorded, newest first (#209). The
+            table has kept them since #121; until then the outline drew one
+            row labelled "Runs" however many there were. */}
+        {experiments.data?.length === 0 ? (
+          <div className="empty">{collapsed ? <FlaskIcon /> : "Nothing run yet."}</div>
+        ) : null}
+        {experiments.data?.map((run, index) => (
           <Row
+            key={run.experiment_id}
             icon={<FlaskIcon />}
-            label="Runs"
-            dim={experiment.data.status}
+            label={runLabel(run, index, experiments.data!.length)}
+            dim={runFigure(run)}
             depth={26}
-            selected={activeId === experiment.data.experiment_id}
+            selected={activeId === run.experiment_id}
             onOpen={(transient) =>
               onOpen(
-                { id: experiment.data.experiment_id, kind: "experiment", title: "Runs" },
+                {
+                  id: run.experiment_id,
+                  kind: "experiment",
+                  title: runLabel(run, index, experiments.data!.length),
+                },
                 transient,
               )
             }
           />
-        ) : null}
+        ))}
 
-        <Head label="Models" note="0" />
-        {/* Models are Phase 2 (#51) and no fixture describes one, so the
-            section is here with its empty state rather than invented. */}
-        <div className="empty">
-          {collapsed ? <ModelIcon /> : "No models yet — a run produces the first."}
-        </div>
+        <Head label="Models" note={models.data ? String(models.data.length) : undefined} />
+        {/* What this project holds, newest first (#219). Saving a fitted
+            estimator from the analysis tab is what puts one here; a run on its
+            own does not, because which fitted node is worth keeping is the
+            user's judgement rather than the executor's. */}
+        {models.data?.length === 0 ? (
+          <div className="empty">
+            {collapsed ? <ModelIcon /> : "No models yet — save one from a fitted estimator."}
+          </div>
+        ) : null}
+        {models.data?.map((model) => (
+          <Row
+            key={model.model_id}
+            icon={<ModelIcon />}
+            label={model.name}
+            dim={modelFigure(model)}
+            depth={26}
+            selected={activeId === model.model_id}
+            onOpen={(transient) =>
+              onOpen({ id: model.model_id, kind: "model", title: model.name }, transient)
+            }
+          />
+        ))}
       </div>
     </aside>
   );

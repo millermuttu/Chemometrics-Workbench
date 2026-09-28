@@ -125,6 +125,8 @@ export interface Experiment {
     r2?: number | null;
     q2?: number | null;
     bias?: number | null;
+    /** A classification's, filled since #185; null for every other task. */
+    accuracy?: number | null;
     extra?: Record<string, number>;
   } | null;
 }
@@ -387,6 +389,61 @@ export function useSavePipeline() {
   });
 }
 
+/** One line of the history (#209): what a row draws, not the whole record.
+ * The record is `GET /experiments/{id}`, which serves any run, not only the
+ * newest. */
+export interface ExperimentRow {
+  experiment_id: string;
+  status: string;
+  started_at: string | null;
+  finished_at: string | null;
+  pipeline_hash: string;
+  n_nodes: number;
+  dataset_version_id: string;
+  error: string | null;
+  /** Absent renders as an em dash: a metric that could not be computed is
+   * null, never zero (`metrics-and-validation.md` section 11). */
+  metrics: {
+    rmsecv: number | null;
+    q2: number | null;
+    accuracy: number | null;
+    explained_variance: number | null;
+  } | null;
+}
+
+/** The whole record of one run: what it ran, against what, and what it scored. */
+export interface ExperimentRecord extends Experiment {
+  project_id: string;
+  dataset_version_id: string;
+  dataset_content_hash: string;
+  error: string | null;
+  pipeline_snapshot: Pipeline;
+  resolved_splits: { node_id: string; train_indices: number[][]; test_indices: number[][] }[];
+  environment: {
+    app_version: string;
+    python_version: string;
+    platform: string;
+    packages: Record<string, string>;
+    recorded_at: string;
+  } | null;
+}
+
+export function useExperiments() {
+  return useQuery({
+    queryKey: ["experiments"],
+    queryFn: () => api<ExperimentRow[]>("/experiments"),
+  });
+}
+
+export function useExperimentRecord(experimentId: string | undefined) {
+  return useQuery({
+    queryKey: ["experiment-record", experimentId],
+    queryFn: () => api<ExperimentRecord>(`/experiments/${experimentId}`),
+    enabled: Boolean(experimentId),
+    staleTime: Infinity,
+  });
+}
+
 export function useExperiment() {
   return useQuery({
     queryKey: ["experiment"],
@@ -466,5 +523,66 @@ export function useCancelJob() {
   return useMutation({
     mutationFn: (jobId: string) => api<Job>(`/jobs/${jobId}/cancel`, { method: "POST" }),
     onSuccess: (job) => client.setQueryData(["job", job.job_id], job),
+  });
+}
+
+/** One saved model, as the registry lists it and its screen reads it (#219).
+ *
+ * `artifact_path` is a path inside the project directory and never contents:
+ * `PROPOSAL.md` section 11 splits storage so a project directory can be zipped
+ * and sent, and the database holds the reference.
+ */
+export interface ModelRow {
+  model_id: string;
+  experiment_id: string;
+  name: string;
+  task: string;
+  node_id: string;
+  artifact_path: string;
+  artifact_hash: string;
+  created_at: string;
+  metrics: {
+    rmsec: number | null;
+    rmsecv: number | null;
+    rmsep: number | null;
+    r2: number | null;
+    q2: number | null;
+    accuracy: number | null;
+    explained_variance: number | null;
+  };
+}
+
+export function useModels() {
+  return useQuery({ queryKey: ["models"], queryFn: () => api<ModelRow[]>("/models") });
+}
+
+export function useModel(modelId: string | undefined) {
+  return useQuery({
+    queryKey: ["model", modelId],
+    queryFn: () => api<ModelRow>(`/models/${modelId}`),
+    enabled: Boolean(modelId),
+    staleTime: Infinity,
+  });
+}
+
+/** Save one fitted estimator as a model this project holds.
+ *
+ * The saved row is seeded into its own cache entry as well as invalidating the
+ * list, so opening the model the save just produced does not wait for a second
+ * request to say what the first already returned.
+ */
+export function useSaveModel() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ nodeId, name }: { nodeId: string; name: string }) =>
+      api<ModelRow>(`/results/${nodeId}/save`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      }),
+    onSuccess: (model) => {
+      client.setQueryData(["model", model.model_id], model);
+      void client.invalidateQueries({ queryKey: ["models"] });
+    },
   });
 }

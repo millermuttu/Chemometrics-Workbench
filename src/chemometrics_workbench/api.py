@@ -9,9 +9,13 @@ contract the frontend was built against is kept in `tests/fixtures/contract/`.
 - `POST /api/import` — commits with the user's corrections applied, and starts
   a pipeline on the dataset if the project has none
 - `GET/PUT /api/pipelines/{id}`, `GET /state`, `PUT /layout`, `POST /validate`
-- `GET  /api/experiments/{id}`, `POST /api/experiments/{id}/run`
+- `GET  /api/experiments`, `GET /api/experiments/{id}`, `POST /api/experiments/{id}/run`
+- `GET  /api/experiments/{id}/report.html` — one run as a standalone file
 - `GET  /api/jobs/{id}`, `POST /api/jobs/{id}/cancel`
 - `GET  /api/spectra/{node_id}`, `GET /api/results/{node_id}` and `/coefficients`
+- `GET  /api/results/{node_id}/export.json` and `/export.py` — the portable model
+- `POST /api/results/{node_id}/save` — save the fitted node as a model
+- `GET  /api/models`, `GET /api/models/{model_id}` — what this project holds
 - `GET  /api/schema/steps`, `POST /api/steps/validate`
 
 `current` is a real id: a project holds one pipeline, and the frontend has
@@ -50,26 +54,33 @@ from typing import Annotated, Any
 
 import numpy as np
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import PlainTextResponse
 from numpy.typing import NDArray
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
 from chemometrics_workbench import __version__, preprocessing, readers
+from chemometrics_workbench.artifact import ArtifactError, write_artifact
 from chemometrics_workbench.checks import PipelineWarning, check_pipeline
 from chemometrics_workbench.decomposition import spe_contributions, t2_contributions
 from chemometrics_workbench.executor import (
     EstimatorResult,
     governing_folds,
+    governing_split,
     has_kernel,
+    metrics_for,
     stored,
 )
 from chemometrics_workbench.executor import stored_display as _stored_display
 from chemometrics_workbench.executor import stored_fitted_matrix as _stored_fitted_matrix
 from chemometrics_workbench.executor import stored_result as _stored_result
+from chemometrics_workbench.export import ExportError, json_model, python_snippet
 from chemometrics_workbench.jobs import Job, Jobs, submit_run
 from chemometrics_workbench.models import (
     Dataset,
     DatasetVersion,
     EstimatorSpec,
+    Experiment,
+    Model,
     NodeId,
     Pipeline,
     PipelineNode,
@@ -80,6 +91,7 @@ from chemometrics_workbench.models import (
     SplitSpec,
 )
 from chemometrics_workbench.project import (
+    MODELS_DIR,
     DatasetEntry,
     ProjectError,
     add_dataset,
@@ -90,13 +102,18 @@ from chemometrics_workbench.project import (
     read_array,
     read_datasets,
     read_experiment,
+    read_experiments,
     read_layout,
+    read_model,
+    read_models,
     read_pipeline,
     write_array,
     write_layout,
+    write_model,
     write_pipeline,
 )
 from chemometrics_workbench.regression import coefficients_original_units
+from chemometrics_workbench.report import render_report, report_filename
 
 __all__ = [
     "ESTIMATOR_NOT_FITTED",
@@ -104,7 +121,9 @@ __all__ = [
     "MAX_TRACES",
     "MAX_UPLOAD_BYTES",
     "contributions_payload",
+    "experiment_row",
     "folded_coefficients",
+    "model_row",
     "node_axis",
     "open_project_directory",
     "results_payload",
@@ -743,7 +762,9 @@ def folded_coefficients(
 
     **The estimator's own centring is folded in too.** `_pls` centres `X` by the
     fit rows' mean, which is not a pipeline node and so is not in the measured
-    chain. Since the model computes `(chain(X) - x̄)·b + ȳ` and the helper
+    chain; since #211 the result records it, and a result stored before that
+    falls back to recomputing it from the refitted chain. Since the model
+    computes `(chain(X) - x̄)·b + ȳ` and the helper
     returns an intercept of `y_mean + offset·b`, passing `ȳ - x̄·b` as `y_mean`
     puts it exactly where it belongs.
     """
@@ -774,8 +795,13 @@ def folded_coefficients(
             axis = transformer.selected_axis()
         transformers.append(transformer)
 
+    # The estimator's own centring, as it recorded it (#211). This used to be
+    # recomputed from the refitted chain - the same number when the chain is
+    # the same, and one more thing that had to stay in step with the model.
     observed = np.asarray(result.observed, dtype=np.float64)
-    x_mean = values[rows].mean(axis=0)
+    x_mean = (
+        np.asarray(result.x_mean, dtype=np.float64) if result.x_mean else values[rows].mean(axis=0)
+    )
     coefficients = np.asarray(result.coefficients, dtype=np.float64)
 
     try:
@@ -1245,15 +1271,130 @@ def _layout(directory: Path, pipeline: Pipeline) -> dict[str, dict[str, float]]:
 # --- Experiments and jobs -------------------------------------------------
 
 
+def experiment_row(experiment: Experiment) -> dict[str, Any]:
+    """One line of the history: what a row in the outline needs, and no more.
+
+    The whole record - the pipeline snapshot, the resolved splits, the
+    environment - stays behind `experiments/{id}`, because a list of thirty
+    runs each carrying a ten-fold split's index sets is megabytes to draw a
+    list of thirty names. The pipeline is represented by its content hash,
+    which is the thing `design/data-model.md` says the model exists to make
+    comparable, and by how many nodes it had.
+    """
+    metrics = experiment.metrics
+    return {
+        "experiment_id": str(experiment.experiment_id),
+        "status": experiment.status.value,
+        "started_at": experiment.started_at.isoformat() if experiment.started_at else None,
+        "finished_at": experiment.finished_at.isoformat() if experiment.finished_at else None,
+        "pipeline_hash": experiment.pipeline_hash,
+        "n_nodes": len(experiment.pipeline_snapshot.nodes),
+        "dataset_version_id": str(experiment.dataset_version_id),
+        "error": experiment.error,
+        # §11: absent, never zero. A decomposition fills neither of these and a
+        # screen renders `null` as an em dash.
+        "metrics": None
+        if metrics is None
+        else {
+            "rmsecv": metrics.rmsecv,
+            "q2": metrics.q2,
+            "accuracy": metrics.accuracy,
+            "explained_variance": (
+                metrics.explained_variance[0] if metrics.explained_variance else None
+            ),
+        },
+    }
+
+
+@router.get("/experiments")
+def list_experiments() -> Any:
+    """Every run this project has recorded, newest first (#209).
+
+    A bare list, as the other list endpoints serve: `api.py`'s note on deferred
+    pagination applies - a project's runs are tens, and fixing the shape of an
+    answer before there is a question is what that note refuses.
+    """
+    directory, _ = _project()
+    try:
+        return [experiment_row(experiment) for experiment in read_experiments(directory)]
+    except ProjectError as error:
+        raise _fail(500, "project_unavailable", str(error)) from error
+
+
 @router.get("/experiments/{experiment_id}")
 def get_experiment(experiment_id: str) -> Any:
+    # `current` is the newest and an id is looked up in the history (#209),
+    # which `_recorded` is; the report asks the same question.
     directory, _ = _project()
+    return json.loads(_recorded(directory, experiment_id).model_dump_json())
+
+
+def _recorded(directory: Path, experiment_id: str) -> Experiment:
+    """The experiment this id names, `current` meaning the newest.
+
+    Shared by the record endpoint and the report, because "which run is this"
+    has one answer and two handlers asking it differently is how they come to
+    disagree.
+    """
     experiment = read_experiment(directory)
     if experiment is None:
         raise _fail(404, "not_found", "nothing has been run in this project yet.")
-    if experiment_id not in ("current", str(experiment.experiment_id)):
-        raise _fail(404, "not_found", f"no experiment {experiment_id}.")
-    return json.loads(experiment.model_dump_json())
+    if experiment_id in ("current", str(experiment.experiment_id)):
+        return experiment
+    for older in read_experiments(directory):
+        if str(older.experiment_id) == experiment_id:
+            return older
+    raise _fail(404, "not_found", f"no experiment {experiment_id}.")
+
+
+def _last_estimator(
+    directory: Path, experiment: Experiment
+) -> tuple[EstimatorResult | None, str | None]:
+    """The last estimator's stored result for *this* run, or nothing.
+
+    Asked against the experiment's own pipeline snapshot rather than the
+    current pipeline, so the keys are the ones that run wrote. A run whose
+    arrays have since been recomputed away answers `None`, and the report says
+    so rather than drawing a plot from a different run's numbers.
+    """
+    pipeline = experiment.pipeline_snapshot
+    version = _current_version(directory, pipeline)
+    if version is None:
+        return None, None
+    estimators = [node.id for node in pipeline.nodes if node.type == "estimator"]
+    for node_id in reversed(estimators):
+        result = _stored_result(directory, pipeline, version, node_id)
+        if result is not None:
+            return result, node_id
+    return None, estimators[-1] if estimators else None
+
+
+@router.get("/experiments/{experiment_id}/report.html")
+def get_report(experiment_id: str) -> PlainTextResponse:
+    """One run as a standalone HTML file (#224).
+
+    Served as a download with a filename, the way `export.py` serves the
+    snippet: this is a file someone saves and archives, not a page the
+    application navigates to.
+    """
+    directory, project = _project()
+    experiment = _recorded(directory, experiment_id)
+    version = _current_version(directory, experiment.pipeline_snapshot)
+    if version is None:
+        raise _fail(
+            404,
+            "not_found",
+            "this run's dataset is not in the project any more, so its report cannot name "
+            "what it ran against.",
+            experiment_id=experiment_id,
+        )
+    result, node_id = _last_estimator(directory, experiment)
+    document = render_report(experiment, version, project, result, node_id)
+    return PlainTextResponse(
+        document,
+        media_type="text/html; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{report_filename(experiment)}"'},
+    )
 
 
 @router.post("/experiments/{experiment_id}/run")
@@ -1383,6 +1524,208 @@ def get_contributions(node_id: str, sample: int) -> Any:
     return contributions_payload(
         result, matrix, sample, version, node_axis(pipeline, NodeId(node_id), version)
     )
+
+
+def _exported(node_id: str) -> dict[str, Any]:
+    """The JSON model for one node, or the sentence saying why there is none.
+
+    `PROPOSAL.md` §9's constraint - exported predictions match the
+    application's within a stated tolerance - is `docs/model-export.md` §5's
+    number and `tests/test_export.py`'s to hold, not this handler's.
+    """
+    directory, pipeline, version = _runnable()
+    result = _stored_result(directory, pipeline, version, node_id)
+    if result is None:
+        raise _fail(
+            404, "not_found", f"node {node_id!r} has no fitted result yet.", node_id=node_id
+        )
+    try:
+        raw = read_array(directory, version.array_path)
+    except ProjectError as error:
+        raise _fail(500, "project_unavailable", str(error)) from error
+    try:
+        return json_model(result, pipeline=pipeline, version=version, raw=raw)
+    except ExportError as error:
+        # Not a 500: nothing went wrong. This model cannot be carried in this
+        # form, and the sentence names the step - §7's "says so when it is not
+        # available", which is the same answer `/coefficients` gives.
+        raise _fail(422, "not_exportable", str(error), node_id=node_id) from error
+
+
+@router.get("/results/{node_id}/export.json")
+def get_json_model(node_id: str) -> Any:
+    """The portable JSON model: preprocessing to re-execute, plus `b` and an
+    intercept (`docs/model-export.md` §2)."""
+    return _exported(node_id)
+
+
+@router.get("/results/{node_id}/export.py")
+def get_python_snippet(node_id: str) -> PlainTextResponse:
+    """The same model as one file that needs nothing but NumPy (§3).
+
+    Served as text rather than JSON because it is a file someone saves, and
+    with a filename so a browser saving it gets a name that says what it is.
+    """
+    source = python_snippet(_exported(node_id))
+    return PlainTextResponse(
+        source,
+        media_type="text/x-python",
+        headers={"Content-Disposition": f'attachment; filename="{node_id}_predict.py"'},
+    )
+
+
+# --- The model registry (#219) --------------------------------------------
+
+
+class ModelSave(BaseModel):
+    """What a client may say about a model it is saving: what to call it.
+
+    Everything else is the server's, and deliberately: the task, the node, the
+    experiment, the metrics and the artifact's hash are all facts about what
+    was fitted. A client that could send them could record a model that never
+    existed.
+    """
+
+    name: str = Field(min_length=1, max_length=120)
+
+
+def model_row(model: Model) -> dict[str, Any]:
+    """One saved model as the outline and its screen read it.
+
+    `artifact_path` is served because it is what `PROPOSAL.md` §11 promises —
+    a reference to a file in the project directory — and a reader who has the
+    directory can open it with `zipfile` and NumPy alone. The contents are not
+    served: this endpoint lists what the project holds, and a model's
+    parameters are the file's job.
+    """
+    metrics = model.metrics
+    return {
+        "model_id": str(model.model_id),
+        "experiment_id": str(model.experiment_id),
+        "name": model.name,
+        "task": model.task.value,
+        "node_id": model.node_id,
+        "artifact_path": model.artifact_path,
+        "artifact_hash": model.artifact_hash,
+        "created_at": model.created_at.isoformat(),
+        # §11 again: absent, never zero. A decomposition fills none of these.
+        "metrics": {
+            "rmsec": metrics.rmsec,
+            "rmsecv": metrics.rmsecv,
+            "rmsep": metrics.rmsep,
+            "r2": metrics.r2,
+            "q2": metrics.q2,
+            "accuracy": metrics.accuracy,
+            "explained_variance": (
+                metrics.explained_variance[0] if metrics.explained_variance else None
+            ),
+        },
+    }
+
+
+@router.post("/results/{node_id}/save", status_code=201)
+def save_model(node_id: str, body: ModelSave) -> Any:
+    """Save one fitted estimator as a model this project holds.
+
+    Two things happen and the order matters: the artifact is written to the
+    project directory first, and only then is the row recorded. A row pointing
+    at a file that was never written is a registry entry nobody can open; a
+    file with no row is an orphan in `models/` that costs disk and nothing
+    else. If this is going to fail it should fail leaving the cheaper mess.
+
+    The environment recorded is the *experiment's*, not this moment's:
+    `docs/model-artifact.md` §3 asks what was installed when the model was
+    fitted, and saving it an hour later on an upgraded machine would answer a
+    different question.
+    """
+    directory, pipeline, version = _runnable()
+    result = _stored_result(directory, pipeline, version, node_id)
+    if result is None:
+        raise _fail(
+            404, "not_found", f"node {node_id!r} has no fitted result yet.", node_id=node_id
+        )
+
+    experiment = read_experiment(directory)
+    if experiment is None:
+        # A fitted result with no experiment means the arrays outlived the
+        # record, which a pruned database does. Saying so beats inventing an
+        # experiment id the lineage would then point at.
+        raise _fail(
+            409,
+            "no_experiment",
+            f"node {node_id!r} has a fitted result but this project has recorded no run, "
+            "so there is no experiment to attribute the model to. Run the pipeline.",
+            node_id=node_id,
+        )
+
+    model = Model(
+        project_id=pipeline.project_id,
+        experiment_id=experiment.experiment_id,
+        name=body.name,
+        task=result.task,
+        node_id=NodeId(node_id),
+        # Filled below, once the file it names exists.
+        artifact_path="",
+        artifact_hash="sha256:" + "0" * 64,
+        metrics=metrics_for(result),
+    )
+    relative = f"{MODELS_DIR}/{model.model_id}.cwmodel"
+
+    by_id = {node.id: node for node in pipeline.nodes}
+    split_node = governing_split(NodeId(node_id), by_id)
+    split = next(
+        (
+            resolved
+            for resolved in experiment.resolved_splits
+            if split_node is not None and resolved.node_id == split_node.id
+        ),
+        None,
+    )
+
+    try:
+        artifact_hash = write_artifact(
+            Path(directory) / relative,
+            result,
+            pipeline=pipeline,
+            version=version,
+            node_axis=node_axis(pipeline, NodeId(node_id), version),
+            split=split,
+            environment=experiment.environment,
+        )
+    except ArtifactError as error:
+        raise _fail(500, "artifact_unwritable", str(error), node_id=node_id) from error
+
+    saved = model.model_copy(update={"artifact_path": relative, "artifact_hash": artifact_hash})
+    try:
+        write_model(directory, saved)
+    except ProjectError as error:
+        raise _fail(500, "project_unavailable", str(error)) from error
+    return model_row(saved)
+
+
+@router.get("/models")
+def list_models() -> Any:
+    """Every model this project holds, newest first."""
+    directory, _ = _project()
+    try:
+        return [model_row(model) for model in read_models(directory)]
+    except ProjectError as error:
+        raise _fail(500, "project_unavailable", str(error)) from error
+
+
+@router.get("/models/{model_id}")
+def get_model(model_id: str) -> Any:
+    """One saved model's record."""
+    directory, _ = _project()
+    try:
+        model = read_model(directory, model_id)
+    except ProjectError as error:
+        raise _fail(500, "project_unavailable", str(error)) from error
+    if model is None:
+        raise _fail(
+            404, "not_found", f"this project holds no model {model_id!r}.", model_id=model_id
+        )
+    return model_row(model)
 
 
 def _indices(raw: str | None) -> list[int]:

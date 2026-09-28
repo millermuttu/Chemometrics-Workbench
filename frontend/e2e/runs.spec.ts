@@ -252,3 +252,136 @@ test("a foldable chain draws its coefficients on the raw axis", async ({ page })
     )
     .toBe(1200);
 });
+
+test("the outline lists every run, and one opens to what it ran", async ({ page }) => {
+  // #209. This file's tests have each run the pipeline at least once, so by
+  // now the project has a history rather than a single run - which is the
+  // thing the outline drew one row for however many there were.
+  await page.goto("/?token=e2e-token");
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  const runs = outline.getByRole("button", { name: /^Run \d+/ });
+  // Polled, not counted once: `count()` does not wait, and the outline draws
+  // these from a query that has to resolve first. Counting a frame before it
+  // did is what failed on the Windows runner, and it is the flake this suite
+  // keeps finding - an assertion about a moment rather than about a state.
+  await expect.poll(() => runs.count()).toBeGreaterThan(1);
+  const count = await runs.count();
+
+  // The served history is what is drawn: same count, newest first.
+  const served = await page.evaluate(async () => {
+    const response = await fetch("/api/experiments", {
+      headers: { Authorization: `Bearer ${sessionStorage.getItem("token")}` },
+    });
+    return (await response.json()) as { experiment_id: string; started_at: string }[];
+  });
+  expect(served.length).toBe(count);
+  expect([...served].sort((a, b) => b.started_at.localeCompare(a.started_at))[0].experiment_id).toBe(
+    served[0].experiment_id,
+  );
+
+  // Opening the newest shows the record: what it ran, against what, what it
+  // scored, where - not the placeholder the experiment tab used to reach.
+  await runs.first().dblclick();
+  const view = page.getByTestId("experiment-view");
+  await expect(view).toBeVisible();
+  await expect(view).toContainText("What it ran");
+  await expect(view).toContainText("Against what");
+  await expect(view).toContainText("What it scored");
+  await expect(page.getByTestId("run-pipeline").locator("tbody tr")).not.toHaveCount(0);
+  // The placeholder the experiment tab used to reach is gone.
+  await expect(page.getByText("view — built in a later issue")).toHaveCount(0);
+});
+
+test("two runs compare step by step, and the differing node is named", async ({ page }) => {
+  // #215. The tests above each changed the pipeline before running it, so this
+  // project's history holds runs of different recipes - which is the case the
+  // comparison exists for. The pair is chosen from the served history rather
+  // than assumed, because which two differ depends on what ran above.
+  await page.goto("/?token=e2e-token");
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  const runs = outline.getByRole("button", { name: /^Run \d+/ });
+  await expect.poll(() => runs.count()).toBeGreaterThan(1);
+
+  const served = await page.evaluate(async () => {
+    const response = await fetch("/api/experiments", {
+      headers: { Authorization: `Bearer ${sessionStorage.getItem("token")}` },
+    });
+    return (await response.json()) as { experiment_id: string; pipeline_hash: string }[];
+  });
+  // The outline is the served order, so an index into one is an index into the
+  // other. The first run whose recipe differs from the newest is the partner.
+  const other = served.findIndex((row) => row.pipeline_hash !== served[0].pipeline_hash);
+  expect(other, "this project's history holds runs of more than one recipe").toBeGreaterThan(0);
+
+  await runs.first().dblclick();
+  await expect(page.getByTestId("experiment-view")).toBeVisible();
+  await page
+    .getByTestId("compare-with")
+    .selectOption({ value: served[other].experiment_id });
+
+  const view = page.getByTestId("lineage-view");
+  await expect(view).toBeVisible();
+  // Two different recipes differ by at least one node, and the pill counts the
+  // same nodes the table marks - the summary is not a second opinion.
+  const summary = page.getByTestId("lineage-summary");
+  await expect(summary).toHaveText(/^\d+ nodes? differ$/);
+  const counted = Number((await summary.innerText()).split(" ")[0]);
+  expect(counted).toBeGreaterThan(0);
+
+  const marked = view.locator(
+    '[data-testid="lineage-node-changed"], [data-testid="lineage-node-added"], [data-testid="lineage-node-removed"]',
+  );
+  await expect(marked).toHaveCount(counted);
+  // Named, not merely counted: the row carries the node's own id.
+  await expect(marked.first()).toHaveAttribute("data-node", /.+/);
+
+  // The steps the two share are still drawn, because a diff that hides what
+  // matched makes the reader reconstruct the recipe to read the difference.
+  await expect(view.getByTestId("lineage-node-unchanged").first()).toBeVisible();
+  await expect(view).toContainText("What each scored");
+});
+
+test("a model saved from the analysis tab appears in the outline", async ({ page }) => {
+  // #219. The project has a fitted PLS by now - the tests above ran one under
+  // a train/test split and added a second on a foldable chain - so this saves
+  // one and reads the registry back, rather than fitting anything of its own.
+  await page.goto("/?token=e2e-token");
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+
+  // Before: the section says what would put one there.
+  await expect(outline).toContainText("No models yet");
+
+  await outline.getByRole("button", { name: /PLS 5 LV/ }).last().dblclick();
+  await expect(page.getByTestId("analysis-header")).toBeVisible();
+
+  await page.getByLabel("Model name").fill("Fat, mean centre only");
+  await page.getByTestId("save-model").click();
+  await expect(page.getByTestId("model-saved")).toBeVisible();
+
+  // The outline lists it, with the one figure a saved regression carries.
+  const row = outline.getByRole("button", { name: /^Fat, mean centre only/ });
+  await expect(row).toBeVisible();
+  await expect(outline).not.toContainText("No models yet");
+
+  // And one opens to its record: what it scored, where it came from, and the
+  // file it points at. The artifact is a path, never contents - the database
+  // holds the reference (PROPOSAL.md section 11).
+  await row.dblclick();
+  const view = page.getByTestId("model-view");
+  await expect(view).toBeVisible();
+  await expect(view).toContainText("What it scored");
+  await expect(view).toContainText("Where it came from");
+  await expect(view).toContainText(/models\/.+\.cwmodel/);
+  await expect(view).toContainText("sha256:");
+  await expect(page.getByTestId("model-metric-RMSEC")).not.toHaveText("—");
+
+  // The registry is what the server serves, not what the screen remembers.
+  const served = await page.evaluate(async () => {
+    const response = await fetch("/api/models", {
+      headers: { Authorization: `Bearer ${sessionStorage.getItem("token")}` },
+    });
+    return (await response.json()) as { name: string; artifact_path: string }[];
+  });
+  expect(served.map((model) => model.name)).toEqual(["Fat, mean centre only"]);
+  expect(served[0].artifact_path).toMatch(/^models\/.+\.cwmodel$/);
+});

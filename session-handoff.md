@@ -2,19 +2,91 @@
 
 Compact state for the next session. **Overwrite this file at the end of every session** — it is a snapshot, not a log. Read it first, then `feature_list.json`, `git log` on `dev`, and the open issues.
 
-**Updated:** 2026-09-18
+**Updated:** 2026-09-28
 
 ---
 
 ## Where things stand
 
-**Phase 2 is complete and released.** `main` is tagged `v0.7.0`. Every entry on the phase's list
-passed with evidence, and its exit criterion is recorded in `docs/phase-2/exit-run.md` rather than
-argued: the whole workflow driven over HTTP against an independent PLS on the experiment's own
-resolved folds. The completed list is archived at `docs/phase-2/feature_list.json`; `feature_list.json`
-is now Phase 3's.
+**Phase 3 is complete, and its release is in progress.** Every entry on `feature_list.json` passed
+with evidence, and the exit criterion is recorded in `docs/phase-3/exit-run.md` rather than argued.
+The release is a pull request from `dev` into `main`, then the tag `v0.8.0` on `main`. The version in
+`pyproject.toml` and `uv.lock` went to `0.8.0` with this file, the way `v0.7.0`'s close did it.
+**Check that the tag exists on `main` before assuming the release happened.**
 
-**What Phase 2 added**, all merged through green pull requests on 2026-09-18:
+**Phase 3's exit criterion**, `PROPOSAL.md` §16: *two models differing only in preprocessing can be
+compared step by step; an exported model reproduces application predictions within tolerance in a
+clean environment.* `uv run python -m tests.exit_run_phase3` shows both over HTTP on Tecator:
+
+- **Export.** SNV, Savitzky-Golay (11, 2, d1), a 0.25 train/test split, mean centre and PLS with
+  5 LV on `fat`. The served `export.py` runs with `python -I` in a `uv venv` that holds only NumPy,
+  and matches the application at `docs/model-export.md` §5's `rtol 1e-4`. The largest relative
+  difference is 7.97e-6 on the calibration rows and 2.51e-6 on the held-out rows.
+- **Comparison.** The window is changed to 15 and the pipeline run again. Both records are read back
+  from the history and diffed by `diff.ts`'s rule, rewritten in the script. The diff names `savgol`
+  and `window_length` and nothing else.
+- **It can fail.** With a tolerance tighter than the float32 store and a second run that also changes
+  `polyorder`, the same script reports both halves not met.
+
+## Phase 3, all merged through green pull requests
+
+| Feature | Issue | PR |
+| --- | --- | --- |
+| Every run kept, and one opened to its record | #209 | #210 |
+| The model artifact, one file readable without this application | #211 | #212 |
+| A plain JSON model and a standalone prediction snippet | #213 | #214 |
+| Two experiments compared step by step | #215 | #216 |
+| A model registry, and the first schema change | #219 | #220 |
+| An edit-and-restore poll gets a real budget | #222 | #223 |
+| One experiment as a standalone HTML report | #224 | #225 |
+| The exit criterion demonstrated | #227 | #228 |
+
+**#217 recorded a process mistake.** `feature/215_lineage-comparison` was cut from
+`feature/213_json-and-snippet-export` rather than from `dev`, so #216 carried the export commit into
+`dev` and #214 then merged as a no-op. **Cut every branch from a freshly pulled `dev`, and check with
+`git merge-base --is-ancestor origin/dev <branch>` before opening the pull request.**
+
+## Current work
+
+**Nothing is `in_progress`.** All eight Phase 3 entries are `passing`. No issue or pull request is
+open apart from the release's own. #221 (a handoff made stale by #225) was closed unmerged and folded
+into this file.
+
+**Not done at the phase close, on purpose, and owed at the start of Phase 4:**
+- `feature_list.json` is still Phase 3's. Archive it to `docs/phase-3/feature_list.json` and write
+  Phase 4's list, as `fe58f29` did for Phase 2.
+- `CLAUDE.md`'s *Repository state* and the README still describe Phase 2 as the latest phase.
+
+**An unexplained Windows e2e failure.** #221's last run went red on `e2e (windows-latest)` only, on a
+markdown-only change. Nobody has read that job's log. If a Windows e2e check goes red again, read the
+log first and open an issue for the cause rather than re-running:
+https://github.com/millermuttu/Chemometrics-Workbench/actions/runs/35343976638/job/105596198698
+
+**Untracked in the root, still not decided:** `AGENTS.md` (a Codex copy of `CLAUDE.md` that will
+drift) and `tecator.csv`. Either gitignore them or commit them.
+
+**`./run.sh` is the way in.** It syncs, installs with **pnpm** — this project has no
+`package-lock.json` and `npm ci` refuses it — builds the bundle if there is not one, and serves,
+printing `http://127.0.0.1:<port>/?token=<token>`. `--build` forces the rebuild a changed
+`frontend/src` needs.
+
+**Scripts worth knowing.** `uv run python -m tests.exit_run` and `tests.exit_run_phase3` each drive
+the served application end to end and rewrite their phase's `docs/phase-N/exit-run.md`.
+`uv run python -m tests.memory_probe 6000 1200` prints the peak resident memory of a ten-fold branch,
+which is the number #176 is judged by.
+
+## Next action
+
+**Confirm the release, then open Phase 4.** If `v0.8.0` is not on `main`, finish that first. Phase 4
+is *Package and release* (`PROPOSAL.md` §16): PyInstaller builds on three platforms in CI, localhost
+security hardening (§4.3), a documentation site, a published parity report, worked examples and
+`CONTRIBUTING.md`. Its exit criterion is *a non-developer on a clean machine downloads, installs and
+completes a PCA in under ten minutes*. Start by archiving Phase 3's list, writing Phase 4's with
+issues, and updating `CLAUDE.md`, all in one pull request into `dev`.
+
+## What Phase 2 added
+
+All merged through green pull requests on 2026-09-18:
 
 | Feature | Issue | PR |
 | --- | --- | --- |
@@ -43,44 +115,51 @@ is now Phase 3's.
   existing parity claims cover. Three classes are PLS2, which `pls-regression.md` §10 defers, and are
   refused by name rather than reduced.
 
-## Current work
+## What Phase 3 has added worth knowing
 
-**Nothing is `in_progress`.** No feature branch remains; `docs/close-phase-2` carries this file, the
-archived list, the Phase 3 list and the version bump.
-
-**Open issues:** none from Phase 2. #71, #168, #176 and #181 to #188 all closed with their pull
-requests.
-
-**Untracked in the root, still not decided:** `AGENTS.md` (a Codex copy of `CLAUDE.md` that will
-drift), `.codex/` and `tecator.csv`. Either gitignore them or commit them; leaving them is what makes
-every `git status` lie a little.
-
-**`./run.sh` is the way in.** It syncs, installs with **pnpm** — this project has no
-`package-lock.json` and `npm ci` refuses it — builds the bundle if there is not one, and serves,
-printing `http://127.0.0.1:<port>/?token=<token>`. `--build` forces the rebuild a changed
-`frontend/src` needs.
-
-**Two scripts worth knowing.** `uv run python -m tests.exit_run` drives the served application end to
-end and rewrites `docs/phase-2/exit-run.md`. `uv run python -m tests.memory_probe 6000 1200` prints
-the peak resident memory of a ten-fold branch, which is the number #176 is judged by.
-
-## Next action
-
-**Pick up `experiment-history`, the first Phase 3 entry.** It is first because the comparison view
-(§8.3's "single feature most likely to make a researcher prefer this tool to a notebook") and the
-model registry both hang from it, and because the data is already there: the `experiment` table keeps
-every run and `read_experiment` returns only the most recently started, which nothing but
-`/experiments/current` reads.
-
-Then `model-artifact` and `json-and-snippet-export` — §9's constraint, that exported predictions match
-in-application predictions within a stated tolerance verified in CI, is that entry's verification.
-`lineage-comparison` can go in parallel with either.
-
-**One thing to decide before the export work.** `docs/phase-2/exit-run.md` records that the float32
-array store is visible at the prediction level against a float64 reference (7e-6 relative) and at the
-coefficient level on a derivative chain. An exported snippet computes in float64, so it will differ
-from the served numbers at that level, and §9's "stated tolerance" has to be stated with that in mind
-rather than discovered by a failing test.
+- **The export splits the chain at the last unfoldable step.** Everything after it folds into the
+  coefficient vector; everything up to and including it is carried as a residual chain. SNV, MSC and
+  normalise are written out; a baseline is refused by name rather than approximated.
+- **The export tolerance is `rtol = 1e-4` and the number is measured, not chosen.** The store is
+  float32 and an export computes float64, so `docs/phase-2/exit-run.md`'s 7.09e-6 relative difference
+  is the floor. `docs/model-export.md` §5 says so, and says what to do if the store ever goes float64.
+- **An artifact is refused by schema version, the way `db.py` refuses a newer database.** A newer
+  writer may have added a field whose absence this reader would take as a default.
+- **The lineage diff matches nodes by id, so a renamed node reads as a remove plus an add.** That is
+  the honest reading: nothing in the model says a rename is not a replacement.
+- **`db.SCHEMA_VERSION` is 2, and the upgrade it added is additive only.** A database stamped below it
+  gets `create_all` and a re-stamp, which writes a missing table and leaves an existing one alone. A
+  column that is added, renamed, retyped or dropped is *not* covered, and shipping one means writing
+  real migration machinery rather than widening that branch.
+- **Saving a model writes the artifact before the row.** A row pointing at a file that was never
+  written is a registry entry nobody can open; a file with no row costs disk. The failure mode was
+  chosen, not stumbled into.
+- **A feature list note can be wrong.** #219's said the `model` table existed. It did not. Check the
+  code before believing a note about what is already built.
+- **A test that edits and restores is borrowing the seeded project.** When the restore misses its
+  poll budget the edit stays, and the next test fails for a reason that is not its own — which is how
+  #222 produced two red tests from one cause. `APPLIED` in `inspector.spec.ts` is the budget, and
+  `expect.poll`'s default five seconds is what a loaded macOS runner misses.
+- **A red macOS check on a markdown-only change is a flake, and it still has a cause.** #221 went red
+  with no source change. Reading the job log found a real ordering problem worth fixing rather than a
+  reason to press the button again.
+- **The HTML report is reachable over the API only.** `GET /api/experiments/{id}/report.html`
+  (`current` or an id) serves the file; no button in the application asks for it yet. Its plots are
+  hand-written inline SVG, and it looks the stored result up against the experiment's own pipeline
+  snapshot, so a run whose arrays are gone gets a sentence instead of plots. PDF is deferred.
+- **CI runs mypy; run it locally too.** #225's first push went red on both `check` jobs for a
+  `no-any-return` in a test fixture that ruff and pytest were both happy with. The local gate is
+  `uv run ruff check && uv run ruff format --check && uv run mypy && uv run pytest`.
+- **Ruff's import sorting merges a fixture import into the line above and strands its `noqa`.**
+  `tests/test_report.py` keeps `from tests.test_server import client  # noqa: F401` on its own line
+  after an `# isort: split` marker, with `# noqa: F811` on each `client` parameter.
+- **The GitHub MCP merge wants the full 40-character sha** in `expectedHeadSha`; a short one is
+  refused before anything happens. `git rev-parse HEAD` gives it.
+- **A branch cut from another feature branch carries that feature into the pull request.** #216
+  merged #213's export commit as a side effect, which nothing in the pull request said.
+- **`count()` does not wait.** A Playwright assertion of the form `expect(await x.count())` compares a
+  frame rather than a state, and that is what failed on the Windows runner in #210. Use
+  `expect.poll(() => x.count())`.
 
 ## What Phase 2 left worth knowing
 

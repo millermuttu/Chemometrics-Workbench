@@ -180,7 +180,9 @@ __all__ = [
     "execute",
     "experiment_for",
     "governing_folds",
+    "governing_split",
     "has_kernel",
+    "metrics_for",
     "node_keys",
     "node_label",
     "result_path",
@@ -358,6 +360,19 @@ class EstimatorResult:
 
     y_loadings: list[float] = field(default_factory=list)
     vip: list[float] = field(default_factory=list)
+
+    x_mean: list[float] = field(default_factory=list)
+    """The column means the estimator subtracted before fitting, and adds back
+    to nothing - predictions come back in the response's units through
+    `y_mean`. Not a pipeline node's centring: `y` is not on the canvas and no
+    `MeanCentre` reaches it (`pls-regression.md` §3), so the estimator centres
+    `X` by its fit rows too and this is that. Empty on a decomposition. Kept
+    since #211, because a model artifact cannot carry a fitted model without
+    it and `folded_coefficients` had to refit the chain to recover it."""
+
+    y_mean: float | None = None
+    """The response mean the estimator subtracted, added back to every
+    prediction. `None` on a decomposition."""
 
     rotations: list[list[float]] = field(default_factory=list)
     """`a x p`, like `loadings`: what a row is multiplied by to get its scores.
@@ -688,6 +703,35 @@ def capture_environment() -> Environment:
 _NAMED_METRICS = ("rmsec", "rmsecv", "rmsep", "r2", "q2", "bias", "accuracy")
 
 
+def metrics_for(result: EstimatorResult) -> Metrics:
+    """One estimator's flat metrics table as the schema's `Metrics`.
+
+    The named fields a regression fills are filled by name (#188); everything
+    else the result carries - SEC, SEP, the RMSECV curve, the per-fold errors -
+    goes into `extra` beside the two limits. A metric the result does not carry
+    stays `None`, which is `metrics-and-validation.md` §11's absence and not
+    zero.
+
+    Shared by the experiment record and the model registry (#219), because a
+    saved model's metrics and its run's are the same numbers and two mappings
+    would be two chances to disagree about them.
+    """
+    named = {name: result.metrics.get(name) for name in _NAMED_METRICS}
+    return Metrics(
+        **named,
+        explained_variance=[float(value) for value in result.explained_variance_ratio],
+        extra={
+            "hotelling_t2_limit": float(result.hotelling_t2_limit),
+            "spe_limit": float(result.spe_limit),
+            **{
+                key: float(value)
+                for key, value in result.metrics.items()
+                if key not in _NAMED_METRICS
+            },
+        },
+    )
+
+
 def experiment_for(
     pipeline: Pipeline,
     version: DatasetVersion,
@@ -717,21 +761,7 @@ def experiment_for(
     """
     metrics: Metrics | None = None
     if run is not None and run.results:
-        last = list(run.results.values())[-1]
-        named = {name: last.metrics.get(name) for name in _NAMED_METRICS}
-        metrics = Metrics(
-            **named,
-            explained_variance=[float(value) for value in last.explained_variance_ratio],
-            extra={
-                "hotelling_t2_limit": float(last.hotelling_t2_limit),
-                "spe_limit": float(last.spe_limit),
-                **{
-                    key: float(value)
-                    for key, value in last.metrics.items()
-                    if key not in _NAMED_METRICS
-                },
-            },
-        )
+        metrics = metrics_for(list(run.results.values())[-1])
     return Experiment(
         project_id=pipeline.project_id,
         pipeline_snapshot=pipeline,
@@ -1248,6 +1278,8 @@ def _fit_pls1(
         observed=_values(train_y),
         predicted=_values(predicted),
         coefficients=_values(model.coefficients_),
+        x_mean=_values(x_mean),
+        y_mean=y_mean,
         y_loadings=_values(model.y_loadings_),
         vip=_values(model.vip()),
         cross_validated_predicted=_values(cross_validated),
@@ -1499,6 +1531,17 @@ def stored_result(
         return None
 
 
+def governing_split(node_id: NodeId, by_id: dict[NodeId, PipelineNode]) -> PipelineNode | None:
+    """The split node above this one, or `None` if it sits above every split."""
+    current = by_id[node_id]
+    while True:
+        if current.type == "split":
+            return current
+        if not current.inputs:
+            return None
+        current = by_id[current.inputs[0]]
+
+
 def governing_folds(
     node_id: NodeId, by_id: dict[NodeId, PipelineNode], n_samples: int
 ) -> list[Fold] | None:
@@ -1508,13 +1551,8 @@ def governing_folds(
     entirely (`metrics-and-validation.md` §8), so deriving them is cheaper than
     keeping a second copy that can disagree with the recipe.
     """
-    current = by_id[node_id]
-    while True:
-        if current.type == "split":
-            return _folds_for(current, None, n_samples)
-        if not current.inputs:
-            return None
-        current = by_id[current.inputs[0]]
+    split = governing_split(node_id, by_id)
+    return None if split is None else _folds_for(split, None, n_samples)
 
 
 # --- the cache index ------------------------------------------------------

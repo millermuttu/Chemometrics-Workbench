@@ -40,7 +40,7 @@ def test_the_database_is_created_inside_the_project_directory(tmp_path: Path) ->
 def test_a_new_database_is_stamped_with_the_schema_version(tmp_path: Path) -> None:
     engine = db.engine_for(tmp_path, create=True)
 
-    assert db.schema_version(engine) == db.SCHEMA_VERSION == 1
+    assert db.schema_version(engine) == db.SCHEMA_VERSION == 2
 
 
 def test_every_table_is_written_when_the_database_is_created(tmp_path: Path) -> None:
@@ -54,7 +54,50 @@ def test_every_table_is_written_when_the_database_is_created(tmp_path: Path) -> 
         "pipeline_layout",
         "experiment",
         "cache_entry",
+        "model",
     }
+
+
+def test_a_database_written_by_an_older_application_gains_the_tables_it_lacks(
+    tmp_path: Path,
+) -> None:
+    """#219's `model` table is the first schema change since 1.3, and an
+    existing project has to gain it. The upgrade is additive only - `create_all`
+    writes what is missing and leaves what is there - and the module docstring
+    says so rather than implying it handles a column change too."""
+    engine = db.engine_for(tmp_path, create=True)
+    db.dispose_all()
+
+    # A version-1 database: the `model` table dropped, the stamp wound back.
+    with sqlite3.connect(tmp_path / "project.db") as connection:
+        connection.execute("DROP TABLE model")
+        connection.execute("PRAGMA user_version=1")
+    db.dispose_all()
+
+    engine = db.engine_for(tmp_path)
+
+    assert "model" in inspect(engine).get_table_names()
+    assert db.schema_version(engine) == db.SCHEMA_VERSION
+
+
+def test_an_upgrade_leaves_the_rows_an_older_database_already_had(tmp_path: Path) -> None:
+    """The whole risk of the paragraph above: an upgrade that recreated a table
+    would empty it. `create_all` does not, and this is what says so."""
+    db.engine_for(tmp_path, create=True)
+    db.dispose_all()
+    with sqlite3.connect(tmp_path / "project.db") as connection:
+        connection.execute(
+            "INSERT INTO cache_entry (key, document) VALUES ('kept', '[\"arrays/a.npy\"]')"
+        )
+        connection.execute("DROP TABLE model")
+        connection.execute("PRAGMA user_version=1")
+    db.dispose_all()
+
+    engine = db.engine_for(tmp_path)
+
+    with engine.connect() as connection:
+        kept = connection.execute(text("SELECT document FROM cache_entry WHERE key='kept'"))
+        assert kept.scalar_one() == '["arrays/a.npy"]'
 
 
 def test_a_database_written_by_a_newer_application_is_refused_by_name(tmp_path: Path) -> None:

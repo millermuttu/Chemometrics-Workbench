@@ -24,6 +24,13 @@ today.
 refused by name. Migrations arrive when the first schema change ships to
 someone with real projects on disk.
 
+That first change is #219's `model` table, and the upgrade it needs is
+**additive only**: a database stamped below `SCHEMA_VERSION` gets `create_all`
+and a re-stamp, which adds a missing table and leaves every existing one
+untouched. It is deliberately not a migration framework. A column that is
+added, renamed, retyped or dropped is not covered by it, and shipping one means
+writing the real thing rather than widening this.
+
 **One engine per project directory**, cached by resolved path, because SQLite
 holds its own connection pool and two engines over one file would each keep
 their own. Sessions are short-lived and never shared between threads — the
@@ -58,6 +65,7 @@ __all__ = [
     "DatasetRow",
     "DatasetVersionRow",
     "ExperimentRow",
+    "ModelRow",
     "PipelineLayoutRow",
     "PipelineRow",
     "ProjectRow",
@@ -72,8 +80,8 @@ DATABASE_FILE = "project.db"
 
 #: Bumped when a table changes shape. A database stamped higher than this is
 #: refused rather than misread - the same rule `project.py`'s LAYOUT_VERSION
-#: gives the files it still owns.
-SCHEMA_VERSION = 1
+#: gives the files it still owns. **2** since #219 added the `model` table.
+SCHEMA_VERSION = 2
 
 #: How long a writer waits for another writer before giving up, in
 #: milliseconds. Readers never wait: WAL lets them read the last committed
@@ -182,6 +190,28 @@ class ExperimentRow(Base):
     document: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+class ModelRow(Base):
+    """A fitted model this project has saved (#219).
+
+    `artifact_path` is a path within the project directory and never the
+    artifact's contents: `PROPOSAL.md` §11 splits storage so that a project
+    directory can be zipped and sent, and a model whose parameters lived in
+    the database would arrive as a row nobody can open.
+
+    `experiment_id` and `task` are columns because listing the registry filters
+    and labels on them; everything else the `Model` document carries.
+    """
+
+    __tablename__ = "model"
+
+    model_id: Mapped[str] = mapped_column(String, primary_key=True)
+    experiment_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    task: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    document: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 class CacheEntryRow(Base):
     """A node's cache key against the array paths it produced - one per fold
     below a split. References, which is what this database is for; the arrays
@@ -268,10 +298,12 @@ def _engine_locked(path: Path, *, create: bool) -> Engine:
                 f"{path} was written by a newer version of the application: its schema "
                 f"version is {stamped} and this one understands {SCHEMA_VERSION}"
             )
-        if stamped == 0:
-            # A fresh file, or one whose tables were never written. Both are
-            # the same job: write them, then stamp, so a database that exists
-            # is a database that is complete.
+        if stamped < SCHEMA_VERSION:
+            # Zero is a fresh file, or one whose tables were never written.
+            # Anything between is a project written by an older build, and the
+            # only change this handles is an added table - see the module
+            # docstring. `create_all` writes what is missing and leaves what is
+            # there, so both cases are the same two statements.
             Base.metadata.create_all(engine)
             with engine.begin() as connection:
                 connection.execute(text(f"PRAGMA user_version={SCHEMA_VERSION}"))

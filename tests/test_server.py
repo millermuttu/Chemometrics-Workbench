@@ -12,8 +12,12 @@ was for.
 
 from __future__ import annotations
 
+import hashlib
 import importlib
+import json
+import sqlite3
 import time
+import zipfile
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -849,3 +853,274 @@ def test_the_contributions_endpoint_serves_a_sample_and_refuses_one_it_has_not_g
     missing = client.get(f"/api/results/{estimator}/contributions/100000", headers=AUTH)
     assert missing.status_code == 404
     assert missing.json()["error"]["code"] == "not_found"
+
+
+def test_the_history_lists_every_run_newest_first_and_each_one_opens(
+    client: TestClient,
+) -> None:
+    """#209: `experiments` is the history and `experiments/current` its head.
+    A row carries what the outline draws, not the whole record."""
+    assert client.get("/api/experiments", headers=AUTH).json() == []
+
+    imported(client)
+    first = client.post("/api/experiments/current/run", headers=AUTH).json()
+    assert wait_for(client, first["job_id"])["status"] == "succeeded"
+
+    # A second run of a different recipe, so the two are told apart by more
+    # than their timestamps.
+    source = client.get("/api/pipelines/current", headers=AUTH).json()["nodes"][0]
+    nodes = [
+        source,
+        {
+            "id": "centre",
+            "type": "preprocess",
+            "inputs": ["source"],
+            "step": {"kind": "mean_centre"},
+        },
+        {
+            "id": "pca",
+            "type": "estimator",
+            "inputs": ["centre"],
+            "spec": {"kind": "pca", "n_components": 2},
+        },
+    ]
+    saved = client.put("/api/pipelines/current", json={"nodes": nodes}, headers=AUTH)
+    assert saved.status_code == 200, saved.text
+    second = client.post("/api/experiments/current/run", headers=AUTH).json()
+    assert wait_for(client, second["job_id"])["status"] == "succeeded"
+
+    history = client.get("/api/experiments", headers=AUTH).json()
+    assert len(history) == 2
+    assert history[0]["n_nodes"] == 3, "newest first: the three-node recipe"
+    assert history[0]["pipeline_hash"] != history[1]["pipeline_hash"]
+    assert {row["status"] for row in history} == {"succeeded"}
+    # A row is a summary, not the record: no snapshot, no splits, no environment.
+    assert set(history[0]) == {
+        "experiment_id",
+        "status",
+        "started_at",
+        "finished_at",
+        "pipeline_hash",
+        "n_nodes",
+        "dataset_version_id",
+        "error",
+        "metrics",
+    }
+
+    # The head of the history is what `current` means, and every row opens.
+    current = client.get("/api/experiments/current", headers=AUTH).json()
+    assert current["experiment_id"] == history[0]["experiment_id"]
+    for row in history:
+        full = client.get(f"/api/experiments/{row['experiment_id']}", headers=AUTH)
+        assert full.status_code == 200, full.text
+        body = full.json()
+        assert len(body["pipeline_snapshot"]["nodes"]) == row["n_nodes"]
+
+    unknown = client.get("/api/experiments/nonesuch", headers=AUTH)
+    assert unknown.status_code == 404
+    assert unknown.json()["error"]["code"] == "not_found"
+
+
+def test_the_export_endpoints_serve_both_forms_and_refuse_by_name(client: TestClient) -> None:
+    """#213: the two URLs `docs/model-export.md` names, and the 422 a chain
+    that cannot be carried gets - not a 500, because nothing went wrong."""
+    imported(client)
+    source = client.get("/api/pipelines/current", headers=AUTH).json()["nodes"][0]
+    nodes = [
+        source,
+        {"id": "snv", "type": "preprocess", "inputs": ["source"], "step": {"kind": "snv"}},
+        {"id": "centre", "type": "preprocess", "inputs": ["snv"], "step": {"kind": "mean_centre"}},
+        {
+            "id": "pls",
+            "type": "estimator",
+            "inputs": ["centre"],
+            "spec": {"kind": "pls", "n_components": 3, "algorithm": "nipals", "target": "fat"},
+        },
+    ]
+    assert (
+        client.put("/api/pipelines/current", json={"nodes": nodes}, headers=AUTH).status_code == 200
+    )
+    job = client.post("/api/experiments/current/run", headers=AUTH).json()
+    assert wait_for(client, job["job_id"])["status"] == "succeeded"
+
+    model = client.get("/api/results/pls/export.json", headers=AUTH)
+    assert model.status_code == 200, model.text
+    assert [step["kind"] for step in model.json()["preprocessing"]] == ["snv"]
+    assert model.json()["provenance"]["metrics"]["rmsec"]
+
+    snippet = client.get("/api/results/pls/export.py", headers=AUTH)
+    assert snippet.status_code == 200
+    assert snippet.headers["content-type"].startswith("text/x-python")
+    assert "pls_predict.py" in snippet.headers["content-disposition"]
+    assert "def predict(X):" in snippet.text
+    assert "import numpy as np" in snippet.text
+
+    # A baseline in the chain: refused by name, and a 422 rather than a 500 -
+    # nothing went wrong, this model cannot be carried in this form.
+    nodes[1] = {
+        "id": "snv",
+        "type": "preprocess",
+        "inputs": ["source"],
+        "step": {"kind": "baseline", "method": "asls"},
+    }
+    assert (
+        client.put("/api/pipelines/current", json={"nodes": nodes}, headers=AUTH).status_code == 200
+    )
+    job = client.post("/api/experiments/current/run", headers=AUTH).json()
+    assert wait_for(client, job["job_id"], seconds=120)["status"] == "succeeded"
+
+    refused = client.get("/api/results/pls/export.json", headers=AUTH)
+    assert refused.status_code == 422
+    assert refused.json()["error"]["code"] == "not_exportable"
+    assert "baseline" in refused.json()["error"]["message"]
+
+
+# --------------------------------------------------------------------------
+# the model registry
+# --------------------------------------------------------------------------
+
+
+def _pls_recipe(source: Any) -> list[dict[str, Any]]:
+    """SNV, mean centre and a PLS on `fat`, under a two-fold split.
+
+    Two components, not three: the fixture is eight samples, a two-fold split
+    fits on four, and `decomposition.py` refuses a limit unless `n > a + 1`.
+    That refusal is right and the recipe bends to it.
+    """
+    return [
+        source,
+        {"id": "snv", "type": "preprocess", "inputs": ["source"], "step": {"kind": "snv"}},
+        {"id": "centre", "type": "preprocess", "inputs": ["snv"], "step": {"kind": "mean_centre"}},
+        {
+            "id": "split",
+            "type": "split",
+            "inputs": ["centre"],
+            "spec": {"kind": "kfold", "n_splits": 2, "shuffle": False},
+        },
+        {
+            "id": "pls",
+            "type": "estimator",
+            "inputs": ["split"],
+            "spec": {"kind": "pls", "n_components": 2, "algorithm": "nipals", "target": "fat"},
+        },
+    ]
+
+
+def _fitted_pls(client: TestClient) -> None:
+    imported(client)
+    source = client.get("/api/pipelines/current", headers=AUTH).json()["nodes"][0]
+    assert (
+        client.put(
+            "/api/pipelines/current", json={"nodes": _pls_recipe(source)}, headers=AUTH
+        ).status_code
+        == 200
+    )
+    job = client.post("/api/experiments/current/run", headers=AUTH).json()
+    assert wait_for(client, job["job_id"])["status"] == "succeeded"
+
+
+def test_a_saved_model_is_recorded_and_served(client: TestClient) -> None:
+    """#219. Saving a fitted estimator records it with its name, its task, the
+    experiment it came from and its metrics; the registry lists it and one can
+    be read back on its own."""
+    _fitted_pls(client)
+
+    saved = client.post("/api/results/pls/save", json={"name": "Fat, SNV + centre"}, headers=AUTH)
+    assert saved.status_code == 201, saved.text
+    row = saved.json()
+
+    assert row["name"] == "Fat, SNV + centre"
+    assert row["task"] == "regression"
+    assert row["node_id"] == "pls"
+    # The experiment it came from, by id - the lineage PROPOSAL.md section 8.2
+    # asks for, not a timestamp that happens to be close.
+    current = client.get("/api/experiments/current", headers=AUTH).json()
+    assert row["experiment_id"] == current["experiment_id"]
+    assert row["metrics"]["rmsec"] is not None
+
+    listed = client.get("/api/models", headers=AUTH)
+    assert listed.status_code == 200
+    assert [entry["model_id"] for entry in listed.json()] == [row["model_id"]]
+
+    one = client.get(f"/api/models/{row['model_id']}", headers=AUTH)
+    assert one.status_code == 200
+    assert one.json() == row
+
+
+def test_the_registry_holds_a_reference_and_never_the_contents(
+    client: TestClient, tmp_path: Path
+) -> None:
+    """PROPOSAL.md section 11: the database stores references to files, never
+    file contents. The artifact is a file in the project directory, which is
+    the thing that gets zipped and sent, and the row points at it."""
+    _fitted_pls(client)
+    row = client.post("/api/results/pls/save", json={"name": "Fat"}, headers=AUTH).json()
+
+    artifact = tmp_path / "project" / row["artifact_path"]
+    assert artifact.is_file()
+    assert row["artifact_path"] == f"models/{row['model_id']}.cwmodel"
+
+    # The hash the row carries is the hash of the bytes that landed.
+    digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+    assert row["artifact_hash"] == f"sha256:{digest}"
+
+    # And the database holds none of those bytes. The manifest names every
+    # array; not one of them is in the row, which is the whole point of the
+    # split.
+    document = json.loads(
+        sqlite3.connect(tmp_path / "project" / "project.db")
+        .execute("SELECT document FROM model WHERE model_id = ?", (row["model_id"],))
+        .fetchone()[0]
+    )
+    assert document["artifact_path"] == row["artifact_path"]
+    assert "coefficients" not in json.dumps(document)
+
+    # Readable without this application, which is what the file is for.
+    with zipfile.ZipFile(artifact) as archive:
+        manifest = json.loads(archive.read("manifest.json"))
+    assert manifest["model"]["node_id"] == "pls"
+    assert manifest["model"]["task"] == "regression"
+    # Fitted under a split, so the artifact carries which fold it is.
+    assert manifest["split"]["node_id"] == "split"
+    assert manifest["split"]["n_folds"] == 2
+
+
+def test_saving_a_node_that_was_never_fitted_says_so(client: TestClient) -> None:
+    imported(client)
+    refused = client.post("/api/results/pls/save", json={"name": "Nothing"}, headers=AUTH)
+
+    assert refused.status_code == 404
+    assert refused.json()["error"]["code"] == "not_found"
+    assert client.get("/api/models", headers=AUTH).json() == []
+
+
+def test_a_model_this_project_does_not_hold_is_a_404(client: TestClient) -> None:
+    imported(client)
+    missing = client.get("/api/models/nope", headers=AUTH)
+
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "not_found"
+
+
+def test_two_saves_of_one_node_are_two_models(client: TestClient) -> None:
+    """A registry records what was saved, not what is current. Saving the same
+    node twice under two names is two entries, because the name is the user's
+    and the second is not a correction of the first."""
+    _fitted_pls(client)
+    first = client.post("/api/results/pls/save", json={"name": "First"}, headers=AUTH).json()
+    second = client.post("/api/results/pls/save", json={"name": "Second"}, headers=AUTH).json()
+
+    assert first["model_id"] != second["model_id"]
+    assert first["artifact_path"] != second["artifact_path"]
+    assert {entry["name"] for entry in client.get("/api/models", headers=AUTH).json()} == {
+        "First",
+        "Second",
+    }
+
+
+def test_a_model_needs_a_name(client: TestClient) -> None:
+    _fitted_pls(client)
+    refused = client.post("/api/results/pls/save", json={"name": ""}, headers=AUTH)
+
+    assert refused.status_code == 422
+    assert client.get("/api/models", headers=AUTH).json() == []
