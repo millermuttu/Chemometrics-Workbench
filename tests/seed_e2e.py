@@ -333,7 +333,7 @@ def seed(directory: Path, *, run: bool = True, failing: bool = False) -> None:
         # then failing with "cannot schedule new futures after shutdown".
         # Nothing is needed from the lifespan here: this borrows the import
         # handler, it does not run a server.
-        client = TestClient(server.app)
+        client = TestClient(server.app, base_url="http://127.0.0.1")
         response = client.post(
             "/api/import",
             files={"file": ("tecator.csv", tecator_csv())},

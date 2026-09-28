@@ -8,7 +8,10 @@ import { defineConfig } from "vite";
 // this proxy has something to point at. Development and the packaged build
 // then differ in origin only - the client always calls /api on its own origin.
 //
-//   uv run python -m chemometrics_workbench.server   # with WORKBENCH_PORT=8765
+//   WORKBENCH_DEV=1 WORKBENCH_PORT=8765 uv run python -m chemometrics_workbench.server
+//
+// WORKBENCH_DEV=1 because the proxy forwards the browser's Origin, and the
+// server refuses any origin but its own unless it is told this is development.
 const API_TARGET = process.env.VITE_API_TARGET ?? "http://127.0.0.1:8765";
 
 export default defineConfig({

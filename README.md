@@ -37,13 +37,14 @@ under `frontend/src`.
 Working on the interface is two processes instead, so Vite can serve its own:
 
 ```bash
-WORKBENCH_PORT=8000 WORKBENCH_TOKEN=dev uv run python -m chemometrics_workbench.server
+WORKBENCH_DEV=1 WORKBENCH_PORT=8765 WORKBENCH_TOKEN=dev uv run python -m chemometrics_workbench.server
 cd frontend && pnpm dev             # http://localhost:5173
 ```
 
 The port is pinned because the Vite proxy has to be told a target in advance, and the token
-because a fresh one on every restart is tedious to paste. `localhost:5173` is already an
-allowed origin.
+because a fresh one on every restart is tedious to paste. `WORKBENCH_DEV=1` lets the server
+accept requests whose `Origin` is the Vite dev server's; without it every request from
+`localhost:5173` is refused, which is what a packaged application does.
 
 ## The parity report
 
