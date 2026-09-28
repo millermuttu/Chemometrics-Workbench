@@ -120,7 +120,7 @@
       "id": "html-report",
       "priority": 3,
       "area": "backend",
-      "issue": null,
+      "issue": 224,
       "title": "An HTML report of one experiment",
       "depends_on": [
         "experiment-history",
@@ -131,9 +131,9 @@
         "uv run pytest - the report is one file, references nothing external, and carries the experiment's own numbers",
         "pnpm exec playwright test - the exported file opens and shows the scores plot"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": "PROPOSAL.md section 16 names HTML/PDF reporting. HTML first and PDF deferred: a browser prints a PDF and a PDF library is a dependency with weight, which section 7's rule is about."
+      "status": "passing",
+      "evidence": "2026-09-28. `uv run pytest`: `905 passed, 1 skipped`; `uv run pytest tests/test_report.py`: `8 passed` - one file with no link, script, external src, url() or @import; served as an attachment named for the run; the record's experiment id, dataset hash, pipeline id, every node id, rmsec to four places and the Python version all in the document; one circle per sample in the scores and predicted-against-measured plots and one bar per component in the scree; every inline svg parses as XML; a run whose stored arrays and results are deleted still reports its record with a sentence in place of the plots; `current` and the id give the same document and an unknown id is a 404; an error message holding <script> is escaped. `pnpm exec playwright test`: `61 passed (1.8m)`, the new `e2e/report.spec.ts` among them - the report fetched from the seeded project, saved to disk and opened from a file URL with the browser context offline shows the `Scores, 216 samples` figure with 216 circles. Proof it fails on a broken report: with report.py's scores plot drawing `<ellipse` rather than `<circle`, the spec failed with `Expected: 216 Received: 0`; restored. The pytest run found the report omitted the pipeline id, now a row of its provenance table.",
+      "notes": "PROPOSAL.md section 16 names HTML/PDF reporting. HTML first and PDF deferred: a browser prints a PDF and a PDF library is a dependency with weight, which section 7's rule is about. The plots are hand-written inline SVG: standalone with no network rules out a CDN, bundling Plotly is 3 MB of a frontend dependency the backend does not have, and matplotlib is heavier than every runtime dependency combined for three scatter plots. It renders, it does not compute - tests/parity_report.py's rule - so the store is asked for the experiment's own pipeline snapshot's keys and a run whose arrays are gone gets a sentence where the plots would be. Out of scope by decision: PDF, a report of a comparison, a report of a saved model, and embedding the dataset."
     },
     {
       "id": "phase-3-exit-run",
