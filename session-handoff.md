@@ -8,13 +8,85 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 ## Where things stand
 
-**Phase 2 is complete and released.** `main` is tagged `v0.7.0`. Every entry on the phase's list
-passed with evidence, and its exit criterion is recorded in `docs/phase-2/exit-run.md` rather than
-argued: the whole workflow driven over HTTP against an independent PLS on the experiment's own
-resolved folds. The completed list is archived at `docs/phase-2/feature_list.json`; `feature_list.json`
-is now Phase 3's.
+**Phase 3 is complete, and its release is in progress.** Every entry on `feature_list.json` passed
+with evidence, and the exit criterion is recorded in `docs/phase-3/exit-run.md` rather than argued.
+The release is a pull request from `dev` into `main`, then the tag `v0.8.0` on `main`. The version in
+`pyproject.toml` and `uv.lock` went to `0.8.0` with this file, the way `v0.7.0`'s close did it.
+**Check that the tag exists on `main` before assuming the release happened.**
 
-**What Phase 2 added**, all merged through green pull requests on 2026-09-18:
+**Phase 3's exit criterion**, `PROPOSAL.md` §16: *two models differing only in preprocessing can be
+compared step by step; an exported model reproduces application predictions within tolerance in a
+clean environment.* `uv run python -m tests.exit_run_phase3` shows both over HTTP on Tecator:
+
+- **Export.** SNV, Savitzky-Golay (11, 2, d1), a 0.25 train/test split, mean centre and PLS with
+  5 LV on `fat`. The served `export.py` runs with `python -I` in a `uv venv` that holds only NumPy,
+  and matches the application at `docs/model-export.md` §5's `rtol 1e-4`. The largest relative
+  difference is 7.97e-6 on the calibration rows and 2.51e-6 on the held-out rows.
+- **Comparison.** The window is changed to 15 and the pipeline run again. Both records are read back
+  from the history and diffed by `diff.ts`'s rule, rewritten in the script. The diff names `savgol`
+  and `window_length` and nothing else.
+- **It can fail.** With a tolerance tighter than the float32 store and a second run that also changes
+  `polyorder`, the same script reports both halves not met.
+
+## Phase 3, all merged through green pull requests
+
+| Feature | Issue | PR |
+| --- | --- | --- |
+| Every run kept, and one opened to its record | #209 | #210 |
+| The model artifact, one file readable without this application | #211 | #212 |
+| A plain JSON model and a standalone prediction snippet | #213 | #214 |
+| Two experiments compared step by step | #215 | #216 |
+| A model registry, and the first schema change | #219 | #220 |
+| An edit-and-restore poll gets a real budget | #222 | #223 |
+| One experiment as a standalone HTML report | #224 | #225 |
+| The exit criterion demonstrated | #227 | #228 |
+
+**#217 recorded a process mistake.** `feature/215_lineage-comparison` was cut from
+`feature/213_json-and-snippet-export` rather than from `dev`, so #216 carried the export commit into
+`dev` and #214 then merged as a no-op. **Cut every branch from a freshly pulled `dev`, and check with
+`git merge-base --is-ancestor origin/dev <branch>` before opening the pull request.**
+
+## Current work
+
+**Nothing is `in_progress`.** All eight Phase 3 entries are `passing`. No issue or pull request is
+open apart from the release's own. #221 (a handoff made stale by #225) was closed unmerged and folded
+into this file.
+
+**Not done at the phase close, on purpose, and owed at the start of Phase 4:**
+- `feature_list.json` is still Phase 3's. Archive it to `docs/phase-3/feature_list.json` and write
+  Phase 4's list, as `fe58f29` did for Phase 2.
+- `CLAUDE.md`'s *Repository state* and the README still describe Phase 2 as the latest phase.
+
+**An unexplained Windows e2e failure.** #221's last run went red on `e2e (windows-latest)` only, on a
+markdown-only change. Nobody has read that job's log. If a Windows e2e check goes red again, read the
+log first and open an issue for the cause rather than re-running:
+https://github.com/millermuttu/Chemometrics-Workbench/actions/runs/35343976638/job/105596198698
+
+**Untracked in the root, still not decided:** `AGENTS.md` (a Codex copy of `CLAUDE.md` that will
+drift) and `tecator.csv`. Either gitignore them or commit them.
+
+**`./run.sh` is the way in.** It syncs, installs with **pnpm** — this project has no
+`package-lock.json` and `npm ci` refuses it — builds the bundle if there is not one, and serves,
+printing `http://127.0.0.1:<port>/?token=<token>`. `--build` forces the rebuild a changed
+`frontend/src` needs.
+
+**Scripts worth knowing.** `uv run python -m tests.exit_run` and `tests.exit_run_phase3` each drive
+the served application end to end and rewrite their phase's `docs/phase-N/exit-run.md`.
+`uv run python -m tests.memory_probe 6000 1200` prints the peak resident memory of a ten-fold branch,
+which is the number #176 is judged by.
+
+## Next action
+
+**Confirm the release, then open Phase 4.** If `v0.8.0` is not on `main`, finish that first. Phase 4
+is *Package and release* (`PROPOSAL.md` §16): PyInstaller builds on three platforms in CI, localhost
+security hardening (§4.3), a documentation site, a published parity report, worked examples and
+`CONTRIBUTING.md`. Its exit criterion is *a non-developer on a clean machine downloads, installs and
+completes a PCA in under ten minutes*. Start by archiving Phase 3's list, writing Phase 4's with
+issues, and updating `CLAUDE.md`, all in one pull request into `dev`.
+
+## What Phase 2 added
+
+All merged through green pull requests on 2026-09-18:
 
 | Feature | Issue | PR |
 | --- | --- | --- |
@@ -42,64 +114,6 @@ is now Phase 3's.
 - **PLS-DA is two-class only.** One dummy column is PLS1, which the existing kernel fits and the
   existing parity claims cover. Three classes are PLS2, which `pls-regression.md` §10 defers, and are
   refused by name rather than reduced.
-
-## Phase 3 so far
-
-| Feature | Issue | PR | State |
-| --- | --- | --- | --- |
-| Every run kept, and one opened to its record | #209 | #210 | merged |
-| The model artifact, one file readable without this application | #211 | #212 | merged |
-| A plain JSON model and a standalone prediction snippet | #213 | #214 | merged |
-| Two experiments compared step by step | #215 | #216 | merged |
-| A model registry, and the first schema change | #219 | #220 | merged |
-| An edit-and-restore poll gets a real budget | #222 | #223 | merged |
-| One experiment as a standalone HTML report | #224 | #225 | merged |
-
-**#217 recorded a process mistake, and is fixed and merged.** `feature/215_lineage-comparison` was cut from
-`feature/213_json-and-snippet-export` rather than from `dev`, so #216 carried the export commit into
-`dev` and #214 then merged as a no-op returning the same sha. Both are on `dev` and the content is
-unaffected; what it cost was an hour of treating #214 as blocked when it was already going to land
-through another pull request. **Cut every branch from a freshly pulled `dev`, and check with
-`git merge-base --is-ancestor origin/dev <branch>` before opening the pull request.**
-
-## Current work
-
-**Nothing is `in_progress`.** `html-report` passed with evidence and merged through #225, all six
-checks green on the second push. One Phase 3 entry remains: `phase-3-exit-run`. It has no issue yet.
-
-**No open issues or pull requests.** #221, the handoff written after #220, was closed unmerged on
-2026-09-28 because #225 made it stale; its content is folded into this file. Every branch that
-carried this work is deleted locally and on origin.
-
-**An unexplained Windows e2e failure.** #221's last run went red on `e2e (windows-latest)` only, on a
-markdown-only change that already contained #223's fix. Nobody has read that job's log, so which test
-failed is unknown. If a Windows e2e check goes red again, read the log first and open an issue for
-the cause rather than re-running:
-https://github.com/millermuttu/Chemometrics-Workbench/actions/runs/35343976638/job/105596198698
-
-**Untracked in the root, still not decided:** `AGENTS.md` (a Codex copy of `CLAUDE.md` that will
-drift), `.codex/` and `tecator.csv`. Either gitignore them or commit them; leaving them is what makes
-every `git status` lie a little.
-
-**`./run.sh` is the way in.** It syncs, installs with **pnpm** — this project has no
-`package-lock.json` and `npm ci` refuses it — builds the bundle if there is not one, and serves,
-printing `http://127.0.0.1:<port>/?token=<token>`. `--build` forces the rebuild a changed
-`frontend/src` needs.
-
-**Two scripts worth knowing.** `uv run python -m tests.exit_run` drives the served application end to
-end and rewrites `docs/phase-2/exit-run.md`. `uv run python -m tests.memory_probe 6000 1200` prints
-the peak resident memory of a ten-fold branch, which is the number #176 is judged by.
-
-## Next action
-
-**Open an issue for `phase-3-exit-run` and pick it up.** It closes the phase. The exit criterion is
-`PROPOSAL.md` §16's: *two models differing only in preprocessing can be compared step by step*, which
-#215 built, *and an exported model reproduces application predictions within tolerance in a clean
-environment*, which #213 built and `docs/model-export.md` §5 states the number for. The exit run
-demonstrates both rather than citing them, as `docs/phase-2/exit-run.md` did for Phase 2: a script
-under `tests/` that drives the served application over HTTP, runs the exported snippet in a subprocess
-with only NumPy installed, and writes its numbers and tolerances to `docs/phase-3/exit-run.md`. After
-it passes, `dev` merges into `main` through a pull request and the release is tagged.
 
 ## What Phase 3 has added worth knowing
 
@@ -139,6 +153,8 @@ it passes, `dev` merges into `main` through a pull request and the release is ta
 - **Ruff's import sorting merges a fixture import into the line above and strands its `noqa`.**
   `tests/test_report.py` keeps `from tests.test_server import client  # noqa: F401` on its own line
   after an `# isort: split` marker, with `# noqa: F811` on each `client` parameter.
+- **The GitHub MCP merge wants the full 40-character sha** in `expectedHeadSha`; a short one is
+  refused before anything happens. `git rev-parse HEAD` gives it.
 - **A branch cut from another feature branch carries that feature into the pull request.** #216
   merged #213's export commit as a side effect, which nothing in the pull request said.
 - **`count()` does not wait.** A Playwright assertion of the form `expect(await x.count())` compares a
