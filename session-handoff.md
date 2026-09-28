@@ -2,7 +2,7 @@
 
 Compact state for the next session. **Overwrite this file at the end of every session** — it is a snapshot, not a log. Read it first, then `feature_list.json`, `git log` on `dev`, and the open issues.
 
-**Updated:** 2026-09-18
+**Updated:** 2026-09-28
 
 ---
 
@@ -51,22 +51,31 @@ is now Phase 3's.
 | The model artifact, one file readable without this application | #211 | #212 | merged |
 | A plain JSON model and a standalone prediction snippet | #213 | #214 | merged |
 | Two experiments compared step by step | #215 | #216 | merged |
+| A model registry, and the first schema change | #219 | #220 | merged |
+| An edit-and-restore poll gets a real budget | #222 | #223 | merged |
+| One experiment as a standalone HTML report | #224 | #225 | merged |
 
-**#217 is open against a mistake this session made.** `feature/215_lineage-comparison` was cut from
+**#217 recorded a process mistake, and is fixed and merged.** `feature/215_lineage-comparison` was cut from
 `feature/213_json-and-snippet-export` rather than from `dev`, so #216 carried the export commit into
 `dev` and #214 then merged as a no-op returning the same sha. Both are on `dev` and the content is
-unaffected; what the mistake cost was an hour of treating #214 as blocked when it was already going
-to land through another pull request. **Cut every branch from a freshly pulled `dev`, and check with
+unaffected; what it cost was an hour of treating #214 as blocked when it was already going to land
+through another pull request. **Cut every branch from a freshly pulled `dev`, and check with
 `git merge-base --is-ancestor origin/dev <branch>` before opening the pull request.**
 
 ## Current work
 
-**Nothing is `in_progress`.** `lineage-comparison` passed with evidence and merged through #216, all
-six checks green. Three Phase 3 entries remain: `model-registry`, `html-report`, `phase-3-exit-run`.
+**Nothing is `in_progress`.** `html-report` passed with evidence and merged through #225, all six
+checks green on the second push. One Phase 3 entry remains: `phase-3-exit-run`. It has no issue yet.
 
-**#217 is the one open issue** and it is a process correction, not code: this file and #216's body
-both claimed an ancestry the history does not show. This file is fixed; the pull request body is not,
-and is not worth rewriting.
+**No open issues or pull requests.** #221, the handoff written after #220, was closed unmerged on
+2026-09-28 because #225 made it stale; its content is folded into this file. Every branch that
+carried this work is deleted locally and on origin.
+
+**An unexplained Windows e2e failure.** #221's last run went red on `e2e (windows-latest)` only, on a
+markdown-only change that already contained #223's fix. Nobody has read that job's log, so which test
+failed is unknown. If a Windows e2e check goes red again, read the log first and open an issue for
+the cause rather than re-running:
+https://github.com/millermuttu/Chemometrics-Workbench/actions/runs/35343976638/job/105596198698
 
 **Untracked in the root, still not decided:** `AGENTS.md` (a Codex copy of `CLAUDE.md` that will
 drift), `.codex/` and `tecator.csv`. Either gitignore them or commit them; leaving them is what makes
@@ -83,11 +92,14 @@ the peak resident memory of a ten-fold branch, which is the number #176 is judge
 
 ## Next action
 
-**Pick up `model-registry`.** It is next because it is what gives the artifact a home: `artifact.py`
-takes a path and returns a hash, and recording that in the project's `model` table is deliberately
-not its job. `docs/model-artifact.md` §9 says so by name, and `docs/model-export.md` §6 leaves
-prediction on new data inside the application to a separate feature, so the registry is the whole of
-what is next rather than the start of something wider.
+**Open an issue for `phase-3-exit-run` and pick it up.** It closes the phase. The exit criterion is
+`PROPOSAL.md` §16's: *two models differing only in preprocessing can be compared step by step*, which
+#215 built, *and an exported model reproduces application predictions within tolerance in a clean
+environment*, which #213 built and `docs/model-export.md` §5 states the number for. The exit run
+demonstrates both rather than citing them, as `docs/phase-2/exit-run.md` did for Phase 2: a script
+under `tests/` that drives the served application over HTTP, runs the exported snippet in a subprocess
+with only NumPy installed, and writes its numbers and tolerances to `docs/phase-3/exit-run.md`. After
+it passes, `dev` merges into `main` through a pull request and the release is tagged.
 
 ## What Phase 3 has added worth knowing
 
@@ -101,6 +113,32 @@ what is next rather than the start of something wider.
   writer may have added a field whose absence this reader would take as a default.
 - **The lineage diff matches nodes by id, so a renamed node reads as a remove plus an add.** That is
   the honest reading: nothing in the model says a rename is not a replacement.
+- **`db.SCHEMA_VERSION` is 2, and the upgrade it added is additive only.** A database stamped below it
+  gets `create_all` and a re-stamp, which writes a missing table and leaves an existing one alone. A
+  column that is added, renamed, retyped or dropped is *not* covered, and shipping one means writing
+  real migration machinery rather than widening that branch.
+- **Saving a model writes the artifact before the row.** A row pointing at a file that was never
+  written is a registry entry nobody can open; a file with no row costs disk. The failure mode was
+  chosen, not stumbled into.
+- **A feature list note can be wrong.** #219's said the `model` table existed. It did not. Check the
+  code before believing a note about what is already built.
+- **A test that edits and restores is borrowing the seeded project.** When the restore misses its
+  poll budget the edit stays, and the next test fails for a reason that is not its own — which is how
+  #222 produced two red tests from one cause. `APPLIED` in `inspector.spec.ts` is the budget, and
+  `expect.poll`'s default five seconds is what a loaded macOS runner misses.
+- **A red macOS check on a markdown-only change is a flake, and it still has a cause.** #221 went red
+  with no source change. Reading the job log found a real ordering problem worth fixing rather than a
+  reason to press the button again.
+- **The HTML report is reachable over the API only.** `GET /api/experiments/{id}/report.html`
+  (`current` or an id) serves the file; no button in the application asks for it yet. Its plots are
+  hand-written inline SVG, and it looks the stored result up against the experiment's own pipeline
+  snapshot, so a run whose arrays are gone gets a sentence instead of plots. PDF is deferred.
+- **CI runs mypy; run it locally too.** #225's first push went red on both `check` jobs for a
+  `no-any-return` in a test fixture that ruff and pytest were both happy with. The local gate is
+  `uv run ruff check && uv run ruff format --check && uv run mypy && uv run pytest`.
+- **Ruff's import sorting merges a fixture import into the line above and strands its `noqa`.**
+  `tests/test_report.py` keeps `from tests.test_server import client  # noqa: F401` on its own line
+  after an `# isort: split` marker, with `# noqa: F811` on each `client` parameter.
 - **A branch cut from another feature branch carries that feature into the pull request.** #216
   merged #213's export commit as a side effect, which nothing in the pull request said.
 - **`count()` does not wait.** A Playwright assertion of the form `expect(await x.count())` compares a
