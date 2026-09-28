@@ -139,7 +139,7 @@
       "id": "phase-3-exit-run",
       "priority": 0,
       "area": "process",
-      "issue": null,
+      "issue": 227,
       "title": "The exit criterion demonstrated: an exported model predicts in a clean environment",
       "depends_on": [
         "json-and-snippet-export",
@@ -150,9 +150,9 @@
         "A script under tests/ that drives the served application over HTTP, exports the model, runs the snippet in a subprocess with an isolated environment, and compares",
         "Its output committed under docs/phase-3/ with the date, the dataset, the pipeline, every number compared and the tolerance each is judged against"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": "The shape Phase 2's exit run set: tests/exit_run.py drives the application over HTTP and writes docs/phase-2/exit-run.md, and this is the same thing for section 16's Phase 3 criterion. The float32 store finding from that run applies here too - an exported snippet computing in float64 will differ from the served numbers at the level docs/phase-2/exit-run.md records, and the tolerance has to be stated with that in mind."
+      "status": "passing",
+      "evidence": "2026-09-28. `uv run python -m tests.exit_run_phase3`: exit 0, `docs/phase-3/exit-run.md` committed from that run, verdict `Met. Export met; comparison met.` Export: Tecator 240 x 100 imported over HTTP; SNV, Savitzky-Golay (11, 2, d1), train/test split 0.25 seed 42, mean centre, PLS 5 LV on `fat`; `/results/pls/export.py` (residual chain: snv, 100 coefficients) run with `python -I` in a `uv venv` holding only `numpy 2.5.3`, `chemometrics_workbench` not importable and no module of ours, SciPy or scikit-learn loaded. Against the served predictions at docs/model-export.md section 5's rtol 1e-4, atol 1e-6: calibration rows (180) max rel diff 7.97e-06, held-out rows (60) 2.51e-06, both pass. Comparison: the Savitzky-Golay window changed from 11 to 15 and run again; both records read back from `/experiments/{id}` and diffed by diff.ts's rule: `savgol` changed on `window_length`, every other node unchanged. Proof both halves fail when they should: with rtol 1e-7, atol 0 and the second run also changing `polyorder`, the same script's verdict was `Not met. Export not met; comparison not met.`, both prediction rows FAIL and `savgol` changed on `polyorder, window_length`; the record was written elsewhere and the committed one left untouched. `uv run ruff check`, `ruff format --check` and `uv run mypy` clean.",
+      "notes": "The shape Phase 2's exit run set: tests/exit_run.py drives the application over HTTP and writes docs/phase-2/exit-run.md, and this is the same thing for section 16's Phase 3 criterion. The float32 store finding from that run applies here too - an exported snippet computing in float64 will differ from the served numbers at the level docs/phase-2/exit-run.md records, and the tolerance has to be stated with that in mind. #227's two open questions, decided 2026-09-28: the clean environment is `uv venv` plus `uv pip install numpy`, since uv is how this project makes environments and installs from its cache; and the script diffs the snapshots itself with diff.ts's rule written again in Python (twenty lines), so the record stands without a browser, while runs.spec.ts keeps covering the drawn view. The script is tests/exit_run_phase3.py beside tests/exit_run.py rather than an extension of it, because each rewrites its own phase's record."
     }
   ]
 }
