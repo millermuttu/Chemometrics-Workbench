@@ -10,6 +10,7 @@ contract the frontend was built against is kept in `tests/fixtures/contract/`.
   a pipeline on the dataset if the project has none
 - `GET/PUT /api/pipelines/{id}`, `GET /state`, `PUT /layout`, `POST /validate`
 - `GET  /api/experiments`, `GET /api/experiments/{id}`, `POST /api/experiments/{id}/run`
+- `GET  /api/experiments/{id}/report.html` — one run as a standalone file
 - `GET  /api/jobs/{id}`, `POST /api/jobs/{id}/cancel`
 - `GET  /api/spectra/{node_id}`, `GET /api/results/{node_id}` and `/coefficients`
 - `GET  /api/results/{node_id}/export.json` and `/export.py` — the portable model
@@ -112,6 +113,7 @@ from chemometrics_workbench.project import (
     write_pipeline,
 )
 from chemometrics_workbench.regression import coefficients_original_units
+from chemometrics_workbench.report import render_report, report_filename
 
 __all__ = [
     "ESTIMATOR_NOT_FITTED",
@@ -1321,18 +1323,78 @@ def list_experiments() -> Any:
 
 @router.get("/experiments/{experiment_id}")
 def get_experiment(experiment_id: str) -> Any:
+    # `current` is the newest and an id is looked up in the history (#209),
+    # which `_recorded` is; the report asks the same question.
     directory, _ = _project()
+    return json.loads(_recorded(directory, experiment_id).model_dump_json())
+
+
+def _recorded(directory: Path, experiment_id: str) -> Experiment:
+    """The experiment this id names, `current` meaning the newest.
+
+    Shared by the record endpoint and the report, because "which run is this"
+    has one answer and two handlers asking it differently is how they come to
+    disagree.
+    """
     experiment = read_experiment(directory)
     if experiment is None:
         raise _fail(404, "not_found", "nothing has been run in this project yet.")
     if experiment_id in ("current", str(experiment.experiment_id)):
-        return json.loads(experiment.model_dump_json())
-    # Not the current one: it may still be in the history (#209). `current`
-    # keeps meaning the newest, which is what the frontend has always asked for.
+        return experiment
     for older in read_experiments(directory):
         if str(older.experiment_id) == experiment_id:
-            return json.loads(older.model_dump_json())
+            return older
     raise _fail(404, "not_found", f"no experiment {experiment_id}.")
+
+
+def _last_estimator(
+    directory: Path, experiment: Experiment
+) -> tuple[EstimatorResult | None, str | None]:
+    """The last estimator's stored result for *this* run, or nothing.
+
+    Asked against the experiment's own pipeline snapshot rather than the
+    current pipeline, so the keys are the ones that run wrote. A run whose
+    arrays have since been recomputed away answers `None`, and the report says
+    so rather than drawing a plot from a different run's numbers.
+    """
+    pipeline = experiment.pipeline_snapshot
+    version = _current_version(directory, pipeline)
+    if version is None:
+        return None, None
+    estimators = [node.id for node in pipeline.nodes if node.type == "estimator"]
+    for node_id in reversed(estimators):
+        result = _stored_result(directory, pipeline, version, node_id)
+        if result is not None:
+            return result, node_id
+    return None, estimators[-1] if estimators else None
+
+
+@router.get("/experiments/{experiment_id}/report.html")
+def get_report(experiment_id: str) -> PlainTextResponse:
+    """One run as a standalone HTML file (#224).
+
+    Served as a download with a filename, the way `export.py` serves the
+    snippet: this is a file someone saves and archives, not a page the
+    application navigates to.
+    """
+    directory, project = _project()
+    experiment = _recorded(directory, experiment_id)
+    version = _current_version(directory, experiment.pipeline_snapshot)
+    if version is None:
+        raise _fail(
+            404,
+            "not_found",
+            "this run's dataset is not in the project any more, so its report cannot name "
+            "what it ran against.",
+            experiment_id=experiment_id,
+        )
+    result, node_id = _last_estimator(directory, experiment)
+    document = render_report(experiment, version, project, result, node_id)
+    return PlainTextResponse(
+        document,
+        media_type="text/html; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{report_filename(experiment)}"'},
+    )
 
 
 @router.post("/experiments/{experiment_id}/run")
