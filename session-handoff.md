@@ -65,8 +65,9 @@ clean environment.* `uv run python -m tests.exit_run_phase3` shows both over HTT
 | A documentation site (blocked on the Pages deploy from main) | #235 | #248 |
 | Inspector: a refetch no longer wipes a half-typed edit | #250 | #251 |
 | Export JSON, Export Python and Save report buttons | #247 | #252 |
+| CONTRIBUTING.md completed, docs/adding-a-step.md, Normalise in the step list | #238 | #254 |
 
-The open issues are #235 (blocked on the deploy), #236 to #239.
+The open issues are #235 (blocked on the deploy), #236, #237, #239 and #255.
 
 **The docs site is `blocked`, deliberately.** It builds strict in CI (`docs` job) with screenshots
 from `frontend/e2e/docs-screens.spec.ts`, and deploys to Pages from `main` only (`pages` job). The
@@ -79,6 +80,13 @@ run the screenshot spec, then `uv run mkdocs build --strict`.
 reset its form on every pipeline refetch, so the refetch after an Apply put the old value back over
 a newly typed one. The form now resets on node id and kind only, and `inspector.spec.ts` holds the
 app's refetch back with `page.route` so the race runs every time.
+
+**#255, an unexplained Windows e2e failure.** On #254, `pipeline.spec.ts:75` found
+`pipeline-canvas` but hidden for 5 s; 68 others passed and the diff touched nothing in the canvas.
+The trace is the `playwright-report-windows-latest` artifact of run 36540710418 (kept 7 days, to
+2026-10-06); the MCP tools cannot fetch it. The maintainer merged #254 over it. Read that trace
+before treating the next Windows red as a flake. This is the third Windows-only e2e failure (#210,
+#221's unread one, this).
 
 **Merging:** the maintainer gave a standing "merge when CI is green" on 2026-09-29, for that session.
 
@@ -130,9 +138,9 @@ which is the number #176 is judged by.
 
 ## Next action
 
-**Pick up `contributing` (#238)**, the one entry with no unmet dependency. `published-parity-report`
-(#236) and `worked-examples` (#237) depend on `docs-site`, which is blocked only on the Pages deploy;
-the maintainer has not yet said whether they may start before it. The exit run (#239) needs the release workflow and the docs site, and a person the
+**Every entry with its dependencies met is done.** Left: `published-parity-report` (#236) and
+`worked-examples` (#237), which depend on `docs-site` (blocked only on the Pages deploy from main;
+ask the maintainer whether they may start before it), #255, and the exit run. The exit run (#239) needs the release workflow and the docs site, and a person the
 maintainer arranges.
 
 ## What Phase 2 added
