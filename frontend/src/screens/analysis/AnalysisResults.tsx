@@ -22,6 +22,7 @@ import {
 } from "@/plot/analysis";
 import { PLOT_CONFIG, axisLayout, baseLayout, readTheme } from "@/plot/theme";
 import { Panel } from "@/screens/analysis/Panel";
+import { DownloadButton } from "@/screens/DownloadButton";
 import { CannotLoad } from "@/states/CannotLoad";
 
 /** One analysis tab, a grid of titled panels - the artboard's answer to open
@@ -679,11 +680,18 @@ export function AnalysisResults({ nodeId, title }: { nodeId: string; title: stri
           justifyContent: "space-between",
           padding: "0 14px",
           borderBottom: "1px solid var(--rule2)",
+          // The export buttons (#247) filled the header; nothing wraps, and
+          // the dim line of shape and task is what gives way first.
+          whiteSpace: "nowrap",
+          gap: 12,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
           <span style={{ fontWeight: 600, fontSize: 13.5 }}>{title}</span>
-          <span className="mono" style={{ fontSize: 11, color: "var(--ink3)" }}>
+          <span
+            className="mono"
+            style={{ fontSize: 11, color: "var(--ink3)", overflow: "hidden", textOverflow: "ellipsis" }}
+          >
             {classification
               ? `PLS-DA on ${pca.classification?.class_column ?? "?"}`
               : regression
@@ -694,8 +702,26 @@ export function AnalysisResults({ nodeId, title }: { nodeId: string; title: stri
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "center" }}>
-          <div style={{ paddingRight: 11 }}>
+          <div style={{ paddingRight: 11, display: "flex", alignItems: "center", gap: 6 }}>
             <SaveModel nodeId={nodeId} title={title} />
+            {/* The portable forms, docs/model-export.md: a regression's, and a
+                classification's since it is the regression on a dummy. */}
+            {regression ? (
+              <>
+                <DownloadButton
+                  label="Export JSON"
+                  path={`/results/${nodeId}/export.json`}
+                  fallback={`${nodeId}_model.json`}
+                  testId="export-json"
+                />
+                <DownloadButton
+                  label="Export Python"
+                  path={`/results/${nodeId}/export.py`}
+                  fallback={`${nodeId}_predict.py`}
+                  testId="export-python"
+                />
+              </>
+            ) : null}
           </div>
           {(classification
             ? ([

@@ -115,9 +115,9 @@
         "pnpm exec playwright test - each button downloads the served file under its served name, and a baseline chain shows the server's refusal",
         "docs/export.md and docs/report.md describe the buttons, with the curl notes removed, and mkdocs build --strict passes"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": "Found writing the docs site (#235): only Save model has a button. The exit run's non-developer cannot be asked to use curl."
+      "status": "passing",
+      "evidence": "2026-09-29. frontend/e2e/downloads.spec.ts, `pnpm exec playwright test e2e/downloads.spec.ts --project seeded`: `4 passed`. Export JSON on the PLS tab saves `pls_d_model.json`, equal to `GET /api/results/pls_d/export.json` apart from `created_at`; Export Python saves `pls_d_predict.py` containing `def predict(X):`; a refused export (the server's 422 envelope, routed) shows the server's sentence in `export-json-error`; a PCA tab has neither button; Save report on the seeded experiment saves `experiment-unrun-<id>.html`, a doctype-HTML file with its `Scores, n samples` figure. Proof: with the source reverted and the bundle rebuilt, the three button tests FAILED and the PCA guard passed. Full `pnpm exec playwright test`: `69 passed (2.0m)`. `pnpm lint`, `pnpm typecheck` clean. docs/export.md and docs/report.md now describe the buttons, the curl route and its note are gone, and `uv run mkdocs build --strict` builds clean; the regenerated PLS screenshot was checked by eye after the header was kept to one line.",
+      "notes": "Found writing the docs site (#235): only Save model has a button. The exit run's non-developer cannot be asked to use curl. The .cwmodel download was optional in #247 and is not built: the model tab shows the file's path in the project folder, and docs/export.md says to copy it."
     },
     {
       "id": "published-parity-report",

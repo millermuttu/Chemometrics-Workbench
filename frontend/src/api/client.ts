@@ -53,18 +53,42 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     ...init,
     headers: { ...init.headers, Authorization: `Bearer ${apiToken()}` },
   });
-  if (!response.ok) {
-    // Every failure has a body, not only a status code - the shape the stub
-    // server documents and 1.2 keeps.
-    const body = (await response.json().catch(() => null)) as {
-      error?: { code?: string; message?: string; detail?: unknown };
-    } | null;
-    throw new ApiError(
-      response.status,
-      body?.error?.code ?? "request_failed",
-      body?.error?.message ?? response.statusText,
-      body?.error?.detail,
-    );
-  }
+  if (!response.ok) throw await failure(response);
   return (await response.json()) as T;
+}
+
+/** Every failure has a body, not only a status code - the shape the stub
+ * server documents and 1.2 keeps. */
+async function failure(response: Response): Promise<ApiError> {
+  const body = (await response.json().catch(() => null)) as {
+    error?: { code?: string; message?: string; detail?: unknown };
+  } | null;
+  return new ApiError(
+    response.status,
+    body?.error?.code ?? "request_failed",
+    body?.error?.message ?? response.statusText,
+    body?.error?.detail,
+  );
+}
+
+/** Save what the server serves at `path` as a file (#247).
+ *
+ * A plain link cannot carry the bearer token, so the file is fetched, held as
+ * a blob and handed to the browser through a temporary object URL. The name is
+ * the server's `Content-Disposition` one when it gives one, else `fallback`.
+ * A refusal throws the server's sentence, as `api()` does. */
+export async function download(path: string, fallback: string): Promise<string> {
+  const response = await fetch(`/api${path}`, {
+    headers: { Authorization: `Bearer ${apiToken()}` },
+  });
+  if (!response.ok) throw await failure(response);
+  const disposition = response.headers.get("content-disposition") ?? "";
+  const name = /filename="([^"]+)"/.exec(disposition)?.[1] ?? fallback;
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(url);
+  return name;
 }
