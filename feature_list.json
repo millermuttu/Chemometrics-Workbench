@@ -168,8 +168,8 @@
         "CONTRIBUTING.md and the guide exist and are linked from the README and the site",
         "Every command in both run as written on a fresh clone"
       ],
-      "status": "not_started",
-      "evidence": "",
+      "status": "passing",
+      "evidence": "2026-09-29. CONTRIBUTING.md now covers setup (uv, pnpm, ./run.sh), every check CI runs (ruff, mypy, pytest, the frontend's typecheck/lint/test/build, the Playwright suite, the strict docs build, the package smoke test), the branching and pull-request rules, and inbound = outbound MIT. docs/adding-a-step.md walks spec, reference values, kernel, parity claim, pipeline model, executor and screen on Normalise, and its last layer was done for real: Normalise joins the step list with its outline label and canvas line (catalogue.test.ts and graph.test.ts failed first: `2 failed | 137 passed`, then `139 passed`). Both are linked from the README and from the site nav; `mkdocs build --strict` clean. Every command in both, run as written on a fresh clone of the branch (`git clone --branch feature/238_contributing`) on Linux: `uv sync`; `pnpm install --frozen-lockfile`; ruff check, ruff format --check, mypy clean; `uv run pytest` 913 passed 1 skipped; `tests/test_models.py` 20 passed; `-k content_hash` 5 passed; `-m parity` 127 passed; with CHEMOMETRICS_DOWNLOAD_DATASETS=1 913 passed and tests/test_datasets.py 19 passed; `tests.parity_report` wrote 120 claims and left the committed report unchanged; the fixture generator changed only `generated_at`; pnpm typecheck, lint, `test` 139 passed, build; `playwright install chromium`; `pnpm test:e2e` 69 passed; docs-screens 4 passed then mkdocs strict clean; pyinstaller then smoke_package `OK ... 240 x 2 PCA`; `./run.sh --build` rebuilt, served and handed the browser its token URL, which served the workbench; the R section's export, Rscript and generator reproduced r_mdatools_values.json byte-identically. Not re-run: the one-time `conda create` (the r-parity environment already exists).",
       "notes": "PROPOSAL.md section 15."
     },
     {

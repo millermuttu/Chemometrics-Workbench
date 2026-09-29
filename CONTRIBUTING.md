@@ -4,23 +4,54 @@ Single-maintainer project for now. These are the commands the rest of the reposi
 
 ## Setup
 
-Requires [uv](https://docs.astral.sh/uv/) and Python 3.12 or newer.
+Requires [uv](https://docs.astral.sh/uv/) with Python 3.12 or newer, and for the interface
+Node 22 with [pnpm](https://pnpm.io/) (the version is pinned by `packageManager` in
+`frontend/package.json`; `corepack enable` provides it).
 
 ```bash
 uv sync
+cd frontend && pnpm install --frozen-lockfile && cd ..
+./run.sh            # builds the bundle if missing, serves, opens the browser
 ```
 
-That is the whole setup path. If a step is ever needed beyond this line, it belongs in this section rather than in someone's memory.
+That is the whole setup path. If a step is ever needed beyond these lines, it belongs in this section rather than in someone's memory. `./run.sh --build` rebuilds the bundle after a change under `frontend/src`; the two-process development loop with Vite is in the README.
 
 ## Verification
 
-The full suite. All four must exit 0 before anything is merged.
+What CI runs on every pull request. All of it must exit 0 before anything is merged.
 
 ```bash
 uv run ruff check
 uv run ruff format --check
 uv run mypy
 uv run pytest
+```
+
+The interface, from `frontend/`:
+
+```bash
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm build
+pnpm exec playwright install chromium   # once
+pnpm test:e2e
+```
+
+**Build before the end-to-end suite.** Playwright drives the real server serving `frontend/dist`, so a suite run against a stale bundle tests old code and can pass for the wrong reason. It starts four seeded servers on ports 8765 to 8768; free them first if a previous run left one behind.
+
+The documentation site takes its screenshots from the running application, then builds strictly (a broken link or a missing image fails it):
+
+```bash
+cd frontend && pnpm exec playwright test e2e/docs-screens.spec.ts --project seeded && cd ..
+uv run mkdocs build --strict
+```
+
+CI also builds the packaged application on all three platforms and smoke-tests it; to do the same locally, after `pnpm build`:
+
+```bash
+uv run pyinstaller packaging/workbench.spec --noconfirm
+uv run python -m tests.smoke_package dist/ChemometricsWorkbench
 ```
 
 Run a single test file or case with the usual pytest selectors:
@@ -81,18 +112,19 @@ so all three datasets are checksum-asserted there.
 | `tests/parity.py` | The parity harness: tolerance policy, sign alignment, claim tiers, run record. Every kernel's parity test goes through it. |
 | `tests/parity_report.py` | Renders `docs/parity-report.md` from the run record. It renders and does not compute: two sources of truth for one number is one too many. |
 | `src/chemometrics_workbench/preprocessing.py` | Scaling and scatter-correction kernels. `fit`/`transform`, duck-compatible with a scikit-learn transformer and importing nothing from it. |
+| `src/chemometrics_workbench/models.py` | The reproducibility schema: every step, split and estimator as a Pydantic model. |
+| `src/chemometrics_workbench/executor.py` | Runs a pipeline DAG over the array store, fold by fold. |
+| `src/chemometrics_workbench/api.py`, `server.py` | The HTTP surface, and the server around it: loopback only, token, Host and Origin checks. |
+| `src/chemometrics_workbench/db.py`, `project.py` | A project directory: `project.db` (SQLite, references only), `arrays/`, `results/`. |
+| `frontend/` | The React interface; `e2e/` is the Playwright suite. |
+| `packaging/` | The PyInstaller spec for the packaged application. |
 | `docs/algorithms/` | One specification per algorithm — the variant implemented, its conventions, and the definition of every quantity it reports. |
+| `docs/` | Also the documentation site's user pages; `mkdocs.yml` is its table of contents. |
 | `design/` | Design brief, data-model diagrams, and the artboard sources for the UI. Not shipped code; excluded from linting. |
 
 ## How to add an algorithm
 
-The order matters, and it is the order Phase 0 itself follows.
-
-1. **Write the specification first**, in `docs/algorithms/`. Name the variant, the centring and scaling conventions, the sign convention, and the exact definition of every quantity that will be reported. "PLS" is not a specification.
-2. **Find reference values.** Published literature, or an established open implementation with its version recorded. A kernel with nothing to be checked against cannot be trusted. They live in `tests/fixtures/reference_values.json`, one entry per value, each recording its preprocessing chain, algorithm variant, split, software and version, and citation. Regenerate the generated entries with `uv run python tests/fixtures/generate_reference_values.py`, and say in the commit message what moved and why. A value that cannot be sourced is written into the fixture as `status: "unsourced"` with the reason — never omitted, and never filled in with a plausible number.
-3. **Write the kernel** as a pure function over arrays — no application knowledge, no global random state, seeds threaded explicitly, and never mutating the caller's array.
-4. **Add parity tests** through the shared harness in `tests/parity.py`, never with a bare `assert_allclose`. Call `parity.check(entry_id, ours)`; it picks the tolerance for the quantity's class, aligns signs where the quantity is sign-invariant, tags the claim tier and records the result for the report. Where a quantity differs from a reference by documented convention, call `parity.record_divergence(entry_id, reason)` instead of loosening a tolerance. **Tolerances are not knobs** — a comparison that fails is a finding, and widening the tolerance to make it pass converts a finding into a lie in the one artifact this project cannot afford to have lying in it.
-5. **Wire it into the schema** in `models.py` as a new member of the relevant discriminated union, so an invalid configuration fails at parse time.
+**[docs/adding-a-step.md](docs/adding-a-step.md)** walks the whole path on a real step, `Normalise`: the specification, reference values, the kernel, its parity claim, the pipeline model, the executor and the screen. The order is the point: each layer is checked before the next is written, and a number that cannot be checked against something independent is not shipped.
 
 ### Regenerating the R reference values
 
@@ -116,6 +148,14 @@ The matrices are exported from Python rather than loaded in R on purpose: a refe
 - **A pipeline is data.** Executing a serialisable DAG is the only path from a dataset to a result — do not add a second, direct one.
 - **Scientific numbers do not move silently.** A change that alters a reported value must update the parity fixtures deliberately, in the same commit, with the reason in the message.
 
-## Branching and commits
+## Branching and pull requests
 
-See `CLAUDE.md` for the branching model and the commit-message convention. In short: branch from `dev`, merge back into `dev`, and `main` receives a merge only at the end of a phase.
+- **One issue per change.** Something found mid-change that is outside its scope becomes a new issue, not a wider branch.
+- **Branch from a freshly pulled `dev`**, named `feature/<issue>_<short-name>` or `fix/<issue>_<short-name>`. Check before opening the pull request that the branch really starts from `dev`: `git merge-base --is-ancestor origin/dev HEAD`.
+- **Open the pull request into `dev`**, never `main`, with `Closes #<issue>` in the body. It is merged only when CI is green; a red check is read and fixed, not re-run until it passes.
+- **`main` is the release line.** It receives `dev` only at the end of a phase, and a `v*` tag on it builds and publishes the packages (`.github/workflows/release.yml`).
+- Commit messages are one short line saying what changed, then a body saying why when it is not obvious. The maintainer's commits use the form `[Chemometrics_toolbox](Name):short description`.
+
+## Licence
+
+The project is MIT-licensed (`LICENSE`). Contributions are accepted on the same terms — **inbound = outbound**: by opening a pull request you agree that your contribution is licensed under the MIT licence of this repository. There is no separate contributor agreement.

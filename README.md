@@ -76,6 +76,7 @@ tool I can put in a paper".
 | [`docs/decisions/`](docs/decisions/) | Decisions taken with evidence, numbered and dated, with the script that reproduces the numbers |
 | [`docs/parity-report.md`](docs/parity-report.md) | The parity report |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to set up, verify and land a change |
+| [`docs/adding-a-step.md`](docs/adding-a-step.md) | How to add an algorithm, walked through end to end on a real step |
 
 ## Working on it
 
