@@ -62,8 +62,26 @@ clean environment.* `uv run python -m tests.exit_run_phase3` shows both over HTT
 | A launcher: the browser opens on the workbench | #232 | #242 |
 | PyInstaller builds on three platforms, each smoke-tested | #233 | #244 |
 | A release workflow: a tag builds and publishes the three packages | #234 | #246 |
+| A documentation site (blocked on the Pages deploy from main) | #235 | #248 |
 
-The open issues are #235 to #239.
+The open issues are #235 to #239 and #247.
+
+**The docs site is `blocked`, deliberately.** It builds strict in CI (`docs` job) with screenshots
+from `frontend/e2e/docs-screens.spec.ts`, and deploys to Pages from `main` only (`pages` job). The
+maintainer chose on 2026-09-29 to wait for the phase-end merge rather than deploy from `dev`. Before
+that merge, **Settings → Pages → Source must be "GitHub Actions"**, then check
+https://millermuttu.github.io/Chemometrics-Workbench/ answers and mark `docs-site` passing. Locally:
+run the screenshot spec, then `uv run mkdocs build --strict`.
+
+**#250, fixed in #251.** A red `e2e (macos-latest)` on a bookkeeping PR was a real bug: the inspector
+reset its form on every pipeline refetch, so the refetch after an Apply put the old value back over
+a newly typed one. The form now resets on node id and kind only, and `inspector.spec.ts` holds the
+app's refetch back with `page.route` so the race runs every time.
+
+**Merging:** the maintainer gave a standing "merge when CI is green" on 2026-09-29, for that session.
+
+**#247, `ui-export-buttons`, was found writing the docs.** Export JSON, export Python and the HTML
+report have no button; only Save model does. The exit run depends on it now.
 
 **Releasing.** `git tag -a vX.Y.Z -m "notes"` then push the tag: release.yml builds through the
 reusable package.yml, refuses a lightweight tag, and publishes with the annotation, a size table and
@@ -109,9 +127,11 @@ which is the number #176 is judged by.
 
 ## Next action
 
-**Pick up `docs-site` (#236)** — priority 2, no dependencies; it must link docs/how-to-open.md.
-`published-parity-report` (#235) and `worked-examples` (#237) wait on it; `contributing` (#238) is
-free. The exit run (#239) needs the release workflow and the docs site, and a person the
+**Pick up `ui-export-buttons` (#247)** — priority 1, no dependencies, and the exit run needs it.
+`contributing` (#238) has no dependencies either. `published-parity-report` (#236) and
+`worked-examples` (#237) depend on the docs site, which is blocked only on the deploy, so check with
+the maintainer whether they may start. Issue numbers: docs site #235, parity report #236 — an earlier handoff had them swapped.
+The exit run (#239) needs the release workflow and the docs site, and a person the
 maintainer arranges.
 
 ## What Phase 2 added

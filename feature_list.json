@@ -99,9 +99,9 @@
         "The site is deployed to GitHub Pages from main and its URL answers",
         "Screenshots come from the Playwright suite, not by hand"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": "MkDocs Material as a development dependency only. The specification documents are linked as reference, not rewritten."
+      "status": "blocked",
+      "evidence": "2026-09-29. PR #248, CI run https://github.com/millermuttu/Chemometrics-Workbench/actions/runs/36528769800: the `docs` job succeeded - it built the frontend, ran e2e/docs-screens.spec.ts on the seeded Tecator project (pipeline, spectra, PCA and PLS screenshots written to docs/images/screens/, not committed), and ran `mkdocs build --strict`; `pages` was skipped, as it runs on main only. Locally: the same spec `4 passed`, and the screenshots were checked by eye; `mkdocs build --strict` aborted on the four images while they were missing, and on a deliberately broken `nope.md` link, then built clean. Verification 1 (strict build in CI on every pull request) and 3 (screenshots from the Playwright suite) are met. Verification 2 (deployed from main, URL answers) is not run.",
+      "notes": "MkDocs Material as a development dependency only. The specification documents are linked as reference, not rewritten. BLOCKED on verification 2, by decision (2026-09-29, the maintainer): the site deploys from main only, and main receives dev only at phase end. To unblock: set Settings, Pages, Source to 'GitHub Actions', merge dev into main at phase end, then check https://millermuttu.github.io/Chemometrics-Workbench/ answers. Export and the report have no UI button yet, so docs/export.md and docs/report.md give the curl route; #247 (ui-export-buttons) replaces it."
     },
     {
       "id": "ui-export-buttons",
