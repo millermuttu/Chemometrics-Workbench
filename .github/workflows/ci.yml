@@ -258,6 +258,24 @@ jobs:
         working-directory: frontend
         run: pnpm exec playwright test e2e/docs-screens.spec.ts --project seeded
 
+      # The site publishes the parity report as this run computes it, not as it
+      # was last committed (#236): the parity suite writes parity-results.json
+      # and the renderer rewrites docs/parity-report.md from it. The renderer
+      # refuses a partial run, so a missing dataset fails here rather than
+      # publishing a report that understates its coverage.
+      - name: Cache downloaded reference datasets
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/chemometrics-workbench/datasets
+          key: reference-datasets-${{ hashFiles('src/chemometrics_workbench/data/*/SHA256SUMS') }}
+
+      - name: Regenerate the parity report
+        run: |
+          uv run pytest -m parity
+          uv run python -m tests.parity_report
+        env:
+          CHEMOMETRICS_DOWNLOAD_DATASETS: "1"
+
       - name: Build the site
         run: uv run mkdocs build --strict
 

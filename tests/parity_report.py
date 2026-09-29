@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import json
 import math
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -72,6 +73,187 @@ OUR_FORMULA_QUANTITIES = frozenset(
         "vip",
     }
 )
+
+
+@dataclass(frozen=True)
+class Coverage:
+    """One row of the coverage table: a kernel the application ships, and the
+    fixture entries that compare it - or the reason nothing does (#236)."""
+
+    name: str
+    kernels: tuple[str, ...]
+    #: `<algorithm>.<quantity>` as the fixture's entry ids spell them.
+    entries: tuple[str, ...] = ()
+    not_compared: str = ""
+
+
+#: Every kernel the application ships, against the report's entries. A public
+#: name in a kernel module that is neither here nor in `NOT_KERNELS` fails
+#: `test_parity_coverage.py`, and so does a fixture entry no row claims: the
+#: table cannot quietly fall behind the code or the fixture.
+COVERAGE: tuple[Coverage, ...] = (
+    Coverage("SNV", ("SNVTransformer",), ("preprocess.snv",)),
+    Coverage("MSC", ("MSCTransformer",), ("preprocess.msc",)),
+    Coverage("Mean centring", ("MeanCentreTransformer",), ("preprocess.mean_centred",)),
+    Coverage("Autoscaling", ("AutoscaleTransformer",), ("preprocess.autoscaled_ddof0",)),
+    Coverage(
+        "Normalisation, l1 / l2 / max",
+        ("NormaliseTransformer",),
+        ("preprocess.normalised_l1", "preprocess.normalised_l2", "preprocess.normalised_max"),
+    ),
+    Coverage(
+        "Normalisation, area",
+        ("NormaliseTransformer",),
+        not_compared="No open implementation defines it this way: it divides by the row's signed "
+        "sum, and tools that integrate by the trapezoid rule differ by design (`preprocessing.py`, "
+        "known divergences). Unit-tested in `tests/test_preprocessing.py`.",
+    ),
+    Coverage(
+        "Savitzky-Golay, derivatives 0 / 1 / 2",
+        ("SavitzkyGolayTransformer",),
+        ("preprocess.savgol_deriv0", "preprocess.savgol_deriv1", "preprocess.savgol_deriv2"),
+    ),
+    Coverage(
+        "Baseline correction, AsLS / rubberband / polynomial",
+        ("BaselineCorrectTransformer",),
+        (
+            "preprocess.baseline_asls",
+            "preprocess.baseline_rubberband",
+            "preprocess.baseline_polynomial",
+        ),
+    ),
+    Coverage(
+        "Range selection",
+        ("RangeSelectTransformer",),
+        not_compared="Selects columns and computes nothing, so there is no number to compare. "
+        "Bounds, inclusivity and a descending axis are unit-tested in "
+        "`tests/test_preprocessing.py`.",
+    ),
+    Coverage(
+        "PCA: eigenvalues, explained variance, scores, loadings",
+        ("PCA",),
+        (
+            "pca.eigenvalues",
+            "pca.explained_variance_ratio",
+            "pca.cumulative_explained_variance",
+            "pca.scores",
+            "pca.loadings",
+        ),
+    ),
+    Coverage("PCA: Hotelling's T² and SPE per sample", ("PCA",), ("pca.hotelling_t2", "pca.spe")),
+    Coverage("Hotelling's T² limit", ("hotelling_t2_limit", "PCA"), ("pca.hotelling_t2_limit",)),
+    Coverage("SPE limit (Jackson-Mudholkar)", ("PCA",), ("pca.spe_limit",)),
+    Coverage(
+        "T² and SPE contributions",
+        ("t2_contributions", "spe_contributions"),
+        not_compared="No reference in the development environment reports per-variable "
+        "contributions under the same definition. Checked instead against the identity that "
+        "defines them - they sum to the sample's own T² and SPE - in `tests/test_decomposition.py` "
+        "and, over HTTP, `tests/test_api.py`.",
+    ),
+    Coverage(
+        "PLS (NIPALS): coefficients, predictions, explained variance",
+        ("PLS",),
+        ("pls.coefficients", "pls.predictions", "pls.explained_variance"),
+    ),
+    Coverage("VIP", ("PLS",), ("pls.vip",)),
+    Coverage(
+        "PLS: Hotelling's T², SPE and their limits",
+        ("PLS",),
+        not_compared="The formulas are PCA's, compared above, applied to the PLS X scores and "
+        "residuals; no reference computes them for PLS under the same definition. Unit-tested "
+        "in `tests/test_regression.py`.",
+    ),
+    Coverage(
+        "Coefficients and intercept in original units",
+        ("coefficients_original_units",),
+        ("pls.coefficients_original_units", "pls.intercept_original_units"),
+    ),
+    Coverage(
+        "Cross-validation: RMSECV curve and Q²",
+        ("cross_validated_predictions", "rmsecv_curve", "q2"),
+        ("pls.rmsecv_curve", "pls.q2"),
+    ),
+    Coverage(
+        "RMSE (RMSEC here; RMSEP is the same function on held-out rows)",
+        ("rmse",),
+        ("pls.rmsec",),
+    ),
+    Coverage("R²", ("r2",), ("pls.r2",)),
+    Coverage("SEC and SEP", ("sec", "sep"), ("pls.sec", "pls.sep")),
+    Coverage(
+        "Bias",
+        ("bias",),
+        not_compared="The mean signed residual; no reference reports it apart from RMSE. "
+        "Unit-tested, and held by the identity RMSEP² = bias² + (n-1)/n SEP² in "
+        "`tests/test_validation.py`.",
+    ),
+    Coverage(
+        "PLS-DA (two-class): dummy predictions, confusion, accuracy",
+        ("PLS",),
+        (
+            "plsda.dummy_predictions",
+            "plsda.confusion",
+            "plsda.accuracy",
+            "plsda.confusion_cv",
+            "plsda.accuracy_cv",
+        ),
+    ),
+    Coverage(
+        "Fold assignment: k-fold, leave-one-out, train/test",
+        ("k_fold", "leave_one_out", "train_test"),
+        not_compared="Differs by convention: folds are drawn with NumPy's `default_rng`, "
+        "scikit-learn's with a legacy `RandomState`, so one seed gives different folds "
+        "(`metrics-and-validation.md` §8). Cross-validated claims above pass our resolved folds "
+        "to the reference instead. The fold structure is unit-tested in "
+        "`tests/test_validation.py`.",
+    ),
+    Coverage(
+        "Model export: JSON model and prediction snippet",
+        ("json_model", "python_snippet"),
+        not_compared="Not a computation with an outside reference: the export must reproduce "
+        "this application's own predictions, within rtol 1e-4 (`model-export.md` §5), in a "
+        "NumPy-only interpreter - `tests/test_export.py`.",
+    ),
+)
+
+#: Public names in the kernel modules that are not kernels, and why.
+NOT_KERNELS: dict[str, str] = {
+    "Transformer": "the base class every preprocessing kernel implements",
+    "from_spec": "dispatch from a pipeline step to its kernel",
+    "FOLDABLE": "a constant: which steps fold into coefficients",
+    "Fold": "a record of one fold's indices",
+    "folds_from_indices": "rebuilds stored folds; no arithmetic",
+    "validate_partition": "a check that folds partition the samples",
+    "EXPORTABLE_RESIDUAL": "a constant: which steps an export carries",
+    "SCHEMA_VERSION": "the export format's version",
+    "THRESHOLD": "PLS-DA's class threshold, a constant of `pls-da.md`",
+    "ExportError": "the exception an export raises",
+}
+
+#: The modules whose public names `COVERAGE` must account for.
+KERNEL_MODULES = ("preprocessing", "decomposition", "regression", "validation", "export")
+
+
+def _coverage_table(results: dict[str, Any]) -> list[str]:
+    """The coverage section: counted from the run, never typed in."""
+    counts: dict[str, int] = {}
+    for result in results["results"]:
+        key = ".".join(result["entry_id"].split(".")[1:3])
+        counts[key] = counts.get(key, 0) + 1
+    lines = [
+        "| Kernel | Code | Compared |",
+        "| --- | --- | --- |",
+    ]
+    for row in COVERAGE:
+        code = ", ".join(f"`{kernel}`" for kernel in row.kernels)
+        if row.not_compared:
+            compared = f"**not compared.** {row.not_compared}"
+        else:
+            n = sum(counts.get(entry, 0) for entry in row.entries)
+            compared = f"{n} claim{'s' if n != 1 else ''}"
+        lines.append(f"| {row.name} | {code} | {compared} |")
+    return lines
 
 
 def _sort_key(result: dict[str, Any]) -> tuple[int, int, str, str]:
@@ -173,9 +355,12 @@ def render(results: dict[str, Any], fixture: dict[str, Any]) -> str:
         "",
         "Generated by `uv run python -m tests.parity_report` from `parity-results.json`,",
         "which the test suite writes as the comparisons happen. **Do not edit it by hand:**",
-        "CI regenerates it and fails the build if the committed copy differs, which is what",
-        "`PROPOSAL.md` §16's exit criterion — *parity report green in CI against published",
-        "reference values* — means in practice.",
+        "CI regenerates it on every change, fails the build if any claim fails or any",
+        "fixture entry goes unchecked, and publishes the regenerated copy on the",
+        "documentation site. That is what `PROPOSAL.md` §16's exit criterion — *parity",
+        "report green in CI against published reference values* — means in practice. The",
+        "committed copy is not byte-compared: the last bits of a difference depend on the",
+        "machine's BLAS (#38), so the suite checks its coverage and its tolerances instead.",
         "",
         f"Fixture schema {results['fixture_schema_version']}, generated {fixture['generated_at']}.",
         "",
@@ -249,6 +434,21 @@ def render(results: dict[str, Any], fixture: dict[str, Any]) -> str:
             "",
         ]
         lines += [*_table(failures), ""]
+
+    lines += [
+        "---",
+        "",
+        "## Coverage: every kernel the application ships",
+        "",
+        "Every algorithm the application runs, and how many claims below compare it. A",
+        "kernel that is not compared says why, and what checks it instead. The table is",
+        "tested against the code: a new kernel without a row here fails the suite. A",
+        "row whose claims include an unsourced entry or a documented divergence has",
+        "those listed under *Gaps* or *Documented divergences* below.",
+        "",
+        *_coverage_table(results),
+        "",
+    ]
 
     lines += ["---", "", "## The claims"]
 
@@ -332,7 +532,6 @@ def render(results: dict[str, Any], fixture: dict[str, Any]) -> str:
         "uv sync",
         "CHEMOMETRICS_DOWNLOAD_DATASETS=1 uv run pytest      # writes parity-results.json",
         "uv run python -m tests.parity_report                # rewrites this file",
-        "git diff --exit-code docs/parity-report.md          # what CI asserts",
         "```",
         "",
         "The reference values themselves are regenerated by",
