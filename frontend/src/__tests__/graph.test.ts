@@ -22,6 +22,7 @@ import {
   toNodes,
   type DraftStep,
 } from "@/canvas/graph";
+import { nodeLabel } from "@/shell/Sidebar";
 
 const FIXTURES = path.resolve(import.meta.dirname, "../../../tests/fixtures/contract");
 const read = <T,>(name: string) =>
@@ -59,6 +60,18 @@ describe("nodes", () => {
       spec: { kind: "plsda", n_components: 5, class_column: "fat_class" },
     };
     expect(parameterLine(plsda)).toBe("5 components · fat_class");
+  });
+
+  it("name a normalisation by its norm, in the outline and on the canvas", () => {
+    // #238: the step docs/adding-a-step.md walks through, end to end.
+    const normalise: PipelineNode = {
+      id: "normalise",
+      type: "preprocess",
+      inputs: ["source"],
+      step: { kind: "normalise", norm: "l2" },
+    };
+    expect(nodeLabel(normalise)).toBe("Normalise · l2");
+    expect(parameterLine(normalise)).toBe("l2 norm per row");
   });
 
   it("carry the reason and the failure as footers, because that is the useful part", () => {

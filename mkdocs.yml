@@ -48,6 +48,9 @@ nav:
       - The screens: screens.md
       - Model export: export.md
       - The HTML report: report.md
+  - Contributing:
+      - How to add an algorithm: adding-a-step.md
+      - CONTRIBUTING.md: https://github.com/millermuttu/Chemometrics-Workbench/blob/dev/CONTRIBUTING.md
   - Reference:
       - Parity report: parity-report.md
       - Algorithms:

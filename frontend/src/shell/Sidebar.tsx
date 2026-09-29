@@ -80,6 +80,8 @@ export function nodeLabel(node: PipelineNode): string {
       return "Mean centre";
     case "autoscale":
       return "Autoscale";
+    case "normalise":
+      return `Normalise · ${step?.norm}`;
     case "savgol":
       return `SG d${step?.deriv} w${step?.window_length}`;
     case "kfold":

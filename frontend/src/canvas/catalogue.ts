@@ -65,6 +65,12 @@ export const STEPS: DraftableStep[] = [
     payload: { step: { kind: "autoscale", ddof: 1 } },
   },
   {
+    kind: "Normalise",
+    type: "preprocess",
+    parameters: "l2 norm per row",
+    payload: { step: { kind: "normalise", norm: "l2" } },
+  },
+  {
     kind: "PCA",
     type: "estimator",
     parameters: "5 components",
