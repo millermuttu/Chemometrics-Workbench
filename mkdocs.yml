@@ -1,0 +1,66 @@
+# The documentation site: user pages first, the specifications as reference.
+#
+#   cd frontend && pnpm exec playwright test e2e/docs-screens.spec.ts   # screenshots
+#   uv run mkdocs build --strict        # or `mkdocs serve`
+#
+# Screenshots are not committed: e2e/docs-screens.spec.ts writes them into
+# docs/images/screens/ from the running application, so they cannot drift from
+# it. The phase records under docs/phase-*/ are history, not documentation,
+# and are left out.
+site_name: Chemometrics Workbench
+site_description: Open-source, local-first chemometrics workbench
+site_url: https://millermuttu.github.io/Chemometrics-Workbench/
+repo_url: https://github.com/millermuttu/Chemometrics-Workbench
+edit_uri: edit/dev/docs/
+docs_dir: docs
+strict: true
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - content.code.copy
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      toggle: { icon: material/brightness-7, name: Dark mode }
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      toggle: { icon: material/brightness-4, name: Light mode }
+
+exclude_docs: |
+  phase-*/
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Using the workbench:
+      - Install: install.md
+      - How to open this: how-to-open.md
+      - Your first PCA: first-pca.md
+      - The screens: screens.md
+      - Model export: export.md
+      - The HTML report: report.md
+  - Reference:
+      - Parity report: parity-report.md
+      - Algorithms:
+          - PCA: algorithms/pca.md
+          - PLS regression: algorithms/pls-regression.md
+          - PLS-DA: algorithms/pls-da.md
+          - Smoothing and baselines: algorithms/smoothing-and-baselines.md
+          - Metrics and validation: algorithms/metrics-and-validation.md
+      - Model artifact: model-artifact.md
+      - Model export format: model-export.md
+      - Decisions:
+          - 0001 chemotools: decisions/0001-chemotools.md
+          - 0002 Phase 1 shape: decisions/0002-phase-1-shape.md
+          - 0003 Fixture centre: decisions/0003-fixture-centre-d.md
+          - 0004 Rank tolerance: decisions/0004-rank-tolerance-precision.md
+          - 0005 Overloaded state coverage: decisions/0005-overloaded-state-coverage.md
