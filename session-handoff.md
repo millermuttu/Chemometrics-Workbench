@@ -2,7 +2,7 @@
 
 Compact state for the next session. **Overwrite this file at the end of every session** — it is a snapshot, not a log. Read it first, then `feature_list.json`, `git log` on `dev`, and the open issues.
 
-**Updated:** 2026-09-28
+**Updated:** 2026-09-29
 
 ---
 
@@ -54,13 +54,24 @@ clean environment.* `uv run python -m tests.exit_run_phase3` shows both over HTT
 
 ## Current work
 
-**Nothing is `in_progress`.** Every Phase 4 entry is `not_started`. The open issues are Phase 4's
-nine, #231 to #239.
+**Nothing is `in_progress`.** Phase 4 so far, merged through green pull requests:
 
-**What already stands against §4.3**, found when the list was written: the server binds 127.0.0.1
-only, takes an ephemeral port, checks a per-session bearer token in constant time, uses no cookies,
-and confines bundle paths. It does **not** check `Host` or `Origin`, and `DEV_ORIGINS` (the Vite
-origins) is accepted in production too. That gap is `localhost-hardening`.
+| Feature | Issue | PR |
+| --- | --- | --- |
+| Host and Origin checked on every request | #231 | #241 |
+| A launcher: the browser opens on the workbench | #232 | #242 |
+
+The open issues are #233 to #239.
+
+**The launcher is `python -m chemometrics_workbench`** (`src/chemometrics_workbench/__main__.py`),
+and it is the entry script PyInstaller should take. It serves on an ephemeral port and, once the
+socket is listening, hands the token URL to `webbrowser.open` **on a daemon thread**: called on the
+event loop, a browser that blocks holds the loop that has to answer it, and the first version of the
+test deadlocked exactly that way. `python -m chemometrics_workbench.server` stays serve-only, because
+Playwright's `seed_e2e --serve`, the exit runs and the dev loop all start it and none should open a
+browser. `./run.sh` now execs the launcher. In a frozen application the bundle resolves to
+`sys._MEIPASS/frontend/dist`, so the PyInstaller spec has to put the built bundle at that relative
+path.
 
 **The auto mode permission check failed for a stretch on 2026-09-28**: every Bash and GitHub write
 answered "the classifier gave no verdict". It was transient, and leaving auto mode got past it. If
@@ -75,9 +86,9 @@ https://github.com/millermuttu/Chemometrics-Workbench/actions/runs/35343976638/j
 drift) and `tecator.csv`. Either gitignore them or commit them.
 
 **`./run.sh` is the way in.** It syncs, installs with **pnpm** — this project has no
-`package-lock.json` and `npm ci` refuses it — builds the bundle if there is not one, and serves,
-printing `http://127.0.0.1:<port>/?token=<token>`. `--build` forces the rebuild a changed
-`frontend/src` needs.
+`package-lock.json` and `npm ci` refuses it — builds the bundle if there is not one, and launches,
+opening the browser and printing `http://127.0.0.1:<port>/?token=<token>`. `--build` forces the
+rebuild a changed `frontend/src` needs.
 
 **Scripts worth knowing.** `uv run python -m tests.exit_run` and `tests.exit_run_phase3` each drive
 the served application end to end and rewrite their phase's `docs/phase-N/exit-run.md`.
@@ -86,10 +97,10 @@ which is the number #176 is judged by.
 
 ## Next action
 
-**Pick up `localhost-hardening` (#231).** It is priority 1 with no dependencies, and it has to be in
-place before a package puts the server on anyone else's machine. `launcher` (#232) is the other
-priority-1 entry with no dependencies, and `pyinstaller-build` (#233) waits on it. The exit run
-(#239) needs the release workflow and the docs site, and a person the maintainer arranges.
+**Pick up `pyinstaller-build` (#233).** It is priority 1 and its one dependency, `launcher`, is now
+passing. `docs-site` (#236) and `contributing` (#238) are the other entries with no unmet
+dependencies. The exit run (#239) needs the release workflow and the docs site, and a person the
+maintainer arranges.
 
 ## What Phase 2 added
 
