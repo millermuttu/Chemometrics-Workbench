@@ -66,8 +66,10 @@ clean environment.* `uv run python -m tests.exit_run_phase3` shows both over HTT
 | Inspector: a refetch no longer wipes a half-typed edit | #250 | #251 |
 | Export JSON, Export Python and Save report buttons | #247 | #252 |
 | CONTRIBUTING.md completed, docs/adding-a-step.md, Normalise in the step list | #238 | #254 |
+| The parity report's coverage of every shipped kernel, published fresh (blocked on the deploy) | #236 | #257 |
+| Worked examples, PCA and PLS, with the data to download (blocked on the deploy) | #237 | this PR |
 
-The open issues are #235 (blocked on the deploy), #236, #237, #239 and #255.
+The open issues are #235, #236, #237 (all three blocked only on the Pages deploy from main), #239, #255 and #258.
 
 **The docs site is `blocked`, deliberately.** It builds strict in CI (`docs` job) with screenshots
 from `frontend/e2e/docs-screens.spec.ts`, and deploys to Pages from `main` only (`pages` job). The
@@ -87,6 +89,18 @@ The trace is the `playwright-report-windows-latest` artifact of run 36540710418 
 2026-10-06); the MCP tools cannot fetch it. The maintainer merged #254 over it. Read that trace
 before treating the next Windows red as a flake. This is the third Windows-only e2e failure (#210,
 #221's unread one, this).
+
+**The worked examples are tested three ways.** `tests/test_examples.py` recomputes every number
+`docs/examples/*.md` quotes, over HTTP on `docs/examples/tecator.csv`, and asserts the page prints
+it; `frontend/e2e/docs-examples.spec.ts` walks both pages through the screens on a fifth Playwright
+server (8769, `examples`) and takes their screenshots; the CSV is asserted byte-equal to
+`tecator_csv()` and ships with the Tecator permission note, which its terms require. A kernel change
+that moves a quoted number fails the suite until the page is updated.
+
+**#258, found writing them:** the canvas fits only on mount, so a new pipeline opens zoomed in on the
+source and added steps sit off-screen, and the add-step menu can open below the window. The
+examples spec reopens the canvas and drops its last connector upward to get round both, and says
+so. It is `canvas-fit-and-menu` on the list.
 
 **Merging:** the maintainer gave a standing "merge when CI is green" on 2026-09-29, for that session.
 
@@ -138,9 +152,10 @@ which is the number #176 is judged by.
 
 ## Next action
 
-**Every entry with its dependencies met is done.** Left: `published-parity-report` (#236) and
-`worked-examples` (#237), which depend on `docs-site` (blocked only on the Pages deploy from main;
-ask the maintainer whether they may start before it), #255, and the exit run. The exit run (#239) needs the release workflow and the docs site, and a person the
+**Pick up `canvas-fit-and-menu` (#258)**, priority 2, no dependencies; then drop the two workarounds
+in `docs-examples.spec.ts`. #255 still wants its trace read (expires 2026-10-06). `docs-site`,
+`published-parity-report` and `worked-examples` all unblock at the phase-end merge, once Pages is
+set to GitHub Actions. The exit run (#239) needs the release workflow and the docs site, and a person the
 maintainer arranges.
 
 ## What Phase 2 added

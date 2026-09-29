@@ -12,6 +12,8 @@ screens in your browser. Nothing leaves the computer.
 - **[Your first PCA](first-pca.md)**: from a CSV file to a scores plot in a few minutes.
 - **[The screens](screens.md)**: what each part of the window does.
 - **[Model export](export.md)** and **[the HTML report](report.md)**: taking results elsewhere.
+- **Worked examples** on the Tecator meat spectra: **[exploring a dataset with PCA](examples/pca.md)**
+  and **[a calibration with PLS](examples/pls.md)**, with the data to download.
 
 Every number the workbench reports is compared against an independent implementation or a
 published value, and the **[parity report](parity-report.md)** lists each comparison and how
