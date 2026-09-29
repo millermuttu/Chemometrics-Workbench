@@ -83,7 +83,14 @@ export function Inspector({
 
   // A different node is a different form. Reset to what the pipeline says
   // rather than carrying the last node's numbers across.
-  useEffect(() => setValues(node ? valuesOf(node) : {}), [node]);
+  //
+  // Keyed on the node, not on the object: a refetch after an Apply is a new
+  // object carrying the values just applied, and resetting on it threw away
+  // whatever had been typed while it was in flight (#250). Only this form
+  // edits an existing node's parameters, so nothing else changes them under it.
+  const formKey = node ? `${node.id}:${(node.step ?? node.spec)?.kind}` : "";
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on formKey, see above
+  useEffect(() => setValues(node ? valuesOf(node) : {}), [formKey]);
 
   if (collapsed) return <aside className="insp rail" aria-label="Inspector" />;
 

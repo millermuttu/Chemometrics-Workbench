@@ -126,6 +126,15 @@ test("an accepted edit is written to the pipeline, not only to the screen", asyn
   const inspector = page.getByRole("complementary", { name: "Inspector" });
 
   await expect(inspector.getByLabel("Window Length")).toHaveValue("11");
+
+  // #250. The application's own refetch of the pipeline is held back, so the
+  // race a loaded macOS runner lost is run on every run: `savedWindow` reads
+  // the server directly (`page.request` is not routed) and sees 9 at once,
+  // while the screen still holds the pipeline from before the edit.
+  await page.route("**/api/pipelines/current", async (route) => {
+    if (route.request().method() === "GET") await new Promise((done) => setTimeout(done, 2_000));
+    await route.continue();
+  });
   await inspector.getByLabel("Window Length").fill("9");
   await inspector.getByRole("button", { name: "Apply and re-run" }).click();
 
@@ -133,8 +142,14 @@ test("an accepted edit is written to the pipeline, not only to the screen", asyn
   await expect.poll(() => savedWindow(page), APPLIED).toBe(9);
 
   // Put it back: the project outlives this test, and the file above opens by
-  // asserting the seeded 11.
+  // asserting the seeded 11. Typed *before* the held-back refetch lands, which
+  // the outline shows by renaming the node to its new window. That refetch
+  // used to reset the form to the server's 9 and Apply sent 9 back (#250).
   await inspector.getByLabel("Window Length").fill("11");
+  await expect((await outline).getByRole("button", { name: /SG d1 w9/ }).first()).toBeVisible(
+    APPLIED,
+  );
+  await expect(inspector.getByLabel("Window Length")).toHaveValue("11");
   await inspector.getByRole("button", { name: "Apply and re-run" }).click();
   await expect.poll(() => savedWindow(page), APPLIED).toBe(11);
 });
