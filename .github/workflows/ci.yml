@@ -256,7 +256,7 @@ jobs:
 
       - name: Screenshots
         working-directory: frontend
-        run: pnpm exec playwright test e2e/docs-screens.spec.ts --project seeded
+        run: pnpm exec playwright test e2e/docs-screens.spec.ts e2e/docs-examples.spec.ts --project seeded --project examples
 
       # The site publishes the parity report as this run computes it, not as it
       # was last committed (#236): the parity suite writes parity-results.json

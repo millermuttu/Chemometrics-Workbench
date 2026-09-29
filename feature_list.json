@@ -152,9 +152,25 @@
         "Both examples on the site with screenshots",
         "uv run pytest - every number an example quotes is checked by a test"
       ],
+      "status": "blocked",
+      "evidence": "2026-09-29. docs/examples/pca.md and docs/examples/pls.md, in the site nav under 'Worked examples', each step with its screenshot; docs/examples/tecator.csv and tecator-permission.txt are served beside them (site/examples/ holds both after `mkdocs build --strict`, clean). Screenshots: frontend/e2e/docs-examples.spec.ts, `--project examples` on a fresh empty project (8769): `1 passed` - import through the preview, the PCA pipeline through the step list, run, spectra, PCA results, M002's contributions, the PLS branch by dragging from the SG port, Target fat and 10 then 4 components through the inspector, the window changed to 15, and the two runs compared (lineage view names window_length). Ten pictures checked by eye against the pages: 23 of 240 beyond a limit, M002 T² 26.76, RMSECV 2.4634 and 2.4363. Numbers: tests/test_examples.py, `3 passed`: the CSV is tecator_csv() byte for byte and the permission note is tecator.txt's own; every number the pages quote (PC1 79.5%, T² limit 10.9, 18 / 11 / 23 of 240, M002 26.8; RMSECV 4.86 to 2.19, spread 0.32, 4 components, RMSECV 2.46, Q² 0.970, RMSEC 2.36, R² 0.973, VIP near 941 nm, RMSECV 2.44 at window 15) is recomputed over HTTP and asserted present. Changing '79.5%' or '4 components' on a page made the test fail naming it. The page's snippet code was run as written with Export Python's pls_predict.py in a venv holding only NumPy: it ran, and matched the application by sample id within 5.2e-6 relative (216 calibration) and 2.0e-6 (24 held out).",
+      "notes": "PROPOSAL.md section 17 treats worked examples as product. BLOCKED only on its dependency docs-site (the Pages deploy from main); every verification step is met. Found while writing it: #258, the canvas opens zoomed in on a lone source node and its add-step menu can open off-screen; docs-examples.spec.ts works around both and says so."
+    },
+    {
+      "id": "canvas-fit-and-menu",
+      "priority": 2,
+      "area": "frontend",
+      "issue": 258,
+      "title": "Pipeline canvas: fit to the graph as it grows, and keep the add-step menu on screen",
+      "depends_on": [],
+      "user_visible_behavior": "A new pipeline's steps are visible as they are added, a fit-view control is on the canvas, and the add-step menu opens where all of it can be clicked.",
+      "verification": [
+        "pnpm exec playwright test - four steps added to a fresh pipeline are all inside the viewport without a reload; a connector dropped near the bottom opens a menu whose last entry is clickable; each fails on the unfixed code first",
+        "docs-examples.spec.ts drops its reload and its upward drop, and still passes"
+      ],
       "status": "not_started",
       "evidence": "",
-      "notes": "PROPOSAL.md section 17 treats worked examples as product."
+      "notes": "Found writing the worked examples (#237)."
     },
     {
       "id": "contributing",
