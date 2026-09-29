@@ -134,9 +134,9 @@
         "uv run python -m tests.parity_report - green, with any new claims",
         "The report on the site is regenerated in CI"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": "PROPOSAL.md section 18's 1.0 criterion."
+      "status": "passing",
+      "evidence": "2026-09-29. Coverage: docs/parity-report.md opens with 'Coverage: every kernel the application ships', 26 rows from COVERAGE in tests/parity_report.py, claim counts computed from the run and summing to the report's 120; seven rows are named as not compared with the reason and what checks them instead (area normalisation, range selection, T2/SPE contributions, PLS diagnostics, bias, fold assignment, the export). tests/test_parity_coverage.py: 3 passed; dropping the Bias row made the kernel test fail, dropping the SPE-limit row made the fixture test fail. `uv run python -m tests.parity_report`: `wrote ... - 120 claims`, 120 passed 0 failed; `pytest -m parity` alone leaves `not_compared` empty. `uv run pytest` 916 passed 1 skipped; ruff, format, mypy clean. Regenerated in CI: PR #257's run https://github.com/millermuttu/Chemometrics-Workbench/actions/runs/36549421449 - the `docs` job ran `pytest -m parity` and `tests.parity_report` before `mkdocs build --strict` and succeeded, so the site is built from the report CI computed. The report's claim that CI byte-compares it (stopped by #38) was corrected.",
+      "notes": "PROPOSAL.md section 18's 1.0 criterion. Publishing on the live site waits on docs-site's Pages deploy from main, like every page."
     },
     {
       "id": "worked-examples",
