@@ -22,6 +22,11 @@ JSON and Python-snippet export, and reporting.
 
 ## Running it
 
+A packaged application for Windows, Apple Silicon macOS and Linux is attached to each
+[release](https://github.com/millermuttu/Chemometrics-Workbench/releases). It is unsigned, and
+[docs/how-to-open.md](docs/how-to-open.md) says how to get past the first-launch warning. From a
+checkout:
+
 ```bash
 ./run.sh
 ```

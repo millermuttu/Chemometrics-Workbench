@@ -1,0 +1,72 @@
+name: Release
+
+# A `v*` tag builds the three packages with package.yml - the same job CI runs
+# on every pull request - and publishes them as a GitHub Release. Manual
+# release builds do not survive a second maintainer (PROPOSAL.md section 4.2).
+#
+# The notes are the tag's annotation, then the download sizes measured by the
+# build, then a link to docs/how-to-open.md: the packages are unsigned
+# (decided 2026-09-28), and Gatekeeper and SmartScreen will say so. A tag with
+# a hyphen (`v0.9.0-rc1`) is published as a pre-release.
+#
+#   git tag -a v0.9.0-rc1 -m "notes"   # annotated: the message is the notes
+#   git push origin v0.9.0-rc1
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    uses: ./.github/workflows/package.yml
+
+  release:
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # The checkout of a tag push can leave the tag lightweight; fetch the
+      # tag object itself so its annotation is readable.
+      - name: Fetch the annotated tag
+        run: git fetch --force origin "+refs/tags/${TAG}:refs/tags/${TAG}"
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: packages
+          merge-multiple: true
+
+      - name: Assemble the notes
+        run: |
+          if [ "$(git cat-file -t "$TAG")" != tag ]; then
+            echo "::error::$TAG is a lightweight tag; its annotation is the release notes"
+            exit 1
+          fi
+          {
+            git tag -l --format='%(contents)' "$TAG"
+            echo
+            echo "## Downloads"
+            echo
+            echo "Unsigned. Your system will warn the first time you open it:"
+            echo "[how to open this](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/how-to-open.md)."
+            echo
+            echo "| Package | Download | Unpacked |"
+            echo "| --- | --- | --- |"
+            cat packages/*.size.md
+          } > notes.md
+          cat notes.md
+
+      - name: Publish
+        run: |
+          prerelease=""
+          case "$TAG" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$TAG" --title "Chemometrics Workbench ${TAG#v}" \
+            --notes-file notes.md $prerelease \
+            packages/*.tar.gz packages/*.dmg packages/*.zip
