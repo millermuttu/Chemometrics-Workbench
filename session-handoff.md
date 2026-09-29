@@ -73,6 +73,13 @@ that merge, **Settings → Pages → Source must be "GitHub Actions"**, then che
 https://millermuttu.github.io/Chemometrics-Workbench/ answers and mark `docs-site` passing. Locally:
 run the screenshot spec, then `uv run mkdocs build --strict`.
 
+**#250, fixed in #251.** A red `e2e (macos-latest)` on a bookkeeping PR was a real bug: the inspector
+reset its form on every pipeline refetch, so the refetch after an Apply put the old value back over
+a newly typed one. The form now resets on node id and kind only, and `inspector.spec.ts` holds the
+app's refetch back with `page.route` so the race runs every time.
+
+**Merging:** the maintainer gave a standing "merge when CI is green" on 2026-09-29, for that session.
+
 **#247, `ui-export-buttons`, was found writing the docs.** Export JSON, export Python and the HTML
 report have no button; only Save model does. The exit run depends on it now.
 
