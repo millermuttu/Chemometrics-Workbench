@@ -64,9 +64,9 @@
         "The build fails if scikit-learn or chemotools is importable from the bundle",
         "Packed and unpacked sizes recorded per platform"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": "PROPOSAL.md section 4.2: onedir, automated in CI from day one of the phase. Unsigned at 1.0."
+      "status": "passing",
+      "evidence": "2026-09-29. PR #244, CI run https://github.com/millermuttu/Chemometrics-Workbench/actions/runs/36525504153: `package (ubuntu-latest)`, `package (macos-latest)` and `package (windows-latest)` all succeeded, each building with packaging/workbench.spec, running `tests/smoke_package.py` against the executable (launch URL read from its stdout, the page loaded, Tecator imported, a two-component PCA run over HTTP, 240 x 2 finite scores back, `<config dir>/projects/default` created), archiving and uploading. Uploaded artifacts, packed (GitHub's artifact size): macOS `.dmg` 44.3 MB, Windows `.zip` 61.4 MB, Linux `.tar.gz` 68.1 MB. Unpacked: Linux 234 MB, measured locally by the smoke test's `size_mb`; the macOS and Windows unpacked figures are in each job's step summary, which the GitHub MCP tools cannot read, and are not copied here yet. The dev-dependency guard: with an empty `_internal/sklearn` directory planted in a local build, the smoke test printed `FAIL: the bundle carries development dependencies` and exited 1.",
+      "notes": "PROPOSAL.md section 4.2: onedir, automated in CI from day one of the phase. Unsigned at 1.0. The .dmg holds the onedir folder, not a .app, so a double-click opens Terminal, which is the 1.0 console-window decision. PyInstaller warns that `scipy.special._cdflib` is not found; the PCA smoke passes regardless, but a kernel that reaches it would fail only in the package."
     },
     {
       "id": "release-workflow",
