@@ -6,8 +6,9 @@ and 1.0 ships without them (`PROPOSAL.md` §4.2 and §17). The application is th
 Your system will warn you the first time you open it, and this page shows you how to get past that
 warning.
 
-**Size.** The download is 45–70 MB depending on the platform. Unpacked, it takes about 230 MB on
-Linux. Each release's notes list the measured download and unpacked size for every platform.
+**Size.** The download is 45–70 MB depending on the platform, and unpacked it takes 95–175 MB
+(macOS smallest, Linux largest, as of `v0.9.0-rc1`). Each release's notes list the measured download
+and unpacked size for every platform.
 
 When it starts, a console window opens and your default browser opens on the workbench. **Close the
 console window to stop the workbench.** If the browser does not open, copy the `Launch URL` the

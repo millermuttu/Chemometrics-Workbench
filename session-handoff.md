@@ -61,13 +61,19 @@ clean environment.* `uv run python -m tests.exit_run_phase3` shows both over HTT
 | Host and Origin checked on every request | #231 | #241 |
 | A launcher: the browser opens on the workbench | #232 | #242 |
 | PyInstaller builds on three platforms, each smoke-tested | #233 | #244 |
+| A release workflow: a tag builds and publishes the three packages | #234 | #246 |
 
-The open issues are #234 to #239.
+The open issues are #235 to #239.
+
+**Releasing.** `git tag -a vX.Y.Z -m "notes"` then push the tag: release.yml builds through the
+reusable package.yml, refuses a lightweight tag, and publishes with the annotation, a size table and
+a link to docs/how-to-open.md. A hyphenated tag is a pre-release. `v0.9.0-rc1` is the proof and is
+public; delete it or keep it as history.
 
 **Packaging.** `uv run pyinstaller packaging/workbench.spec --noconfirm` after `pnpm build` gives
 `dist/ChemometricsWorkbench/`; `uv run python -m tests.smoke_package dist/ChemometricsWorkbench`
-drives it. CI's `package` job does both on three platforms and uploads the archives. `.gitignore`
-ignores `*.spec`, so the spec is un-ignored by name. Packed sizes: dmg 44 MB, zip 61 MB, tar.gz 68 MB.
+drives it. The reusable `package.yml` does both on three platforms and uploads the archives. `.gitignore`
+ignores `*.spec`, so the spec is un-ignored by name. Download / unpacked: macOS 48 / 95 MB, Windows 62 / 146 MB, Linux 68 / 174 MB.
 
 **The launcher is `python -m chemometrics_workbench`** (`src/chemometrics_workbench/__main__.py`),
 and it is the entry script PyInstaller should take. It serves on an ephemeral port and, once the
@@ -103,9 +109,9 @@ which is the number #176 is judged by.
 
 ## Next action
 
-**Pick up `release-workflow` (#234)** — priority 2, its dependency `pyinstaller-build` now passing;
-it can reuse the `package` job's steps on a tag. `docs-site` (#236) is the other priority-2 entry
-with no unmet dependencies, and `contributing` (#238) is free too. The exit run (#239) needs the release workflow and the docs site, and a person the
+**Pick up `docs-site` (#236)** — priority 2, no dependencies; it must link docs/how-to-open.md.
+`published-parity-report` (#235) and `worked-examples` (#237) wait on it; `contributing` (#238) is
+free. The exit run (#239) needs the release workflow and the docs site, and a person the
 maintainer arranges.
 
 ## What Phase 2 added
