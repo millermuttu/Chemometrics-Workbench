@@ -44,9 +44,9 @@
         "uv run pytest - the URL handed to the browser carries the bound port and the token; the bundle is found from a simulated frozen layout; two launches get two ports",
         "Started from a checkout, the browser opens on the workbench with no terminal input"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": "PROPOSAL.md sections 4.1 and 4.2. server.py prints the launch URL today and nothing opens it. The project already defaults to <config dir>/projects/default when CHEMOMETRICS_PROJECT is unset."
+      "status": "passing",
+      "evidence": "2026-09-29. `uv run pytest`: `913 passed, 1 skipped`. tests/test_server.py adds three tests. Two real launches of `main(open_browser=True)` run side by side on threads: each hands the browser `http://127.0.0.1:<port>/?token=<token>` with its own bound port (the two differ and equal the sockets' ports), and each URL answers `/api/projects` 200 by the time the browser is told of it. `main()` without the flag opens nothing, which is what Playwright, seed_e2e and the exit runs start. With `sys.frozen` and `sys._MEIPASS` set to a directory holding `frontend/dist/index.html`, `BUNDLE` resolves there and `/` serves it. Proof: against dev's server.py with the new tests kept, all three FAILED. From a checkout, `python -m chemometrics_workbench` (what `./run.sh` now execs) with `BROWSER` set to a script that records its argument, since that is what `webbrowser` hands any browser: it received `http://127.0.0.1:45515/?token=...` with no terminal input; that URL served `<title>Chemometrics Workbench`, `/api/projects` with its token answered 200, the console printed \"Close this window to stop the workbench.\", and `<config dir>/projects/default` was created. `ruff check`, `ruff format --check` and `mypy` clean.",
+      "notes": "PROPOSAL.md sections 4.1 and 4.2. server.py prints the launch URL today and nothing opens it. The project already defaults to <config dir>/projects/default when CHEMOMETRICS_PROJECT is unset. Done as `python -m chemometrics_workbench` (`__main__.py`), which is also what PyInstaller should take as its entry script; `python -m chemometrics_workbench.server` stays serve-only. `webbrowser.open` runs on a daemon thread: called on the event loop, a browser that blocks (a console browser, or the test's fetching stand-in) held the loop that has to answer it."
     },
     {
       "id": "pyinstaller-build",

@@ -27,7 +27,8 @@ JSON and Python-snippet export, and reporting.
 ```
 
 It syncs the environment, builds the frontend bundle if there is not one, and starts the
-server. Open the URL it prints — `http://127.0.0.1:<port>/?token=<token>`. The port is
+server, then opens the workbench in the default browser at the URL it also prints —
+`http://127.0.0.1:<port>/?token=<token>`. Close the terminal, or press Ctrl+C, to stop it. The port is
 ephemeral so two copies never fight over a number, and the token is a real check: every `/api`
 request carries it, so a bare `127.0.0.1` address without the token gets a 401.
 

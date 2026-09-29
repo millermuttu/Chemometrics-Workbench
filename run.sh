@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Launch the workbench: one process on the loopback interface, serving the
-# built frontend. It prints the URL to open — the token is in it, and every
-# /api request needs that token, so a bare localhost address will not do.
+# built frontend, and opens it in the default browser. The URL is printed too —
+# the token is in it, and every /api request needs that token, so a bare
+# localhost address will not do.
 #
 #   ./run.sh            # build the bundle if it is missing, then serve
 #   ./run.sh --build    # rebuild first, for when frontend/src has moved on
@@ -20,4 +21,4 @@ if [ "${1:-}" = "--build" ] || [ ! -f frontend/dist/index.html ]; then
     (cd frontend && pnpm install --frozen-lockfile && pnpm build)
 fi
 
-exec uv run python -m chemometrics_workbench.server
+exec uv run python -m chemometrics_workbench
