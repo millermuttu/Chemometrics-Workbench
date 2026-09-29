@@ -45,6 +45,11 @@ dev = [
   # PyInstaller builds the packages (packaging/workbench.spec); it is a build
   # tool and nothing at runtime imports it.
   "pyinstaller>=6.22.3",
+  # MkDocs Material builds the documentation site (mkdocs.yml). Decided
+  # 2026-09-28: a development dependency only, never shipped.
+  "mkdocs-material>=9.7.7",
+  # MkDocs 2.0 drops the plugin and theme systems Material depends on.
+  "mkdocs>=1.6,<2",
 ]
 
 [tool.ruff]

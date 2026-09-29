@@ -104,6 +104,22 @@
       "notes": "MkDocs Material as a development dependency only. The specification documents are linked as reference, not rewritten."
     },
     {
+      "id": "ui-export-buttons",
+      "priority": 1,
+      "area": "frontend",
+      "issue": 247,
+      "title": "Export, report and model file reachable from the UI, not only over HTTP",
+      "depends_on": [],
+      "user_visible_behavior": "A results tab offers Export JSON and Export Python, and an experiment tab offers Save report, each downloading the file; no terminal or token handling needed.",
+      "verification": [
+        "pnpm exec playwright test - each button downloads the served file under its served name, and a baseline chain shows the server's refusal",
+        "docs/export.md and docs/report.md describe the buttons, with the curl notes removed, and mkdocs build --strict passes"
+      ],
+      "status": "not_started",
+      "evidence": "",
+      "notes": "Found writing the docs site (#235): only Save model has a button. The exit run's non-developer cannot be asked to use curl."
+    },
+    {
       "id": "published-parity-report",
       "priority": 2,
       "area": "docs",
@@ -164,7 +180,8 @@
       "title": "The exit criterion: a non-developer, a clean machine, a PCA in under ten minutes",
       "depends_on": [
         "release-workflow",
-        "docs-site"
+        "docs-site",
+        "ui-export-buttons"
       ],
       "user_visible_behavior": "Recorded, not built: a timed session by a non-developer on a clean machine, from the release page to a PCA scores plot.",
       "verification": [
