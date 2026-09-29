@@ -60,8 +60,14 @@ clean environment.* `uv run python -m tests.exit_run_phase3` shows both over HTT
 | --- | --- | --- |
 | Host and Origin checked on every request | #231 | #241 |
 | A launcher: the browser opens on the workbench | #232 | #242 |
+| PyInstaller builds on three platforms, each smoke-tested | #233 | #244 |
 
-The open issues are #233 to #239.
+The open issues are #234 to #239.
+
+**Packaging.** `uv run pyinstaller packaging/workbench.spec --noconfirm` after `pnpm build` gives
+`dist/ChemometricsWorkbench/`; `uv run python -m tests.smoke_package dist/ChemometricsWorkbench`
+drives it. CI's `package` job does both on three platforms and uploads the archives. `.gitignore`
+ignores `*.spec`, so the spec is un-ignored by name. Packed sizes: dmg 44 MB, zip 61 MB, tar.gz 68 MB.
 
 **The launcher is `python -m chemometrics_workbench`** (`src/chemometrics_workbench/__main__.py`),
 and it is the entry script PyInstaller should take. It serves on an ephemeral port and, once the
@@ -97,9 +103,9 @@ which is the number #176 is judged by.
 
 ## Next action
 
-**Pick up `pyinstaller-build` (#233).** It is priority 1 and its one dependency, `launcher`, is now
-passing. `docs-site` (#236) and `contributing` (#238) are the other entries with no unmet
-dependencies. The exit run (#239) needs the release workflow and the docs site, and a person the
+**Pick up `release-workflow` (#234)** — priority 2, its dependency `pyinstaller-build` now passing;
+it can reuse the `package` job's steps on a tag. `docs-site` (#236) is the other priority-2 entry
+with no unmet dependencies, and `contributing` (#238) is free too. The exit run (#239) needs the release workflow and the docs site, and a person the
 maintainer arranges.
 
 ## What Phase 2 added
