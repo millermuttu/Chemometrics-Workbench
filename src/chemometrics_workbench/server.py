@@ -2,10 +2,14 @@
 
 Run it:
 
-    uv run python -m chemometrics_workbench.server
+    uv run python -m chemometrics_workbench          # and open the browser
+    uv run python -m chemometrics_workbench.server   # serve only
 
-It prints the launch URL — `http://127.0.0.1:<port>/?token=<token>` — which is
-what the desktop shell hands the browser.
+Both print the launch URL — `http://127.0.0.1:<port>/?token=<token>`. The
+first is the launcher `PROPOSAL.md` §4.2 describes: once the socket is
+listening it hands that URL to the default browser, which is what a packaged
+application does on a double-click. The second opens nothing, which is what
+the development loop, the Playwright suite and the exit-run scripts want.
 
 This module assembles; `api.py` computes. What is here is the things a server
 has and a router does not: the port, the token, the Host and Origin checks, the
@@ -52,6 +56,9 @@ from __future__ import annotations
 
 import os
 import secrets
+import sys
+import threading
+import webbrowser
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -67,9 +74,16 @@ from chemometrics_workbench.db import dispose_all
 
 __all__ = ["BUNDLE", "TOKEN", "app", "main"]
 
-#: Production mode serves the built frontend from here. `WORKBENCH_BUNDLE`
-#: overrides it, which is how the mount is exercised without a build.
-_BUNDLE_DEFAULT = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+#: Production mode serves the built frontend from here: `frontend/dist` in a
+#: checkout, or the same relative path under PyInstaller's unpacked root in a
+#: frozen application. `WORKBENCH_BUNDLE` overrides it, which is how the mount
+#: is exercised without a build.
+_ROOT = (
+    Path(sys._MEIPASS)  # type: ignore[attr-defined]
+    if getattr(sys, "frozen", False)
+    else Path(__file__).resolve().parents[2]
+)
+_BUNDLE_DEFAULT = _ROOT / "frontend" / "dist"
 BUNDLE = Path(os.environ.get("WORKBENCH_BUNDLE") or _BUNDLE_DEFAULT)
 
 #: Set `WORKBENCH_TOKEN` to keep the token stable across restarts while
@@ -201,7 +215,7 @@ if BUNDLE.is_dir():
         return FileResponse(BUNDLE / "index.html")
 
 
-def main() -> None:
+def main(open_browser: bool = False) -> None:
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=PORT, log_level="info"))
     # An ephemeral port is only knowable after the socket is bound, so the URL
     # is printed from the socket rather than from the config.
@@ -210,7 +224,14 @@ def main() -> None:
     async def startup(sockets: Any = None) -> None:
         await original(sockets=sockets)
         port = server.servers[0].sockets[0].getsockname()[1]
-        print(f"\n  Launch URL: http://127.0.0.1:{port}/?token={TOKEN}\n", flush=True)
+        url = f"http://127.0.0.1:{port}/?token={TOKEN}"
+        print(f"\n  Launch URL: {url}\n", flush=True)
+        if open_browser:
+            # After the socket is listening, so the first request cannot race
+            # it; and on a thread, because some browsers `open` waits for would
+            # otherwise hold the event loop that has to answer them.
+            threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
+            print("  Close this window to stop the workbench.\n", flush=True)
 
     server.startup = startup  # type: ignore[method-assign]
     server.run()
