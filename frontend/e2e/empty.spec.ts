@@ -158,3 +158,56 @@ test("a zip of OPUS files previews as one dataset with a block to choose", async
   await expect(page.getByRole("button", { name: "Import 2 × 3578" })).toBeVisible();
   await page.getByRole("button", { name: "Cancel" }).click();
 });
+
+/** #258. The canvas fitted the graph only when it mounted, so steps added to a
+ * fresh pipeline walked off the right-hand edge. Nothing here is saved. */
+test("steps added to a fresh pipeline stay inside the canvas", async ({ page }) => {
+  await page.goto("/?token=e2e-token");
+  await page.getByRole("button", { name: "Pipeline", exact: true }).click();
+  await expect(page.locator(".react-flow__node").first()).toBeVisible();
+  const before = await page.locator(".react-flow__node").count();
+
+  for (const step of ["SNV", "SG d1 w11", "Mean centre", "PCA"]) {
+    await page.getByLabel("Step").selectOption(step);
+    await page.getByRole("button", { name: "Add", exact: true }).click();
+  }
+  const nodes = page.locator(".react-flow__node");
+  await expect(nodes).toHaveCount(before + 4);
+
+  const canvas = (await page.getByTestId("pipeline-canvas").boundingBox())!;
+  await expect
+    .poll(async () => {
+      const boxes = await Promise.all((await nodes.all()).map((one) => one.boundingBox()));
+      return boxes.every(
+        (box) =>
+          box !== null &&
+          box.x >= canvas.x &&
+          box.y >= canvas.y &&
+          box.x + box.width <= canvas.x + canvas.width &&
+          box.y + box.height <= canvas.y + canvas.height,
+      );
+    })
+    .toBe(true);
+  await expect(page.locator(".react-flow__controls-fitview")).toBeVisible();
+});
+
+/** #258. The add-step menu opened downwards from the drop, so a drop near the
+ * bottom of the window put its last entries out of reach. */
+test("a connector dropped near the bottom opens a menu that fits", async ({ page }) => {
+  await page.goto("/?token=e2e-token");
+  await page.getByRole("button", { name: "Pipeline", exact: true }).click();
+  const port = page.locator('.react-flow__node[data-id="source"] .react-flow__handle-right');
+  const start = (await port.boundingBox())!;
+  const bottom = page.viewportSize()!.height - 20;
+  await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(start.x + 80, bottom, { steps: 12 });
+  await page.mouse.up();
+
+  const menu = page.getByTestId("add-step-menu");
+  await expect(menu).toBeVisible();
+  const last = menu.getByRole("menuitem").last();
+  const box = (await last.boundingBox())!;
+  expect(box.y + box.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+  await last.click({ trial: true, timeout: 2_000 });
+});
