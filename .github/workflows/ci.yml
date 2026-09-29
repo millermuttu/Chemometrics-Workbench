@@ -210,84 +210,8 @@ jobs:
             frontend/test-results/
           retention-days: 7
 
-  # The packaged application, built on each platform it ships on and then
-  # launched: PROPOSAL.md section 4.2 wants the build automated from day one of
-  # Phase 4, and a package nobody has started is a guess. tests/smoke_package.py
-  # refuses a bundle holding scikit-learn or chemotools, reads the launch URL
-  # the executable prints, and runs a PCA over HTTP. Formats were decided on
-  # 2026-09-28: Windows .zip, Apple Silicon .dmg, Linux .tar.gz, all unsigned.
+  # The packaged application, built and smoke-tested on each platform it ships
+  # on. The steps live in package.yml so release.yml builds exactly the same
+  # thing from a tag.
   package:
-    name: package (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            archive: ChemometricsWorkbench-linux-x64.tar.gz
-          - os: macos-latest
-            archive: ChemometricsWorkbench-macos-arm64.dmg
-          - os: windows-latest
-            archive: ChemometricsWorkbench-windows-x64.zip
-    defaults:
-      run:
-        shell: bash
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-        with:
-          package_json_file: frontend/package.json
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
-
-      - name: Build the frontend
-        working-directory: frontend
-        run: pnpm install --frozen-lockfile && pnpm build
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-
-      - name: Sync environment
-        run: uv sync --locked
-
-      - name: PyInstaller
-        run: uv run pyinstaller packaging/workbench.spec --noconfirm
-
-      - name: Smoke test the built executable
-        run: uv run python -m tests.smoke_package dist/ChemometricsWorkbench
-
-      - name: Archive
-        run: |
-          case "${{ runner.os }}" in
-            Linux)   tar -czf "${{ matrix.archive }}" -C dist ChemometricsWorkbench ;;
-            macOS)   hdiutil create -volname "Chemometrics Workbench" -srcfolder dist/ChemometricsWorkbench -format UDZO "${{ matrix.archive }}" ;;
-            Windows) 7z a -tzip "${{ matrix.archive }}" ./dist/ChemometricsWorkbench ;;
-          esac
-
-      # PROPOSAL.md section 4.2: state the size plainly.
-      - name: Record sizes
-        run: |
-          uv run python - "${{ matrix.archive }}" >> "$GITHUB_STEP_SUMMARY" <<'PY'
-          import sys
-          from pathlib import Path
-          from tests.smoke_package import size_mb
-          packed = Path(sys.argv[1]).stat().st_size / 1e6
-          unpacked = size_mb(Path("dist/ChemometricsWorkbench"))
-          print(f"| {sys.argv[1]} | packed {packed:.0f} MB | unpacked {unpacked:.0f} MB |")
-          PY
-          cat "$GITHUB_STEP_SUMMARY"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.archive }}
-          path: ${{ matrix.archive }}
-          retention-days: 14
+    uses: ./.github/workflows/package.yml
