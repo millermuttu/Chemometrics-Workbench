@@ -204,9 +204,9 @@
         "docs/phase-4/exit-run.md: protocol, platform and OS version, timed steps, hesitations, warnings seen, total time, verdict",
         "Every obstacle found is an issue, fixed or consciously accepted"
       ],
-      "status": "not_started",
+      "status": "blocked",
       "evidence": "",
-      "notes": "A person runs it; the maintainer arranges the session. At least one run on Windows."
+      "notes": "A person runs it; the maintainer arranges the session. At least one run on Windows. 2026-09-30: docs/phase-4/exit-run.md holds the protocol, the observer's sheet and a blank session record (#239). Blocked on docs-site, which waits for the dev-to-main merge and the Pages deploy, and then on a session with a real tester."
     }
   ]
 }
