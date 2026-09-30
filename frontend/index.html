@@ -4,6 +4,22 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=1440" />
     <title>Chemometrics Workbench</title>
+    <script>
+      // A stylesheet or script that fails to arrive leaves a page with no
+      // layout, and nothing on it says why (#255). Reload once; a second
+      // failure in the same tab is left for the user to see.
+      addEventListener(
+        "error",
+        (event) => {
+          const tag = event.target && event.target.tagName;
+          if (tag !== "LINK" && tag !== "SCRIPT") return;
+          if (sessionStorage.getItem("asset-reload")) return;
+          sessionStorage.setItem("asset-reload", "1");
+          location.reload();
+        },
+        true,
+      );
+    </script>
   </head>
   <body>
     <div id="root"></div>

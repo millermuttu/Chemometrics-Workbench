@@ -128,3 +128,18 @@ test("a server that is not answering is told apart from one that refuses", async
   await expect(notice).toContainText("NO RESPONSE");
   await expect(notice).toContainText("not answering");
 });
+
+/** A stylesheet that fails to arrive leaves an unstyled page whose regions
+ * have no size. The Windows runner lost one to ERR_NO_BUFFER_SPACE twice (#255);
+ * the page now reloads once when a bundle asset fails. */
+test("a bundle asset that fails to load is fetched again by one reload", async ({ page }) => {
+  let failed = false;
+  await page.route("**/assets/*.css", (route) => {
+    if (failed) return route.continue();
+    failed = true;
+    return route.abort("failed");
+  });
+  await open(page);
+  expect(failed).toBe(true);
+  expect((await page.locator(".tbar").boundingBox())?.height).toBe(40);
+});
