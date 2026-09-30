@@ -189,6 +189,23 @@
       "notes": "PROPOSAL.md section 15."
     },
     {
+      "id": "asset-load-reload",
+      "priority": 1,
+      "area": "frontend",
+      "issue": 255,
+      "title": "A bundle asset that fails to load reloads the page once",
+      "depends_on": [],
+      "user_visible_behavior": "A stylesheet or script that fails to arrive no longer leaves an unstyled page with no layout: the page reloads once, and a second failure in the same tab is left visible.",
+      "verification": [
+        "The #255 trace read and its cause named",
+        "shell.spec.ts aborts the stylesheet once and asserts the styled top bar; fails on the unfixed code, passes on the fix",
+        "Full Playwright suite, lint and vitest pass"
+      ],
+      "status": "passing",
+      "evidence": "2026-09-30. The trace of run 36540710418 (playwright-report-windows-latest) shows the console error `Failed to load resource: net::ERR_NO_BUFFER_SPACE` on /assets/index-*.css and a screenshot of the unstyled page; the canvas div had no size, so toBeVisible read it hidden. #221's red (job 105596198698) has the same signature at the same line. frontend/index.html now reloads once on a LINK or SCRIPT error, guarded by sessionStorage. The new shell.spec.ts test failed unfixed (`Expected: 40, Received: 39`, the unstyled top bar) and passes fixed. Local: Playwright 73 passed, eslint clean, vitest 139 passed.",
+      "notes": "The runner's socket-buffer shortage itself is not ours to fix; the page now survives it."
+    },
+    {
       "id": "phase-4-exit-run",
       "priority": 0,
       "area": "process",
