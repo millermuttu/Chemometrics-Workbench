@@ -168,9 +168,9 @@
         "pnpm exec playwright test - four steps added to a fresh pipeline are all inside the viewport without a reload; a connector dropped near the bottom opens a menu whose last entry is clickable; each fails on the unfixed code first",
         "docs-examples.spec.ts drops its reload and its upward drop, and still passes"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": "Found writing the worked examples (#237)."
+      "status": "passing",
+      "evidence": "2026-09-29. Both new tests in frontend/e2e/empty.spec.ts failed on the unfixed code after a fresh pnpm build: 'steps added to a fresh pipeline stay inside the canvas' (poll never true) and 'a connector dropped near the bottom opens a menu that fits' (last entry bottom at 1145.5 > 900). With the fix: `pnpm exec playwright test e2e/empty.spec.ts --project=empty` 8 passed. docs-examples.spec.ts drops its reload (refit via page.goto) and its upward drop; full `pnpm exec playwright test` 72 passed (2.4m), pnpm lint clean, pnpm test 139 passed.",
+      "notes": "Found writing the worked examples (#237). The canvas refits when the node count changes, not on refetch or drag; React Flow's Controls give the fit-view button."
     },
     {
       "id": "contributing",

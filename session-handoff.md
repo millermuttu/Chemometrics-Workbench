@@ -67,9 +67,10 @@ clean environment.* `uv run python -m tests.exit_run_phase3` shows both over HTT
 | Export JSON, Export Python and Save report buttons | #247 | #252 |
 | CONTRIBUTING.md completed, docs/adding-a-step.md, Normalise in the step list | #238 | #254 |
 | The parity report's coverage of every shipped kernel, published fresh (blocked on the deploy) | #236 | #257 |
-| Worked examples, PCA and PLS, with the data to download (blocked on the deploy) | #237 | this PR |
+| Worked examples, PCA and PLS, with the data to download (blocked on the deploy) | #237 | #259 |
+| Canvas refits as nodes are added; add-step menu stays on screen | #258 | #260 |
 
-The open issues are #235, #236, #237 (all three blocked only on the Pages deploy from main), #239, #255 and #258.
+The open issues are #235, #236, #237 (all three blocked only on the Pages deploy from main), #239 and #255.
 
 **The docs site is `blocked`, deliberately.** It builds strict in CI (`docs` job) with screenshots
 from `frontend/e2e/docs-screens.spec.ts`, and deploys to Pages from `main` only (`pages` job). The
@@ -97,10 +98,9 @@ server (8769, `examples`) and takes their screenshots; the CSV is asserted byte-
 `tecator_csv()` and ships with the Tecator permission note, which its terms require. A kernel change
 that moves a quoted number fails the suite until the page is updated.
 
-**#258, found writing them:** the canvas fits only on mount, so a new pipeline opens zoomed in on the
-source and added steps sit off-screen, and the add-step menu can open below the window. The
-examples spec reopens the canvas and drops its last connector upward to get round both, and says
-so. It is `canvas-fit-and-menu` on the list.
+**#258, fixed in #260.** The canvas refits when the node count changes (not on refetch or drag,
+so a user's pan survives), React Flow's `Controls` give a fit-view button, and the add-step menu
+opens away from the nearer window edge. `docs-examples.spec.ts` no longer reloads or drops upward.
 
 **Merging:** the maintainer gave a standing "merge when CI is green" on 2026-09-29, for that session.
 
@@ -152,11 +152,10 @@ which is the number #176 is judged by.
 
 ## Next action
 
-**Pick up `canvas-fit-and-menu` (#258)**, priority 2, no dependencies; then drop the two workarounds
-in `docs-examples.spec.ts`. #255 still wants its trace read (expires 2026-10-06). `docs-site`,
-`published-parity-report` and `worked-examples` all unblock at the phase-end merge, once Pages is
-set to GitHub Actions. The exit run (#239) needs the release workflow and the docs site, and a person the
-maintainer arranges.
+**Merge #260 once CI is green** (not yet merged at handoff), then nothing buildable is left before
+the phase-end merge: `docs-site`, `published-parity-report` and `worked-examples` unblock once
+`dev` reaches `main` and Pages is set to GitHub Actions. #255 still wants its trace read (expires
+2026-10-06). The exit run (#239) needs that deploy and a person the maintainer arranges.
 
 ## What Phase 2 added
 

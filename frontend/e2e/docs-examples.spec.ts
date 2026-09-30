@@ -27,10 +27,8 @@ const inspector = (page: Page) => page.getByRole("complementary", { name: "Inspe
 const node = (page: Page, label: string) =>
   page.locator(".react-flow__node").filter({ hasText: label });
 
-/** Reopen the canvas so it fits every node. It fits only when it mounts, so
- * steps added after that sit off-screen until it is reopened (#258). */
-async function refit(page: Page) {
-  await page.goto("/?token=e2e-token");
+/** Back to the canvas from whichever tab is in front. */
+async function canvas(page: Page) {
   await page.getByRole("button", { name: "Pipeline", exact: true }).click();
   await expect(page.locator(".react-flow__node").first()).toBeVisible();
 }
@@ -40,16 +38,26 @@ async function branch(
   page: Page,
   from: ReturnType<typeof node>,
   step: string,
-  { dx = -60, dy = 110, shot }: { dx?: number; dy?: number; shot?: string } = {},
+  { shot }: { shot?: string } = {},
 ) {
-  const port = (await from.locator(".react-flow__handle-right").boundingBox())!;
+  // The canvas refits as it mounts and again once its nodes are measured; a
+  // port read before the second fit is no longer under the pointer (#260).
+  const handle = from.locator(".react-flow__handle-right");
+  let port = (await handle.boundingBox())!;
+  await expect
+    .poll(async () => {
+      await page.waitForTimeout(150);
+      const now = (await handle.boundingBox())!;
+      const still = now.x === port.x && now.y === port.y;
+      port = now;
+      return still;
+    })
+    .toBe(true);
   await page.mouse.move(port.x + port.width / 2, port.y + port.height / 2);
   await page.mouse.down();
   // A node lands where it is dropped. Down and slightly left by default: a
-  // chain that walked right would put the next port under the step list, and
-  // one that walked down would open the menu past the bottom of the window,
-  // which does not keep it on screen (#258).
-  await page.mouse.move(port.x + dx, port.y + dy, { steps: 12 });
+  // chain that walked right would put the next port under the step list.
+  await page.mouse.move(port.x - 60, port.y + 110, { steps: 12 });
   await page.mouse.up();
   const menu = page.getByTestId("add-step-menu");
   await expect(menu).toBeVisible();
@@ -93,7 +101,7 @@ test("the two worked examples, step by step", async ({ page }) => {
   await page.getByRole("button", { name: "Run pipeline" }).click();
   await expect(page.locator(".status")).toContainText("Done", { timeout: 120_000 });
   await expect(page.getByTestId("node-complete")).toHaveCount(5);
-  await refit(page);
+  await canvas(page);
   await shoot(page, "ex-pca-pipeline");
 
   await outline(page).getByRole("button", { name: /^SG d1 w11/ }).first().dblclick();
@@ -112,10 +120,10 @@ test("the two worked examples, step by step", async ({ page }) => {
   await shoot(page, "ex-outlier");
 
   // PLS, step 1: a branch off the derivative, by dragging from its port.
-  await refit(page);
+  await canvas(page);
   await branch(page, node(page, "SG d1 w11"), "K-fold 10", { shot: "ex-branch-menu" });
   await branch(page, node(page, "K-fold 10"), "Mean centre");
-  await branch(page, node(page, "Mean centre").last(), "PLS 5 LV", { dx: 120, dy: -150 });
+  await branch(page, node(page, "Mean centre").last(), "PLS 5 LV");
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(node(page, "PLS 5 LV")).toHaveCount(1);
 
@@ -130,7 +138,7 @@ test("the two worked examples, step by step", async ({ page }) => {
   await expect(header).toContainText("PLS on fat 4 components", { timeout: 120_000 });
   await shoot(page, "ex-pls");
 
-  await refit(page);
+  await canvas(page);
   await expect(node(page, "PLS 4 LV")).toHaveCount(1);
   await shoot(page, "ex-pls-pipeline");
 
