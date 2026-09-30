@@ -2,7 +2,7 @@
 
 Compact state for the next session. **Overwrite this file at the end of every session** — it is a snapshot, not a log. Read it first, then `feature_list.json`, `git log` on `dev`, and the open issues.
 
-**Updated:** 2026-09-29
+**Updated:** 2026-09-30
 
 ---
 
@@ -69,8 +69,10 @@ clean environment.* `uv run python -m tests.exit_run_phase3` shows both over HTT
 | The parity report's coverage of every shipped kernel, published fresh (blocked on the deploy) | #236 | #257 |
 | Worked examples, PCA and PLS, with the data to download (blocked on the deploy) | #237 | #259 |
 | Canvas refits as nodes are added; add-step menu stays on screen | #258 | #260 |
+| Exit-run protocol and blank session record (exit run itself blocked) | #239 | #261 |
+| A bundle asset that fails to load reloads the page once | #255 | #262 |
 
-The open issues are #235, #236, #237 (all three blocked only on the Pages deploy from main), #239 and #255.
+The open issues are #235 (blocked on the Pages deploy from main) and #239 (blocked on #235 and on a real tester). #236 and #237 are closed; their list entries stay `blocked` on `docs-site`.
 
 **The docs site is `blocked`, deliberately.** It builds strict in CI (`docs` job) with screenshots
 from `frontend/e2e/docs-screens.spec.ts`, and deploys to Pages from `main` only (`pages` job). The
@@ -84,12 +86,17 @@ reset its form on every pipeline refetch, so the refetch after an Apply put the 
 a newly typed one. The form now resets on node id and kind only, and `inspector.spec.ts` holds the
 app's refetch back with `page.route` so the race runs every time.
 
-**#255, an unexplained Windows e2e failure.** On #254, `pipeline.spec.ts:75` found
-`pipeline-canvas` but hidden for 5 s; 68 others passed and the diff touched nothing in the canvas.
-The trace is the `playwright-report-windows-latest` artifact of run 36540710418 (kept 7 days, to
-2026-10-06); the MCP tools cannot fetch it. The maintainer merged #254 over it. Read that trace
-before treating the next Windows red as a flake. This is the third Windows-only e2e failure (#210,
-#221's unread one, this).
+**#255, explained and fixed in #262.** The Windows trace showed `net::ERR_NO_BUFFER_SPACE` on the
+bundle's CSS: the page rendered unstyled and the canvas div had no size. #221's red had the same
+signature. `frontend/index.html` now reloads once on a LINK or SCRIPT load error (sessionStorage
+guard). **A Windows-only red that finds an element "hidden" is this; look for the console error first.**
+Public job annotations answer without auth: `curl -s https://api.github.com/repos/millermuttu/Chemometrics-Workbench/check-runs/<job id>/annotations`.
+
+**#260's macOS red** was the docs-examples `branch()` reading a port before the canvas's second fit
+after a remount; it now waits for the port to stop moving.
+
+**#239's protocol is written** (`docs/phase-4/exit-run.md`): observer's sheet, pass rule, a session
+block to copy. The maintainer said on 2026-09-30 not to merge to main yet.
 
 **The worked examples are tested three ways.** `tests/test_examples.py` recomputes every number
 `docs/examples/*.md` quotes, over HTTP on `docs/examples/tecator.csv`, and asserts the page prints
@@ -152,10 +159,10 @@ which is the number #176 is judged by.
 
 ## Next action
 
-**Merge #260 once CI is green** (not yet merged at handoff), then nothing buildable is left before
-the phase-end merge: `docs-site`, `published-parity-report` and `worked-examples` unblock once
-`dev` reaches `main` and Pages is set to GitHub Actions. #255 still wants its trace read (expires
-2026-10-06). The exit run (#239) needs that deploy and a person the maintainer arranges.
+Nothing buildable is left before the phase-end merge. When the maintainer says so: set
+Settings → Pages → Source to "GitHub Actions", merge `dev` into `main`, check the site answers, and
+mark `docs-site`, `published-parity-report` and `worked-examples` passing. Then the exit run (#239)
+with a real tester, recorded in `docs/phase-4/exit-run.md`.
 
 ## What Phase 2 added
 
