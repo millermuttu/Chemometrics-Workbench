@@ -40,7 +40,19 @@ async function branch(
   step: string,
   { shot }: { shot?: string } = {},
 ) {
-  const port = (await from.locator(".react-flow__handle-right").boundingBox())!;
+  // The canvas refits as it mounts and again once its nodes are measured; a
+  // port read before the second fit is no longer under the pointer (#260).
+  const handle = from.locator(".react-flow__handle-right");
+  let port = (await handle.boundingBox())!;
+  await expect
+    .poll(async () => {
+      await page.waitForTimeout(150);
+      const now = (await handle.boundingBox())!;
+      const still = now.x === port.x && now.y === port.y;
+      port = now;
+      return still;
+    })
+    .toBe(true);
   await page.mouse.move(port.x + port.width / 2, port.y + port.height / 2);
   await page.mouse.down();
   // A node lands where it is dropped. Down and slightly left by default: a
