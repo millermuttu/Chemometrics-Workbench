@@ -8,6 +8,12 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 ## Where things stand
 
+**Phase 4 is closed and `v1.0.0` is released** (2026-10-01), on `dev` merged to `main` and an annotated
+tag. Its exit criterion was **not** demonstrated as written: a human tester smoke-tested the release on
+Windows and macOS, untimed, and the maintainer accepted that in place of the timed session and closed
+#239. `phase-4-exit-run` stays `blocked` in `feature_list.json` with that recorded, because its
+verification steps were not run. `docs/phase-4/exit-run.md` holds the record.
+
 **Phase 3 is complete and released as `v0.8.0`**, merged into `main` through #230 and tagged on
 2026-09-28. Its completed list is archived at `docs/phase-3/feature_list.json`, and its exit
 criterion is recorded in `docs/phase-3/exit-run.md`.
@@ -158,9 +164,9 @@ which is the number #176 is judged by.
 
 ## Next action
 
-The exit run (#239): the maintainer arranges a non-developer on a clean machine (at least one
-Windows), records each session in `docs/phase-4/exit-run.md`, and files every obstacle as an issue. Then
-the phase-end merge of `dev` into `main` and the 1.0 tag.
+Start the next phase: archive `feature_list.json` to `docs/phase-4/`, write the next list from
+`PROPOSAL.md`, and bring `CLAUDE.md`'s file list up to date. Worth carrying into it: a timed exit-run
+session against a later release, and the untracked `AGENTS.md` / `tecator.csv` decision.
 
 ## What Phase 2 added
 

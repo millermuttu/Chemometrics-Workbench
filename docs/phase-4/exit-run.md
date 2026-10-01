@@ -3,7 +3,8 @@
 `PROPOSAL.md` §16, Phase 4 exit criterion: *a non-developer on a clean machine downloads, installs
 and completes a PCA in under ten minutes.* This is also one of §18's metrics for 1.0.
 
-**Status: not yet run.** This page holds the protocol and a blank record for each session. A real
+**Status: not run as specified.** Two untimed smoke tests were recorded instead (below), and the
+maintainer released `v1.0.0` on them on 2026-10-01. This page holds the protocol and a blank record for each session. A real
 person runs it; the maintainer arranges the session (decided 2026-09-28). No automated run stands in
 for it. The release, the documentation site and the example data have to be public first, which
 means `dev` merged to `main` and the Pages deploy answering.
@@ -91,9 +92,17 @@ an obstacle already known.
 
 ## Sessions
 
-None yet.
+No timed session has been run.
+
+**Smoke tests, 2026-10-01.** A human tester, arranged by the maintainer, installed the release on
+Windows and on macOS and reported it "working as expected" on both. The sessions were not timed and
+no observer's sheet was kept, so they do not satisfy the protocol above: tester role, OS versions,
+release tag, milestone times and hesitations were not recorded. No obstacles were reported, so no
+issues were opened.
 
 ## Verdict
 
-Not met until at least one Windows session passes and every issue opened from the sessions is closed
-or accepted here.
+**Not demonstrated; accepted by the maintainer.** The criterion needs a timed session under ten
+minutes, and none was run. On 2026-10-01 the maintainer accepted the Windows and macOS smoke tests in
+its place, closed #239, and released `v1.0.0`. A timed session remains worth running against a later
+release; when one is, record it here.
