@@ -4,7 +4,7 @@ An open-source, local-first chemometrics workbench: a Python backend and a React
 shipped as one double-clickable desktop application, aimed at research and academic users of
 closed tools such as Unscrambler, SIMCA and OPUS. Your data never leaves your machine.
 
-**Status: Phase 3 is complete and released, `v0.8.0`. Phase 4 — packaging and release — is in progress.**
+**Status: `v1.0.0`, the first release. Download it from the [releases page](https://github.com/millermuttu/Chemometrics-Workbench/releases/latest).**
 The application runs: import a dataset — CSV, XLSX, JCAMP-DX or Bruker OPUS — build a
 preprocessing pipeline on a canvas, split it, fit PCA, PLS or two-class PLS-DA,
 cross-validate, and read the result: scores, loadings, VIP, coefficients on the raw axis,

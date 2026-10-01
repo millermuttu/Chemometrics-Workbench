@@ -223,7 +223,7 @@
       ],
       "status": "blocked",
       "evidence": "",
-      "notes": "A person runs it; the maintainer arranges the session. At least one run on Windows. 2026-09-30: docs/phase-4/exit-run.md holds the protocol, the observer's sheet and a blank session record (#239). 2026-10-01: every dependency is passing and the site is live; blocked only on a session with a real non-developer tester."
+      "notes": "A person runs it; the maintainer arranges the session. At least one run on Windows. 2026-09-30: docs/phase-4/exit-run.md holds the protocol, the observer's sheet and a blank session record (#239). 2026-10-01: every dependency is passing and the site is live; blocked only on a session with a real non-developer tester. 2026-10-01: a human tester smoke-tested the release on Windows and macOS, untimed, and reported it working as expected; recorded in docs/phase-4/exit-run.md. The verification steps were not run as written (no times, no observer's sheet), so this stays blocked rather than passing. The maintainer accepted the smoke tests in its place, closed #239 and released v1.0.0 on them. What would unblock it: a timed session per the protocol against a later release."
     }
   ]
 }
