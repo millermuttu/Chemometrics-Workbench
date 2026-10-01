@@ -2,7 +2,7 @@
 
 Compact state for the next session. **Overwrite this file at the end of every session** — it is a snapshot, not a log. Read it first, then `feature_list.json`, `git log` on `dev`, and the open issues.
 
-**Updated:** 2026-09-30
+**Updated:** 2026-10-01
 
 ---
 
@@ -72,14 +72,13 @@ clean environment.* `uv run python -m tests.exit_run_phase3` shows both over HTT
 | Exit-run protocol and blank session record (exit run itself blocked) | #239 | #261 |
 | A bundle asset that fails to load reloads the page once | #255 | #262 |
 
-The open issues are #235 (blocked on the Pages deploy from main) and #239 (blocked on #235 and on a real tester). #236 and #237 are closed; their list entries stay `blocked` on `docs-site`.
+The only open issue is #239, the exit run, blocked only on a real tester. #235 closed on 2026-10-01: `dev` reached `main`
+through #263 and the site is live at https://millermuttu.github.io/Chemometrics-Workbench/. The first deploy was refused
+("Branch main is not allowed to deploy to github-pages due to environment protection rules") until the maintainer added
+`main` to the github-pages environment's deployment branches.
 
-**The docs site is `blocked`, deliberately.** It builds strict in CI (`docs` job) with screenshots
-from `frontend/e2e/docs-screens.spec.ts`, and deploys to Pages from `main` only (`pages` job). The
-maintainer chose on 2026-09-29 to wait for the phase-end merge rather than deploy from `dev`. Before
-that merge, **Settings → Pages → Source must be "GitHub Actions"**, then check
-https://millermuttu.github.io/Chemometrics-Workbench/ answers and mark `docs-site` passing. Locally:
-run the screenshot spec, then `uv run mkdocs build --strict`.
+**The docs site is live**, deployed by the `pages` job on every push to `main`. Locally: run the
+screenshot spec, then `uv run mkdocs build --strict`.
 
 **#250, fixed in #251.** A red `e2e (macos-latest)` on a bookkeeping PR was a real bug: the inspector
 reset its form on every pipeline refetch, so the refetch after an Apply put the old value back over
@@ -159,10 +158,9 @@ which is the number #176 is judged by.
 
 ## Next action
 
-Nothing buildable is left before the phase-end merge. When the maintainer says so: set
-Settings → Pages → Source to "GitHub Actions", merge `dev` into `main`, check the site answers, and
-mark `docs-site`, `published-parity-report` and `worked-examples` passing. Then the exit run (#239)
-with a real tester, recorded in `docs/phase-4/exit-run.md`.
+The exit run (#239): the maintainer arranges a non-developer on a clean machine (at least one
+Windows), records each session in `docs/phase-4/exit-run.md`, and files every obstacle as an issue. Then
+the phase-end merge of `dev` into `main` and the 1.0 tag.
 
 ## What Phase 2 added
 
