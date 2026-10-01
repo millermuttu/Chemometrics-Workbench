@@ -14,7 +14,9 @@ means `dev` merged to `main` and the Pages deploy answering.
   OS version. At least one run on Windows, which §0 assumes is the largest audience; ideally one per
   platform.
 - **Tester.** A non-developer. They get two links and nothing else:
-  - the release page, `https://github.com/millermuttu/Chemometrics-Workbench/releases/latest`;
+  - the page of the release under test, by tag: for now
+    `https://github.com/millermuttu/Chemometrics-Workbench/releases/tag/v0.9.0-rc2`. Not `/releases/latest`:
+    GitHub skips pre-releases there, and on 2026-10-01 it led to v0.8.0, which has no packages;
   - the documentation site, `https://millermuttu.github.io/Chemometrics-Workbench/`.
 - **No help.** The observer does not speak unless the tester is stuck for more than two minutes. A
   question asked, or help given, is recorded as a finding, with the time it happened.
@@ -74,6 +76,18 @@ Total time:
 Verdict: pass / fail (and why)
 Issues opened:
 ```
+
+## Pre-flight
+
+Not a session, and not a stand-in for one: checks a developer made so that a tester does not hit
+an obstacle already known.
+
+- **2026-10-01.** `/releases/latest` led to v0.8.0, which has no packages, because GitHub skips
+  pre-releases there. The protocol now names the tag. `v0.9.0-rc2` was tagged on `main` at
+  fd39b41 and published all three packages: Linux 66 MB, macOS 46 MB, Windows 59 MB. That is inside
+  the ranges `docs/how-to-open.md` gives. The Linux archive, downloaded from the release page,
+  unpacks to 178 MB and passes `tests.smoke_package` (`served a 240 x 2 PCA`), and its bundle carries
+  #262's reload. The Windows and macOS packages are smoke-tested only by CI, in the release build.
 
 ## Sessions
 
