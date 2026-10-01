@@ -2,17 +2,23 @@
 
 Compact state for the next session. **Overwrite this file at the end of every session** — it is a snapshot, not a log. Read it first, then `feature_list.json`, `git log` on `dev`, and the open issues.
 
-**Updated:** 2026-09-28
+**Updated:** 2026-09-30
 
 ---
 
 ## Where things stand
 
-**Phase 3 is complete, and its release is in progress.** Every entry on `feature_list.json` passed
-with evidence, and the exit criterion is recorded in `docs/phase-3/exit-run.md` rather than argued.
-The release is a pull request from `dev` into `main`, then the tag `v0.8.0` on `main`. The version in
-`pyproject.toml` and `uv.lock` went to `0.8.0` with this file, the way `v0.7.0`'s close did it.
-**Check that the tag exists on `main` before assuming the release happened.**
+**Phase 3 is complete and released as `v0.8.0`**, merged into `main` through #230 and tagged on
+2026-09-28. Its completed list is archived at `docs/phase-3/feature_list.json`, and its exit
+criterion is recorded in `docs/phase-3/exit-run.md`.
+
+**Phase 4, package and release, is open.** `feature_list.json` is its list: nine entries, issues
+#231 to #239, and a `decisions` block recording what was settled on 2026-09-28:
+- The exit run is done by a real non-developer the maintainer arranges.
+- Packages ship unsigned, with a "How to open this" page.
+- The docs site is MkDocs Material (development dependency only), published on GitHub Pages.
+- Package formats: Windows `.zip`, Apple Silicon `.dmg`, Linux `.tar.gz`.
+- The name stays "Chemometrics Workbench".
 
 **Phase 3's exit criterion**, `PROPOSAL.md` §16: *two models differing only in preprocessing can be
 compared step by step; an exported model reproduces application predictions within tolerance in a
@@ -48,14 +54,90 @@ clean environment.* `uv run python -m tests.exit_run_phase3` shows both over HTT
 
 ## Current work
 
-**Nothing is `in_progress`.** All eight Phase 3 entries are `passing`. No issue or pull request is
-open apart from the release's own. #221 (a handoff made stale by #225) was closed unmerged and folded
-into this file.
+**Nothing is `in_progress`.** Phase 4 so far, merged through green pull requests:
 
-**Not done at the phase close, on purpose, and owed at the start of Phase 4:**
-- `feature_list.json` is still Phase 3's. Archive it to `docs/phase-3/feature_list.json` and write
-  Phase 4's list, as `fe58f29` did for Phase 2.
-- `CLAUDE.md`'s *Repository state* and the README still describe Phase 2 as the latest phase.
+| Feature | Issue | PR |
+| --- | --- | --- |
+| Host and Origin checked on every request | #231 | #241 |
+| A launcher: the browser opens on the workbench | #232 | #242 |
+| PyInstaller builds on three platforms, each smoke-tested | #233 | #244 |
+| A release workflow: a tag builds and publishes the three packages | #234 | #246 |
+| A documentation site (blocked on the Pages deploy from main) | #235 | #248 |
+| Inspector: a refetch no longer wipes a half-typed edit | #250 | #251 |
+| Export JSON, Export Python and Save report buttons | #247 | #252 |
+| CONTRIBUTING.md completed, docs/adding-a-step.md, Normalise in the step list | #238 | #254 |
+| The parity report's coverage of every shipped kernel, published fresh (blocked on the deploy) | #236 | #257 |
+| Worked examples, PCA and PLS, with the data to download (blocked on the deploy) | #237 | #259 |
+| Canvas refits as nodes are added; add-step menu stays on screen | #258 | #260 |
+| Exit-run protocol and blank session record (exit run itself blocked) | #239 | #261 |
+| A bundle asset that fails to load reloads the page once | #255 | #262 |
+
+The open issues are #235 (blocked on the Pages deploy from main) and #239 (blocked on #235 and on a real tester). #236 and #237 are closed; their list entries stay `blocked` on `docs-site`.
+
+**The docs site is `blocked`, deliberately.** It builds strict in CI (`docs` job) with screenshots
+from `frontend/e2e/docs-screens.spec.ts`, and deploys to Pages from `main` only (`pages` job). The
+maintainer chose on 2026-09-29 to wait for the phase-end merge rather than deploy from `dev`. Before
+that merge, **Settings → Pages → Source must be "GitHub Actions"**, then check
+https://millermuttu.github.io/Chemometrics-Workbench/ answers and mark `docs-site` passing. Locally:
+run the screenshot spec, then `uv run mkdocs build --strict`.
+
+**#250, fixed in #251.** A red `e2e (macos-latest)` on a bookkeeping PR was a real bug: the inspector
+reset its form on every pipeline refetch, so the refetch after an Apply put the old value back over
+a newly typed one. The form now resets on node id and kind only, and `inspector.spec.ts` holds the
+app's refetch back with `page.route` so the race runs every time.
+
+**#255, explained and fixed in #262.** The Windows trace showed `net::ERR_NO_BUFFER_SPACE` on the
+bundle's CSS: the page rendered unstyled and the canvas div had no size. #221's red had the same
+signature. `frontend/index.html` now reloads once on a LINK or SCRIPT load error (sessionStorage
+guard). **A Windows-only red that finds an element "hidden" is this; look for the console error first.**
+Public job annotations answer without auth: `curl -s https://api.github.com/repos/millermuttu/Chemometrics-Workbench/check-runs/<job id>/annotations`.
+
+**#260's macOS red** was the docs-examples `branch()` reading a port before the canvas's second fit
+after a remount; it now waits for the port to stop moving.
+
+**#239's protocol is written** (`docs/phase-4/exit-run.md`): observer's sheet, pass rule, a session
+block to copy. The maintainer said on 2026-09-30 not to merge to main yet.
+
+**The worked examples are tested three ways.** `tests/test_examples.py` recomputes every number
+`docs/examples/*.md` quotes, over HTTP on `docs/examples/tecator.csv`, and asserts the page prints
+it; `frontend/e2e/docs-examples.spec.ts` walks both pages through the screens on a fifth Playwright
+server (8769, `examples`) and takes their screenshots; the CSV is asserted byte-equal to
+`tecator_csv()` and ships with the Tecator permission note, which its terms require. A kernel change
+that moves a quoted number fails the suite until the page is updated.
+
+**#258, fixed in #260.** The canvas refits when the node count changes (not on refetch or drag,
+so a user's pan survives), React Flow's `Controls` give a fit-view button, and the add-step menu
+opens away from the nearer window edge. `docs-examples.spec.ts` no longer reloads or drops upward.
+
+**Merging:** the maintainer gave a standing "merge when CI is green" on 2026-09-29, for that session.
+
+**#247, `ui-export-buttons`, is done.** `download()` in `api/client.ts` fetches with the token and
+saves through a blob URL; `screens/DownloadButton.tsx` shows the server's refusal beside the button.
+`e2e/downloads.spec.ts` covers it. The `.cwmodel` download (optional) was not built.
+
+**Releasing.** `git tag -a vX.Y.Z -m "notes"` then push the tag: release.yml builds through the
+reusable package.yml, refuses a lightweight tag, and publishes with the annotation, a size table and
+a link to docs/how-to-open.md. A hyphenated tag is a pre-release. `v0.9.0-rc1` is the proof and is
+public; delete it or keep it as history.
+
+**Packaging.** `uv run pyinstaller packaging/workbench.spec --noconfirm` after `pnpm build` gives
+`dist/ChemometricsWorkbench/`; `uv run python -m tests.smoke_package dist/ChemometricsWorkbench`
+drives it. The reusable `package.yml` does both on three platforms and uploads the archives. `.gitignore`
+ignores `*.spec`, so the spec is un-ignored by name. Download / unpacked: macOS 48 / 95 MB, Windows 62 / 146 MB, Linux 68 / 174 MB.
+
+**The launcher is `python -m chemometrics_workbench`** (`src/chemometrics_workbench/__main__.py`),
+and it is the entry script PyInstaller should take. It serves on an ephemeral port and, once the
+socket is listening, hands the token URL to `webbrowser.open` **on a daemon thread**: called on the
+event loop, a browser that blocks holds the loop that has to answer it, and the first version of the
+test deadlocked exactly that way. `python -m chemometrics_workbench.server` stays serve-only, because
+Playwright's `seed_e2e --serve`, the exit runs and the dev loop all start it and none should open a
+browser. `./run.sh` now execs the launcher. In a frozen application the bundle resolves to
+`sys._MEIPASS/frontend/dist`, so the PyInstaller spec has to put the built bundle at that relative
+path.
+
+**The auto mode permission check failed for a stretch on 2026-09-28**: every Bash and GitHub write
+answered "the classifier gave no verdict". It was transient, and leaving auto mode got past it. If
+it happens again, stop retrying (repeated failures end the turn) and say so.
 
 **An unexplained Windows e2e failure.** #221's last run went red on `e2e (windows-latest)` only, on a
 markdown-only change. Nobody has read that job's log. If a Windows e2e check goes red again, read the
@@ -66,9 +148,9 @@ https://github.com/millermuttu/Chemometrics-Workbench/actions/runs/35343976638/j
 drift) and `tecator.csv`. Either gitignore them or commit them.
 
 **`./run.sh` is the way in.** It syncs, installs with **pnpm** — this project has no
-`package-lock.json` and `npm ci` refuses it — builds the bundle if there is not one, and serves,
-printing `http://127.0.0.1:<port>/?token=<token>`. `--build` forces the rebuild a changed
-`frontend/src` needs.
+`package-lock.json` and `npm ci` refuses it — builds the bundle if there is not one, and launches,
+opening the browser and printing `http://127.0.0.1:<port>/?token=<token>`. `--build` forces the
+rebuild a changed `frontend/src` needs.
 
 **Scripts worth knowing.** `uv run python -m tests.exit_run` and `tests.exit_run_phase3` each drive
 the served application end to end and rewrite their phase's `docs/phase-N/exit-run.md`.
@@ -77,12 +159,10 @@ which is the number #176 is judged by.
 
 ## Next action
 
-**Confirm the release, then open Phase 4.** If `v0.8.0` is not on `main`, finish that first. Phase 4
-is *Package and release* (`PROPOSAL.md` §16): PyInstaller builds on three platforms in CI, localhost
-security hardening (§4.3), a documentation site, a published parity report, worked examples and
-`CONTRIBUTING.md`. Its exit criterion is *a non-developer on a clean machine downloads, installs and
-completes a PCA in under ten minutes*. Start by archiving Phase 3's list, writing Phase 4's with
-issues, and updating `CLAUDE.md`, all in one pull request into `dev`.
+Nothing buildable is left before the phase-end merge. When the maintainer says so: set
+Settings → Pages → Source to "GitHub Actions", merge `dev` into `main`, check the site answers, and
+mark `docs-site`, `published-parity-report` and `worked-examples` passing. Then the exit run (#239)
+with a real tester, recorded in `docs/phase-4/exit-run.md`.
 
 ## What Phase 2 added
 

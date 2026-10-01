@@ -1,12 +1,13 @@
 import {
   Background,
   BackgroundVariant,
+  Controls,
   ReactFlow,
   type Node,
   type NodeChange,
   type ReactFlowInstance,
 } from "@xyflow/react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ApiError, api } from "@/api/client";
 import type { PipelineNode } from "@/api/queries";
@@ -202,6 +203,15 @@ export function PipelineCanvas({
     return { nodes: [...committed.nodes, ...draft.nodes], edges: [...committed.edges, ...draft.edges] };
   }, [pipeline.data, state.data, steps, nodes, picked, onCompare, pick, moved]);
 
+  // The `fitView` prop fits once, on mount, so steps added after it walked off
+  // the edge (#258). Refit when a node comes or goes; a refetch or a drag keeps
+  // the count and leaves the user's pan and zoom alone. React Flow queues the
+  // fit until the new nodes are measured.
+  const count = graph.nodes.length;
+  useEffect(() => {
+    if (count > 0) void flow.current?.fitView();
+  }, [count]);
+
   /** An edit that a rule refuses says so, rather than throwing into the void. */
   const edit = (apply: () => PipelineNode[]) => {
     try {
@@ -304,6 +314,7 @@ export function PipelineCanvas({
         >
           {/* The artboard's ground: a 22px dot grid in --grid. */}
           <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="var(--grid)" />
+          <Controls showInteractive={false} />
         </ReactFlow>
       </div>
 
@@ -314,8 +325,15 @@ export function PipelineCanvas({
           data-testid="add-step-menu"
           style={{
             position: "fixed",
-            left: dropped.screen.x,
-            top: dropped.screen.y,
+            // Opens away from the nearer window edge, so a drop low or far
+            // right does not put the menu's end out of reach (#258).
+            ...(dropped.screen.y > window.innerHeight / 2
+              ? { bottom: window.innerHeight - dropped.screen.y, maxHeight: dropped.screen.y - 8 }
+              : { top: dropped.screen.y, maxHeight: window.innerHeight - dropped.screen.y - 8 }),
+            ...(dropped.screen.x > window.innerWidth / 2
+              ? { right: window.innerWidth - dropped.screen.x }
+              : { left: dropped.screen.x }),
+            overflowY: "auto",
             zIndex: 10,
             background: "var(--surface)",
             border: "1px solid var(--rule)",

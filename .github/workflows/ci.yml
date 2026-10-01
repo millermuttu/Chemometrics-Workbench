@@ -209,3 +209,93 @@ jobs:
             frontend/playwright-report/
             frontend/test-results/
           retention-days: 7
+
+  # The packaged application, built and smoke-tested on each platform it ships
+  # on. The steps live in package.yml so release.yml builds exactly the same
+  # thing from a tag.
+  package:
+    uses: ./.github/workflows/package.yml
+
+  # The documentation site (#235). The screenshots are taken from the running
+  # application by e2e/docs-screens.spec.ts on the seeded Tecator project, so
+  # they cannot drift from the screens, and `--strict` fails the build on a
+  # broken link or a missing image. Built on every pull request; published to
+  # GitHub Pages from main only.
+  docs:
+    name: docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Build the frontend
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile && pnpm build
+
+      - name: Install Playwright chromium
+        working-directory: frontend
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Sync environment
+        run: uv sync --locked
+
+      - name: Screenshots
+        working-directory: frontend
+        run: pnpm exec playwright test e2e/docs-screens.spec.ts e2e/docs-examples.spec.ts --project seeded --project examples
+
+      # The site publishes the parity report as this run computes it, not as it
+      # was last committed (#236): the parity suite writes parity-results.json
+      # and the renderer rewrites docs/parity-report.md from it. The renderer
+      # refuses a partial run, so a missing dataset fails here rather than
+      # publishing a report that understates its coverage.
+      - name: Cache downloaded reference datasets
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/chemometrics-workbench/datasets
+          key: reference-datasets-${{ hashFiles('src/chemometrics_workbench/data/*/SHA256SUMS') }}
+
+      - name: Regenerate the parity report
+        run: |
+          uv run pytest -m parity
+          uv run python -m tests.parity_report
+        env:
+          CHEMOMETRICS_DOWNLOAD_DATASETS: "1"
+
+      - name: Build the site
+        run: uv run mkdocs build --strict
+
+      - name: Upload the site for Pages
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  pages:
+    name: pages
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: docs
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

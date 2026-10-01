@@ -2,15 +2,18 @@
 
 Run it:
 
-    uv run python -m chemometrics_workbench.server
+    uv run python -m chemometrics_workbench          # and open the browser
+    uv run python -m chemometrics_workbench.server   # serve only
 
-It prints the launch URL — `http://127.0.0.1:<port>/?token=<token>` — which is
-what the desktop shell hands the browser.
+Both print the launch URL — `http://127.0.0.1:<port>/?token=<token>`. The
+first is the launcher `PROPOSAL.md` §4.2 describes: once the socket is
+listening it hands that URL to the default browser, which is what a packaged
+application does on a double-click. The second opens nothing, which is what
+the development loop, the Playwright suite and the exit-run scripts want.
 
 This module assembles; `api.py` computes. What is here is the things a server
-has and a router does not: the port, the token, the error envelope, the CORS
-origins the Vite dev server needs, and the mount that serves the built frontend
-in production.
+has and a router does not: the port, the token, the Host and Origin checks, the
+error envelope, and the mount that serves the built frontend in production.
 
 ## The token is a real check
 
@@ -26,6 +29,20 @@ two copies never fight over a number and nothing has to be configured.
 `WORKBENCH_PORT` pins it instead, which is what the Vite dev proxy needs — it
 has to be told a target in advance.
 
+## Host and Origin are checked on every request
+
+§4.3's defence against DNS rebinding. A page on `attacker.example` whose name
+has been re-pointed at 127.0.0.1 reaches this server with its own name in
+`Host`, so a request is refused unless `Host` names the loopback interface. A
+browser request that carries an `Origin` is refused unless the origin is this
+server's own, so nothing another page runs can talk to it. Both apply to every
+route, the bundle included, and both are checked before the token.
+
+There is no CORS: the frontend calls `/api` on its own origin in production,
+and through the Vite proxy in development, which rewrites `Host` but forwards
+the browser's `Origin: http://localhost:5173`. `WORKBENCH_DEV=1` accepts those
+dev-server origins; a packaged application never sets it.
+
 ## Every failure has a body
 
 `{"error": {"code", "message", "detail"}}`, which is the shape every screen
@@ -39,15 +56,17 @@ from __future__ import annotations
 
 import os
 import secrets
-from collections.abc import AsyncIterator
+import sys
+import threading
+import webbrowser
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any
 
 import uvicorn
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
 from chemometrics_workbench.api import JOBS, router
@@ -55,18 +74,30 @@ from chemometrics_workbench.db import dispose_all
 
 __all__ = ["BUNDLE", "TOKEN", "app", "main"]
 
-#: Production mode serves the built frontend from here. `WORKBENCH_BUNDLE`
-#: overrides it, which is how the mount is exercised without a build.
-_BUNDLE_DEFAULT = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+#: Production mode serves the built frontend from here: `frontend/dist` in a
+#: checkout, or the same relative path under PyInstaller's unpacked root in a
+#: frozen application. `WORKBENCH_BUNDLE` overrides it, which is how the mount
+#: is exercised without a build.
+_ROOT = (
+    Path(sys._MEIPASS)  # type: ignore[attr-defined]
+    if getattr(sys, "frozen", False)
+    else Path(__file__).resolve().parents[2]
+)
+_BUNDLE_DEFAULT = _ROOT / "frontend" / "dist"
 BUNDLE = Path(os.environ.get("WORKBENCH_BUNDLE") or _BUNDLE_DEFAULT)
 
 #: Set `WORKBENCH_TOKEN` to keep the token stable across restarts while
 #: developing; otherwise it is fresh every time, as a launched application's is.
 TOKEN = os.environ.get("WORKBENCH_TOKEN") or secrets.token_urlsafe(32)
 
-#: The Vite dev server, so the frontend can run on 5173 against this on its own
-#: port. In production mode the bundle is served from here and no origin is.
-DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
+#: The Vite dev server's origins, accepted only when `DEV` is set: the proxy
+#: forwards the browser's `Origin` unchanged.
+DEV_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
+DEV = os.environ.get("WORKBENCH_DEV") == "1"
+
+#: The names the loopback interface answers to. The server binds 127.0.0.1
+#: only, so nothing else is a name a legitimate request can carry.
+LOOPBACK = ("127.0.0.1", "localhost")
 
 PORT = int(os.environ.get("WORKBENCH_PORT", "0"))
 
@@ -92,12 +123,32 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="Chemometrics Workbench", lifespan=lifespan)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=DEV_ORIGINS,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+
+
+def _refusal(request: Request) -> str | None:
+    """Why this request is refused before anything reads it, or `None`."""
+    host = request.headers.get("host", "")
+    # `Host` is `name` or `name:port`; the server binds IPv4 only, so a
+    # bracketed IPv6 literal is not a name it answers to either.
+    if host.rsplit(":", 1)[0] not in LOOPBACK:
+        return f"Host {host!r} is not this machine's loopback interface"
+    origin = request.headers.get("origin")
+    if origin is not None and origin != f"http://{host}" and not (DEV and origin in DEV_ORIGINS):
+        return f"Origin {origin!r} is not this application"
+    return None
+
+
+@app.middleware("http")
+async def same_machine_same_origin(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+    reason = _refusal(request)
+    if reason is not None:
+        return JSONResponse(
+            status_code=403,
+            content={"error": {"code": "forbidden", "message": reason, "detail": {}}},
+        )
+    return await call_next(request)
 
 
 @app.exception_handler(HTTPException)
@@ -164,7 +215,7 @@ if BUNDLE.is_dir():
         return FileResponse(BUNDLE / "index.html")
 
 
-def main() -> None:
+def main(open_browser: bool = False) -> None:
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=PORT, log_level="info"))
     # An ephemeral port is only knowable after the socket is bound, so the URL
     # is printed from the socket rather than from the config.
@@ -173,7 +224,14 @@ def main() -> None:
     async def startup(sockets: Any = None) -> None:
         await original(sockets=sockets)
         port = server.servers[0].sockets[0].getsockname()[1]
-        print(f"\n  Launch URL: http://127.0.0.1:{port}/?token={TOKEN}\n", flush=True)
+        url = f"http://127.0.0.1:{port}/?token={TOKEN}"
+        print(f"\n  Launch URL: {url}\n", flush=True)
+        if open_browser:
+            # After the socket is listening, so the first request cannot race
+            # it; and on a thread, because some browsers `open` waits for would
+            # otherwise hold the event loop that has to answer them.
+            threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
+            print("  Close this window to stop the workbench.\n", flush=True)
 
     server.startup = startup  # type: ignore[method-assign]
     server.run()

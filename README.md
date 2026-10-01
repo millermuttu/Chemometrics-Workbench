@@ -4,11 +4,13 @@ An open-source, local-first chemometrics workbench: a Python backend and a React
 shipped as one double-clickable desktop application, aimed at research and academic users of
 closed tools such as Unscrambler, SIMCA and OPUS. Your data never leaves your machine.
 
-**Status: Phase 2 is complete and released, `v0.7.0`.**
+**Status: Phase 3 is complete and released, `v0.8.0`. Phase 4 — packaging and release — is in progress.**
 The application runs: import a dataset — CSV, XLSX, JCAMP-DX or Bruker OPUS — build a
 preprocessing pipeline on a canvas, split it, fit PCA, PLS or two-class PLS-DA,
 cross-validate, and read the result: scores, loadings, VIP, coefficients on the raw axis,
-contributions, a confusion matrix. Everything stands on the numerical foundation Phase 0 laid — the algorithm
+contributions, a confusion matrix. Every run is kept and two can be compared step by step;
+a fitted model exports as a self-describing artifact, a plain JSON model, or a Python
+snippet that needs only NumPy; and a run exports as a standalone HTML report. Everything stands on the numerical foundation Phase 0 laid — the algorithm
 kernels, their specifications, and the evidence that their numbers are right.
 
 Its exit criterion is demonstrated rather than asserted: [`docs/phase-2/exit-run.md`](docs/phase-2/exit-run.md)
@@ -20,12 +22,18 @@ JSON and Python-snippet export, and reporting.
 
 ## Running it
 
+A packaged application for Windows, Apple Silicon macOS and Linux is attached to each
+[release](https://github.com/millermuttu/Chemometrics-Workbench/releases). It is unsigned, and
+[docs/how-to-open.md](docs/how-to-open.md) says how to get past the first-launch warning. From a
+checkout:
+
 ```bash
 ./run.sh
 ```
 
 It syncs the environment, builds the frontend bundle if there is not one, and starts the
-server. Open the URL it prints — `http://127.0.0.1:<port>/?token=<token>`. The port is
+server, then opens the workbench in the default browser at the URL it also prints —
+`http://127.0.0.1:<port>/?token=<token>`. Close the terminal, or press Ctrl+C, to stop it. The port is
 ephemeral so two copies never fight over a number, and the token is a real check: every `/api`
 request carries it, so a bare `127.0.0.1` address without the token gets a 401.
 
@@ -35,13 +43,14 @@ under `frontend/src`.
 Working on the interface is two processes instead, so Vite can serve its own:
 
 ```bash
-WORKBENCH_PORT=8000 WORKBENCH_TOKEN=dev uv run python -m chemometrics_workbench.server
+WORKBENCH_DEV=1 WORKBENCH_PORT=8765 WORKBENCH_TOKEN=dev uv run python -m chemometrics_workbench.server
 cd frontend && pnpm dev             # http://localhost:5173
 ```
 
 The port is pinned because the Vite proxy has to be told a target in advance, and the token
-because a fresh one on every restart is tedious to paste. `localhost:5173` is already an
-allowed origin.
+because a fresh one on every restart is tedious to paste. `WORKBENCH_DEV=1` lets the server
+accept requests whose `Origin` is the Vite dev server's; without it every request from
+`localhost:5173` is refused, which is what a packaged application does.
 
 ## The parity report
 
@@ -67,6 +76,7 @@ tool I can put in a paper".
 | [`docs/decisions/`](docs/decisions/) | Decisions taken with evidence, numbered and dated, with the script that reproduces the numbers |
 | [`docs/parity-report.md`](docs/parity-report.md) | The parity report |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to set up, verify and land a change |
+| [`docs/adding-a-step.md`](docs/adding-a-step.md) | How to add an algorithm, walked through end to end on a real step |
 
 ## Working on it
 

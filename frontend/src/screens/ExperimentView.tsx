@@ -1,5 +1,6 @@
 import { useExperimentRecord, useExperiments, type ExperimentRecord } from "@/api/queries";
 import { CannotLoad } from "@/states/CannotLoad";
+import { DownloadButton } from "@/screens/DownloadButton";
 import { nodeLabel } from "@/shell/Sidebar";
 import { parameterLine } from "@/canvas/graph";
 
@@ -176,6 +177,12 @@ export function ExperimentView({
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
           <CompareWith experimentId={experimentId} onCompareRuns={onCompareRuns} />
+          <DownloadButton
+            label="Save report"
+            path={`/experiments/${experimentId}/report.html`}
+            fallback="report.html"
+            testId="save-report"
+          />
           <span className="pill mono" title={run.pipeline_snapshot.pipeline_id}>
             {nodes.length} nodes
           </span>

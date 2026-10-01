@@ -24,3 +24,10 @@ describe("the PLS menu entry", () => {
     expect(kinds).toContain("Train/test 25%");
   });
 });
+
+describe("the step list", () => {
+  it("offers a normalisation, which the server has always accepted (#238)", () => {
+    const normalise = stepMenu([]).find((step) => step.kind === "Normalise")!;
+    expect(normalise.payload.step).toEqual({ kind: "normalise", norm: "l2" });
+  });
+});

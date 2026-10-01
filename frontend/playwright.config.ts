@@ -120,7 +120,7 @@ export default defineConfig({
   projects: [
     {
       name: "seeded",
-      testIgnore: /(empty|runs|walkthrough)\.spec\.ts/,
+      testIgnore: /(empty|runs|walkthrough|docs-examples)\.spec\.ts/,
       use: { baseURL: "http://127.0.0.1:8765" },
     },
     { name: "empty", testMatch: /empty\.spec\.ts/, use: { baseURL: "http://127.0.0.1:8766" } },
@@ -133,11 +133,20 @@ export default defineConfig({
       testMatch: /walkthrough\.spec\.ts/,
       use: { baseURL: "http://127.0.0.1:8768" },
     },
+    {
+      // The worked examples' screenshots (#237): a project with nothing in it,
+      // built up the way docs/examples/ tells a reader to, so each picture is
+      // the screen the page describes.
+      name: "examples",
+      testMatch: /docs-examples\.spec\.ts/,
+      use: { baseURL: "http://127.0.0.1:8769" },
+    },
   ],
   webServer: [
     serve("seeded", "8765", ""),
     serve("empty", "8766", "--empty"),
     serve("runs", "8767", "--unrun"),
     serve("walkthrough", "8768", "--empty"),
+    serve("examples", "8769", "--empty"),
   ],
 });

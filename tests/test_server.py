@@ -27,6 +27,7 @@ from fastapi.testclient import TestClient
 
 READER_FILES = Path(__file__).resolve().parent / "fixtures" / "readers"
 AUTH = {"Authorization": "Bearer test-token"}
+LOOPBACK_URL = "http://127.0.0.1:8765"
 
 
 @pytest.fixture
@@ -47,7 +48,9 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClie
 
     importlib.reload(api_module)
     server = importlib.reload(server_module)
-    with TestClient(server.app) as test_client:
+    # A loopback base URL: `TestClient` says `Host: testserver` otherwise, and
+    # the server refuses any name that is not the loopback interface.
+    with TestClient(server.app, base_url=LOOPBACK_URL) as test_client:
         yield test_client
     api_module.JOBS.shutdown(wait=False)
 
@@ -96,16 +99,224 @@ def test_a_failure_from_the_router_itself_carries_the_same_body(client: TestClie
     assert response.json()["error"]["code"] == "not_found"
 
 
-def test_the_dev_server_may_call_the_api_across_origins(client: TestClient) -> None:
-    response = client.options(
+# The rest of §4.3, one requirement to a test. Each was run against the server
+# before the Host and Origin checks existed, and the two below them failed.
+
+
+def test_a_rebound_hostname_is_refused_on_the_api_and_on_the_bundle(client: TestClient) -> None:
+    """DNS rebinding: a page on `attacker.example`, re-pointed at 127.0.0.1,
+    arrives with its own name in `Host`. The token does not save a request the
+    bundle answers without one, so the check is on every route."""
+    for path in ("/api/projects", "/", "/index.html"):
+        response = client.get(path, headers={**AUTH, "Host": "attacker.example:8765"})
+        assert response.status_code == 403, path
+        assert response.json()["error"]["code"] == "forbidden"
+
+    # Both loopback names, with or without a port, are this machine.
+    for host in ("127.0.0.1:8765", "localhost:8765", "127.0.0.1", "localhost"):
+        assert client.get("/api/projects", headers={**AUTH, "Host": host}).status_code == 200
+
+
+def test_a_foreign_origin_is_refused_even_with_the_token(client: TestClient) -> None:
+    """Strict Origin: a request a browser sends on behalf of another page
+    names that page, and is refused whatever else it carries."""
+    for origin in (
+        "http://attacker.example",
+        "http://127.0.0.1:9999",
+        "http://localhost:5173",
+        "null",
+    ):
+        response = client.post(
+            "/api/pipelines/current/validate", headers={**AUTH, "Origin": origin}
+        )
+        assert response.status_code == 403, origin
+        assert response.json()["error"]["code"] == "forbidden"
+
+    # The application's own origin, and no origin at all (a non-browser client).
+    for headers in ({**AUTH, "Origin": LOOPBACK_URL}, AUTH):
+        assert client.get("/api/projects", headers=headers).status_code == 200
+
+
+def test_the_dev_server_origin_is_accepted_only_in_development(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The Vite proxy forwards the browser's `Origin: http://localhost:5173`.
+    `WORKBENCH_DEV=1` accepts it; a packaged application never sets it."""
+    import chemometrics_workbench.server as server_module
+
+    headers = {**AUTH, "Origin": "http://localhost:5173"}
+    assert client.get("/api/projects", headers=headers).status_code == 403
+    monkeypatch.setattr(server_module, "DEV", True)
+    assert client.get("/api/projects", headers=headers).status_code == 200
+
+    # And no CORS: nothing is ever called across origins, so nothing grants it.
+    preflight = client.options(
         "/api/projects",
-        headers={
-            "Origin": "http://localhost:5173",
-            "Access-Control-Request-Method": "GET",
-            "Access-Control-Request-Headers": "authorization",
-        },
+        headers={"Origin": "http://localhost:5173", "Access-Control-Request-Method": "GET"},
     )
-    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+    assert "access-control-allow-origin" not in preflight.headers
+
+
+def test_no_response_sets_a_cookie_and_a_cookie_is_not_a_token(client: TestClient) -> None:
+    """No cookie authentication, so a cross-site request has no ambient
+    session to ride."""
+    for response in (
+        client.get("/api/projects", headers=AUTH),
+        client.get("/api/projects"),
+        client.get("/"),
+    ):
+        assert "set-cookie" not in response.headers
+    client.cookies.set("token", "test-token")
+    assert client.get("/api/projects").status_code == 401
+
+
+def test_the_server_binds_the_loopback_interface_on_an_ephemeral_port(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """127.0.0.1 only, never 0.0.0.0; port zero unless `WORKBENCH_PORT` pins it."""
+    import chemometrics_workbench.server as server_module
+
+    seen: dict[str, Any] = {}
+
+    class Captured:
+        def __init__(self, config: Any) -> None:
+            seen["host"], seen["port"] = config.host, config.port
+
+        async def startup(self, sockets: Any = None) -> None:
+            return None
+
+        def run(self) -> None:
+            return None
+
+    monkeypatch.delenv("WORKBENCH_PORT", raising=False)
+    server = importlib.reload(server_module)
+    monkeypatch.setattr(server.uvicorn, "Server", Captured)
+    server.main()
+    assert seen == {"host": "127.0.0.1", "port": 0}
+
+
+def test_the_launcher_opens_the_browser_on_the_bound_port_with_the_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two real launches, side by side: each hands the browser its own port and
+    the token, and each URL answers by the time the browser is told of it."""
+    import threading
+    import urllib.request
+    from urllib.parse import parse_qs, urlsplit
+
+    import uvicorn
+
+    import chemometrics_workbench.server as server_module
+
+    monkeypatch.setenv("CHEMOMETRICS_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("CHEMOMETRICS_PROJECT", str(tmp_path / "project"))
+    monkeypatch.setenv("WORKBENCH_TOKEN", "launch-token")
+    monkeypatch.delenv("WORKBENCH_PORT", raising=False)
+    server = importlib.reload(server_module)
+
+    started: list[Any] = []
+    bound: set[int] = set()
+    opened: list[str] = []
+    answered: list[int] = []
+
+    class Recorded(uvicorn.Server):
+        def __init__(self, config: Any) -> None:
+            super().__init__(config)
+            started.append(self)
+
+        async def startup(self, sockets: Any = None) -> None:
+            await super().startup(sockets=sockets)
+            bound.add(self.servers[0].sockets[0].getsockname()[1])
+
+    def browser(url: str) -> bool:
+        parts = urlsplit(url)
+        token = parse_qs(parts.query)["token"][0]
+        request = urllib.request.Request(
+            f"http://{parts.netloc}/api/projects", headers={"Authorization": f"Bearer {token}"}
+        )
+        with urllib.request.urlopen(request, timeout=10) as response:
+            answered.append(response.status)
+        opened.append(url)
+        return True
+
+    monkeypatch.setattr(server.uvicorn, "Server", Recorded)
+    monkeypatch.setattr(server.webbrowser, "open", browser)
+
+    threads = [threading.Thread(target=server.main, kwargs={"open_browser": True}) for _ in "ab"]
+    for thread in threads:
+        thread.start()
+    try:
+        deadline = time.monotonic() + 20
+        while len(opened) < 2 and time.monotonic() < deadline:
+            time.sleep(0.05)
+    finally:
+        for launched in started:
+            launched.should_exit = True
+        for thread in threads:
+            thread.join(timeout=10)
+
+    assert len(opened) == 2 and answered == [200, 200]
+    ports = {urlsplit(url).port for url in opened}
+    assert len(ports) == 2 and ports == bound
+    assert all(url.startswith("http://127.0.0.1:") for url in opened)
+    assert all(url.endswith("/?token=launch-token") for url in opened)
+
+
+def test_the_serve_only_entry_point_opens_no_browser(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`main()` without the flag is what Playwright and the exit runs start."""
+    import chemometrics_workbench.server as server_module
+
+    server = importlib.reload(server_module)
+    opened: list[str] = []
+
+    class Captured:
+        def __init__(self, config: Any) -> None:
+            socket = type("S", (), {"getsockname": lambda self: ("127.0.0.1", 5)})()
+            self.servers = [type("L", (), {"sockets": [socket]})()]
+
+        async def startup(self, sockets: Any = None) -> None:
+            return None
+
+        def run(self) -> None:
+            import asyncio
+
+            asyncio.run(self.startup())
+
+    monkeypatch.setattr(server.uvicorn, "Server", Captured)
+    monkeypatch.setattr(server.webbrowser, "open", opened.append)
+    server.main()
+    assert opened == []
+    server.main(open_browser=True)
+    deadline = time.monotonic() + 5
+    while not opened and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert opened == [f"http://127.0.0.1:5/?token={server.TOKEN}"]
+
+
+def test_a_frozen_application_finds_its_bundle_under_the_unpacked_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PyInstaller unpacks to `sys._MEIPASS`; the bundle is `frontend/dist` there."""
+    import sys
+
+    import chemometrics_workbench.server as server_module
+
+    bundle = tmp_path / "frontend" / "dist"
+    bundle.mkdir(parents=True)
+    (bundle / "index.html").write_text("<title>frozen</title>")
+    monkeypatch.setenv("CHEMOMETRICS_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("CHEMOMETRICS_PROJECT", str(tmp_path / "project"))
+    monkeypatch.delenv("WORKBENCH_BUNDLE", raising=False)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    try:
+        server = importlib.reload(server_module)
+        assert bundle == server.BUNDLE
+        with TestClient(server.app, base_url=LOOPBACK_URL) as frozen:
+            assert "frozen" in frozen.get("/").text
+    finally:
+        monkeypatch.undo()
+        importlib.reload(server_module)
 
 
 # --------------------------------------------------------------------------
@@ -208,7 +419,7 @@ def test_the_pipeline_is_read_back_after_a_restart(
     import chemometrics_workbench.server as server_module
 
     restarted = importlib.reload(server_module)
-    with TestClient(restarted.app) as second_client:
+    with TestClient(restarted.app, base_url=LOOPBACK_URL) as second_client:
         again = second_client.get(
             "/api/pipelines/current",
             headers={"Authorization": f"Bearer {restarted.TOKEN}"},
