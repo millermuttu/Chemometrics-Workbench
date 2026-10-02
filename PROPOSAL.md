@@ -154,10 +154,10 @@ File format support is the single most under-specified item in the original draf
 | XLSX | v1, Phase 1 | Extremely common as the real-world interchange format |
 | JCAMP-DX (`.jdx`, `.dx`) | v1, Phase 1 | Open standard, wide instrument support, good library availability |
 | Bruker OPUS (`.0`, `.1`, …) | v1, Phase 2 | Highest-value proprietary format for FT-IR/NIR; readable via existing open readers |
-| Thermo Galactic SPC (`.spc`) | Post-1.0 | Common legacy format |
-| Thermo OMNIC SPA (`.spa`) | Post-1.0 | |
-| ASD (`.asd`) | Post-1.0 | Field spectroscopy |
-| MATLAB `.mat` | Post-1.0 | Migration path from PLS_Toolbox users |
+| Thermo Galactic SPC (`.spc`) | Phase 5 | Common legacy format |
+| Thermo OMNIC SPA (`.spa`) | Phase 5 | |
+| ASD (`.asd`) | Phase 5 | Field spectroscopy |
+| MATLAB `.mat` | Phase 5 | Migration path from PLS_Toolbox users |
 
 Design rules: readers are independent, individually testable modules with a real sample file committed as a fixture; an unreadable file must produce a specific diagnostic message, never a stack trace; every import records the source file's content hash and the reader version.
 
@@ -372,8 +372,9 @@ Expressed in engineering-months (EM) so it is independent of team size. Each pha
 | **3. Reproducibility and export** | Experiment tracking UI. Model registry and lineage/comparison view. Model artifact format. JSON and Python-snippet export. HTML/PDF reporting. | 2 | Two models differing only in preprocessing can be compared step by step; an exported model reproduces application predictions within tolerance in a clean environment |
 | **4. Package and release** | PyInstaller builds on three platforms in CI. Localhost security hardening (§4.3). Documentation site, published parity report, worked examples, `CONTRIBUTING.md`. | 2 | A non-developer on a clean machine downloads, installs and completes a PCA in under ten minutes |
 | | **Total to 1.0** | **~13** | |
+| **5. Methods breadth** | Stratified splits and multi-class classification groundwork. PCR, PLS2 and multi-class PLS-DA, SIMCA, LDA, kNN. Moving-average, median, Gaussian and Whittaker smoothing. Outlier diagnostics (leverage, studentised residuals, robust distance) with user-confirmed sample exclusion. Variable selection (VIP threshold, iPLS, CARS). MATLAB `.mat`, SPC, SPA and ASD readers. | ~5 | A multi-class spectral dataset imported from one of the new formats is cleaned, its variables selected, and PLS-DA, SIMCA, LDA and kNN compared under the same stratified cross-validation, each matching its reference within stated tolerance |
 
-Post-1.0, ordered by expected demand rather than by ease: PCR and SIMCA · permutation and bootstrap validation · variable-selection algorithms · additional file formats · additional classifiers · plugin/scripting API · self-hosted mode.
+Post-1.0, ordered by expected demand rather than by ease: PCR and SIMCA · permutation and bootstrap validation · variable-selection algorithms · additional file formats · additional classifiers · plugin/scripting API · self-hosted mode. Phase 5 takes PCR and SIMCA, variable selection, four file formats and three classifiers from this list, and adds smoothing filters and outlier detection; permutation and bootstrap validation, SVM, genetic-algorithm selection, the plugin API and self-hosted mode remain after it.
 
 ---
 

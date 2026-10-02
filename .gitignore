@@ -221,6 +221,12 @@ __marimo__/
 # Agent tooling
 .claude/
 openspec/
+.agents/
+.codex/
+AGENTS.md
+
+# A stray copy; the shipped one is docs/examples/tecator.csv
+/tecator.csv
 
 # Generated design canvas (re-seed from design/canvas/build.py)
 design/canvas/chemometrics-workbench-screens.html
