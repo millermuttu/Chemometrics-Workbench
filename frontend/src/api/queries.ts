@@ -333,6 +333,34 @@ export function useImportDataset() {
 
 /** A project holds one pipeline and serves it, and its latest experiment, as
  * `current`. */
+/** Leave rows of a version out (#270): the server writes a new version
+ * without them and moves the pipeline's source onto it, so the datasets, the
+ * recipe and its state all change. */
+export function useExcludeSamples() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      datasetId,
+      fromVersionId,
+      exclude,
+    }: {
+      datasetId: string;
+      fromVersionId: string;
+      exclude: number[];
+    }) =>
+      api<DatasetEntry>(`/datasets/${datasetId}/versions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from_version_id: fromVersionId, exclude }),
+      }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["datasets"] });
+      void client.invalidateQueries({ queryKey: ["pipeline"] });
+      void client.invalidateQueries({ queryKey: ["pipeline-state"] });
+    },
+  });
+}
+
 export function usePipeline() {
   return useQuery({ queryKey: ["pipeline"], queryFn: () => api<Pipeline>("/pipelines/current") });
 }

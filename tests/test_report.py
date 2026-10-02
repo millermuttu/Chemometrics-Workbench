@@ -220,6 +220,44 @@ def test_what_someone_else_chose_is_escaped(client: TestClient) -> None:  # noqa
     assert "&lt;script&gt;" in document
 
 
+def test_a_run_on_a_derived_version_names_the_excluded_rows(client: TestClient) -> None:  # noqa: F811
+    """#270: what the run left out is in its record, not only in the database."""
+    from chemometrics_workbench.models import (
+        DatasetVersion,
+        Experiment,
+        ExperimentStatus,
+        Pipeline,
+        Project,
+    )
+
+    imported(client)
+    project = client.get("/api/projects", headers=AUTH).json()[0]
+    project.pop("app_version")
+    version = client.get(f"/api/projects/{project['project_id']}/datasets", headers=AUTH).json()[0][
+        "versions"
+    ][0]
+    pipeline = client.get("/api/pipelines/current", headers=AUTH).json()
+    parent = version["version_id"]
+    derived = DatasetVersion.model_validate(
+        {**version, "derived_from": parent, "excluded_samples": [4, 9]}
+    )
+    document = render_report(
+        Experiment(
+            project_id=project["project_id"],
+            pipeline_snapshot=Pipeline.model_validate(pipeline),
+            dataset_version_id=derived.version_id,
+            dataset_content_hash=derived.content_hash,
+            status=ExperimentStatus.FAILED,
+            error="stopped",
+        ),
+        derived,
+        Project.model_validate({**project, "directory": "/tmp/whatever"}),
+        None,
+        None,
+    )
+    assert f"2 rows of version {parent}: 4, 9" in document
+
+
 def test_the_filename_names_the_run(client: TestClient, reported: str) -> None:  # noqa: F811
     from chemometrics_workbench.models import Experiment
 

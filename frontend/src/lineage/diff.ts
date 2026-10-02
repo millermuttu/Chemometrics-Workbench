@@ -33,11 +33,15 @@ export interface PipelineDiff {
 
 /** A node's parameters, whichever field carries them.
  *
- * Preprocessing nodes carry `step`; estimators and splits carry `spec`. The
+ * Preprocessing nodes carry `step`; estimators and splits carry `spec`; a
+ * source carries the version it reads. The
  * discriminator is not a parameter: it names the kind, and a node whose kind
  * changed is reported on `kind` rather than on every field at once.
  */
 function parameters(node: PipelineNode): Record<string, unknown> {
+  // A source node's one parameter is the dataset version it reads, so a run
+  // on a version an exclusion made (#270) differs from one on its parent there.
+  if (node.type === "source") return { version_id: node.version_id };
   return (node.step ?? node.spec ?? {}) as Record<string, unknown>;
 }
 

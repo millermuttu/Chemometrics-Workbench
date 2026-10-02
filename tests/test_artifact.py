@@ -142,7 +142,30 @@ def test_every_number_the_model_was_fitted_with_comes_back_out(
     assert read.manifest["metrics"]["rmsecv"] == result.metrics["rmsecv"]
     assert read.manifest["split"] == {"node_id": "split", "fold": 0, "n_folds": 10}
     assert read.manifest["dataset"]["content_hash"] == version.content_hash
+    assert read.manifest["dataset"]["derived_from"] is None
+    assert read.manifest["dataset"]["excluded_samples"] == []
     assert read.manifest["environment"]["app_version"]
+
+
+def test_a_model_fitted_after_an_exclusion_names_what_was_left_out(
+    fitted: tuple[Path, DatasetVersion, Pipeline, object],
+) -> None:
+    """#270: the dataset block carries the parent and its excluded rows."""
+    directory, version, pipeline, run = fitted
+    parent = uuid4()
+    derived = version.model_copy(update={"derived_from": parent, "excluded_samples": [3, 17]})
+    path = directory / "derived.cwmodel"
+    write_artifact(
+        path,
+        run.results["pls"],  # type: ignore[attr-defined]
+        pipeline=pipeline,
+        version=derived,
+        node_axis=np.asarray(version.axis.values, dtype=np.float64),
+        split=run.resolved_splits[0],  # type: ignore[attr-defined]
+        environment=capture_environment(),
+    )
+    dataset = read_artifact(path).manifest["dataset"]
+    assert (dataset["derived_from"], dataset["excluded_samples"]) == (str(parent), [3, 17])
 
 
 def test_the_pipeline_travels_by_value_and_parses_back(

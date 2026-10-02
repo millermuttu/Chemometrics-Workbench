@@ -274,6 +274,9 @@ def _manifest(
             "n_samples": version.n_samples,
             "n_variables": version.n_variables,
             "axis": {"kind": version.axis.kind.value, "unit": version.axis.unit},
+            # #270: a version cut from another names it and the rows it left out.
+            "derived_from": str(version.derived_from) if version.derived_from else None,
+            "excluded_samples": list(version.excluded_samples),
         },
         "split": None
         if split is None or result.fold is None
