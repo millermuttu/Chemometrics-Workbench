@@ -281,6 +281,9 @@ class KFoldSplit(Frozen):
     n_splits: int = Field(ge=2)
     shuffle: bool = True
     seed: int = 42
+    # Left out of the dump when unset, so a K-fold written before stratification
+    # existed (#268) serialises, and therefore hashes into its cache key, as it did.
+    stratify_by: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class RepeatedKFoldSplit(Frozen):

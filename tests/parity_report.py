@@ -200,13 +200,14 @@ COVERAGE: tuple[Coverage, ...] = (
         ),
     ),
     Coverage(
-        "Fold assignment: k-fold, leave-one-out, train/test",
-        ("k_fold", "leave_one_out", "train_test"),
+        "Fold assignment: k-fold, leave-one-out, train/test, stratified",
+        ("k_fold", "leave_one_out", "train_test", "stratified_k_fold", "stratified_train_test"),
         not_compared="Differs by convention: folds are drawn with NumPy's `default_rng`, "
         "scikit-learn's with a legacy `RandomState`, so one seed gives different folds "
         "(`metrics-and-validation.md` §8). Cross-validated claims above pass our resolved folds "
         "to the reference instead. The fold structure is unit-tested in "
-        "`tests/test_validation.py`.",
+        "`tests/test_validation.py`. Stratified folds also deal each level into folds by "
+        "§8.7's own rule, which is not scikit-learn's `StratifiedKFold` assignment either.",
     ),
     Coverage(
         "Model export: JSON model and prediction snippet",

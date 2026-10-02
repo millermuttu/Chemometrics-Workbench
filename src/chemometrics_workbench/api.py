@@ -781,7 +781,7 @@ def folded_coefficients(
     # `_pls` fitted the model on, so the parameters folded here are the
     # parameters the coefficients were produced with.
     by_id = {node.id: node for node in pipeline.nodes}
-    folds = governing_folds(NodeId(node_id), by_id, version.n_samples)
+    folds = governing_folds(NodeId(node_id), by_id, version)
     rows = folds[0].train if folds else np.arange(version.n_samples, dtype=np.intp)
 
     axis = np.asarray(version.axis.values, dtype=np.float64)

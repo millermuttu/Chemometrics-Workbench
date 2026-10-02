@@ -31,9 +31,9 @@
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; an e2e test sets stratify_by and runs"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-02. `uv run pytest`: `931 passed, 1 skipped`. tests/test_validation.py: a stratified K-fold partitions, keeps every level's count per fold within one and fold sizes within one, for K = 2, 3, 5; it follows from its seed; unshuffled it reproduces the section 8.7 worked example; stratified train/test holds out ceil(test_size * n_g) of each level; a one-member level and a test size that empties a level are refused by name. tests/test_executor.py: TrainTestSplit and KFoldSplit with stratify_by resolve to the kernel's folds on Tecator with an unbalanced three-level column, each level's held-out count within one of its share; a missing column and a too-small level are refused naming the node, the column and the level; an unstratified K-fold dumps exactly the JSON it did before (`exclude_if`), so no stored cache key moves, and the contract fixture test passes unchanged. Proof: with src/ reverted and the new tests kept, both modules fail at collection (the stratified kernels do not exist). The sklearn StratifiedKFold difference is stated in the parity report's fold-assignment row (not_compared), regenerated with `uv run python -m tests.parity_report` (120 claims). ruff, ruff format, mypy (70 files) clean. `pnpm typecheck && pnpm lint && pnpm test`: 140 passed, including stratifiableColumns. `pnpm build` then `pnpm exec playwright test`: 74 passed (2.3m), including inspector.spec.ts 'a k-fold is stratified by a class column chosen from a dropdown': the select offers none and fat_class, the saved split carries stratify_by, the run completes the split node, and none puts it back.",
+      "notes": "Decided in the spec (section 8.7): levels in Unicode order, one generator, round-robin dealing for K-fold; a level with fewer than K members is allowed. Repeated K-fold is not stratified."
     },
     {
       "id": "multiclass-groundwork",

@@ -159,6 +159,8 @@ from chemometrics_workbench.validation import (
     Fold,
     k_fold,
     leave_one_out,
+    stratified_k_fold,
+    stratified_train_test,
     train_test,
     validate_partition,
 )
@@ -586,7 +588,7 @@ def execute(
 
         key = keys[node.id]
         parent = states[node.inputs[0]] if node.inputs else None
-        folds = _folds_for(node, parent, version.n_samples)
+        folds = _folds_for(node, parent, version)
 
         cached = _from_cache(path, index.get(key), folds) if use_cache else None
 
@@ -853,7 +855,9 @@ def _topological(pipeline: Pipeline) -> list[PipelineNode]:
     return ordered
 
 
-def _folds_for(node: PipelineNode, parent: _State | None, n_samples: int) -> list[Fold] | None:
+def _folds_for(
+    node: PipelineNode, parent: _State | None, version: DatasetVersion
+) -> list[Fold] | None:
     """The split governing a node: its own if it is one, else its input's."""
     if node.type != "split":
         return parent.folds if parent is not None else None
@@ -867,38 +871,53 @@ def _folds_for(node: PipelineNode, parent: _State | None, n_samples: int) -> lis
             node.id,
         )
 
+    n_samples = version.n_samples
     spec = node.spec
-    if isinstance(spec, TrainTestSplit):
-        if spec.stratify_by is not None:
-            raise ExecutorError(
-                f"node {node.id!r} asks to stratify by {spec.stratify_by!r}, which is not "
-                "implemented: metrics-and-validation.md section 8.7 defines it, and it arrives "
-                "with the class column PLS-DA needs (#185). Remove stratify_by to run this "
-                "split.",
-                node.id,
-            )
-        try:
+    stratify_by = spec.stratify_by if isinstance(spec, TrainTestSplit | KFoldSplit) else None
+    labels = None if stratify_by is None else _stratum_labels(version, node, stratify_by)
+    try:
+        if isinstance(spec, TrainTestSplit):
             # A hold-out, not a partition: `validate_partition` is §7's rule
             # for pooling residuals across folds and this has one.
+            if labels is not None:
+                return stratified_train_test(labels, spec.test_size, seed=spec.seed)
             return train_test(n_samples, spec.test_size, seed=spec.seed)
-        except ValueError as error:
-            raise ExecutorError(f"node {node.id!r} (train_test) failed: {error}", node.id) from (
-                error
+        if isinstance(spec, KFoldSplit):
+            folds = (
+                stratified_k_fold(labels, spec.n_splits, shuffle=spec.shuffle, seed=spec.seed)
+                if labels is not None
+                else k_fold(n_samples, spec.n_splits, shuffle=spec.shuffle, seed=spec.seed)
             )
-    if isinstance(spec, KFoldSplit):
-        folds = k_fold(n_samples, spec.n_splits, shuffle=spec.shuffle, seed=spec.seed)
-    elif isinstance(spec, LeaveOneOut):
-        folds = leave_one_out(n_samples)
-    else:
-        raise ExecutorError(
-            f"node {node.id!r} asks for the {spec.kind!r} split, which has no splitter "
-            "yet. K-fold, leave-one-out and train/test are implemented; repeated "
-            "K-fold and an external set are not.",
-            node.id,
+        elif isinstance(spec, LeaveOneOut):
+            folds = leave_one_out(n_samples)
+        else:
+            raise ExecutorError(
+                f"node {node.id!r} asks for the {spec.kind!r} split, which has no splitter "
+                "yet. K-fold, leave-one-out and train/test are implemented; repeated "
+                "K-fold and an external set are not.",
+                node.id,
+            )
+    except ValueError as error:
+        by = "" if stratify_by is None else f" stratified by {stratify_by!r}"
+        raise ExecutorError(f"node {node.id!r} ({spec.kind}{by}) failed: {error}", node.id) from (
+            error
         )
 
     validate_partition(folds, n_samples)
     return folds
+
+
+def _stratum_labels(version: DatasetVersion, node: PipelineNode, name: str) -> list[str]:
+    """The metadata column a split stratifies by, refused by name when absent (§8.7)."""
+    labels = version.metadata_columns.get(name)
+    if labels is None:
+        available = ", ".join(sorted(version.metadata_columns)) or "none"
+        raise ExecutorError(
+            f"node {node.id!r} stratifies by {name!r}, which this dataset does not carry as "
+            f"a metadata column. It has: {available}.",
+            node.id,
+        )
+    return labels
 
 
 def _computed(
@@ -1485,7 +1504,7 @@ def stored_display(
         except ProjectError:
             pass
     by_id = {node.id: node for node in pipeline.nodes}
-    folds = governing_folds(node_id, by_id, version.n_samples)
+    folds = governing_folds(node_id, by_id, version)
     state = _from_cache(path, paths, folds)
     return None if state is None else state.display
 
@@ -1511,7 +1530,7 @@ def stored_fitted_matrix(
     paths = read_cache_index(path).get(node_keys(pipeline, version)[parent])
     if not paths:
         return None
-    state = _from_cache(path, paths, governing_folds(parent, by_id, version.n_samples))
+    state = _from_cache(path, paths, governing_folds(parent, by_id, version))
     return None if state is None else state.arrays[0]
 
 
@@ -1543,16 +1562,17 @@ def governing_split(node_id: NodeId, by_id: dict[NodeId, PipelineNode]) -> Pipel
 
 
 def governing_folds(
-    node_id: NodeId, by_id: dict[NodeId, PipelineNode], n_samples: int
+    node_id: NodeId, by_id: dict[NodeId, PipelineNode], version: DatasetVersion
 ) -> list[Fold] | None:
     """The split above a node, resolved again from its spec.
 
-    Recomputed rather than stored: a `SplitSpec` and `n` determine the folds
-    entirely (`metrics-and-validation.md` §8), so deriving them is cheaper than
-    keeping a second copy that can disagree with the recipe.
+    Recomputed rather than stored: a `SplitSpec` and the dataset version - its
+    `n`, and the column a stratified split reads - determine the folds entirely
+    (`metrics-and-validation.md` §8), so deriving them is cheaper than keeping a
+    second copy that can disagree with the recipe.
     """
     split = governing_split(node_id, by_id)
-    return None if split is None else _folds_for(split, None, n_samples)
+    return None if split is None else _folds_for(split, None, version)
 
 
 # --- the cache index ------------------------------------------------------

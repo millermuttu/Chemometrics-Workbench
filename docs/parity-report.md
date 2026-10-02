@@ -97,7 +97,7 @@ those listed under *Gaps* or *Documented divergences* below.
 | SEC and SEP | `sec`, `sep` | 1 claim |
 | Bias | `bias` | **not compared.** The mean signed residual; no reference reports it apart from RMSE. Unit-tested, and held by the identity RMSEP² = bias² + (n-1)/n SEP² in `tests/test_validation.py`. |
 | PLS-DA (two-class): dummy predictions, confusion, accuracy | `PLS` | 15 claims |
-| Fold assignment: k-fold, leave-one-out, train/test | `k_fold`, `leave_one_out`, `train_test` | **not compared.** Differs by convention: folds are drawn with NumPy's `default_rng`, scikit-learn's with a legacy `RandomState`, so one seed gives different folds (`metrics-and-validation.md` §8). Cross-validated claims above pass our resolved folds to the reference instead. The fold structure is unit-tested in `tests/test_validation.py`. |
+| Fold assignment: k-fold, leave-one-out, train/test, stratified | `k_fold`, `leave_one_out`, `train_test`, `stratified_k_fold`, `stratified_train_test` | **not compared.** Differs by convention: folds are drawn with NumPy's `default_rng`, scikit-learn's with a legacy `RandomState`, so one seed gives different folds (`metrics-and-validation.md` §8). Cross-validated claims above pass our resolved folds to the reference instead. The fold structure is unit-tested in `tests/test_validation.py`. Stratified folds also deal each level into folds by §8.7's own rule, which is not scikit-learn's `StratifiedKFold` assignment either. |
 | Model export: JSON model and prediction snippet | `json_model`, `python_snippet` | **not compared.** Not a computation with an outside reference: the export must reproduce this application's own predictions, within rtol 1e-4 (`model-export.md` §5), in a NumPy-only interpreter - `tests/test_export.py`. |
 
 ---
