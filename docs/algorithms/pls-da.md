@@ -73,7 +73,7 @@ where TP counts samples of $C_1$ assigned $C_1$, TN samples of $C_0$ assigned $C
 | `sensitivity` | $\mathrm{TP} / (\mathrm{TP} + \mathrm{FN})$ — the fraction of $C_1$ recovered |
 | `specificity` | $\mathrm{TN} / (\mathrm{TN} + \mathrm{FP})$ — the fraction of $C_0$ recovered |
 
-A metric whose denominator is zero — a set with no sample of one class — is **absent**, never `0.0` and never `NaN`, per `metrics-and-validation.md` §11. The confusion matrix is always reported; it is what the metrics are computed from and it is complete where they are not.
+These are [`classification.md`](classification.md)'s two-class case; that document also defines the per-class table every classifier reports. A metric whose denominator is zero — a set with no sample of one class — is **absent**, never `0.0` and never `NaN`, per `metrics-and-validation.md` §11. The confusion matrix is always reported; it is what the metrics are computed from and it is complete where they are not.
 
 **Which set.** The three metrics are computed over three sets and named by suffix, following the regression convention of the same document:
 

@@ -502,10 +502,11 @@ function RmsecvCurve({ pca }: { pca: PcaPayload }) {
   );
 }
 
-/** The confusion matrices a two-class PLS-DA reports (#185, `pls-da.md` §6):
+/** The confusion matrices a classification reports (`classification.md`):
  * rows observed, columns assigned, in the classes' order, for the calibration
- * set and - below a split - the cross-validated and held-out sets. Counts,
- * not a plot: four numbers per set are read, not drawn. Exported for its test. */
+ * set and - below a split - the cross-validated and held-out sets, each with
+ * its per-class table beneath. Counts, not a plot: N-by-N numbers are read,
+ * not drawn. Exported for its test. */
 export function ConfusionMatrix({ pca }: { pca: PcaPayload }) {
   const classification = pca.classification;
   if (!classification) return null;
@@ -514,9 +515,9 @@ export function ConfusionMatrix({ pca }: { pca: PcaPayload }) {
     ["cross_validation", "Cross-validated"],
     ["held_out", "Held out (fold 0)"],
   ];
-  const [c0, c1] = classification.classes;
+  const { classes } = classification;
   return (
-    <Panel title="Confusion" note={`${c0} · ${c1}`}>
+    <Panel title="Confusion" note={classes.join(" · ")}>
       <div
         data-testid="confusion-matrix"
         style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "6px 0" }}
@@ -524,29 +525,58 @@ export function ConfusionMatrix({ pca }: { pca: PcaPayload }) {
         {sets
           .filter(([key]) => classification.confusion[key])
           .map(([key, label]) => {
-            const [[tn, fp], [fn, tp]] = classification.confusion[key];
+            const table = classification.class_metrics?.[key];
             return (
-              <table key={key} data-testid={`confusion-${key}`} style={{ marginBottom: 8 }}>
-                <thead>
-                  <tr>
-                    <th style={{ width: 110 }}>{label}</th>
-                    <th className="n">→ {c0}</th>
-                    <th className="n">→ {c1}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td className="mono">{c0}</td>
-                    <td className="n">{tn}</td>
-                    <td className="n">{fp}</td>
-                  </tr>
-                  <tr>
-                    <td className="mono">{c1}</td>
-                    <td className="n">{fn}</td>
-                    <td className="n">{tp}</td>
-                  </tr>
-                </tbody>
-              </table>
+              <div key={key} style={{ marginBottom: 10 }}>
+                <table data-testid={`confusion-${key}`}>
+                  <thead>
+                    <tr>
+                      <th style={{ width: 110 }}>{label}</th>
+                      {classes.map((name) => (
+                        <th key={name} className="n">
+                          → {name}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {classification.confusion[key].map((row, j) => (
+                      <tr key={classes[j]}>
+                        <td className="mono">{classes[j]}</td>
+                        {row.map((count, k) => (
+                          <td key={classes[k]} className="n">
+                            {count}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {table ? (
+                  <table data-testid={`class-metrics-${key}`}>
+                    <thead>
+                      <tr>
+                        <th style={{ width: 110 }}>Class</th>
+                        <th className="n">n</th>
+                        <th className="n">Sens.</th>
+                        <th className="n">Spec.</th>
+                        <th className="n">Prec.</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {table.map((entry, j) => (
+                        <tr key={classes[j]}>
+                          <td className="mono">{classes[j]}</td>
+                          <td className="n">{entry.n}</td>
+                          <td className="n">{metric(entry.sensitivity, 3)}</td>
+                          <td className="n">{metric(entry.specificity, 3)}</td>
+                          <td className="n">{metric(entry.precision, 3)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : null}
+              </div>
             );
           })}
       </div>

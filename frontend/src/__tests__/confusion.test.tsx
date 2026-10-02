@@ -38,6 +38,32 @@ describe("the confusion panel", () => {
     expect(html).toMatch(/high<\/td><td class="n">100<\/td><td class="n">8<\/td>/);
   });
 
+  it("prints an N-by-N matrix and each set's per-class table (#269)", () => {
+    const three: PcaPayload = {
+      ...pca,
+      task: "classification",
+      classification: {
+        class_column: "species",
+        classes: ["chicken", "pork", "turkey"],
+        predicted_class: [],
+        confusion: { calibration: [[18, 1, 1], [0, 20, 0], [2, 0, 18]] },
+        class_metrics: {
+          calibration: [
+            { n: 20, sensitivity: 0.9, specificity: 0.95, precision: 0.9 },
+            { n: 20, sensitivity: 1, specificity: 0.975, precision: 0.952 },
+            { n: 0, specificity: 0.9 },
+          ],
+        },
+      },
+    };
+    const html = renderToStaticMarkup(<ConfusionMatrix pca={three} />);
+    expect(html).toContain("→ turkey");
+    expect(html).toMatch(/turkey<\/td><td class="n">2<\/td><td class="n">0<\/td><td class="n">18<\/td>/);
+    expect(html).toContain("class-metrics-calibration");
+    // A metric with a zero denominator is absent, and printed as an em dash.
+    expect(html).toMatch(/turkey<\/td><td class="n">0<\/td><td class="n">—<\/td><td class="n">0.900<\/td><td class="n">—<\/td>/);
+  });
+
   it("draws nothing for a decomposition", () => {
     expect(renderToStaticMarkup(<ConfusionMatrix pca={pca} />)).toBe("");
   });
