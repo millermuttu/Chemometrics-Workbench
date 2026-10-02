@@ -61,7 +61,15 @@ from chemometrics_workbench.project import (
     write_cache_index,
 )
 from chemometrics_workbench.regression import PLS
-from chemometrics_workbench.validation import bias, k_fold, r2, rmse, sec
+from chemometrics_workbench.validation import (
+    bias,
+    k_fold,
+    r2,
+    rmse,
+    sec,
+    stratified_k_fold,
+    stratified_train_test,
+)
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "contract"
 
@@ -694,20 +702,77 @@ def test_a_train_test_split_holds_out_once_and_reports_p_metrics(
     assert abs(display[fold.test].mean()) > 1e-4
 
 
-def test_stratifying_a_train_test_split_is_refused_by_name(
+def _grades(version: DatasetVersion) -> DatasetVersion:
+    """Tecator with an unbalanced three-level column: 40 'a', 80 'b', 120 'c'."""
+    labels = ["a"] * 40 + ["b"] * 80 + ["c"] * 120
+    return version.model_copy(update={"metadata_columns": {"grade": labels}})
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        TrainTestSplit(test_size=0.25, stratify_by="grade"),
+        KFoldSplit(n_splits=4, stratify_by="grade"),
+    ],
+)
+def test_a_stratified_split_resolves_to_the_kernel_s_folds(
+    project: tuple[Path, DatasetVersion], spec: Any
+) -> None:
+    """§8.7: the run's folds are the stratified kernel's on the named column."""
+    directory, version = project
+    version = _grades(version)
+    pipeline = _pipeline(version.version_id, SplitNode(id="s", inputs=("source",), spec=spec))
+    run = execute(directory, pipeline, version)
+    [resolved] = run.resolved_splits
+    labels = version.metadata_columns["grade"]
+    expected = (
+        stratified_train_test(labels, 0.25)
+        if isinstance(spec, TrainTestSplit)
+        else stratified_k_fold(labels, 4)
+    )
+    assert resolved.test_indices == [fold.test.tolist() for fold in expected]
+    for test in resolved.test_indices:
+        held = [labels[i] for i in test]
+        share = len(test) / len(labels)
+        for level, count in (("a", 40), ("b", 80), ("c", 120)):
+            assert abs(held.count(level) - share * count) <= 1
+
+
+def test_stratifying_by_a_column_the_dataset_lacks_is_refused_by_name(
     project: tuple[Path, DatasetVersion],
 ) -> None:
     directory, version = project
     pipeline = _pipeline(
         version.version_id,
         SplitNode(
-            id="holdout",
-            inputs=("source",),
-            spec=TrainTestSplit(test_size=0.25, stratify_by="batch"),
+            id="holdout", inputs=("source",), spec=KFoldSplit(n_splits=5, stratify_by="batch")
         ),
     )
-    with pytest.raises(ExecutorError, match="stratify by 'batch', which is not implemented"):
+    with pytest.raises(ExecutorError, match="stratifies by 'batch', which this dataset does not"):
         execute(directory, pipeline, version)
+
+
+def test_a_level_too_small_to_stratify_is_refused_naming_the_split_and_the_level(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    directory, version = project
+    labels = ["rare"] + ["common"] * (version.n_samples - 1)
+    version = version.model_copy(update={"metadata_columns": {"grade": labels}})
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="s", inputs=("source",), spec=KFoldSplit(n_splits=5, stratify_by="grade")),
+    )
+    with pytest.raises(
+        ExecutorError, match=r"kfold stratified by 'grade'\) failed: the level 'rare'"
+    ):
+        execute(directory, pipeline, version)
+
+
+def test_an_unstratified_kfold_keeps_the_cache_key_it_had_before_stratification() -> None:
+    """#268: the field is left out of the dump when unset, so no stored run is orphaned."""
+    assert KFoldSplit(n_splits=10).model_dump_json() == (
+        '{"kind":"kfold","n_splits":10,"shuffle":true,"seed":42}'
+    )
 
 
 def test_leave_one_out_is_the_other_splitter_that_does_work(

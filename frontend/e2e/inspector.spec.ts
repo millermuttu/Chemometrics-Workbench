@@ -216,6 +216,41 @@ test("a split is edited like a step, and the edit reaches the pipeline", async (
   await expect.poll(() => savedSplits(page), APPLIED).toBe(10);
 });
 
+test("a k-fold is stratified by a class column chosen from a dropdown", async ({ page }) => {
+  // #268: `stratify_by` is optional, so the select offers "none" and the
+  // metadata columns whose every level has two samples - here `fat_class`.
+  const inspector = await selectNode(page, /K-fold 10/);
+  const strata = inspector.getByLabel("Stratify By");
+  await expect(strata).toHaveValue("");
+  await expect(strata.locator("option")).toHaveText(["none", "fat_class"]);
+
+  await strata.selectOption("fat_class");
+  await inspector.getByRole("button", { name: "Apply and re-run" }).click();
+  await expect.poll(() => savedStratum(page), APPLIED).toBe("fat_class");
+  await expect.poll(() => splitState(page), { timeout: 120_000 }).toBe("complete");
+
+  // Put it back: the seeded project outlives this test.
+  await strata.selectOption("");
+  await inspector.getByRole("button", { name: "Apply and re-run" }).click();
+  await expect.poll(() => savedStratum(page), APPLIED).toBeUndefined();
+});
+
+/** The column the server holds `split_d` stratified by; unset is left out. */
+async function savedStratum(page: Page): Promise<string | undefined> {
+  const response = await page.request.get("/api/pipelines/current", {
+    headers: { Authorization: "Bearer e2e-token" },
+  });
+  const nodes = (await response.json()).nodes as { id: string; spec?: { stratify_by?: string } }[];
+  return nodes.find((node) => node.id === "split_d")?.spec?.stratify_by;
+}
+
+async function splitState(page: Page): Promise<string | undefined> {
+  const response = await page.request.get("/api/pipelines/current/state", {
+    headers: { Authorization: "Bearer e2e-token" },
+  });
+  return (await response.json()).nodes?.split_d?.state as string | undefined;
+}
+
 test("a PLS target is chosen from the dataset's own columns", async ({ page }) => {
   const inspector = await selectNode(page, /PLS 5 LV/);
   const target = inspector.getByLabel("Target");

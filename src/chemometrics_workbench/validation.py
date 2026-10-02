@@ -53,6 +53,8 @@ __all__ = [
     "rmse",
     "sec",
     "sep",
+    "stratified_k_fold",
+    "stratified_train_test",
     "train_test",
     "validate_partition",
 ]
@@ -252,6 +254,76 @@ def train_test(n_samples: int, test_size: float, *, seed: int = 42) -> list[Fold
     perm = np.random.default_rng(seed).permutation(n_samples)
     test = np.sort(perm[:held])
     return [Fold(train=np.setdiff1d(np.arange(n_samples), test), test=test)]
+
+
+def _strata(
+    labels: Sequence[str], *, shuffle: bool, seed: int
+) -> list[tuple[str, NDArray[np.intp]]]:
+    """§8.7: each level's row indices, levels in Unicode order, each permuted.
+
+    One generator serves every level in turn, so the whole assignment follows
+    from the seed. A level with fewer than two members is refused by name: it
+    cannot be both fitted on and held out.
+    """
+    values = [str(label) for label in labels]
+    rng = np.random.default_rng(seed)
+    strata: list[tuple[str, NDArray[np.intp]]] = []
+    for level in sorted(set(values)):
+        members = np.asarray([i for i, value in enumerate(values) if value == level], dtype=np.intp)
+        if members.size < 2:
+            raise ValueError(
+                f"the level {level!r} has {members.size} sample; stratifying needs at least "
+                "2 in every level, one to fit on and one to hold out."
+            )
+        strata.append((level, members[rng.permutation(members.size)] if shuffle else members))
+    return strata
+
+
+def stratified_k_fold(
+    labels: Sequence[str], n_splits: int, *, shuffle: bool = True, seed: int = 42
+) -> list[Fold]:
+    """K-fold keeping each level's proportion in every fold (§8.7).
+
+    The levels' permuted members are laid end to end, levels in Unicode order,
+    and position `i` of that sequence goes to fold `i mod K`. Every fold then
+    holds each level's count divided by K, give or take one, and the fold sizes
+    differ by at most one, as in §8.3.
+    """
+    n_samples = len(labels)
+    if n_splits < 2:
+        raise ValueError(f"K-fold needs at least 2 folds, got {n_splits}")
+    if n_splits > n_samples:
+        raise ValueError(
+            f"{n_splits} folds were asked of {n_samples} samples. K may not exceed n; "
+            "K = n is leave-one-out and is expressed as such (§8.3)."
+        )
+    order = np.concatenate([members for _, members in _strata(labels, shuffle=shuffle, seed=seed)])
+    position = np.empty(n_samples, dtype=np.intp)
+    position[order] = np.arange(n_samples)
+    every = np.arange(n_samples, dtype=np.intp)
+    folds: list[Fold] = []
+    for k in range(n_splits):
+        test = every[position % n_splits == k]
+        folds.append(Fold(train=np.setdiff1d(every, test), test=test))
+    return folds
+
+
+def stratified_train_test(labels: Sequence[str], test_size: float, *, seed: int = 42) -> list[Fold]:
+    """One hold-out fold taking `ceil(test_size * n_g)` from every level (§8.7)."""
+    if not 0.0 < test_size < 1.0:
+        raise ValueError(f"test_size must be strictly between 0 and 1, got {test_size}")
+    held: list[NDArray[np.intp]] = []
+    for level, members in _strata(labels, shuffle=True, seed=seed):
+        take = math.ceil(test_size * members.size)
+        if take >= members.size:
+            raise ValueError(
+                f"a test size of {test_size} holds out all {members.size} samples of the level "
+                f"{level!r} and leaves none of it to calibrate on. Reduce test_size, or add "
+                "samples to that level."
+            )
+        held.append(members[:take])
+    test = np.sort(np.concatenate(held))
+    return [Fold(train=np.setdiff1d(np.arange(len(labels)), test), test=test)]
 
 
 def folds_from_indices(
