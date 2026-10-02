@@ -2,7 +2,7 @@
 
 Compact state for the next session. **Overwrite this file at the end of every session** — it is a snapshot, not a log. Read it first, then `feature_list.json`, `git log` on `dev`, and the open issues.
 
-**Updated:** 2026-10-02
+**Updated:** 2026-10-02 (after #268)
 
 ---
 
@@ -118,6 +118,13 @@ which is the number #176 is judged by.
 
 ## Next action
 
-Pick up `stratified-splits` (#268, priority 1, no dependencies). `sample-exclusion` (#270),
-`smoothing-filters`, `pcr`, `pls2-kernel`, `outlier-diagnostics`, `select-variables-step` and the
-readers have no dependencies either; take them in priority order, one at a time.
+`stratified-splits` (#268) is passing and merged through #292. Pick up `multiclass-groundwork` (#269,
+priority 2): N-class payload, per-class metrics, an N-by-N confusion matrix, and `stepMenu` offering
+classifiers on any column with two or more classes.
+
+**Stratification, as built:** `KFoldSplit.stratify_by` uses pydantic `exclude_if` so an unset field is
+left out of the dump and no existing cache key moves. Keep that pattern for any optional field added to
+an existing spec. `_folds_for` and `governing_folds` take the `DatasetVersion`, not `n`.
+
+**#291 is open:** a one-off Windows e2e failure in `docs-examples.spec.ts` (1 node complete where 5 were
+expected after "Done"). Read the trace artifact of run 37017826937 before changing anything.
