@@ -1,6 +1,6 @@
 {
   "phase": "Phase 5 - methods breadth",
-  "exit_criterion": "A multi-class spectral dataset imported from one of the new formats is cleaned (outliers flagged and excluded, the exclusion recorded in lineage), variables are selected, and PLS-DA, SIMCA, LDA and kNN are compared under the same stratified cross-validation, each matching its reference within stated tolerance. Separately, PCR and variable-selected PLS on Tecator match their references. Demonstrated by tests/exit_run_phase5.py over HTTP and recorded in docs/phase-5/exit-run.md.",
+  "exit_criterion": "Two claims, each demonstrated over HTTP by tests/exit_run_phase5.py and recorded in docs/phase-5/exit-run.md. (1) On the Quadram Institute fresh-meat FTIR set (three classes, CC0), outliers are flagged and excluded with the exclusion recorded in lineage, variables are selected, and PLS-DA, SIMCA, LDA and kNN are compared under the same stratified cross-validation, each matching its reference within stated tolerance; separately, PCR and variable-selected PLS on Tecator match their references. (2) A file of each new format (MAT, SPC, SPA, ASD) from the open sources in docs/decisions/0006 imports through the application and matches its source's own export or reference.",
   "decisions": [
     "2026-10-02. Classifiers: PLS-DA becomes multi-class (on a PLS2 kernel), plus SIMCA, LDA and kNN. SVM is deferred: it needs a hand-written QP solver.",
     "2026-10-02. Outlier detection flags; the user excludes. An exclusion is a derived DatasetVersion (excluded_samples, derived_from), never a pipeline step that drops rows.",
@@ -8,7 +8,8 @@
     "2026-10-02. File formats: MATLAB .mat, Thermo Galactic SPC, Thermo OMNIC SPA, ASD. Each with a real, licensed fixture.",
     "2026-10-02. Smoothing: moving average, median, Gaussian, Whittaker.",
     "2026-10-02. Unchanged: scikit-learn and chemotools stay development dependencies. Every kernel is hand-written; parity is against a reference library, mdatools, or recorded not_compared with a reason.",
-    "2026-10-02. One release, v1.1.0, at the end of the phase. Phase 4's timed exit run stays closed as recorded in docs/phase-4/."
+    "2026-10-02. One release, v1.1.0, at the end of the phase. Phase 4's timed exit run stays closed as recorded in docs/phase-4/.",
+    "2026-10-02. All Phase 5 development data comes from open, licensed datasets on the internet, downloaded into the gitignored dataset/ folder; CI-facing copies are committed as small fixtures with their licence. Sources and rules: docs/decisions/0006-phase-5-data-sources.md."
   ],
   "status_values": [
     "not_started",
@@ -51,7 +52,7 @@
       ],
       "status": "not_started",
       "evidence": "",
-      "notes": ""
+      "notes": "Data: Quadram fresh-meat FTIR (3 classes) and olive-oil FTIR (4 classes), both CC0; local copies in dataset/classification/."
     },
     {
       "id": "sample-exclusion",
@@ -331,7 +332,7 @@
       ],
       "status": "not_started",
       "evidence": "",
-      "notes": ""
+      "notes": "Source: MLNIRdata, 10.5281/zenodo.16781223 (CC-BY-4.0), MAT 5.0 plus CSV twins; local copy in dataset/mat/."
     },
     {
       "id": "reader-spc",
@@ -347,7 +348,7 @@
       ],
       "status": "not_started",
       "evidence": "",
-      "notes": ""
+      "notes": "Source: archaeological bone and antler FTIR, 10.5281/zenodo.16108826 (CC-BY-4.0); local copy in dataset/spc/. Old-format and multi-file variety may come from rohanisaac/spc test_data (GPL-3.0) per decision 0006."
     },
     {
       "id": "reader-spa",
@@ -363,7 +364,7 @@
       ],
       "status": "not_started",
       "evidence": "",
-      "notes": ""
+      "notes": "Source: 10.5281/zenodo.17691644 (CC-BY-4.0, with CSV exports to cross-check) and 10.5281/zenodo.21396092 (CC-BY-4.0); local copies in dataset/spa/."
     },
     {
       "id": "reader-asd",
@@ -379,7 +380,7 @@
       ],
       "status": "not_started",
       "evidence": "",
-      "notes": ""
+      "notes": "Source: Eaton Fire ash field spectroscopy, 10.5281/zenodo.16538735 (CC-BY-4.0), with a measurements CSV to cross-check; local copy in dataset/asd/."
     },
     {
       "id": "docs-phase-5",
@@ -414,7 +415,7 @@
       "priority": 22,
       "area": "process",
       "issue": 289,
-      "title": "The exit criterion: classification, outliers and selection on a real multi-class dataset",
+      "title": "The exit criterion: classification, outliers and selection on the Quadram meat set, and every new format imported",
       "depends_on": [
         "docs-phase-5",
         "reader-mat",
@@ -425,12 +426,12 @@
       ],
       "user_visible_behavior": "Recorded, not built: the exit criterion run end to end over HTTP.",
       "verification": [
-        "uv run python -m tests.exit_run_phase5 - writes docs/phase-5/exit-run.md with every claim met, and reports not met when a tolerance is tightened",
+        "uv run python -m tests.exit_run_phase5 - writes docs/phase-5/exit-run.md with both claims met, and reports not met when a tolerance is tightened",
         "dev merged to main and v1.1.0 tagged"
       ],
       "status": "not_started",
       "evidence": "",
-      "notes": ""
+      "notes": "Data: see decision 0006."
     }
   ]
 }

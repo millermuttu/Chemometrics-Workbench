@@ -24,12 +24,12 @@ its timed exit run stays `blocked` there, closed on the maintainer's decision, a
 `PROPOSAL.md` §16 has the Phase 5 row and §6 marks the four formats Phase 5. `AGENTS.md`, `.agents/`,
 `.codex/` and the root `tecator.csv` are now gitignored.
 
-## Open questions for the phase
+## Development data
 
-- **A multi-class dataset** for parity and the exit run. Tecator has no classes (binned fat is the
-  fallback). Needs a public multi-class NIR/IR set with a usable licence, ideally in one of the new formats.
-- **Real SPC, SPA and ASD files** to commit as fixtures: the maintainer's own, or openly licensed ones
-  (spectrochempy, specio test data) after a licence check.
+All Phase 5 data comes from open, licensed internet sources (decision 0006). It is downloaded into
+`dataset/` at the root, which is **gitignored**, so it is only on this machine. Re-download it from the
+DOIs listed in `docs/decisions/0006-phase-5-data-sources.md`. The multi-class set is the Quadram fresh-meat
+FTIR CSV (3 classes, CC0). Tests that need a file in CI get a small copy in `tests/fixtures/` with its licence.
 
 ## How a new estimator lands
 

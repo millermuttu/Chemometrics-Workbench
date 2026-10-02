@@ -225,8 +225,8 @@ openspec/
 .codex/
 AGENTS.md
 
-# A stray copy; the shipped one is docs/examples/tecator.csv
-/tecator.csv
+# Development data downloaded from open sources (docs/decisions/0006-phase-5-data-sources.md)
+/dataset/
 
 # Generated design canvas (re-seed from design/canvas/build.py)
 design/canvas/chemometrics-workbench-screens.html
