@@ -98,6 +98,7 @@ from chemometrics_workbench.project import (
     add_dataset,
     config_dir,
     create_project,
+    derive_version,
     is_project,
     open_project,
     read_array,
@@ -328,6 +329,59 @@ def import_dataset(
             start_pipeline(directory, project, version)
     except ProjectError as error:
         raise _fail(500, "project_unavailable", str(error)) from error
+    return _entry_json(entry)
+
+
+class Exclusion(BaseModel):
+    """Which rows of which version to leave out (#270)."""
+
+    from_version_id: str
+    exclude: list[int]
+
+
+@router.post("/datasets/{dataset_id}/versions", status_code=201)
+def exclude_samples(dataset_id: str, body: Exclusion) -> Any:
+    """A new version without the rows named, and the pipeline moved onto it.
+
+    The pipeline follows only when its source is the version excluded from, so
+    an exclusion made while looking at another dataset does not swap the data
+    under the canvas. Undoing it is pointing the source back at the parent,
+    which the pipeline's own write already does.
+    """
+    directory, _ = _project()
+    parent = next(
+        (
+            version
+            for entry in read_datasets(directory)
+            if str(entry.dataset.dataset_id) == dataset_id
+            for version in entry.versions
+            if str(version.version_id) == body.from_version_id
+        ),
+        None,
+    )
+    if parent is None:
+        raise _fail(
+            404,
+            "not_found",
+            f"dataset {dataset_id} has no version {body.from_version_id}.",
+            dataset_id=dataset_id,
+        )
+    try:
+        version = derive_version(directory, parent, body.exclude)
+    except ProjectError as error:
+        raise _fail(422, "invalid_exclusion", str(error)) from error
+
+    pipeline = read_pipeline(directory)
+    if pipeline is not None:
+        nodes = [
+            node.model_copy(update={"version_id": version.version_id})
+            if isinstance(node, SourceNode) and node.version_id == parent.version_id
+            else node
+            for node in pipeline.nodes
+        ]
+        if nodes != pipeline.nodes:
+            write_pipeline(directory, pipeline.model_copy(update={"nodes": nodes}))
+    entry = next(e for e in read_datasets(directory) if e.dataset.dataset_id == parent.dataset_id)
     return _entry_json(entry)
 
 

@@ -85,6 +85,8 @@ Every field is required unless it is marked optional. `null` means *this quantit
 | `content_hash` | string | Its content hash. **A dataset identified by its contents, never its filename** (`PROPOSAL.md` §8) |
 | `n_samples`, `n_variables` | int | The dataset's own, before any range selection |
 | `axis` | object | `{kind, unit}` of the dataset's variable axis. The values are in `arrays/dataset_axis.npy` |
+| `derived_from` | string or null | The version this one was cut from by an exclusion (#270), else null. Absent from an artifact written before it |
+| `excluded_samples` | int list | That version's rows left out, as positional indices into it; empty when nothing was excluded |
 
 ### 6. `split`
 

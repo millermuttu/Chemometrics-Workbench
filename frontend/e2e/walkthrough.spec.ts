@@ -158,3 +158,62 @@ test("the whole path: empty project to a scores plot the kernel produced", async
  * cancel, and a real failure to read. Repeating them here would mean asserting
  * them on a project that has just been imported into, where a cached pipeline
  * gives a run no work to do. */
+
+test("two samples are excluded, the run uses what is left, and v1 comes back", async ({
+  page,
+}) => {
+  // #270. Runs after the walkthrough, on the project it imported into: the
+  // only server whose project a test is allowed to change.
+  await page.goto("/?token=e2e-token");
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /v1 · 30×24/ }).dblclick();
+
+  await page.getByLabel("Select row 2", { exact: true }).check();
+  await page.getByLabel("Select row 5", { exact: true }).check();
+  await page.getByRole("button", { name: "Exclude 2 selected" }).click();
+
+  // A second version, without them, and the pipeline moved onto it.
+  const derived = outline.getByRole("button", { name: /v2 · 28×24/ });
+  await expect(derived).toBeVisible();
+  await derived.dblclick();
+  await expect(page.getByTestId("excluded-pill")).toHaveText("2 excluded from v1");
+  await expect(page.getByTestId("excluded-ids")).toHaveText("Left out of v1: A002, A005");
+  await expect(page.getByRole("cell", { name: "A002", exact: true })).toHaveCount(0);
+
+  // The run is on the 28 that are left.
+  await page.getByRole("button", { name: "Run pipeline" }).click();
+  await expect(page.locator(".status")).toContainText("Done", { timeout: 60_000 });
+  await expect
+    .poll(async () => {
+      const response = await page.request.get("/api/results/pca", {
+        headers: { Authorization: "Bearer e2e-token" },
+      });
+      return response.ok() ? ((await response.json()).samples as unknown[]).length : 0;
+    })
+    .toBe(28);
+
+  // Undone by putting the source back on v1.
+  await page.getByRole("button", { name: "Restore v1" }).click();
+  await expect
+    .poll(async () => {
+      const response = await page.request.get("/api/pipelines/current", {
+        headers: { Authorization: "Bearer e2e-token" },
+      });
+      return (await response.json()).nodes[0].version_id as string;
+    })
+    .not.toBe(await sourceOfDerived(page));
+  await expect(page.getByRole("button", { name: "Restore v1" })).toHaveCount(0);
+});
+
+/** The version id the outline's v2 row stands for, read from the server. */
+async function sourceOfDerived(page: Page): Promise<string> {
+  const projects = await (
+    await page.request.get("/api/projects", { headers: { Authorization: "Bearer e2e-token" } })
+  ).json();
+  const datasets = await (
+    await page.request.get(`/api/projects/${projects[0].project_id}/datasets`, {
+      headers: { Authorization: "Bearer e2e-token" },
+    })
+  ).json();
+  return datasets[0].versions[1].version_id as string;
+}

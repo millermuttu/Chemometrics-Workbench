@@ -67,9 +67,9 @@
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; an e2e test excludes and restores a sample"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-02. Design decided in the work: an exclusion materialises a derived version (kept rows written as a new array, its own content hash, derived_from the parent, excluded_samples = parent row indices) rather than masking rows in place, so the executor, folds, payloads and sample ids need no change; recorded in design/data-model.md and the DatasetVersion field description. `uv run pytest`: `945 passed, 1 skipped`. tests/test_api.py: POST /datasets/{id}/versions writes version 2 with rows 1 and 6 gone from the array, ids and targets, deduplicated and sorted excluded_samples, a new content hash, and moves the pipeline source onto it; pointing the source back through PUT /pipelines/current restores the parent; an empty, out-of-range or too-large exclusion is refused 422 invalid_exclusion with the reason. tests/test_artifact.py: the manifest's dataset block carries derived_from and excluded_samples (null and [] when nothing was excluded). tests/test_report.py: a run on a derived version prints '2 rows of version <parent>: 4, 9'. Proof: with src/ reverted and the new tests kept, the derive, refusal, artifact and report tests fail (7 failed); the restore test drives an existing endpoint. ruff, mypy (71 files) clean. `pnpm test`: 142 passed, lineage.test.ts now naming a source's version_id change (the diff compared only step/spec and missed it; fixed in diff.ts). `pnpm build` then `pnpm exec playwright test`: 75 passed, walkthrough.spec.ts excluding A002 and A005 from the dataset table, seeing v2 28x24 with '2 excluded from v1' and 'Left out of v1: A002, A005', running PCA on 28 samples, and restoring v1.",
+      "notes": "The dataset table ticks only the 60 rows it draws (its existing ceiling); exclusion from the outlier table is exclude-flagged (#279), through the same endpoint."
     },
     {
       "id": "smoothing-filters",

@@ -147,7 +147,14 @@ class DatasetVersion(Frozen):
         description="Reference values by property name, e.g. {'moisture': [...]}.",
     )
     metadata_columns: dict[str, list[str]] = Field(default_factory=dict)
-    excluded_samples: list[int] = Field(default_factory=list)
+    excluded_samples: list[int] = Field(
+        default_factory=list,
+        description=(
+            "Rows of the `derived_from` version this one leaves out, as positional indices "
+            "into that version (#270). The rows are gone from this version's array, ids, "
+            "targets and metadata, so everything downstream runs on what is left."
+        ),
+    )
     excluded_variables: list[int] = Field(default_factory=list)
     source: SourceFile | None = None
     derived_from: UUID | None = Field(

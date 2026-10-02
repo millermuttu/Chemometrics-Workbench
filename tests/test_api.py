@@ -771,3 +771,78 @@ def test_a_result_stored_before_rotations_were_kept_asks_for_a_rerun(tmp_path: P
         )
     assert refused.value.status_code == 409
     assert "Run the pipeline again" in refused.value.detail["message"]  # type: ignore[index]
+
+
+# --------------------------------------------------------------------------
+# sample exclusion (#270): a derived version, and the pipeline moved onto it
+# --------------------------------------------------------------------------
+
+
+def test_excluding_samples_writes_a_derived_version_and_moves_the_pipeline(
+    client: TestClient, project: Path
+) -> None:
+    entry = client.post("/api/import", files=upload("tecator_subset.csv")).json()
+    parent = entry["versions"][0]
+    dataset_id = entry["dataset"]["dataset_id"]
+
+    response = client.post(
+        f"/api/datasets/{dataset_id}/versions",
+        json={"from_version_id": parent["version_id"], "exclude": [6, 1, 1]},
+    )
+    assert response.status_code == 201
+    child = response.json()["versions"][1]
+
+    assert child["version"] == 2
+    assert child["derived_from"] == parent["version_id"]
+    assert child["excluded_samples"] == [1, 6]
+    assert child["n_samples"] == 6
+    assert child["sample_ids"] == [
+        sample for row, sample in enumerate(parent["sample_ids"]) if row not in (1, 6)
+    ]
+    assert child["targets"]["fat"] == [
+        value for row, value in enumerate(parent["targets"]["fat"]) if row not in (1, 6)
+    ]
+    # Its own array, so its own hash: a run on it says it ran on other data.
+    assert child["content_hash"] != parent["content_hash"]
+    kept = read_array(project, parent["array_path"])[[0, 2, 3, 4, 5, 7]]
+    assert np.array_equal(read_array(project, child["array_path"]), kept)
+
+    source = client.get("/api/pipelines/current").json()["nodes"][0]
+    assert source["version_id"] == child["version_id"]
+
+
+def test_an_exclusion_is_undone_by_pointing_the_source_back_at_the_parent(
+    client: TestClient,
+) -> None:
+    entry = client.post("/api/import", files=upload("tecator_subset.csv")).json()
+    parent = entry["versions"][0]
+    client.post(
+        f"/api/datasets/{entry['dataset']['dataset_id']}/versions",
+        json={"from_version_id": parent["version_id"], "exclude": [0]},
+    )
+    pipeline = client.get("/api/pipelines/current").json()
+    pipeline["nodes"][0]["version_id"] = parent["version_id"]
+    restored = client.put("/api/pipelines/current", json={"nodes": pipeline["nodes"]})
+    assert restored.status_code == 200
+    assert restored.json()["nodes"][0]["version_id"] == parent["version_id"]
+
+
+@pytest.mark.parametrize(
+    ("exclude", "message"),
+    [
+        ([], "names no samples"),
+        ([8], "outside version 1, which has 8 samples"),
+        ([0, 1, 2, 3, 4, 5, 6], "leaves 1; a model needs at least 2"),
+    ],
+)
+def test_an_exclusion_that_cannot_be_made_is_refused_by_name(
+    client: TestClient, exclude: list[int], message: str
+) -> None:
+    entry = client.post("/api/import", files=upload("tecator_subset.csv")).json()
+    response = client.post(
+        f"/api/datasets/{entry['dataset']['dataset_id']}/versions",
+        json={"from_version_id": entry["versions"][0]["version_id"], "exclude": exclude},
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "invalid_exclusion"
+    assert message in response.json()["error"]["message"]
