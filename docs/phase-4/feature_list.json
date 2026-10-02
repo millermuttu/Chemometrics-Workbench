@@ -1,0 +1,229 @@
+{
+  "phase": "Phase 4 - package and release",
+  "exit_criterion": "PROPOSAL.md section 16: \"A non-developer on a clean machine downloads, installs and completes a PCA in under ten minutes.\" Concretely, and recorded rather than reasoned: a person who is not a developer, on a machine with no Python, Node or developer tools, is given only the release page and the documentation site, and is timed from the release page to the scores plot of a PCA on the example dataset. At least one run is on Windows. The maintainer arranges the session (decided 2026-09-28). The phase ends when that run is recorded in docs/phase-4/exit-run.md under ten minutes, and every obstacle it found is fixed or consciously accepted.",
+  "decisions": [
+    "2026-09-28. The exit run is done by a real non-developer the maintainer arranges; no automated stand-in replaces it.",
+    "2026-09-28. Packages ship unsigned at 1.0, with a 'How to open this' page for Gatekeeper and SmartScreen (PROPOSAL.md section 17's fallback).",
+    "2026-09-28. The documentation site is MkDocs Material, a development dependency only, published to GitHub Pages.",
+    "2026-09-28. Package formats: Windows .zip, macOS .dmg for Apple Silicon only, Linux .tar.gz. Intel macOS and AppImage are deferred.",
+    "2026-09-28. The name stays 'Chemometrics Workbench' for 1.0 (PROPOSAL.md section 19, question 3)."
+  ],
+  "status_values": [
+    "not_started",
+    "in_progress",
+    "blocked",
+    "passing"
+  ],
+  "features": [
+    {
+      "id": "localhost-hardening",
+      "priority": 1,
+      "area": "backend",
+      "issue": 231,
+      "title": "Localhost hardening: Host and Origin checked on every request",
+      "depends_on": [],
+      "user_visible_behavior": "None visible. A web page the user visits cannot reach the local server, by DNS rebinding or by a cross-origin request, and the development origins are no longer accepted by a packaged application.",
+      "verification": [
+        "uv run pytest - a wrong Host and a foreign Origin are refused with a 403 in the error envelope on an API route and on the bundle; the Vite origins are accepted only in development mode; each test fails on the unfixed code first",
+        "The path audit: every endpoint listed with what it takes from the client, showing none accepts a server-side path",
+        "pnpm exec playwright test - the application still works through its own origin"
+      ],
+      "status": "passing",
+      "evidence": "2026-09-28. `uv run pytest`: `910 passed, 1 skipped`. tests/test_server.py has one test per section 4.3 requirement. A `Host` of `attacker.example:8765` is refused 403 `forbidden` on `/api/projects`, `/` and `/index.html`, and both loopback names are accepted with or without a port. A foreign `Origin` (`http://attacker.example`, `http://127.0.0.1:9999`, `http://localhost:5173`, `null`) is refused even with the token, and the application's own origin or none is accepted. `http://localhost:5173` is accepted only with `DEV` set, and a preflight gets no `access-control-allow-origin`. No response sets a cookie and a cookie is not a token. `main()` binds `127.0.0.1` on port 0. Proof: against dev's server.py with the new tests kept, the Host, Origin and dev-origin tests FAILED; the cookie and bind tests passed on both, as they guard requirements already met. A real uvicorn process probed with curl: production gives own Origin 200, `localhost:5173` 403, rebound Host 403, no Origin 200; `WORKBENCH_DEV=1` gives `localhost:5173` 200 and everything else unchanged. `pnpm exec playwright test`: `61 passed (2.5m)`; the browser sends its own Origin on every write. Path audit, every route in api.py: the project directory comes from the environment, never from a request; an upload's filename is reduced to `Path(...).name` inside a fresh temporary directory; stored arrays and results are named by content-hash keys, and `node_id`, `experiment_id`, `job_id` and `model_id` are only looked up, never joined into a path; a saved model's file is `models/<uuid>.cwmodel`, generated server-side. No endpoint accepts a server-side path. `ruff check`, `ruff format --check` and `mypy` clean.",
+      "notes": "PROPOSAL.md section 4.3. Already met before this phase: 127.0.0.1 only, an ephemeral port, a per-session bearer token compared in constant time, no cookies, and bundle paths confined to the bundle. Missing: Host and Origin validation, and DEV_ORIGINS gated to development."
+    },
+    {
+      "id": "launcher",
+      "priority": 1,
+      "area": "backend",
+      "issue": 232,
+      "title": "A launcher: double-click, the browser opens on the workbench",
+      "depends_on": [],
+      "user_visible_behavior": "Starting the application opens the default browser on the workbench, already authenticated, with the default project open; a console window says how to stop it.",
+      "verification": [
+        "uv run pytest - the URL handed to the browser carries the bound port and the token; the bundle is found from a simulated frozen layout; two launches get two ports",
+        "Started from a checkout, the browser opens on the workbench with no terminal input"
+      ],
+      "status": "passing",
+      "evidence": "2026-09-29. `uv run pytest`: `913 passed, 1 skipped`. tests/test_server.py adds three tests. Two real launches of `main(open_browser=True)` run side by side on threads: each hands the browser `http://127.0.0.1:<port>/?token=<token>` with its own bound port (the two differ and equal the sockets' ports), and each URL answers `/api/projects` 200 by the time the browser is told of it. `main()` without the flag opens nothing, which is what Playwright, seed_e2e and the exit runs start. With `sys.frozen` and `sys._MEIPASS` set to a directory holding `frontend/dist/index.html`, `BUNDLE` resolves there and `/` serves it. Proof: against dev's server.py with the new tests kept, all three FAILED. From a checkout, `python -m chemometrics_workbench` (what `./run.sh` now execs) with `BROWSER` set to a script that records its argument, since that is what `webbrowser` hands any browser: it received `http://127.0.0.1:45515/?token=...` with no terminal input; that URL served `<title>Chemometrics Workbench`, `/api/projects` with its token answered 200, the console printed \"Close this window to stop the workbench.\", and `<config dir>/projects/default` was created. `ruff check`, `ruff format --check` and `mypy` clean.",
+      "notes": "PROPOSAL.md sections 4.1 and 4.2. server.py prints the launch URL today and nothing opens it. The project already defaults to <config dir>/projects/default when CHEMOMETRICS_PROJECT is unset. Done as `python -m chemometrics_workbench` (`__main__.py`), which is also what PyInstaller should take as its entry script; `python -m chemometrics_workbench.server` stays serve-only. `webbrowser.open` runs on a daemon thread: called on the event loop, a browser that blocks (a console browser, or the test's fetching stand-in) held the loop that has to answer it."
+    },
+    {
+      "id": "pyinstaller-build",
+      "priority": 1,
+      "area": "process",
+      "issue": 233,
+      "title": "PyInstaller builds on three platforms in CI, each smoke-tested",
+      "depends_on": [
+        "launcher"
+      ],
+      "user_visible_behavior": "A downloadable package per platform - Windows .zip, macOS .dmg (Apple Silicon), Linux .tar.gz - that runs with no Python or Node installed.",
+      "verification": [
+        "CI - the build job succeeds on windows-latest, macos-latest and ubuntu-latest and uploads each package",
+        "CI - each built executable is launched, a dataset imported and a PCA run over HTTP, and the scores come back",
+        "The build fails if scikit-learn or chemotools is importable from the bundle",
+        "Packed and unpacked sizes recorded per platform"
+      ],
+      "status": "passing",
+      "evidence": "2026-09-29. PR #244, CI run https://github.com/millermuttu/Chemometrics-Workbench/actions/runs/36525504153: `package (ubuntu-latest)`, `package (macos-latest)` and `package (windows-latest)` all succeeded, each building with packaging/workbench.spec, running `tests/smoke_package.py` against the executable (launch URL read from its stdout, the page loaded, Tecator imported, a two-component PCA run over HTTP, 240 x 2 finite scores back, `<config dir>/projects/default` created), archiving and uploading. Uploaded artifacts, packed (GitHub's artifact size): macOS `.dmg` 44.3 MB, Windows `.zip` 61.4 MB, Linux `.tar.gz` 68.1 MB. Unpacked, as measured by the build and published in v0.9.0-rc1's notes (2026-09-29): Linux 174 MB, macOS 95 MB, Windows 146 MB. An earlier local figure of 234 MB counted each symlinked library twice, before `size_mb` skipped symlinks. The dev-dependency guard: with an empty `_internal/sklearn` directory planted in a local build, the smoke test printed `FAIL: the bundle carries development dependencies` and exited 1.",
+      "notes": "PROPOSAL.md section 4.2: onedir, automated in CI from day one of the phase. Unsigned at 1.0. The .dmg holds the onedir folder, not a .app, so a double-click opens Terminal, which is the 1.0 console-window decision. PyInstaller warns that `scipy.special._cdflib` is not found; the PCA smoke passes regardless, but a kernel that reaches it would fail only in the package."
+    },
+    {
+      "id": "release-workflow",
+      "priority": 2,
+      "area": "process",
+      "issue": 234,
+      "title": "A release workflow: a tag builds and publishes the three packages",
+      "depends_on": [
+        "pyinstaller-build"
+      ],
+      "user_visible_behavior": "Each release on GitHub carries the three packages and a 'How to open this' page for unsigned applications.",
+      "verification": [
+        "A pre-release tag produces a GitHub Release with the three packages attached and notes from the tag's annotation",
+        "The 'How to open this' page covers Gatekeeper and SmartScreen and states the download size"
+      ],
+      "status": "passing",
+      "evidence": "2026-09-29. An annotated tag `v0.9.0-rc1` pushed on PR #246's head (ffc9061) ran release.yml (run https://github.com/millermuttu/Chemometrics-Workbench/actions/runs/36526987212): `package / package (ubuntu|macos|windows-latest)` and `release` all succeeded. The published release https://github.com/millermuttu/Chemometrics-Workbench/releases/tag/v0.9.0-rc1 is marked `prerelease: true`, is titled `Chemometrics Workbench 0.9.0-rc1`, carries the three packages (linux-x64.tar.gz 68.4 MB, macos-arm64.dmg 47.8 MB, windows-x64.zip 61.9 MB, uploaded by github-actions[bot]), and its notes open with the tag's annotation word for word, then a Downloads section linking docs/how-to-open.md at the tag and a table of measured sizes (download / unpacked: Linux 68 / 174 MB, macOS 48 / 95 MB, Windows 62 / 146 MB). docs/how-to-open.md covers Windows SmartScreen (More info, Run anyway), macOS Gatekeeper (Privacy & Security, Open Anyway; right-click Open on 14 and earlier; an xattr fallback), Linux, and states the download and unpacked size.",
+      "notes": "Proved on a pre-release tag before it is trusted with a real one. The package job is now the reusable .github/workflows/package.yml, called by ci.yml and release.yml. A lightweight tag is refused, because its annotation is the notes. The docs site (#236) still has to link how-to-open.md."
+    },
+    {
+      "id": "docs-site",
+      "priority": 2,
+      "area": "docs",
+      "issue": 235,
+      "title": "A documentation site on GitHub Pages",
+      "depends_on": [],
+      "user_visible_behavior": "A public site with install instructions, a first PCA, each screen, model export and the HTML report.",
+      "verification": [
+        "mkdocs build --strict passes in CI on every pull request",
+        "The site is deployed to GitHub Pages from main and its URL answers",
+        "Screenshots come from the Playwright suite, not by hand"
+      ],
+      "status": "passing",
+      "evidence": "2026-09-29. PR #248, CI run https://github.com/millermuttu/Chemometrics-Workbench/actions/runs/36528769800: the `docs` job succeeded - it built the frontend, ran e2e/docs-screens.spec.ts on the seeded Tecator project (pipeline, spectra, PCA and PLS screenshots written to docs/images/screens/, not committed), and ran `mkdocs build --strict`; `pages` was skipped, as it runs on main only. Locally: the same spec `4 passed`, and the screenshots were checked by eye; `mkdocs build --strict` aborted on the four images while they were missing, and on a deliberately broken `nope.md` link, then built clean. Verification 1 (strict build in CI on every pull request) and 3 (screenshots from the Playwright suite) are met. Verification 2 (deployed from main, URL answers) is not run. 2026-10-01: deployed. dev was merged into main through #263 (all checks green); the `pages` job on the merge commit fd39b41 succeeded (https://github.com/millermuttu/Chemometrics-Workbench/actions/runs/36809117590, after main was allowed in the github-pages environment's deployment branches). https://millermuttu.github.io/Chemometrics-Workbench/ answers 200, as do first-pca/, install/, how-to-open/, parity-report/, examples/pca/, examples/pls/, examples/tecator.csv and the screenshots under images/screens/ (pca, pls, spectra, pipeline, ex-pca, ex-pls).",
+      "notes": "MkDocs Material as a development dependency only. The specification documents are linked as reference, not rewritten. Deploys from main only; the github-pages environment has to list main among its deployment branches, or the deploy is refused by protection rules (it was, once, on 2026-10-01)."
+    },
+    {
+      "id": "ui-export-buttons",
+      "priority": 1,
+      "area": "frontend",
+      "issue": 247,
+      "title": "Export, report and model file reachable from the UI, not only over HTTP",
+      "depends_on": [],
+      "user_visible_behavior": "A results tab offers Export JSON and Export Python, and an experiment tab offers Save report, each downloading the file; no terminal or token handling needed.",
+      "verification": [
+        "pnpm exec playwright test - each button downloads the served file under its served name, and a baseline chain shows the server's refusal",
+        "docs/export.md and docs/report.md describe the buttons, with the curl notes removed, and mkdocs build --strict passes"
+      ],
+      "status": "passing",
+      "evidence": "2026-09-29. frontend/e2e/downloads.spec.ts, `pnpm exec playwright test e2e/downloads.spec.ts --project seeded`: `4 passed`. Export JSON on the PLS tab saves `pls_d_model.json`, equal to `GET /api/results/pls_d/export.json` apart from `created_at`; Export Python saves `pls_d_predict.py` containing `def predict(X):`; a refused export (the server's 422 envelope, routed) shows the server's sentence in `export-json-error`; a PCA tab has neither button; Save report on the seeded experiment saves `experiment-unrun-<id>.html`, a doctype-HTML file with its `Scores, n samples` figure. Proof: with the source reverted and the bundle rebuilt, the three button tests FAILED and the PCA guard passed. Full `pnpm exec playwright test`: `69 passed (2.0m)`. `pnpm lint`, `pnpm typecheck` clean. docs/export.md and docs/report.md now describe the buttons, the curl route and its note are gone, and `uv run mkdocs build --strict` builds clean; the regenerated PLS screenshot was checked by eye after the header was kept to one line.",
+      "notes": "Found writing the docs site (#235): only Save model has a button. The exit run's non-developer cannot be asked to use curl. The .cwmodel download was optional in #247 and is not built: the model tab shows the file's path in the project folder, and docs/export.md says to copy it."
+    },
+    {
+      "id": "published-parity-report",
+      "priority": 2,
+      "area": "docs",
+      "issue": 236,
+      "title": "The parity report published, covering every implemented algorithm",
+      "depends_on": [
+        "docs-site"
+      ],
+      "user_visible_behavior": "The parity report is readable on the documentation site and names every algorithm the application ships, compared or not and why.",
+      "verification": [
+        "A coverage table: every shipped kernel against the report's entries",
+        "uv run python -m tests.parity_report - green, with any new claims",
+        "The report on the site is regenerated in CI"
+      ],
+      "status": "passing",
+      "evidence": "2026-09-29. Coverage: docs/parity-report.md opens with 'Coverage: every kernel the application ships', 26 rows from COVERAGE in tests/parity_report.py, claim counts computed from the run and summing to the report's 120; seven rows are named as not compared with the reason and what checks them instead (area normalisation, range selection, T2/SPE contributions, PLS diagnostics, bias, fold assignment, the export). tests/test_parity_coverage.py: 3 passed; dropping the Bias row made the kernel test fail, dropping the SPE-limit row made the fixture test fail. `uv run python -m tests.parity_report`: `wrote ... - 120 claims`, 120 passed 0 failed; `pytest -m parity` alone leaves `not_compared` empty. `uv run pytest` 916 passed 1 skipped; ruff, format, mypy clean. Regenerated in CI: PR #257's run https://github.com/millermuttu/Chemometrics-Workbench/actions/runs/36549421449 - the `docs` job ran `pytest -m parity` and `tests.parity_report` before `mkdocs build --strict` and succeeded, so the site is built from the report CI computed. The report's claim that CI byte-compares it (stopped by #38) was corrected. 2026-10-01: deployed. dev was merged into main through #263 (all checks green); the `pages` job on the merge commit fd39b41 succeeded (https://github.com/millermuttu/Chemometrics-Workbench/actions/runs/36809117590, after main was allowed in the github-pages environment's deployment branches). https://millermuttu.github.io/Chemometrics-Workbench/ answers 200, as do first-pca/, install/, how-to-open/, parity-report/, examples/pca/, examples/pls/, examples/tecator.csv and the screenshots under images/screens/ (pca, pls, spectra, pipeline, ex-pca, ex-pls). The live parity-report/ opens with 'Coverage: every kernel the application ships', regenerated by the docs job in that run.",
+      "notes": "PROPOSAL.md section 18's 1.0 criterion."
+    },
+    {
+      "id": "worked-examples",
+      "priority": 3,
+      "area": "docs",
+      "issue": 237,
+      "title": "Worked examples: Tecator PCA and PLS, as teaching material",
+      "depends_on": [
+        "docs-site"
+      ],
+      "user_visible_behavior": "Two step-by-step examples on the site - exploring a dataset with PCA, and a PLS calibration through to export and comparison - with the dataset downloadable.",
+      "verification": [
+        "Both examples on the site with screenshots",
+        "uv run pytest - every number an example quotes is checked by a test"
+      ],
+      "status": "passing",
+      "evidence": "2026-09-29. docs/examples/pca.md and docs/examples/pls.md, in the site nav under 'Worked examples', each step with its screenshot; docs/examples/tecator.csv and tecator-permission.txt are served beside them (site/examples/ holds both after `mkdocs build --strict`, clean). Screenshots: frontend/e2e/docs-examples.spec.ts, `--project examples` on a fresh empty project (8769): `1 passed` - import through the preview, the PCA pipeline through the step list, run, spectra, PCA results, M002's contributions, the PLS branch by dragging from the SG port, Target fat and 10 then 4 components through the inspector, the window changed to 15, and the two runs compared (lineage view names window_length). Ten pictures checked by eye against the pages: 23 of 240 beyond a limit, M002 T² 26.76, RMSECV 2.4634 and 2.4363. Numbers: tests/test_examples.py, `3 passed`: the CSV is tecator_csv() byte for byte and the permission note is tecator.txt's own; every number the pages quote (PC1 79.5%, T² limit 10.9, 18 / 11 / 23 of 240, M002 26.8; RMSECV 4.86 to 2.19, spread 0.32, 4 components, RMSECV 2.46, Q² 0.970, RMSEC 2.36, R² 0.973, VIP near 941 nm, RMSECV 2.44 at window 15) is recomputed over HTTP and asserted present. Changing '79.5%' or '4 components' on a page made the test fail naming it. The page's snippet code was run as written with Export Python's pls_predict.py in a venv holding only NumPy: it ran, and matched the application by sample id within 5.2e-6 relative (216 calibration) and 2.0e-6 (24 held out). 2026-10-01: deployed. dev was merged into main through #263 (all checks green); the `pages` job on the merge commit fd39b41 succeeded (https://github.com/millermuttu/Chemometrics-Workbench/actions/runs/36809117590, after main was allowed in the github-pages environment's deployment branches). https://millermuttu.github.io/Chemometrics-Workbench/ answers 200, as do first-pca/, install/, how-to-open/, parity-report/, examples/pca/, examples/pls/, examples/tecator.csv and the screenshots under images/screens/ (pca, pls, spectra, pipeline, ex-pca, ex-pls). The served tecator.csv is byte-identical to docs/examples/tecator.csv (cmp).",
+      "notes": "PROPOSAL.md section 17 treats worked examples as product. #258 (canvas zoom and off-screen add-step menu), found while writing them, was fixed in #260, which removed docs-examples.spec.ts's workarounds."
+    },
+    {
+      "id": "canvas-fit-and-menu",
+      "priority": 2,
+      "area": "frontend",
+      "issue": 258,
+      "title": "Pipeline canvas: fit to the graph as it grows, and keep the add-step menu on screen",
+      "depends_on": [],
+      "user_visible_behavior": "A new pipeline's steps are visible as they are added, a fit-view control is on the canvas, and the add-step menu opens where all of it can be clicked.",
+      "verification": [
+        "pnpm exec playwright test - four steps added to a fresh pipeline are all inside the viewport without a reload; a connector dropped near the bottom opens a menu whose last entry is clickable; each fails on the unfixed code first",
+        "docs-examples.spec.ts drops its reload and its upward drop, and still passes"
+      ],
+      "status": "passing",
+      "evidence": "2026-09-29. Both new tests in frontend/e2e/empty.spec.ts failed on the unfixed code after a fresh pnpm build: 'steps added to a fresh pipeline stay inside the canvas' (poll never true) and 'a connector dropped near the bottom opens a menu that fits' (last entry bottom at 1145.5 > 900). With the fix: `pnpm exec playwright test e2e/empty.spec.ts --project=empty` 8 passed. docs-examples.spec.ts drops its reload (refit via page.goto) and its upward drop; full `pnpm exec playwright test` 72 passed (2.4m), pnpm lint clean, pnpm test 139 passed.",
+      "notes": "Found writing the worked examples (#237). The canvas refits when the node count changes, not on refetch or drag; React Flow's Controls give the fit-view button."
+    },
+    {
+      "id": "contributing",
+      "priority": 3,
+      "area": "docs",
+      "issue": 238,
+      "title": "CONTRIBUTING.md and \"how to add an algorithm\"",
+      "depends_on": [],
+      "user_visible_behavior": "A contributor can set up, run the checks, follow the branching rules and add an algorithm from the written guide alone.",
+      "verification": [
+        "CONTRIBUTING.md and the guide exist and are linked from the README and the site",
+        "Every command in both run as written on a fresh clone"
+      ],
+      "status": "passing",
+      "evidence": "2026-09-29. CONTRIBUTING.md now covers setup (uv, pnpm, ./run.sh), every check CI runs (ruff, mypy, pytest, the frontend's typecheck/lint/test/build, the Playwright suite, the strict docs build, the package smoke test), the branching and pull-request rules, and inbound = outbound MIT. docs/adding-a-step.md walks spec, reference values, kernel, parity claim, pipeline model, executor and screen on Normalise, and its last layer was done for real: Normalise joins the step list with its outline label and canvas line (catalogue.test.ts and graph.test.ts failed first: `2 failed | 137 passed`, then `139 passed`). Both are linked from the README and from the site nav; `mkdocs build --strict` clean. Every command in both, run as written on a fresh clone of the branch (`git clone --branch feature/238_contributing`) on Linux: `uv sync`; `pnpm install --frozen-lockfile`; ruff check, ruff format --check, mypy clean; `uv run pytest` 913 passed 1 skipped; `tests/test_models.py` 20 passed; `-k content_hash` 5 passed; `-m parity` 127 passed; with CHEMOMETRICS_DOWNLOAD_DATASETS=1 913 passed and tests/test_datasets.py 19 passed; `tests.parity_report` wrote 120 claims and left the committed report unchanged; the fixture generator changed only `generated_at`; pnpm typecheck, lint, `test` 139 passed, build; `playwright install chromium`; `pnpm test:e2e` 69 passed; docs-screens 4 passed then mkdocs strict clean; pyinstaller then smoke_package `OK ... 240 x 2 PCA`; `./run.sh --build` rebuilt, served and handed the browser its token URL, which served the workbench; the R section's export, Rscript and generator reproduced r_mdatools_values.json byte-identically. Not re-run: the one-time `conda create` (the r-parity environment already exists).",
+      "notes": "PROPOSAL.md section 15."
+    },
+    {
+      "id": "asset-load-reload",
+      "priority": 1,
+      "area": "frontend",
+      "issue": 255,
+      "title": "A bundle asset that fails to load reloads the page once",
+      "depends_on": [],
+      "user_visible_behavior": "A stylesheet or script that fails to arrive no longer leaves an unstyled page with no layout: the page reloads once, and a second failure in the same tab is left visible.",
+      "verification": [
+        "The #255 trace read and its cause named",
+        "shell.spec.ts aborts the stylesheet once and asserts the styled top bar; fails on the unfixed code, passes on the fix",
+        "Full Playwright suite, lint and vitest pass"
+      ],
+      "status": "passing",
+      "evidence": "2026-09-30. The trace of run 36540710418 (playwright-report-windows-latest) shows the console error `Failed to load resource: net::ERR_NO_BUFFER_SPACE` on /assets/index-*.css and a screenshot of the unstyled page; the canvas div had no size, so toBeVisible read it hidden. #221's red (job 105596198698) has the same signature at the same line. frontend/index.html now reloads once on a LINK or SCRIPT error, guarded by sessionStorage. The new shell.spec.ts test failed unfixed (`Expected: 40, Received: 39`, the unstyled top bar) and passes fixed. Local: Playwright 73 passed, eslint clean, vitest 139 passed.",
+      "notes": "The runner's socket-buffer shortage itself is not ours to fix; the page now survives it."
+    },
+    {
+      "id": "phase-4-exit-run",
+      "priority": 0,
+      "area": "process",
+      "issue": 239,
+      "title": "The exit criterion: a non-developer, a clean machine, a PCA in under ten minutes",
+      "depends_on": [
+        "release-workflow",
+        "docs-site",
+        "ui-export-buttons"
+      ],
+      "user_visible_behavior": "Recorded, not built: a timed session by a non-developer on a clean machine, from the release page to a PCA scores plot.",
+      "verification": [
+        "docs/phase-4/exit-run.md: protocol, platform and OS version, timed steps, hesitations, warnings seen, total time, verdict",
+        "Every obstacle found is an issue, fixed or consciously accepted"
+      ],
+      "status": "blocked",
+      "evidence": "",
+      "notes": "A person runs it; the maintainer arranges the session. At least one run on Windows. 2026-09-30: docs/phase-4/exit-run.md holds the protocol, the observer's sheet and a blank session record (#239). 2026-10-01: every dependency is passing and the site is live; blocked only on a session with a real non-developer tester. 2026-10-01: a human tester smoke-tested the release on Windows and macOS, untimed, and reported it working as expected; recorded in docs/phase-4/exit-run.md. The verification steps were not run as written (no times, no observer's sheet), so this stays blocked rather than passing. The maintainer accepted the smoke tests in its place, closed #239 and released v1.0.0 on them. What would unblock it: a timed session per the protocol against a later release."
+    }
+  ]
+}

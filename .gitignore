@@ -221,6 +221,12 @@ __marimo__/
 # Agent tooling
 .claude/
 openspec/
+.agents/
+.codex/
+AGENTS.md
+
+# Development data downloaded from open sources (docs/decisions/0006-phase-5-data-sources.md)
+/dataset/
 
 # Generated design canvas (re-seed from design/canvas/build.py)
 design/canvas/chemometrics-workbench-screens.html
