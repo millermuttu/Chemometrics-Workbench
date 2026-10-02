@@ -185,6 +185,10 @@ test("a classification tab tallies its classes, and is read by accuracy", async 
     return { calibration: sum("calibration"), cv: sum("cross_validation") };
   });
   expect(totals).toEqual({ calibration: 216, cv: 240 });
+  // #269: each set's per-class table, one row per class, read from its matrix.
+  const perClass = page.getByTestId("class-metrics-cross_validation").locator("tbody tr");
+  await expect(perClass).toHaveCount(2);
+  await expect(perClass.first().locator("td").nth(1)).not.toHaveText("—");
   await expect(page.getByTestId("metric-Accuracy")).not.toHaveText("—");
   await expect(page.getByTestId("metric-Accuracy (CV)")).not.toHaveText("—");
 });

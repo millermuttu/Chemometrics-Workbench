@@ -213,6 +213,13 @@ export interface PcaPayload {
     /** `calibration`, and below a split `cross_validation` and `held_out`:
      * rows observed, columns assigned, in `classes` order. */
     confusion: Record<string, number[][]>;
+    /** `classification.md` section 3, per set and per class in `classes`
+     * order; a metric whose denominator is zero is absent. Served since #269,
+     * so a cached response from before it may lack it. */
+    class_metrics?: Record<
+      string,
+      { n: number; sensitivity?: number; specificity?: number; precision?: number }[]
+    >;
   };
   /** `metrics-and-validation.md` section 11's table, flat. **A metric that
    * could not be computed is absent** - never zero, never NaN - so a reader

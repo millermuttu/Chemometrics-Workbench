@@ -60,6 +60,7 @@ nav:
           - PCA: algorithms/pca.md
           - PLS regression: algorithms/pls-regression.md
           - PLS-DA: algorithms/pls-da.md
+          - Classification metrics: algorithms/classification.md
           - Smoothing and baselines: algorithms/smoothing-and-baselines.md
           - Metrics and validation: algorithms/metrics-and-validation.md
       - Model artifact: model-artifact.md
@@ -70,3 +71,4 @@ nav:
           - 0003 Fixture centre: decisions/0003-fixture-centre-d.md
           - 0004 Rank tolerance: decisions/0004-rank-tolerance-precision.md
           - 0005 Overloaded state coverage: decisions/0005-overloaded-state-coverage.md
+          - 0006 Phase 5 data sources: decisions/0006-phase-5-data-sources.md

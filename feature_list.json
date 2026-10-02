@@ -50,9 +50,9 @@
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": "Data: Quadram fresh-meat FTIR (3 classes) and olive-oil FTIR (4 classes), both CC0; local copies in dataset/classification/."
+      "status": "passing",
+      "evidence": "2026-10-02. New normative spec docs/algorithms/classification.md (N-by-N matrix, accuracy, per-class n/sensitivity/specificity/precision one-vs-rest, absent never NaN, two classes keep pls-da.md section 6's headline keys), linked from pls-da.md and the docs nav; `uv run mkdocs build --strict` clean. `uv run pytest`: `938 passed, 1 skipped`. tests/test_classification.py: confusion_matrix equals sklearn.metrics.confusion_matrix on a seeded 4-class, 200-sample case; class_metrics' n, sensitivity and precision equal precision_recall_fscore_support(average=None); specificity checked from its definition; two-class flat metrics unchanged ([[50,5],[10,35]] gives the same accuracy, sensitivity, specificity as before); more than two classes give accuracy alone; an empty class's undefined metrics are absent; results_payload serves class_metrics per set equal to class_metrics of each stored matrix. Existing PLS-DA executor and parity tests pass unchanged. Proof: with src/ and frontend/src/screens reverted and the new tests kept, test_classification.py fails at collection and the new confusion.test.tsx case fails. ruff, ruff format, mypy (71 files) clean. `pnpm typecheck && pnpm lint && pnpm test`: 141 passed, including a 3-class matrix and its per-class table with an em dash for an absent metric. `pnpm build` then `pnpm exec playwright test`: 74 passed, analysis.spec.ts now asserting the cross-validated per-class table has one row per class.",
+      "notes": "stepMenu still offers a classifier only on two-valued columns: the only classifier, PLS-DA, refuses three or more classes until plsda-multiclass (#274), and offering a node the executor refuses is the thing classColumns.ts exists to avoid. Each new classifier widens its own menu entry. The export snippet's 0.5 threshold is likewise PLS-DA's and changes in #274."
     },
     {
       "id": "sample-exclusion",

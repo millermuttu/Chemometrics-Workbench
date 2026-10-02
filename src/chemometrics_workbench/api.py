@@ -64,6 +64,7 @@ from chemometrics_workbench.checks import PipelineWarning, check_pipeline
 from chemometrics_workbench.decomposition import spe_contributions, t2_contributions
 from chemometrics_workbench.executor import (
     EstimatorResult,
+    class_metrics,
     governing_folds,
     governing_split,
     has_kernel,
@@ -543,6 +544,11 @@ def results_payload(
             "classes": result.classes,
             "predicted_class": result.predicted_class,
             "confusion": result.confusion,
+            # classification.md section 4: derived from each set's matrix, not
+            # stored, so the table cannot disagree with it.
+            "class_metrics": {
+                name: class_metrics(matrix) for name, matrix in result.confusion.items()
+            },
         }
     return payload
 

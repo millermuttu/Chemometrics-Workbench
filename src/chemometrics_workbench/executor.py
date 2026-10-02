@@ -177,6 +177,7 @@ __all__ = [
     "StoredDisplays",
     "assign_classes",
     "capture_environment",
+    "class_metrics",
     "classification_metrics",
     "confusion_matrix",
     "execute",
@@ -1352,29 +1353,58 @@ def assign_classes(predicted: object) -> NDArray[np.intp]:
     return (np.asarray(predicted, dtype=np.float64) >= 0.5).astype(np.intp)
 
 
-def confusion_matrix(observed: object, assigned: object) -> list[list[int]]:
-    """`pls-da.md` §6: rows observed, columns assigned, `[[TN, FP], [FN, TP]]`."""
+def confusion_matrix(observed: object, assigned: object, n_classes: int = 2) -> list[list[int]]:
+    """`classification.md` §2: rows observed, columns assigned, in `classes`
+    order. Two classes give `pls-da.md` §6's `[[TN, FP], [FN, TP]]`."""
     truth = np.asarray(observed, dtype=np.intp)
     guess = np.asarray(assigned, dtype=np.intp)
-
-    def count(o: int, g: int) -> int:
-        return int(np.count_nonzero((truth == o) & (guess == g)))
-
-    return [[count(0, 0), count(0, 1)], [count(1, 0), count(1, 1)]]
+    return [
+        [int(np.count_nonzero((truth == j) & (guess == k))) for k in range(n_classes)]
+        for j in range(n_classes)
+    ]
 
 
 def classification_metrics(confusion: list[list[int]], suffix: str = "") -> dict[str, float]:
-    """`pls-da.md` §6, with the "absent, never NaN" rule for an empty class."""
-    (tn, fp), (fn, tp) = confusion
-    total = tn + fp + fn + tp
+    """`classification.md` §3's flat metrics, absent rather than NaN.
+
+    Accuracy for any number of classes; two classes also keep `pls-da.md` §6's
+    sensitivity and specificity of the class coded 1.
+    """
+    matrix = np.asarray(confusion, dtype=np.int64)
     metrics: dict[str, float] = {}
-    if total:
-        metrics[f"accuracy{suffix}"] = (tp + tn) / total
-    if tp + fn:
-        metrics[f"sensitivity{suffix}"] = tp / (tp + fn)
-    if tn + fp:
-        metrics[f"specificity{suffix}"] = tn / (tn + fp)
+    if matrix.sum():
+        metrics[f"accuracy{suffix}"] = float(np.trace(matrix) / matrix.sum())
+    if matrix.shape == (2, 2):
+        (tn, fp), (fn, tp) = confusion
+        if tp + fn:
+            metrics[f"sensitivity{suffix}"] = tp / (tp + fn)
+        if tn + fp:
+            metrics[f"specificity{suffix}"] = tn / (tn + fp)
     return metrics
+
+
+def class_metrics(confusion: list[list[int]]) -> list[dict[str, float]]:
+    """`classification.md` §3's per-class table, one class against the rest.
+
+    A metric whose denominator is zero is left out of its class's entry.
+    """
+    matrix = np.asarray(confusion, dtype=np.int64)
+    total = int(matrix.sum())
+    table: list[dict[str, float]] = []
+    for j in range(matrix.shape[0]):
+        observed = int(matrix[j].sum())
+        assigned = int(matrix[:, j].sum())
+        others = total - observed
+        rejected = total - observed - assigned + int(matrix[j, j])
+        entry: dict[str, float] = {"n": float(observed)}
+        if observed:
+            entry["sensitivity"] = int(matrix[j, j]) / observed
+        if others:
+            entry["specificity"] = rejected / others
+        if assigned:
+            entry["precision"] = int(matrix[j, j]) / assigned
+        table.append(entry)
+    return table
 
 
 def _plsda(
