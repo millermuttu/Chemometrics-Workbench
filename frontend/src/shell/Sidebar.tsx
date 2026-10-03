@@ -84,6 +84,14 @@ export function nodeLabel(node: PipelineNode): string {
       return `Normalise · ${step?.norm}`;
     case "savgol":
       return `SG d${step?.deriv} w${step?.window_length}`;
+    case "moving_average":
+      return `Moving avg w${step?.window_length}`;
+    case "median":
+      return `Median w${step?.window_length}`;
+    case "gaussian":
+      return `Gaussian σ${step?.sigma}`;
+    case "whittaker":
+      return `Whittaker λ${step?.lam}`;
     case "kfold":
       return `K-fold ${spec?.n_splits} · seed ${spec?.seed}`;
     case "train_test":

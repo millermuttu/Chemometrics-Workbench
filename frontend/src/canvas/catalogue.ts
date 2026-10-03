@@ -52,6 +52,32 @@ export const STEPS: DraftableStep[] = [
       step: { kind: "savgol", window_length: 11, polyorder: 2, deriv: 1 },
     },
   },
+  // #271: smoothers without a derivative. The defaults are the parity
+  // fixture's (smoothing-and-baselines.md section 10.4).
+  {
+    kind: "Moving avg w5",
+    type: "preprocess",
+    parameters: "window 5",
+    payload: { step: { kind: "moving_average", window_length: 5 } },
+  },
+  {
+    kind: "Median w5",
+    type: "preprocess",
+    parameters: "window 5",
+    payload: { step: { kind: "median", window_length: 5 } },
+  },
+  {
+    kind: "Gaussian σ1.5",
+    type: "preprocess",
+    parameters: "sigma 1.5",
+    payload: { step: { kind: "gaussian", sigma: 1.5 } },
+  },
+  {
+    kind: "Whittaker λ100",
+    type: "preprocess",
+    parameters: "lambda 100",
+    payload: { step: { kind: "whittaker", lam: 100 } },
+  },
   {
     kind: "Mean centre",
     type: "preprocess",

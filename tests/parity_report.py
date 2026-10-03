@@ -92,6 +92,14 @@ class Coverage:
 #: `test_parity_coverage.py`, and so does a fixture entry no row claims: the
 #: table cannot quietly fall behind the code or the fixture.
 COVERAGE: tuple[Coverage, ...] = (
+    Coverage(
+        "Moving average",
+        ("MovingAverageTransformer",),
+        ("preprocess.moving_average",),
+    ),
+    Coverage("Median filter", ("MedianFilterTransformer",), ("preprocess.median",)),
+    Coverage("Gaussian smoothing", ("GaussianTransformer",), ("preprocess.gaussian",)),
+    Coverage("Whittaker smoothing", ("WhittakerTransformer",), ("preprocess.whittaker",)),
     Coverage("SNV", ("SNVTransformer",), ("preprocess.snv",)),
     Coverage("MSC", ("MSCTransformer",), ("preprocess.msc",)),
     Coverage("Mean centring", ("MeanCentreTransformer",), ("preprocess.mean_centred",)),

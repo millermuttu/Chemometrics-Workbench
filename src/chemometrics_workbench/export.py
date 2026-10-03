@@ -42,6 +42,7 @@ from chemometrics_workbench.models import (
     SNV,
     BaselineCorrect,
     DatasetVersion,
+    MedianFilter,
     Normalise,
     Pipeline,
     PreprocessNode,
@@ -66,7 +67,7 @@ THRESHOLD = 0.5
 
 #: The unfoldable steps a snippet can re-execute: each is a few lines of NumPy
 #: on one row. A baseline is deliberately absent - §1.
-EXPORTABLE_RESIDUAL = (SNV, MSC, Normalise)
+EXPORTABLE_RESIDUAL = (SNV, MSC, Normalise, MedianFilter)
 
 
 class ExportError(Exception):
@@ -350,6 +351,18 @@ def _step_source(index: int, step: dict[str, Any]) -> list[str]:
             "    if not np.all(divisor != 0):",
             "        raise ValueError('a spectrum has a zero norm')",
             "    return X / divisor[:, None]",
+        ]
+    if kind == "median":
+        window = int(step["window_length"])
+        return [
+            f"def _step_{index}(X):",
+            '    """Median filter: each variable the median of its window, shrunk at the ends."""',
+            f"    half = {window // 2}",
+            "    return np.stack(",
+            "        [np.median(X[:, max(0, i - half) : i + half + 1], axis=1)",
+            "         for i in range(X.shape[1])],",
+            "        axis=1,",
+            "    )",
         ]
     raise ExportError(  # pragma: no cover - _split refuses these first
         f"{kind!r} has no snippet form."

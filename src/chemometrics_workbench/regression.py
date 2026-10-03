@@ -66,10 +66,13 @@ from chemometrics_workbench.arrays import as_float64, as_float64_vector
 from chemometrics_workbench.decomposition import LimitFor, check_alpha, hotelling_t2_limit
 from chemometrics_workbench.preprocessing import (
     AutoscaleTransformer,
+    GaussianTransformer,
     MeanCentreTransformer,
+    MovingAverageTransformer,
     RangeSelectTransformer,
     SavitzkyGolayTransformer,
     Transformer,
+    WhittakerTransformer,
 )
 from chemometrics_workbench.validation import Fold, rmse, validate_partition
 
@@ -87,6 +90,7 @@ __all__ = [
 #: dot product is the same as taking a dot product with transformed
 #: coefficients.
 #:
+#: The median filter is absent for the same reason: a median is not linear.
 #: SNV, MSC and the baselines are absent on purpose and not by oversight: all
 #: three depend on the sample being predicted — SNV divides each spectrum by
 #: *its own* standard deviation, MSC regresses each against a stored reference
@@ -98,6 +102,9 @@ FOLDABLE = (
     AutoscaleTransformer,
     RangeSelectTransformer,
     SavitzkyGolayTransformer,
+    MovingAverageTransformer,
+    GaussianTransformer,
+    WhittakerTransformer,
 )
 
 Block = Literal["x", "y"]

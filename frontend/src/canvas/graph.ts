@@ -60,6 +60,13 @@ export function parameterLine(node: PipelineNode): string {
   switch (kind) {
     case "savgol":
       return `window ${step!.window_length} · poly ${step!.polyorder} · deriv ${step!.deriv}`;
+    case "moving_average":
+    case "median":
+      return `window ${step!.window_length}`;
+    case "gaussian":
+      return `sigma ${step!.sigma}`;
+    case "whittaker":
+      return `lambda ${step!.lam}`;
     case "msc":
       return `reference: ${step!.reference}`;
     case "autoscale":

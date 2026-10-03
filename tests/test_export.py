@@ -35,8 +35,11 @@ from chemometrics_workbench.models import (
     BaselineCorrect,
     DatasetVersion,
     EstimatorNode,
+    GaussianSmooth,
     KFoldSplit,
     MeanCentre,
+    MedianFilter,
+    MovingAverage,
     PCASpec,
     Pipeline,
     PLSDASpec,
@@ -46,6 +49,7 @@ from chemometrics_workbench.models import (
     SavitzkyGolay,
     SourceNode,
     SplitNode,
+    WhittakerSmooth,
 )
 from chemometrics_workbench.project import create_project, write_array
 
@@ -169,6 +173,33 @@ def test_an_unfoldable_chain_carries_its_residual_steps(
     model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
 
     assert [step["kind"] for step in model["preprocessing"]] == ["snv"]
+    predicted = _predict(python_snippet(model), tecator.spectra)
+    np.testing.assert_allclose(
+        predicted[np.asarray(result.rows)], result.predicted, rtol=RTOL, atol=ATOL
+    )
+
+
+def test_linear_smoothers_fold_and_a_median_is_carried(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#271: moving average, Gaussian and Whittaker are fixed matrices and fold;
+    a median is not linear and is re-executed by the snippet."""
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(id="median", inputs=("source",), step=MedianFilter(window_length=5)),
+        PreprocessNode(id="mean", inputs=("median",), step=MovingAverage(window_length=5)),
+        PreprocessNode(id="gauss", inputs=("mean",), step=GaussianSmooth(sigma=1.5)),
+        PreprocessNode(id="whit", inputs=("gauss",), step=WhittakerSmooth(lam=10.0)),
+        PreprocessNode(id="centre", inputs=("whit",), step=MeanCentre()),
+        EstimatorNode(
+            id="pls", inputs=("centre",), spec=PLSRegressionSpec(n_components=5, target="fat")
+        ),
+    )
+    result = _run(directory, version, pipeline, "pls")
+    model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
+
+    assert [step["kind"] for step in model["preprocessing"]] == ["median"]
     predicted = _predict(python_snippet(model), tecator.spectra)
     np.testing.assert_allclose(
         predicted[np.asarray(result.rows)], result.predicted, rtol=RTOL, atol=ATOL

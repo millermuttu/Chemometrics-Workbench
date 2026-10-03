@@ -31,11 +31,15 @@ from chemometrics_workbench.executor import assign_classes, confusion_matrix
 from chemometrics_workbench.preprocessing import (
     AutoscaleTransformer,
     BaselineCorrectTransformer,
+    GaussianTransformer,
     MeanCentreTransformer,
+    MedianFilterTransformer,
+    MovingAverageTransformer,
     MSCTransformer,
     NormaliseTransformer,
     SavitzkyGolayTransformer,
     SNVTransformer,
+    WhittakerTransformer,
 )
 from chemometrics_workbench.regression import (
     PLS,
@@ -290,6 +294,41 @@ def test_polynomial_baseline_matches_the_reference(dataset: str) -> None:
         _baseline_block(dataset)
     )
     assert parity.check(f"{dataset}.preprocess.baseline_polynomial.chemotools", ours).passed
+
+
+# --------------------------------------------------------------------------
+# moving average, median, Gaussian and Whittaker (#271)
+# --------------------------------------------------------------------------
+#
+# smoothing-and-baselines.md section 10. Repeated from the generator, for the
+# reason the blocks are: a mismatch would compare two different filters and pass.
+SMOOTH_WINDOW = 5
+GAUSSIAN_SIGMA = 1.5
+WHITTAKER_LAM = 100.0
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_window_smoothers_match_their_references_away_from_the_ends(dataset: str) -> None:
+    """The interior only: the references pad at the ends and ours shrinks the
+    window (section 10.1). The ends are tested by their own property in
+    test_preprocessing.py."""
+    block = _baseline_block(dataset)
+    half = SMOOTH_WINDOW // 2
+    radius = int(4.0 * GAUSSIAN_SIGMA + 0.5)
+    mean = MovingAverageTransformer(SMOOTH_WINDOW).fit_transform(block)[:, half:-half]
+    median = MedianFilterTransformer(SMOOTH_WINDOW).fit_transform(block)[:, half:-half]
+    gaussian = GaussianTransformer(GAUSSIAN_SIGMA).fit_transform(block)[:, radius:-radius]
+    assert parity.check(f"{dataset}.preprocess.moving_average.chemotools", mean).passed
+    result = parity.check(f"{dataset}.preprocess.median.chemotools", median)
+    assert result.passed and result.tier is parity.Tier.IDENTICAL
+    assert parity.check(f"{dataset}.preprocess.gaussian.scipy", gaussian).passed
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_whittaker_matches_the_reference_everywhere(dataset: str) -> None:
+    """A dense inverse against a banded solve, the same penalised system."""
+    ours = WhittakerTransformer(WHITTAKER_LAM).fit_transform(_baseline_block(dataset))
+    assert parity.check(f"{dataset}.preprocess.whittaker.chemotools", ours).passed
 
 
 # --------------------------------------------------------------------------
