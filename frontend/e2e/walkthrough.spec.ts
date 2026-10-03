@@ -218,34 +218,24 @@ async function sourceOfDerived(page: Page): Promise<string> {
   return datasets[0].versions[1].version_id as string;
 }
 
-test("the new smoothers run, labelled as the canvas labels them", async ({ page }) => {
-  // #271, on the walkthrough's project. Written through the pipeline's own
-  // PUT, upstream of the PCA: the side list's Add appends below the
-  // estimator, which is #296. The menu entries themselves are unit-tested.
+test("the new smoothers are added from the step list and run", async ({ page }) => {
+  // #271, on the walkthrough's project, whose chain ends in its PCA. Until
+  // #296 the side list appended below that estimator and the run failed with
+  // a KeyError; now it branches from the PCA's input.
   await page.goto("/?token=e2e-token");
-  const auth = { Authorization: "Bearer e2e-token" };
-  const pipeline = await (await page.request.get("/api/pipelines/current", { headers: auth })).json();
-  const nodes = pipeline.nodes as { id: string; type: string; inputs: string[] }[];
-  const pca = nodes.find((node) => node.type === "estimator")!;
-  const above = pca.inputs[0];
-  pca.inputs = ["whittaker"];
-  nodes.push(
-    { id: "median", type: "preprocess", inputs: [above], step: { kind: "median", window_length: 5 } },
-    { id: "whittaker", type: "preprocess", inputs: ["median"], step: { kind: "whittaker", lam: 100 } },
-  );
-  const saved = await page.request.put("/api/pipelines/current", {
-    headers: { ...auth, "Content-Type": "application/json" },
-    data: { nodes },
-  });
-  expect(saved.status()).toBe(200);
-
-  await page.reload();
   await page.getByRole("button", { name: "Pipeline", exact: true }).click();
+  const before = await page.locator(".react-flow__node").count();
+  for (const step of ["Median w5", "Whittaker λ100"]) {
+    await page.getByLabel("Step").selectOption(step);
+    await page.getByRole("button", { name: "Add", exact: true }).click();
+  }
+  await expect(page.locator(".react-flow__node")).toHaveCount(before + 2);
   await expect(page.getByText("window 5", { exact: true })).toBeVisible();
   await expect(page.getByText("lambda 100", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
   await page.getByRole("button", { name: "Run pipeline" }).click();
   await expect(page.locator(".status")).toContainText("Done", { timeout: 60_000 });
-  await expect(page.getByTestId("node-complete")).toHaveCount(nodes.length);
+  await expect(page.getByTestId("node-complete")).toHaveCount(before + 2);
   const outline = page.getByRole("complementary", { name: "Project outline" });
   await expect(outline.getByRole("button", { name: /Median w5/ })).toBeVisible();
   await expect(outline.getByRole("button", { name: /Whittaker λ100/ })).toBeVisible();

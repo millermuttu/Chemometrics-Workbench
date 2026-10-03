@@ -1402,3 +1402,18 @@ def test_each_fold_is_cross_validated_through_its_own_preprocessing(
 
     assert own != pytest.approx(leaked, abs=1e-6)
     assert metrics["rmsecv"] == pytest.approx(own, rel=1e-9)
+
+
+def test_a_stored_step_below_an_estimator_fails_the_run_by_name(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    """#296: a pipeline saved before the write refused it still loads, and the
+    run says what is wrong rather than raising a bare KeyError."""
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        EstimatorNode(id="pca", inputs=("source",), spec=PCASpec(n_components=2)),
+        PreprocessNode(id="snv", inputs=("pca",), step=SNV()),
+    )
+    with pytest.raises(ExecutorError, match="node 'snv' takes its input from the estimator 'pca'"):
+        execute(directory, pipeline, version)

@@ -846,3 +846,25 @@ def test_an_exclusion_that_cannot_be_made_is_refused_by_name(
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "invalid_exclusion"
     assert message in response.json()["error"]["message"]
+
+
+def test_a_step_below_an_estimator_is_refused_where_it_is_written(client: TestClient) -> None:
+    """#296: an estimator produces a model, so nothing can follow it."""
+    client.post("/api/import", files=upload("tecator_subset.csv"))
+    nodes = client.get("/api/pipelines/current").json()["nodes"]
+    nodes += [
+        {
+            "id": "pca",
+            "type": "estimator",
+            "inputs": ["source"],
+            "spec": {"kind": "pca", "n_components": 2},
+        },
+        {"id": "snv", "type": "preprocess", "inputs": ["pca"], "step": {"kind": "snv"}},
+    ]
+    for path in ("/api/pipelines/current", "/api/pipelines/current/validate"):
+        method = client.put if path.endswith("current") else client.post
+        response = method(path, json={"nodes": nodes})
+        assert response.status_code == 422
+        error = response.json()["error"]
+        assert error["code"] == "invalid_pipeline"
+        assert "node 'snv' takes its input from 'pca', which is an estimator" in error["message"]

@@ -465,6 +465,21 @@ class Pipeline(Frozen):
             visit(nid)
         return self
 
+    def estimator_inputs(self) -> list[tuple[NodeId, NodeId]]:
+        """`(node, estimator)` for every node fed by an estimator (#296).
+
+        An estimator produces a model, not an array, so nothing can sit below
+        it. Not a validator: a pipeline saved before this was checked must
+        still load, so the write and the run refuse it instead.
+        """
+        estimators = {node.id for node in self.nodes if node.type == "estimator"}
+        return [
+            (node.id, parent)
+            for node in self.nodes
+            for parent in node.inputs
+            if parent in estimators
+        ]
+
     def content_hash(self) -> str:
         """Stable hash of the recipe, ignoring identity and timestamps.
 
