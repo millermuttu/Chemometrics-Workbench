@@ -18,22 +18,30 @@ from chemometrics_workbench.models import (
     SNV,
     Autoscale,
     BaselineCorrect,
+    GaussianSmooth,
     MeanCentre,
+    MedianFilter,
+    MovingAverage,
     Normalise,
     PreprocessStep,
     RangeSelect,
     SavitzkyGolay,
+    WhittakerSmooth,
 )
 from chemometrics_workbench.preprocessing import (
     AutoscaleTransformer,
     BaselineCorrectTransformer,
+    GaussianTransformer,
     MeanCentreTransformer,
+    MedianFilterTransformer,
+    MovingAverageTransformer,
     MSCTransformer,
     NormaliseTransformer,
     RangeSelectTransformer,
     SavitzkyGolayTransformer,
     SNVTransformer,
     Transformer,
+    WhittakerTransformer,
     from_spec,
 )
 
@@ -718,3 +726,76 @@ def test_baseline_correction_refuses_parameters_it_cannot_use(
 def test_a_polynomial_baseline_that_would_interpolate_the_spectrum_is_refused() -> None:
     with pytest.raises(ValueError, match="would interpolate"):
         BaselineCorrectTransformer("polynomial", order=6).fit(_spectra(p=6))
+
+
+# --- moving average, median, Gaussian, Whittaker (#271) ------------------
+
+SMOOTHERS = [
+    MovingAverageTransformer(5),
+    MedianFilterTransformer(5),
+    GaussianTransformer(1.5),
+    WhittakerTransformer(50.0),
+]
+
+
+@pytest.mark.parametrize("smoother", SMOOTHERS, ids=lambda t: type(t).__name__)
+def test_a_smoother_leaves_a_constant_spectrum_as_it_is(smoother: Transformer) -> None:
+    flat = np.full((2, 30), 3.25)
+    np.testing.assert_allclose(smoother.fit_transform(flat), flat, rtol=0, atol=1e-12)
+
+
+def test_a_window_smoother_shrinks_its_window_at_the_ends() -> None:
+    """smoothing-and-baselines.md section 10.1: nothing padded."""
+    x = _spectra(3, 20)
+    mean = MovingAverageTransformer(5).fit_transform(x)
+    median = MedianFilterTransformer(5).fit_transform(x)
+    np.testing.assert_allclose(mean[:, 0], x[:, :3].mean(axis=1))
+    np.testing.assert_allclose(mean[:, 1], x[:, :4].mean(axis=1))
+    np.testing.assert_allclose(mean[:, -1], x[:, -3:].mean(axis=1))
+    np.testing.assert_array_equal(median[:, 0], np.median(x[:, :3], axis=1))
+    np.testing.assert_array_equal(median[:, 10], np.median(x[:, 8:13], axis=1))
+
+
+def test_the_gaussian_renormalises_its_cut_kernel() -> None:
+    matrix = GaussianTransformer(2.0).fit(_spectra(1, 25)).convolution_matrix()
+    np.testing.assert_allclose(matrix.sum(axis=1), 1.0)
+    # The radius is int(4 * 2 + 0.5) = 8: the first row reaches variable 8 and no further.
+    assert matrix[0, 8] > 0 and matrix[0, 9] == 0
+
+
+def test_whittaker_passes_a_straight_line_unchanged() -> None:
+    """Its second difference is zero, so the penalty does not touch it (section 10.3)."""
+    line = (0.5 + 0.02 * np.arange(40.0))[np.newaxis, :]
+    np.testing.assert_allclose(WhittakerTransformer(1e4).fit_transform(line), line, atol=1e-9)
+
+
+@pytest.mark.parametrize("make", [MovingAverageTransformer, MedianFilterTransformer])
+def test_a_window_that_is_even_or_wider_than_the_spectrum_is_refused(
+    make: type[MovingAverageTransformer] | type[MedianFilterTransformer],
+) -> None:
+    with pytest.raises(ValueError, match="odd and at least 3"):
+        make(4)
+    with pytest.raises(ValueError, match="needs at least that many variables"):
+        make(7).fit(_spectra(2, 5))
+
+
+def test_the_schema_refuses_an_even_window_and_a_non_positive_parameter() -> None:
+    with pytest.raises(ValueError, match="window_length must be odd"):
+        MovingAverage(window_length=4)
+    with pytest.raises(ValueError):
+        GaussianSmooth(sigma=0)
+    with pytest.raises(ValueError):
+        WhittakerSmooth(lam=-1)
+
+
+@pytest.mark.parametrize(
+    ("step", "kind"),
+    [
+        (MovingAverage(window_length=5), MovingAverageTransformer),
+        (MedianFilter(window_length=5), MedianFilterTransformer),
+        (GaussianSmooth(sigma=1.0), GaussianTransformer),
+        (WhittakerSmooth(lam=10.0), WhittakerTransformer),
+    ],
+)
+def test_each_smoother_step_builds_its_kernel(step: PreprocessStep, kind: type) -> None:
+    assert isinstance(from_spec(step), kind)

@@ -227,6 +227,36 @@ class SavitzkyGolay(Frozen):
         return self
 
 
+class _OddWindow(Frozen):
+    """A centred window of `window_length` variables (`smoothing-and-baselines.md` §10)."""
+
+    window_length: int = Field(gt=2, description="Variables in the window; odd.")
+
+    @model_validator(mode="after")
+    def _odd(self) -> Self:
+        if self.window_length % 2 == 0:
+            raise ValueError("window_length must be odd")
+        return self
+
+
+class MovingAverage(_OddWindow):
+    kind: Literal["moving_average"] = "moving_average"
+
+
+class MedianFilter(_OddWindow):
+    kind: Literal["median"] = "median"
+
+
+class GaussianSmooth(Frozen):
+    kind: Literal["gaussian"] = "gaussian"
+    sigma: float = Field(gt=0, description="Standard deviation of the kernel, in variables.")
+
+
+class WhittakerSmooth(Frozen):
+    kind: Literal["whittaker"] = "whittaker"
+    lam: float = Field(gt=0, description="Smoothness: the weight on the second differences.")
+
+
 class MeanCentre(Frozen):
     kind: Literal["mean_centre"] = "mean_centre"
 
@@ -266,7 +296,18 @@ class RangeSelect(Frozen):
 
 
 PreprocessStep = Annotated[
-    SNV | MSC | SavitzkyGolay | MeanCentre | Autoscale | Normalise | BaselineCorrect | RangeSelect,
+    SNV
+    | MSC
+    | SavitzkyGolay
+    | MovingAverage
+    | MedianFilter
+    | GaussianSmooth
+    | WhittakerSmooth
+    | MeanCentre
+    | Autoscale
+    | Normalise
+    | BaselineCorrect
+    | RangeSelect,
     Field(discriminator="kind"),
 ]
 

@@ -9,7 +9,7 @@ report green in CI against published reference values* — means in practice. Th
 committed copy is not byte-compared: the last bits of a difference depend on the
 machine's BLAS (#38), so the suite checks its coverage and its tolerances instead.
 
-Fixture schema 1, generated 2026-09-18.
+Fixture schema 1, generated 2026-10-03.
 
 ---
 
@@ -21,11 +21,11 @@ strong the agreement is** rather than a bare pass or fail:
 
 | Claim | Count | Meaning |
 | --- | --- | --- |
-| identical within floating point | 96 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
-| agrees within stated tolerance | 16 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
+| identical within floating point | 107 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
+| agrees within stated tolerance | 17 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
 | differs by documented convention | 8 | Not compared numerically at all. The two quantities are not the same thing, and the reason is given in full below. |
 
-**120 comparisons, 120 passed, 0 failed.**
+**132 comparisons, 132 passed, 0 failed.**
 
 Three things a reader should hold on to, because the agreement column cannot
 show them:
@@ -73,6 +73,10 @@ those listed under *Gaps* or *Documented divergences* below.
 
 | Kernel | Code | Compared |
 | --- | --- | --- |
+| Moving average | `MovingAverageTransformer` | 3 claims |
+| Median filter | `MedianFilterTransformer` | 3 claims |
+| Gaussian smoothing | `GaussianTransformer` | 3 claims |
+| Whittaker smoothing | `WhittakerTransformer` | 3 claims |
 | SNV | `SNVTransformer` | 3 claims |
 | MSC | `MSCTransformer` | 3 claims |
 | Mean centring | `MeanCentreTransformer` | 3 claims |
@@ -112,7 +116,10 @@ those listed under *Gaps* or *Documented divergences* below.
 | corn | `baseline_asls` | chemotools 0.4.3 | within rtol 1.000e-07 | 360 values, worst Δ < 1e-11 |
 | corn | `baseline_polynomial` | chemotools 0.4.3 | identical | 360 values, worst Δ < 1e-16 |
 | corn | `baseline_rubberband` | chemotools 0.4.3 | identical | 360 values, worst Δ 0, exactly |
+| corn | `gaussian_interior` | scipy 1.18.1 | identical | 324 values, worst Δ < 1e-16 |
 | corn | `mean_centred` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
+| corn | `median_interior` | chemotools 0.4.3 | identical | 348 values, worst Δ 0, exactly |
+| corn | `moving_average_interior` | chemotools 0.4.3 | identical | 348 values, worst Δ < 1e-16 |
 | corn | `msc_corrected` | chemotools 0.4.3 | within rtol 1.000e-07 | 40 values, worst Δ < 1e-12 |
 | corn | `normalised_l1` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
 | corn | `normalised_l2` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
@@ -121,11 +128,15 @@ those listed under *Gaps* or *Documented divergences* below.
 | corn | `savgol_deriv1` | SciPy 1.18.1 | identical | 40 values, worst Δ < 1e-16 |
 | corn | `savgol_deriv2` | SciPy 1.18.1 | identical | 40 values, worst Δ < 1e-16 |
 | corn | `snv_corrected` | chemotools 0.4.3 | identical | 40 values, worst Δ 0, exactly |
+| corn | `whittaker` | chemotools 0.4.3 | identical | 360 values, worst Δ < 1e-14 |
 | gasoline | `autoscaled` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
 | gasoline | `baseline_asls` | chemotools 0.4.3 | within rtol 1.000e-07 | 360 values, worst Δ < 1e-10 |
 | gasoline | `baseline_polynomial` | chemotools 0.4.3 | identical | 360 values, worst Δ < 1e-16 |
 | gasoline | `baseline_rubberband` | chemotools 0.4.3 | identical | 360 values, worst Δ 0, exactly |
+| gasoline | `gaussian_interior` | scipy 1.18.1 | identical | 324 values, worst Δ < 1e-16 |
 | gasoline | `mean_centred` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
+| gasoline | `median_interior` | chemotools 0.4.3 | identical | 348 values, worst Δ 0, exactly |
+| gasoline | `moving_average_interior` | chemotools 0.4.3 | identical | 348 values, worst Δ < 1e-16 |
 | gasoline | `msc_corrected` | chemotools 0.4.3 | identical | 40 values, worst Δ < 1e-16 |
 | gasoline | `normalised_l1` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
 | gasoline | `normalised_l2` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
@@ -134,11 +145,15 @@ those listed under *Gaps* or *Documented divergences* below.
 | gasoline | `savgol_deriv1` | SciPy 1.18.1 | identical | 40 values, worst Δ < 1e-16 |
 | gasoline | `savgol_deriv2` | SciPy 1.18.1 | identical | 40 values, worst Δ < 1e-16 |
 | gasoline | `snv_corrected` | chemotools 0.4.3 | identical | 40 values, worst Δ 0, exactly |
+| gasoline | `whittaker` | chemotools 0.4.3 | identical | 360 values, worst Δ < 1e-14 |
 | tecator | `autoscaled` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
 | tecator | `baseline_asls` | chemotools 0.4.3 | within rtol 1.000e-07 | 300 values, worst Δ < 1e-9 |
 | tecator | `baseline_polynomial` | chemotools 0.4.3 | identical | 300 values, worst Δ < 1e-14 |
 | tecator | `baseline_rubberband` | chemotools 0.4.3 | identical | 300 values, worst Δ 0, exactly |
+| tecator | `gaussian_interior` | scipy 1.18.1 | identical | 264 values, worst Δ < 1e-15 |
 | tecator | `mean_centred` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
+| tecator | `median_interior` | chemotools 0.4.3 | identical | 288 values, worst Δ 0, exactly |
+| tecator | `moving_average_interior` | chemotools 0.4.3 | identical | 288 values, worst Δ < 1e-14 |
 | tecator | `msc_corrected` | chemotools 0.4.3 | within rtol 1.000e-07 | 40 values, worst Δ < 1e-9 |
 | tecator | `normalised_l1` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
 | tecator | `normalised_l2` | scikit-learn 1.9.0 | identical | 40 values, worst Δ < 1e-16 |
@@ -147,6 +162,7 @@ those listed under *Gaps* or *Documented divergences* below.
 | tecator | `savgol_deriv1` | SciPy 1.18.1 | identical | 40 values, worst Δ < 1e-14 |
 | tecator | `savgol_deriv2` | SciPy 1.18.1 | identical | 40 values, worst Δ < 1e-14 |
 | tecator | `snv_corrected` | chemotools 0.4.3 | identical | 40 values, worst Δ 0, exactly |
+| tecator | `whittaker` | chemotools 0.4.3 | within rtol 1.000e-07 | 300 values, worst Δ < 1e-12 |
 
 ### Principal component analysis
 

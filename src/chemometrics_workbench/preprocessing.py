@@ -109,23 +109,31 @@ from chemometrics_workbench.models import (
     SNV,
     Autoscale,
     BaselineCorrect,
+    GaussianSmooth,
     MeanCentre,
+    MedianFilter,
+    MovingAverage,
     Normalise,
     PreprocessStep,
     RangeSelect,
     SavitzkyGolay,
+    WhittakerSmooth,
 )
 
 __all__ = [
     "AutoscaleTransformer",
     "BaselineCorrectTransformer",
+    "GaussianTransformer",
     "MSCTransformer",
     "MeanCentreTransformer",
+    "MedianFilterTransformer",
+    "MovingAverageTransformer",
     "NormaliseTransformer",
     "RangeSelectTransformer",
     "SNVTransformer",
     "SavitzkyGolayTransformer",
     "Transformer",
+    "WhittakerTransformer",
     "from_spec",
 ]
 
@@ -520,6 +528,14 @@ def from_spec(
             # index. That is the recipe's meaning, and it is documented rather
             # than guessed at from the axis.
             return SavitzkyGolayTransformer(step.window_length, step.polyorder, step.deriv)
+        case MovingAverage():
+            return MovingAverageTransformer(step.window_length)
+        case MedianFilter():
+            return MedianFilterTransformer(step.window_length)
+        case GaussianSmooth():
+            return GaussianTransformer(step.sigma)
+        case WhittakerSmooth():
+            return WhittakerTransformer(step.lam)
         case BaselineCorrect():
             defaults = BaselineCorrectTransformer(step.method)
             return BaselineCorrectTransformer(
@@ -686,6 +702,132 @@ class SavitzkyGolayTransformer(Transformer):
         if self.matrix_ is None:
             raise RuntimeError("SavitzkyGolayTransformer has not been fitted")
         return self.matrix_.copy()
+
+
+# --------------------------------------------------------------------------
+# window smoothers and Whittaker, smoothing-and-baselines.md §10
+# --------------------------------------------------------------------------
+
+
+def _check_window(window_length: int) -> int:
+    if window_length < 3 or window_length % 2 == 0:
+        raise ValueError(
+            f"window_length must be odd and at least 3, got {window_length}. An even "
+            "window has no centre variable."
+        )
+    return int(window_length)
+
+
+def _shrinking_matrix(n_variables: int, weights: NDArray[np.float64]) -> NDArray[np.float64]:
+    """The `p x p` matrix of a symmetric window, shrunk and renormalised at the ends.
+
+    Row `i` holds `weights` centred on `i`, cut to the variables that exist and
+    divided by what is left of their sum (§10.1). Nothing is padded, so no
+    output depends on an invented value.
+    """
+    half = weights.size // 2
+    matrix = np.zeros((n_variables, n_variables), dtype=np.float64)
+    for i in range(n_variables):
+        lo, hi = max(0, i - half), min(n_variables, i + half + 1)
+        window = weights[lo - i + half : hi - i + half]
+        matrix[i, lo:hi] = window / window.sum()
+    return matrix
+
+
+class _LinearSmoother(Transformer):
+    """A smoother that is one fixed matrix `M`, so `X_filtered = X @ M.T` and
+    it folds into exported coefficients like Savitzky-Golay (§4)."""
+
+    matrix_: NDArray[np.float64] | None = None
+
+    @abstractmethod
+    def _matrix(self, n_variables: int) -> NDArray[np.float64]: ...
+
+    def _fit(self, X: NDArray[np.float64]) -> None:
+        self.matrix_ = self._matrix(X.shape[1])
+
+    def _transform(self, X: NDArray[np.float64]) -> NDArray[np.float64]:
+        assert self.matrix_ is not None
+        filtered: NDArray[np.float64] = X @ self.matrix_.T
+        return filtered
+
+    def convolution_matrix(self) -> NDArray[np.float64]:
+        if self.matrix_ is None:
+            raise RuntimeError(f"{type(self).__name__} has not been fitted")
+        return self.matrix_.copy()
+
+
+class MovingAverageTransformer(_LinearSmoother):
+    """Each variable the mean of the `window_length` around it (§10.1)."""
+
+    def __init__(self, window_length: int) -> None:
+        self.window_length = _check_window(window_length)
+
+    def _matrix(self, n_variables: int) -> NDArray[np.float64]:
+        if n_variables < self.window_length:
+            raise ValueError(
+                f"a window of {self.window_length} needs at least that many variables, "
+                f"got {n_variables}."
+            )
+        return _shrinking_matrix(n_variables, np.ones(self.window_length))
+
+
+class GaussianTransformer(_LinearSmoother):
+    """A Gaussian-weighted mean, truncated at 4 sigma as SciPy truncates it (§10.2)."""
+
+    TRUNCATE = 4.0
+
+    def __init__(self, sigma: float) -> None:
+        if sigma <= 0:
+            raise ValueError(f"sigma must be positive, got {sigma}")
+        self.sigma = float(sigma)
+
+    def _matrix(self, n_variables: int) -> NDArray[np.float64]:
+        half = int(self.TRUNCATE * self.sigma + 0.5)
+        offsets = np.arange(-half, half + 1, dtype=np.float64)
+        return _shrinking_matrix(n_variables, np.exp(-0.5 * (offsets / self.sigma) ** 2))
+
+
+class WhittakerTransformer(_LinearSmoother):
+    """Eilers's Whittaker smoother: `(I + lam D'D)^-1 x`, D the second difference (§10.3)."""
+
+    def __init__(self, lam: float) -> None:
+        if lam <= 0:
+            raise ValueError(f"lam must be positive, got {lam}")
+        self.lam = float(lam)
+
+    def _matrix(self, n_variables: int) -> NDArray[np.float64]:
+        if n_variables < 3:
+            raise ValueError(f"a second difference needs at least 3 variables, got {n_variables}")
+        # ponytail: a dense p x p solve, about a second at 4,000 variables; a
+        # banded solve per transform would avoid forming M if that ever bites.
+        difference = np.diff(np.eye(n_variables), n=2, axis=0)
+        system = np.eye(n_variables) + self.lam * difference.T @ difference
+        matrix: NDArray[np.float64] = np.linalg.solve(system, np.eye(n_variables))
+        return matrix
+
+
+class MedianFilterTransformer(Transformer):
+    """Each variable the median of the `window_length` around it, the window
+    shrunk at the ends (§10.1). Not linear, so it does not fold: an export
+    re-executes it."""
+
+    def __init__(self, window_length: int) -> None:
+        self.window_length = _check_window(window_length)
+
+    def _fit(self, X: NDArray[np.float64]) -> None:
+        if X.shape[1] < self.window_length:
+            raise ValueError(
+                f"a window of {self.window_length} needs at least that many variables, "
+                f"got {X.shape[1]}."
+            )
+
+    def _transform(self, X: NDArray[np.float64]) -> NDArray[np.float64]:
+        half = self.window_length // 2
+        p = X.shape[1]
+        return np.stack(
+            [np.median(X[:, max(0, i - half) : i + half + 1], axis=1) for i in range(p)], axis=1
+        )
 
 
 # --------------------------------------------------------------------------

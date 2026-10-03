@@ -2,7 +2,10 @@
  * not offered. It used to write `target: "fat"` into every PLS node. */
 import { describe, expect, it } from "vitest";
 
-import { stepMenu } from "@/canvas/catalogue";
+import type { PipelineNode } from "@/api/queries";
+import { STEPS, stepMenu } from "@/canvas/catalogue";
+import { parameterLine } from "@/canvas/graph";
+import { nodeLabel } from "@/shell/Sidebar";
 
 describe("the PLS menu entry", () => {
   it("models the dataset's first target", () => {
@@ -30,4 +33,23 @@ describe("the step list", () => {
     const normalise = stepMenu([]).find((step) => step.kind === "Normalise")!;
     expect(normalise.payload.step).toEqual({ kind: "normalise", norm: "l2" });
   });
+});
+
+it("offers the four smoothers, each labelled as the canvas labels it (#271)", () => {
+  const smoothers = STEPS.filter((step) =>
+    ["moving_average", "median", "gaussian", "whittaker"].includes(
+      String((step.payload.step as { kind: string } | undefined)?.kind),
+    ),
+  );
+  expect(smoothers.map((step) => step.kind)).toEqual([
+    "Moving avg w5",
+    "Median w5",
+    "Gaussian σ1.5",
+    "Whittaker λ100",
+  ]);
+  for (const step of smoothers) {
+    const node = { id: "n", type: "preprocess", inputs: ["source"], ...step.payload } as PipelineNode;
+    expect(nodeLabel(node)).toBe(step.kind);
+    expect(parameterLine(node)).toBe(step.parameters);
+  }
 });

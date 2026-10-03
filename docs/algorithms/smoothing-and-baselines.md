@@ -150,6 +150,7 @@ For AsLS and rubberband it assumes **uniform spacing**, which all three referenc
 | The convolution matrix $M$ | §4 |
 | Estimated baseline per spectrum | §6 |
 | AsLS iterations and convergence flag per spectrum | §6.1 |
+| Moving-average, median, Gaussian and Whittaker smoothed spectra | §10 |
 
 Nothing else. In particular no smoothness or signal-to-noise figure is reported, because none of the ones in common use has a definition two packages agree on.
 
@@ -164,6 +165,7 @@ Nothing else. In particular no smoothness or signal-to-noise figure is reported,
 | **Baseline axis** | Estimated against the index, assuming uniform spacing. See §6.4. |
 | **AsLS convergence** | Weights unchanged, capped at 20 iterations. Implementations that instead run a fixed number of iterations, or stop on a tolerance on $\|z\|$, return a slightly different baseline. |
 | **Rubberband ends** | Both ends are corrected to exactly zero. Some tools extrapolate the hull beyond the data instead. |
+| **Window smoother ends** | Moving average, median and Gaussian shrink their window at the ends. SciPy and chemotools pad, `nearest` by default, and so differ in the first and last half-window. See §10.1. |
 
 ---
 
@@ -177,8 +179,45 @@ SciPy is a runtime dependency of this project, so it is worth stating what that 
 
 ---
 
-## 10. Deliberately not specified here
+## 10. Moving average, median, Gaussian and Whittaker
 
-- **Other smoothers** — moving average, Whittaker, Gaussian, wavelet. None is in the schema. Savitzky–Golay covers the spectroscopic case and adds a derivative for free.
+Four more smoothers ([#271](https://github.com/millermuttu/Chemometrics-Workbench/issues/271)). None differentiates; Savitzky–Golay remains the derivative.
+
+### 10.1 Window smoothers and their ends
+
+`moving_average` and `median` take an odd `window_length` $w \ge 3$, with $h = (w - 1)/2$. Variable $i$ becomes the mean, or the median, of $x_{\max(0,\,i-h)} \dots x_{\min(p-1,\,i+h)}$.
+
+**At the ends the window shrinks.** Within $h$ of either end the window holds only the variables that exist, so the first output is the mean (or median) of $x_0 \dots x_h$. This is the same principle as §3: nothing is padded, reflected or repeated, so no output depends on an invented value. SciPy's `uniform_filter1d` and `median_filter`, and chemotools' `MeanFilter` and `MedianFilter` built on them, pad instead (`nearest` by default). They therefore agree with ours in the interior and differ in the first and last $h$ outputs. The parity claims compare the interior and say so (§8).
+
+The moving average is a fixed matrix, renormalised row by row at the ends, so it folds into exported coefficients exactly as §4 describes. **The median is not linear and does not fold.** An exported model re-executes it, as it does SNV.
+
+### 10.2 Gaussian
+
+`gaussian` takes `sigma` $\sigma > 0$, in variables. The weights are $\exp(-t^2 / 2\sigma^2)$ for $t = -r \dots r$, with $r = \lfloor 4\sigma + 0.5 \rfloor$, SciPy's `truncate=4.0` radius. They are normalised to sum to 1, and at the ends they are cut and renormalised as in §10.1. In the interior this is `scipy.ndimage.gaussian_filter1d(x, sigma)`. It is linear and folds.
+
+### 10.3 Whittaker
+
+`whittaker` takes `lam` $\lambda > 0$ and solves Eilers's penalised least squares,
+
+$$\hat{z} = \arg\min_z \; \|x - z\|^2 + \lambda \|D z\|^2 = (I + \lambda D^\top D)^{-1} x$$
+
+with $D$ the $(p-2) \times p$ second-difference matrix. It has no window and so no end convention: the penalty is defined on the whole spectrum. A straight line passes through unchanged, because its second difference is zero. The difference order is fixed at 2 and there are no weights, which is chemotools' `WhittakerSmooth(lam)`. Its matrix $(I + \lambda D^\top D)^{-1}$ is fixed by $\lambda$ and $p$, so it folds.
+
+### 10.4 Parity references
+
+| Smoother | Reference | Compared |
+| --- | --- | --- |
+| Moving average | chemotools `MeanFilter` | interior columns |
+| Median | chemotools `MedianFilter` | interior columns |
+| Gaussian | SciPy `gaussian_filter1d` | interior columns |
+| Whittaker | chemotools `WhittakerSmooth` | every column |
+
+All four are compared on the wide baseline block (3 × 120) of each reference dataset.
+
+---
+
+## 11. Deliberately not specified here
+
+- **Other smoothers** — wavelet denoising and weighted Whittaker. Neither is in the schema.
 - **Automatic window selection.** The window is the user's choice and its effect on the model is visible through cross-validation, which is the honest way to choose it.
 - **Peak detection**, which is what a baseline is usually a step towards elsewhere. This project models spectra whole.

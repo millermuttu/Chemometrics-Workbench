@@ -85,9 +85,25 @@
         "uv run python -m tests.parity_report - docs/parity-report.md regenerated with the new rows, and test_parity_coverage green",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green"
       ],
+      "status": "passing",
+      "evidence": "2026-10-03. smoothing-and-baselines.md section 10 now specifies moving average, median, Gaussian and Whittaker: window smoothers shrink and renormalise their window at the ends (nothing padded, as for SG's interp), Gaussian truncates at SciPy's 4-sigma radius, Whittaker is (I + lam D'D)^-1 with second differences; the old 'not specified' list moves to section 11 and the divergence table names the end convention. `uv run python tests/fixtures/generate_reference_values.py`: 135 entries, the 12 new ones added and nothing else changed but the date. `uv run pytest`: `966 passed, 1 skipped`. test_parity.py on corn, gasoline and tecator (3 x 120 baseline block): moving average against chemotools MeanFilter and Gaussian against scipy gaussian_filter1d on the interior columns, median against chemotools MedianFilter on the interior and identical, Whittaker against chemotools WhittakerSmooth(lam=100) on every column; test_parity_coverage green with four new rows; `uv run python -m tests.parity_report` writes 132 claims. test_preprocessing.py: constants pass every smoother unchanged, the ends shrink (first moving-average output = mean of x0..x2), the Gaussian's cut rows sum to 1 and stop at radius 8 for sigma 2, Whittaker passes a straight line, even or too-wide windows and non-positive sigma/lam are refused by kernel and schema, from_spec builds each. test_export.py: median -> moving average -> Gaussian -> Whittaker -> centre -> PLS exports with only the median as a residual step and the NumPy snippet reproduces the application's predictions within model-export.md's tolerance. Proof: with src/ reverted and the new tests kept, test_preprocessing, test_parity and test_export fail at collection. ruff, ruff format, mypy (71 files) clean; `uv run mkdocs build --strict` exit 0. `pnpm test`: 143 passed, catalogue.test.ts checking the four menu entries against nodeLabel and parameterLine. `pnpm build` then `pnpm exec playwright test`: 76 passed, walkthrough.spec.ts running a median and a Whittaker node upstream of PCA and seeing them labelled and complete.",
+      "notes": "The side list's Add appends below an estimator, which the schema accepts and the executor then fails on with a KeyError; that is pre-existing and recorded as no-step-below-estimator (#296). The e2e test writes the smoothers through the pipeline PUT for that reason."
+    },
+    {
+      "id": "no-step-below-estimator",
+      "priority": 4,
+      "area": "backend",
+      "issue": 296,
+      "title": "A step below an estimator is refused where it is written, not by a KeyError at run time",
+      "depends_on": [],
+      "user_visible_behavior": "Saving a pipeline with a node fed by an estimator is refused with a sentence naming both nodes; the side list does not append below an estimator.",
+      "verification": [
+        "uv run pytest - the schema or the pipeline PUT refuses a node whose input is an estimator, naming both; the test fails on the unfixed code first",
+        "pnpm exec playwright test - adding from the side list to a pipeline ending in an estimator does not produce an unrunnable graph"
+      ],
       "status": "not_started",
       "evidence": "",
-      "notes": ""
+      "notes": "Found 2026-10-03 while testing #271: the walkthrough's side-list Add appended a smoother after PCA and the run failed with \"'pca'\" (KeyError in the executor). Pre-existing on dev."
     },
     {
       "id": "pcr",
