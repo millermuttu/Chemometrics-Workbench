@@ -233,6 +233,9 @@ test("the new smoothers are added from the step list and run", async ({ page }) 
   await expect(page.getByText("window 5", { exact: true })).toBeVisible();
   await expect(page.getByText("lambda 100", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Save", exact: true }).click();
+  // The drafts clear once the server holds them. Running before that ran the
+  // old recipe - #291, a race of its own and not what this test is about.
+  await expect(page.getByText(/^No steps yet/)).toBeVisible();
   await page.getByRole("button", { name: "Run pipeline" }).click();
   await expect(page.locator(".status")).toContainText("Done", { timeout: 60_000 });
   await expect(page.getByTestId("node-complete")).toHaveCount(before + 2);
