@@ -154,6 +154,7 @@ from chemometrics_workbench.project import (
 from chemometrics_workbench.regression import (
     PCR,
     PLS,
+    PLS2,
     cross_validated_predictions,
     rmsecv_curve,
 )
@@ -417,6 +418,14 @@ class EstimatorResult:
     """Calibration assignments as indices into `classes` (§5)."""
 
     held_out_predicted_class: list[int] = field(default_factory=list)
+
+    coefficient_matrix: list[list[float]] = field(default_factory=list)
+    """`p x N`, one column per class, for a PLS-DA of three or more classes
+    fitted by PLS2 (#274). Empty otherwise: two classes keep `coefficients`."""
+
+    y_means: list[float] = field(default_factory=list)
+    """The one-hot response's column means, added back to every prediction,
+    beside `coefficient_matrix`."""
 
     confusion: dict[str, list[list[int]]] = field(default_factory=dict)
     """`calibration`, and below a split `cross_validation` and `held_out`: rows
@@ -1355,15 +1364,13 @@ def _fit_regression(
     )
 
 
-def _class_response(
+def _class_labels(
     version: DatasetVersion, node: PipelineNode, name: str
-) -> tuple[list[str], NDArray[np.float64]]:
-    """The two classes in Unicode order and the {0, 1} dummy response (`pls-da.md` §3).
+) -> tuple[list[str], NDArray[np.intp]]:
+    """The classes in Unicode order and each sample's index into them (`pls-da.md` §3).
 
-    Refused here, by name, when the column is not in the dataset or does not
-    hold exactly two distinct values: three classes are PLS2, which
-    `pls-regression.md` §10 defers, and reducing them to two would be a model
-    nobody asked for.
+    Refused here, by name, when the column is not in the dataset or holds a
+    single value, which has nothing to separate.
     """
     labels = version.metadata_columns.get(name)
     if labels is None:
@@ -1373,19 +1380,15 @@ def _class_response(
             f"carry as a metadata column. It has: {available}.",
             node.id,
         )
-    classes = sorted(set(labels))
-    if len(classes) != 2:
-        shown = ", ".join(repr(value) for value in classes[:6]) + (
-            ", …" if len(classes) > 6 else ""
-        )
+    classes = sorted({str(label) for label in labels})
+    if len(classes) < 2:
         raise ExecutorError(
-            f"node {node.id!r} (plsda) classifies by {name!r}, which has {len(classes)} distinct "
-            f"values ({shown}). Two-class PLS-DA needs exactly two (pls-da.md section 2); more "
-            "is PLS2, which is not in this build.",
+            f"node {node.id!r} (plsda) classifies by {name!r}, which has one value "
+            f"({classes[0]!r} on every sample): there is nothing to separate.",
             node.id,
         )
-    response = np.asarray([1.0 if label == classes[1] else 0.0 for label in labels])
-    return classes, response
+    index = {label: position for position, label in enumerate(classes)}
+    return classes, np.asarray([index[str(label)] for label in labels], dtype=np.intp)
 
 
 def assign_classes(predicted: object) -> NDArray[np.intp]:
@@ -1458,8 +1461,14 @@ def _plsda(
     fold: int | None,
     version: DatasetVersion,
 ) -> EstimatorResult:
-    """Two-class PLS-DA (#185): the regression fit on a dummy response, tallied."""
-    classes, response = _class_response(version, node, spec.class_column)
+    """PLS-DA: two classes are PLS1 on a {0, 1} dummy (#185), three or more are
+    PLS2 on a one-hot response assigned by its largest column (#274)."""
+    classes, codes = _class_labels(version, node, spec.class_column)
+    if len(classes) > 2:
+        return _plsda_multiclass(
+            node, spec, parent, key, matrix, rows, held_out, fold, classes, codes
+        )
+    response = codes.astype(np.float64)
     fitted = _fit_regression(
         node,
         "plsda",
@@ -1501,6 +1510,118 @@ def _plsda(
         held_out_predicted_class=[int(value) for value in held_out_class],
         confusion=confusion,
         metrics=metrics,
+    )
+
+
+def _pooled_rmse(observed: NDArray[np.float64], predicted: NDArray[np.float64]) -> float:
+    """RMSE over every element of a one-hot response (`pls-da.md` §7)."""
+    return float(np.sqrt(np.mean((observed - predicted) ** 2)))
+
+
+def _plsda_multiclass(
+    node: PipelineNode,
+    spec: PLSDASpec,
+    parent: _State,
+    key: str,
+    matrix: NDArray[np.float64],
+    rows: NDArray[np.intp],
+    held_out: NDArray[np.intp],
+    fold: int | None,
+    classes: list[str],
+    codes: NDArray[np.intp],
+) -> EstimatorResult:
+    """`pls-da.md` §3 to §7 for N > 2: PLS2 on the one-hot response, each
+    prediction assigned to its largest column, tallied by `classification.md`.
+
+    The fitted model is fold zero's, as everywhere; the cross-validated
+    assignments and the dummy RMSECV curve are every fold's, each fold fitted
+    on its own preprocessed array (#173).
+    """
+    n_classes = len(classes)
+    response = np.eye(n_classes)[codes]
+    a = spec.n_components
+
+    def fit(values: NDArray[np.float64], train: NDArray[np.intp]) -> tuple[PLS2, Any, Any]:
+        x_mean = values[train].mean(axis=0)
+        y_mean = response[train].mean(axis=0)
+        try:
+            model = PLS2(a).fit(values[train] - x_mean, response[train] - y_mean)
+        except (ValueError, RuntimeError) as error:
+            raise ExecutorError(f"node {node.id!r} (plsda) failed: {error}", node.id) from error
+        return model, x_mean, y_mean
+
+    model, x_mean, y_mean = fit(matrix, rows)
+    fitted_a = model.n_components_ or a
+    centred = matrix[rows] - x_mean
+    predicted = model.predict(centred) + y_mean
+    assigned = predicted.argmax(axis=1)
+    confusion = {"calibration": confusion_matrix(codes[rows], assigned, n_classes)}
+    metrics = {**classification_metrics(confusion["calibration"])}
+    metrics["rmsec"] = _pooled_rmse(response[rows], predicted)
+
+    held_x = matrix[held_out] - x_mean
+    held_class = np.array([], dtype=np.intp)
+    if held_out.size:
+        held_predicted = model.predict(held_x) + y_mean
+        held_class = held_predicted.argmax(axis=1)
+        confusion["held_out"] = confusion_matrix(codes[held_out], held_class, n_classes)
+        metrics.update(classification_metrics(confusion["held_out"], "_p"))
+        metrics["rmsep"] = _pooled_rmse(response[held_out], held_predicted)
+
+    if parent.folds is not None and len(parent.folds) > 1:
+        # One fit per fold and A, as for PLS1 (#174): the first `k` components
+        # of an A-component NIPALS fit are the k-component fit.
+        curve = np.zeros((fitted_a, *response.shape))
+        for one, values in zip(parent.folds, parent.arrays, strict=True):
+            fold_model, fold_x, fold_y = fit(values, one.train)
+            scores = (values[one.test] - fold_x) @ fold_model._fitted("rotations_")
+            loadings = fold_model._fitted("y_loadings_")
+            for k in range(fitted_a):
+                width = min(k + 1, scores.shape[1])
+                curve[k][one.test] = scores[:, :width] @ loadings[:, :width].T + fold_y
+        for k in range(fitted_a):
+            metrics[f"rmsecv_a{k + 1}"] = _pooled_rmse(response, curve[k])
+        metrics["rmsecv"] = metrics[f"rmsecv_a{fitted_a}"]
+        confusion["cross_validation"] = confusion_matrix(codes, curve[-1].argmax(axis=1), n_classes)
+        metrics.update(classification_metrics(confusion["cross_validation"], "_cv"))
+
+    coefficients = model._fitted("coefficients_")
+    return EstimatorResult(
+        node_id=node.id,
+        key=key,
+        task="classification",
+        n_components=fitted_a,
+        n_samples=int(rows.size),
+        n_variables=int(matrix.shape[1]),
+        rank=fitted_a,
+        fold=fold,
+        rows=[int(row) for row in rows],
+        scores=_rows(model.x_scores_),
+        loadings=_rows(np.asarray(model.x_loadings_).T),
+        rotations=_rows(np.asarray(model.rotations_).T),
+        eigenvalues=_values(model.score_eigenvalues()),
+        explained_variance_ratio=_values(model.explained_variance_ratio("x")),
+        cumulative_explained_variance=_values(model.cumulative_explained_variance("x")),
+        y_explained_variance_ratio=_values(model.explained_variance_ratio("y")),
+        hotelling_t2=_values(model.hotelling_t2()),
+        hotelling_t2_limit=float(model.hotelling_t2_limit(ALPHA)),
+        spe=_values(model.spe(centred)),
+        spe_limit=float(model.spe_limit(ALPHA)),
+        target=spec.class_column,
+        method="plsda",
+        x_mean=_values(x_mean),
+        vip=_values(model.vip()),
+        coefficient_matrix=_rows(coefficients),
+        y_means=_values(y_mean),
+        classes=classes,
+        predicted_class=[int(value) for value in assigned],
+        held_out_predicted_class=[int(value) for value in held_class],
+        confusion=confusion,
+        metrics=metrics,
+        held_out=[int(row) for row in held_out],
+        held_out_scores=_rows(model.transform(held_x)) if held_out.size else [],
+        held_out_hotelling_t2=_values(model.hotelling_t2(held_x)) if held_out.size else [],
+        held_out_spe=_values(model.spe(held_x)) if held_out.size else [],
     )
 
 

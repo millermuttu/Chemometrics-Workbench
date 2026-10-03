@@ -174,9 +174,9 @@
         "uv run python -m tests.parity_report - docs/parity-report.md regenerated with the new rows, and test_parity_coverage green",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-03. pls-da.md sections 2, 3, 5, 7, 9, 10, 11 updated: two classes stay PLS1 with the 0.5 cut (results unchanged), three or more are PLS2 on a one-hot response assigned by the largest column, ties to the first class; a single-valued column is refused. model-export.md and model-artifact.md document the p x N coefficient matrix, per-class intercepts, `assignment: argmax`, `coefficient_matrix` and `y_means`. `uv run pytest`: `990 passed, 1 skipped`. test_executor.py: a three-class PLS-DA on Tecator fat terciles below a stratified 5-fold has a 240-sample 3x3 cross-validated confusion matrix, accuracy_cv and no two-class sensitivity, and both its calibration assignments and every cross-validated assignment equal scikit-learn PLSRegression(scale=False, tol=0, max_iter=2000) fitted to the same one-hot matrix on the run's own resolved folds, each preprocessed by its own training rows; a one-valued column is refused by name. test_export.py: Savitzky-Golay + centring + three-class PLS-DA exports a 100x3 folded matrix and 3 intercepts, and the NumPy snippet's argmax reproduces every calibration assignment. test_artifact.py: coefficient_matrix (100x3) and y_means round-trip. Existing two-class tests unchanged and green. Proof: with src/ reverted and the new tests kept, all four fail. ruff, mypy clean; mkdocs --strict exit 0. `pnpm test`: 145 passed, classColumns offering any column with two or more values (fails on the old twoValuedColumns). `pnpm build` then `pnpm exec playwright test`: 78 passed.",
+      "notes": "No new e2e: the e2e datasets carry no column with three or more values. The N-by-N confusion panel is unit-tested from #269; the multi-class path is covered end to end over the executor, export and artifact."
     },
     {
       "id": "simca",

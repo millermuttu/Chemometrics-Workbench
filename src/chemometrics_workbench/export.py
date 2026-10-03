@@ -130,18 +130,28 @@ def json_model(
     # The estimator's own centring folds in too: the model computes
     # `(chain(X) - x̄)·b + ȳ`, and passing `ȳ - x̄·b` as the response mean puts
     # that where the helper's intercept belongs.
-    coefficients = np.asarray(result.coefficients, dtype=np.float64)
     x_mean = np.asarray(result.x_mean, dtype=np.float64)
-    y_mean = float(result.y_mean or 0.0)
+    n_variables = values.shape[1] if residual else version.n_variables
+    # #274: three or more classes carry one coefficient column per class, and
+    # each folds on its own exactly as a single vector does.
+    if result.coefficient_matrix:
+        columns = np.asarray(result.coefficient_matrix, dtype=np.float64).T
+        means = list(result.y_means)
+    else:
+        columns = np.asarray([result.coefficients], dtype=np.float64)
+        means = [float(result.y_mean or 0.0)]
+    folded_columns: list[list[float]] = []
+    intercepts: list[float] = []
     try:
-        folded, intercept = coefficients_original_units(
-            coefficients,
-            fitted,
-            n_variables=values.shape[1] if residual else version.n_variables,
-            y_mean=y_mean - float(x_mean @ coefficients),
-        )
+        for column, mean in zip(columns, means, strict=True):
+            folded_column, intercept = coefficients_original_units(
+                column, fitted, n_variables=n_variables, y_mean=mean - float(x_mean @ column)
+            )
+            folded_columns.append([float(value) for value in folded_column])
+            intercepts.append(float(intercept))
     except ValueError as error:  # pragma: no cover - _split already refused these
         raise ExportError(str(error)) from error
+    multiclass = bool(result.coefficient_matrix)
 
     # The axis the residual chain hands on, which is the dataset's unless a
     # range selection sits in the residual part - and one cannot, because a
@@ -158,7 +168,10 @@ def json_model(
             "target": result.target,
             "classes": result.classes or None,
             "n_components": result.n_components,
-            "threshold": THRESHOLD if result.task == "classification" else None,
+            # Two classes cut one prediction at 0.5; three or more take the
+            # largest of N (pls-da.md section 5).
+            "threshold": THRESHOLD if result.task == "classification" and not multiclass else None,
+            "assignment": "argmax" if multiclass else None,
         },
         "axis": {
             "kind": version.axis.kind.value,
@@ -166,8 +179,12 @@ def json_model(
             "values": [float(value) for value in residual_axis],
         },
         "preprocessing": steps,
-        "coefficients": [float(value) for value in folded],
-        "intercept": float(intercept),
+        "coefficients": (
+            [list(row) for row in zip(*folded_columns, strict=True)]
+            if multiclass
+            else folded_columns[0]
+        ),
+        "intercept": intercepts if multiclass else intercepts[0],
         "provenance": {
             "dataset_content_hash": version.content_hash,
             "pipeline_hash": pipeline.content_hash(),
@@ -211,14 +228,14 @@ def python_snippet(model: dict[str, Any]) -> str:
         f"# {model['axis']['kind']}"
         + (f", {model['axis']['unit']}" if model["axis"]["unit"] else ""),
         f"AXIS = np.array({_literal(model['axis']['values'])})",
-        f"COEFFICIENTS = np.array({_literal(model['coefficients'])})",
-        f"INTERCEPT = {model['intercept']!r}",
+        f"COEFFICIENTS = np.array({_matrix_literal(model['coefficients'])})",
+        f"INTERCEPT = np.array({model['intercept']!r})",
     ]
+    argmax = model["model"].get("assignment") == "argmax"
     if task == "classification":
-        body += [
-            f"CLASSES = {classes!r}",
-            f"THRESHOLD = {model['model']['threshold']!r}",
-        ]
+        body += [f"CLASSES = {classes!r}"]
+        if not argmax:
+            body += [f"THRESHOLD = {model['model']['threshold']!r}"]
 
     for index, step in enumerate(model["preprocessing"]):
         body += ["", *_step_source(index, step)]
@@ -241,7 +258,9 @@ def python_snippet(model: dict[str, Any]) -> str:
     body += [
         "    y = X @ COEFFICIENTS + INTERCEPT",
     ]
-    if task == "classification":
+    if argmax:
+        body += ["    return np.array([CLASSES[i] for i in y.argmax(axis=1)])"]
+    elif task == "classification":
         body += [
             "    above = y >= THRESHOLD",
             "    return np.array([CLASSES[1] if hit else CLASSES[0] for hit in above])",
@@ -308,6 +327,13 @@ def _step_payload(node: PreprocessNode, transformer: object) -> dict[str, Any]:
 def _literal(values: list[float]) -> str:
     """A NumPy-readable list at full precision: `repr` of a float round-trips."""
     return "[" + ", ".join(repr(float(value)) for value in values) + "]"
+
+
+def _matrix_literal(values: list[float] | list[list[float]]) -> str:
+    """A vector, or for N classes a p x N matrix, at full precision."""
+    if values and isinstance(values[0], list):
+        return "[" + ", ".join(_literal(row) for row in values) + "]"
+    return _literal(values)  # type: ignore[arg-type]
 
 
 def _step_source(index: int, step: dict[str, Any]) -> list[str]:

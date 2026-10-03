@@ -109,7 +109,7 @@ export function PipelineCanvas({
   /** The dataset's target columns, which decide whether PLS is on the menu
    * and what it models (#182). */
   targets?: string[];
-  /** Metadata columns with exactly two values, which is what a PLS-DA can
+  /** Metadata columns with two or more values, which is what a PLS-DA can
    * classify by (#185). */
   classColumns?: string[];
 }) {
