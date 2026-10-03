@@ -185,6 +185,24 @@ describe("withDrafts", () => {
     expect(nodes[2].inputs).toEqual(["centre"]);
   });
 
+  it("never chains a step below an estimator, saved or drafted (#296)", () => {
+    const saved: PipelineNode[] = [
+      source,
+      { id: "snv", type: "preprocess", inputs: ["source"], step: { kind: "snv" } },
+      { id: "pca", type: "estimator", inputs: ["snv"], spec: { kind: "pca", n_components: 5 } },
+    ];
+    const below = withDrafts(saved, [snv]);
+    expect(below[3].inputs).toEqual(["snv"]);
+
+    const drafted = withDrafts([source], [snv, pca, snv]);
+    expect(drafted.map((node) => [node.id, node.inputs])).toEqual([
+      ["source", []],
+      ["snv", ["source"]],
+      ["pca", ["snv"]],
+      ["snv_2", ["snv"]],
+    ]);
+  });
+
   it("does not collide ids when the same step is added twice", () => {
     const nodes = withDrafts([source], [snv, snv]);
     expect(nodes.map((node) => node.id)).toEqual(["source", "snv", "snv_2"]);

@@ -1243,7 +1243,7 @@ def _replaced(existing: Pipeline, body: PipelineWrite) -> Pipeline:
     no cycles - are on `Pipeline` itself, and a copy would skip them.
     """
     try:
-        return Pipeline(
+        replaced = Pipeline(
             pipeline_id=existing.pipeline_id,
             project_id=existing.project_id,
             name=body.name or existing.name,
@@ -1258,6 +1258,17 @@ def _replaced(existing: Pipeline, body: PipelineWrite) -> Pipeline:
             str(first.get("msg", "the pipeline is not valid")),
             field=".".join(str(part) for part in first["loc"]),
         ) from error
+    if below := replaced.estimator_inputs():
+        node_id, estimator = below[0]
+        raise _fail(
+            422,
+            "invalid_pipeline",
+            f"node {node_id!r} takes its input from {estimator!r}, which is an estimator: it "
+            "produces a model, not spectra, so nothing can follow it. Connect "
+            f"{node_id!r} to the step above {estimator!r} instead.",
+            node_id=node_id,
+        )
+    return replaced
 
 
 @router.post("/pipelines/{pipeline_id}/validate")

@@ -101,8 +101,8 @@
         "uv run pytest - the schema or the pipeline PUT refuses a node whose input is an estimator, naming both; the test fails on the unfixed code first",
         "pnpm exec playwright test - adding from the side list to a pipeline ending in an estimator does not produce an unrunnable graph"
       ],
-      "status": "not_started",
-      "evidence": "",
+      "status": "passing",
+      "evidence": "2026-10-03. Not a schema validator: a pipeline saved before this must still load, so Pipeline.estimator_inputs() names every (node, estimator) pair and the write and the run refuse them. `uv run pytest`: `968 passed, 1 skipped`. tests/test_api.py: PUT /pipelines/current and POST /pipelines/current/validate with an SNV fed by a PCA both answer 422 invalid_pipeline, \"node 'snv' takes its input from 'pca', which is an estimator\". tests/test_executor.py: running such a stored pipeline raises ExecutorError naming both nodes instead of KeyError. Proof: with src/ reverted and the new tests kept, both fail (the API accepts it; the executor raises KeyError). ruff, mypy clean. `pnpm test`: 144 passed; graph.test.ts: withDrafts branches a step from an estimator's input, whether the estimator is saved or drafted (fails on the old withDrafts). `pnpm build` then `pnpm exec playwright test`: 76 passed; walkthrough.spec.ts now adds Median w5 and Whittaker lambda 100 from the side list to the chain ending in PCA, saves, runs, and every node completes - the flow that failed with \"'pca'\" while #271 was tested.",
       "notes": "Found 2026-10-03 while testing #271: the walkthrough's side-list Add appended a smoother after PCA and the run failed with \"'pca'\" (KeyError in the executor). Pre-existing on dev."
     },
     {

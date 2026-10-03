@@ -558,6 +558,15 @@ def execute(
             if consumers[parent] <= 0:
                 states.pop(parent, None)
 
+    if below := pipeline.estimator_inputs():
+        node_id, estimator = below[0]
+        # #296: a pipeline saved before the write refused this still loads,
+        # and would otherwise fail below with a bare KeyError.
+        raise ExecutorError(
+            f"node {node_id!r} takes its input from the estimator {estimator!r}, which "
+            "produces a model, not spectra. Connect it to the step above instead.",
+            node_id,
+        )
     ordered = _topological(pipeline)
     completed = 0
 
