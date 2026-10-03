@@ -2,7 +2,7 @@
 
 Compact state for the next session. **Overwrite this file at the end of every session** — it is a snapshot, not a log. Read it first, then `feature_list.json`, `git log` on `dev`, and the open issues.
 
-**Updated:** 2026-10-02 (after #268)
+**Updated:** 2026-10-03
 
 ---
 
@@ -116,15 +116,42 @@ the served application end to end and rewrite their phase's `docs/phase-N/exit-r
 `uv run python -m tests.memory_probe 6000 1200` prints the peak resident memory of a ten-fold branch,
 which is the number #176 is judged by.
 
+## Phase 5 so far
+
+Merged through green pull requests on `dev`:
+
+| Feature | Issue | PR |
+| --- | --- | --- |
+| Stratified K-fold and train/test | #268 | #292 |
+| Multi-class groundwork: N-by-N tally, per-class table, `classification.md` | #269 | #294 |
+| Sample exclusion: a derived version the pipeline moves onto | #270 | #295 |
+| Moving average, median, Gaussian, Whittaker | #271 | #297 |
+| Nothing follows an estimator (found during #271) | #296 | #298 |
+| A run started during a save runs what was saved (#291's cause) | #291 | #299 |
+| PCR | #272 | #300 |
+
+## What these left behind, worth knowing
+
+- **Exclusion materialises.** `derive_version` writes the kept rows as a new array; `excluded_samples`
+  are the *parent's* row indices. Nothing masks rows in place, so the executor needed no change.
+- **Optional fields on an existing spec** use pydantic `exclude_if` (see `KFoldSplit.stratify_by`) so an
+  unset field leaves the JSON, and the cache key, as it was.
+- **Regression estimators share `_fit_regression`** in `executor.py` with an `estimator=` class
+  (`PLS` or `PCR`); `rmsecv_curve` and `cross_validated_predictions` take the same parameter. A result
+  carries `method` (`pls`/`pcr`/`plsda`) so a screen can name it. PLS2 and LDA should reuse this.
+- **Linear smoothers fold** (`FOLDABLE` in `regression.py`); the median is an exportable residual step
+  with its own NumPy body in `export.py`.
+- **e2e tests that change a project** go in `walkthrough.spec.ts`, which runs in order on the one server
+  whose project a test may change. Wait for the drafts to clear ("No steps yet") or rely on #299 before
+  asserting on a run after Save.
+- **Parity fixture.** `uv run python tests/fixtures/generate_reference_values.py` regenerates
+  deterministically; check its diff is only the new entries and the date. The parity report needs the
+  whole suite run first (`uv run pytest`, then `uv run python -m tests.parity_report`).
+
 ## Next action
 
-`stratified-splits` (#268) is passing and merged through #292. Pick up `multiclass-groundwork` (#269,
-priority 2): N-class payload, per-class metrics, an N-by-N confusion matrix, and `stepMenu` offering
-classifiers on any column with two or more classes.
-
-**Stratification, as built:** `KFoldSplit.stratify_by` uses pydantic `exclude_if` so an unset field is
-left out of the dump and no existing cache key moves. Keep that pattern for any optional field added to
-an existing spec. `_folds_for` and `governing_folds` take the `DatasetVersion`, not `n`.
-
-**#291 is open:** a one-off Windows e2e failure in `docs-examples.spec.ts` (1 node complete where 5 were
-expected after "Done"). Read the trace artifact of run 37017826937 before changing anything.
+Pick up `pls2-kernel` (#273): NIPALS PLS2 in `regression.py`, `pls-regression.md` §10 replaced by its
+specification, parity against scikit-learn `PLSRegression` with a multi-column Y. Then
+`plsda-multiclass` (#274), which needs it and `multiclass-groundwork`. The R `mdatools` references
+named in the plan for PCR were not added (scikit-learn only); SIMCA's parity plan still relies on
+`tests/fixtures/r_mdatools_reference.R`, so R will be needed there.
