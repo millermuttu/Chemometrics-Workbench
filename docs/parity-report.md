@@ -21,11 +21,11 @@ strong the agreement is** rather than a bare pass or fail:
 
 | Claim | Count | Meaning |
 | --- | --- | --- |
-| identical within floating point | 108 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
-| agrees within stated tolerance | 22 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
+| identical within floating point | 116 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
+| agrees within stated tolerance | 23 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
 | differs by documented convention | 8 | Not compared numerically at all. The two quantities are not the same thing, and the reason is given in full below. |
 
-**138 comparisons, 138 passed, 0 failed.**
+**147 comparisons, 147 passed, 0 failed.**
 
 Three things a reader should hold on to, because the agreement column cannot
 show them:
@@ -78,6 +78,7 @@ those listed under *Gaps* or *Documented divergences* below.
 | Gaussian smoothing | `GaussianTransformer` | 3 claims |
 | Whittaker smoothing | `WhittakerTransformer` | 3 claims |
 | PCR | `PCR` | 6 claims |
+| PLS2 | `PLS2` | 9 claims |
 | SNV | `SNVTransformer` | 3 claims |
 | MSC | `MSCTransformer` | 3 claims |
 | Mean centring | `MeanCentreTransformer` | 3 claims |
@@ -240,6 +241,20 @@ those listed under *Gaps* or *Documented divergences* below.
 | tecator | `rmsecv_curve` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 10 values, worst Δ < 1e-12 |
 | tecator | `sep` | unstated | documented divergence | not compared — see below |
 | tecator | `vip` † | scikit-learn 1.9.0 | identical | 100 values, worst Δ < 1e-15 |
+
+### PLS2 (several responses)
+
+| Dataset | Quantity | Reference | Claim | Ours vs reference |
+| --- | --- | --- | --- | --- |
+| corn | `coefficients` | scikit-learn 1.9.0 | identical | 2800 values, worst Δ < 1e-13 |
+| corn | `predictions` | scikit-learn 1.9.0 | identical | 320 values, worst Δ < 1e-13 |
+| corn | `scores` ‡ | scikit-learn 1.9.0 | identical | 400 values, worst Δ < 1e-14 |
+| gasoline | `coefficients` | scikit-learn 1.9.0 | identical | 401 values, worst Δ < 1e-14 |
+| gasoline | `predictions` | scikit-learn 1.9.0 | identical | 60 values, worst Δ < 1e-13 |
+| gasoline | `scores` ‡ | scikit-learn 1.9.0 | identical | 300 values, worst Δ < 1e-14 |
+| tecator | `coefficients` | scikit-learn 1.9.0 | identical | 300 values, worst Δ < 1e-13 |
+| tecator | `predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 720 values, worst Δ < 1e-12 |
+| tecator | `scores` ‡ | scikit-learn 1.9.0 | identical | 1200 values, worst Δ < 1e-13 |
 
 ### Principal component regression
 

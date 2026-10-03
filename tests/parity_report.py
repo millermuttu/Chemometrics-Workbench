@@ -49,10 +49,11 @@ ALGORITHM_TITLES = {
     "pca": "Principal component analysis",
     "pls": "PLS regression",
     "pcr": "Principal component regression",
+    "pls2": "PLS2 (several responses)",
     "plsda": "PLS-DA (two-class)",
     "preprocess": "Preprocessing",
 }
-ALGORITHM_ORDER = ["preprocess", "pca", "pls", "pcr", "plsda"]
+ALGORITHM_ORDER = ["preprocess", "pca", "pls", "pls2", "pcr", "plsda"]
 DATASET_ORDER = ["corn", "gasoline", "tecator"]
 
 TIER_LABELS = {
@@ -102,6 +103,7 @@ COVERAGE: tuple[Coverage, ...] = (
     Coverage("Gaussian smoothing", ("GaussianTransformer",), ("preprocess.gaussian",)),
     Coverage("Whittaker smoothing", ("WhittakerTransformer",), ("preprocess.whittaker",)),
     Coverage("PCR", ("PCR",), ("pcr.coefficients", "pcr.predictions")),
+    Coverage("PLS2", ("PLS2",), ("pls2.coefficients", "pls2.predictions", "pls2.scores")),
     Coverage("SNV", ("SNVTransformer",), ("preprocess.snv",)),
     Coverage("MSC", ("MSCTransformer",), ("preprocess.msc",)),
     Coverage("Mean centring", ("MeanCentreTransformer",), ("preprocess.mean_centred",)),
