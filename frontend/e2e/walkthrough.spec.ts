@@ -243,3 +243,22 @@ test("the new smoothers are added from the step list and run", async ({ page }) 
   await expect(outline.getByRole("button", { name: /Median w5/ })).toBeVisible();
   await expect(outline.getByRole("button", { name: /Whittaker λ100/ })).toBeVisible();
 });
+
+test("a run started while a save is in flight runs what was saved", async ({ page }) => {
+  // #291. The save is held back a second, and Run is clicked straight after
+  // Save: before the fix the run executed the recipe as it was before the PUT
+  // landed, reported "Done", and the new node stayed not run.
+  await page.goto("/?token=e2e-token");
+  await page.route("**/api/pipelines/current", async (route) => {
+    if (route.request().method() === "PUT") await new Promise((resolve) => setTimeout(resolve, 1000));
+    await route.continue();
+  });
+  await page.getByRole("button", { name: "Pipeline", exact: true }).click();
+  const before = await page.locator(".react-flow__node").count();
+  await page.getByLabel("Step").selectOption("Autoscale");
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("button", { name: "Run pipeline" }).click();
+  await expect(page.locator(".status")).toContainText("Done", { timeout: 60_000 });
+  await expect(page.getByTestId("node-complete")).toHaveCount(before + 1);
+});

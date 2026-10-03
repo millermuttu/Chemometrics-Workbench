@@ -106,6 +106,23 @@
       "notes": "Found 2026-10-03 while testing #271: the walkthrough's side-list Add appended a smoother after PCA and the run failed with \"'pca'\" (KeyError in the executor). Pre-existing on dev."
     },
     {
+      "id": "run-waits-for-save",
+      "priority": 4,
+      "area": "frontend",
+      "issue": 291,
+      "title": "A run started while a save is in flight runs what was saved",
+      "depends_on": [
+        "no-step-below-estimator"
+      ],
+      "user_visible_behavior": "Run pipeline is disabled while the recipe is being saved, and a click that lands first waits for the save; a run never executes the recipe from before the Save.",
+      "verification": [
+        "pnpm exec playwright test - with the save PUT held back a second, Save then Run completes every node including the new one; the test fails on the unfixed code first"
+      ],
+      "status": "passing",
+      "evidence": "2026-10-03. Root cause of #291 (Windows docs-examples, 1 of 5 complete after Done) and of #298's first ubuntu run (4 of 6): Run was clicked while the Save PUT was in flight, the server executed the recipe from before the save, the job reported Done, and the new nodes stayed not run. useSavePipeline now carries a shared mutation key; Shell disables Run while any save is pending and startRun waits for pending saves before posting. `pnpm test`: 144 passed. `pnpm build` then `pnpm exec playwright test`: 77 passed, including walkthrough.spec.ts 'a run started while a save is in flight runs what was saved', which delays the PUT by 1 s with page.route and clicks Save then Run. Proof: with frontend/src reverted and the test kept, it fails 'Expected: 7, Received: 6' - the CI signature.",
+      "notes": "Found while fixing #296; depends on it only because the test adds a step from the side list to a chain ending in PCA."
+    },
+    {
       "id": "pcr",
       "priority": 5,
       "area": "kernels",

@@ -407,9 +407,15 @@ export function useSaveLayout() {
   });
 }
 
+/** Shared by every `useSavePipeline`, so the Run button can see a save in
+ * flight from any screen (#291): a run started before the PUT lands executes
+ * the recipe as it was. */
+export const SAVE_PIPELINE = ["save-pipeline"] as const;
+
 export function useSavePipeline() {
   const client = useQueryClient();
   return useMutation({
+    mutationKey: SAVE_PIPELINE,
     mutationFn: (nodes: PipelineNode[]) =>
       api<Pipeline>("/pipelines/current", {
         method: "PUT",
