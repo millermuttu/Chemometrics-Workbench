@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 
-import { useQueryClient } from "@tanstack/react-query";
+import { useIsMutating, useQueryClient } from "@tanstack/react-query";
 
 import type { DatasetEntry } from "@/api/queries";
 import {
@@ -12,6 +12,7 @@ import {
   usePipelineState,
   useProjects,
   useResults,
+  SAVE_PIPELINE,
   useRunExperiment,
   useSavePipeline,
 } from "@/api/queries";
@@ -244,11 +245,18 @@ export function Shell() {
     void queryClient.invalidateQueries({ queryKey: ["experiments"] });
   }, [settled, jobId, queryClient]);
 
+  const saving = useIsMutating({ mutationKey: SAVE_PIPELINE });
   const startRun = useCallback(async () => {
+    // #291: a click can land before the disabled state renders, so the run
+    // also waits for any save still in flight before it is posted.
+    // ponytail: a 50 ms poll; a save is one PUT, so this resolves within it.
+    while (queryClient.isMutating({ mutationKey: SAVE_PIPELINE }) > 0) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     const started = await run.mutateAsync();
     setJobId(started.job_id);
     setStartedAt(Date.now());
-  }, [run]);
+  }, [run, queryClient]);
 
   /** Run an action, and put the server's refusal on screen if it refuses. */
   const attempt = useCallback(async (action: () => Promise<void>) => {
@@ -382,6 +390,9 @@ export function Shell() {
           </button>
           <button
             className="btn btn-p"
+            // #291: not while a save is in flight, or the run executes the
+            // recipe before the save and reports "Done" over a stale canvas.
+            disabled={saving > 0}
             onClick={() => {
               setDismissedFailure(false);
               void attempt(startRun);
