@@ -80,6 +80,7 @@ __all__ = [
     "FOLDABLE",
     "PCR",
     "PLS",
+    "PLS2",
     "coefficients_original_units",
     "cross_validated_predictions",
     "rmsecv_curve",
@@ -582,6 +583,102 @@ def coefficients_original_units(
 # --------------------------------------------------------------------------
 # cross-validation, metrics-and-validation.md §7 and §9
 # --------------------------------------------------------------------------
+
+
+class PLS2(PLS):
+    """PLS2: one model for an `n x m` response, per `pls-regression.md` §10.
+
+    Each component's weight vector is the dominant left singular vector of the
+    deflated cross-product `E'F`, computed by SVD. That is the fixed point the
+    NIPALS inner iteration converges to, taken exactly, so there is no
+    convergence tolerance, no iteration cap and no choice of seed column. With
+    one response column it is `E'f / ||E'f||`, and the model is `PLS` exactly.
+
+    Everything after the fit - rotations, prediction, VIP, explained variance,
+    T2, SPE and their limits - is `PLS`'s unchanged: they are written over the
+    per-component sums `y_variance_`, which here sum over the response columns.
+    `y_loadings_` is `m x A` and `coefficients_` is `p x m`.
+    """
+
+    def fit(self, X: object, y: object) -> Self:
+        values = as_float64(X, "X")
+        response = as_float64(y, "Y")
+        n_samples, n_variables = values.shape
+        if response.shape[0] != n_samples:
+            raise ValueError(
+                f"X has {n_samples} samples and Y has {response.shape[0]}. Arrays are "
+                "n_samples x n_columns and are never silently transposed."
+            )
+        ceiling = min(n_samples - 1, n_variables)
+        if self.n_components > ceiling:
+            raise ValueError(
+                f"{self.n_components} components were asked of a matrix with "
+                f"{n_samples} samples and {n_variables} variables, which supports at "
+                f"most min(n-1, p) = {ceiling}. Reduce n_components, or add samples."
+            )
+
+        residual_x = values.copy()
+        residual_y = response.copy()
+        initial = float(np.linalg.norm(values.T @ response))
+        if initial == 0.0:
+            raise ValueError(
+                "X and Y have no covariance at all: X'Y is zero, so there is no "
+                "direction for a first component to take. Check that both were centred."
+            )
+        floor = float(np.sqrt(np.finfo(np.float64).eps)) * initial
+
+        weights: list[NDArray[np.float64]] = []
+        scores: list[NDArray[np.float64]] = []
+        x_loadings: list[NDArray[np.float64]] = []
+        y_loadings: list[NDArray[np.float64]] = []
+        for _ in range(self.n_components):
+            cross = residual_x.T @ residual_y
+            if float(np.linalg.norm(cross)) <= floor:
+                self.stopped_early_ = True
+                warnings.warn(
+                    f"the response was exhausted after {len(weights)} components: E'F "
+                    f"fell to {np.linalg.norm(cross):g}, at or below {floor:g} "
+                    "(pls-regression.md §10).",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+                break
+            left, _, _ = np.linalg.svd(cross, full_matrices=False)
+            weight = left[:, 0]
+            # §6's rule, as for PLS1: the largest-magnitude weight is positive.
+            if weight[int(np.abs(weight).argmax())] < 0:
+                weight = -weight
+            score = residual_x @ weight
+            score_ss = float(score @ score)
+            x_loading = (residual_x.T @ score) / score_ss
+            y_loading = (residual_y.T @ score) / score_ss
+            residual_x = residual_x - np.outer(score, x_loading)
+            residual_y = residual_y - np.outer(score, y_loading)
+            weights.append(weight)
+            scores.append(score)
+            x_loadings.append(x_loading)
+            y_loadings.append(y_loading)
+
+        if not weights:
+            raise ValueError("no component could be fitted: X'Y is at the exhaustion threshold.")
+
+        self.weights_ = np.column_stack(weights)
+        self.x_scores_ = np.column_stack(scores)
+        self.x_loadings_ = np.column_stack(x_loadings)
+        self.y_loadings_ = np.column_stack(y_loadings)
+        self.n_components_ = len(weights)
+        self.rotations_ = self.weights_ @ np.linalg.inv(self.x_loadings_.T @ self.weights_)
+        self.coefficients_ = self.rotations_ @ self.y_loadings_.T
+
+        score_sums = np.asarray([float(t @ t) for t in scores])
+        self.x_variance_ = score_sums * np.asarray([float(p @ p) for p in x_loadings])
+        self.y_variance_ = (self.y_loadings_**2).sum(axis=0) * score_sums
+        self.x_total_variance_ = float((values**2).sum())
+        self.y_total_variance_ = float((response**2).sum())
+        self.spe_ = (residual_x**2).sum(axis=1)
+        self.n_samples_ = n_samples
+        self.n_variables_ = n_variables
+        return self
 
 
 class PCR:

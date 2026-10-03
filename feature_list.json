@@ -153,8 +153,8 @@
         "uv run pytest - parity against scikit-learn PLSRegression with multi-column Y; a one-column Y reproduces PLS1 exactly",
         "uv run python -m tests.parity_report - docs/parity-report.md regenerated with the new rows, and test_parity_coverage green"
       ],
-      "status": "not_started",
-      "evidence": "",
+      "status": "passing",
+      "evidence": "2026-10-03. pls-regression.md section 10 replaced: PLS2 is a kernel (not a node) whose weight per component is the dominant left singular vector of the deflated E'F, computed by SVD - the fixed point NIPALS's inner loop converges to, with no tolerance, cap or seed; with m = 1 it is PLS1. Section 4's note that PLS2 weights are not orthogonal was wrong and is corrected (they are, from X deflation; measured 3e-15). regression.PLS2 subclasses PLS and overrides fit only. `uv run python tests/fixtures/generate_reference_values.py`: 150 entries, the 9 PLS2 ones added (corn, gasoline, tecator; coefficients, predictions, scores) and no existing entry changed (checked by id). The reference is scikit-learn PLSRegression(scale=False, tol=0, max_iter=2000): its stop test is on the squared weight change, so tol=1e-15 left corn 3.2e-6 relative off; run to machine precision it agrees with ours to 1.5e-14 absolute. `uv run pytest`: `987 passed, 1 skipped`. test_parity.py: PLS2 coefficients (no sign alignment), predictions and scores on all three datasets. test_regression.py: m = 1 reproduces PLS1's coefficients, scores, VIP and Y explained variance; weights orthonormal and scores orthogonal on Tecator's three responses; coefficients p x 3, y_loadings 3 x 5, sum VIP^2 = p, cumulative Y explained variance = 1 - RSS/TSS; mismatched rows and too many components refused. Coverage row added; `uv run python -m tests.parity_report`: 147 claims. Proof: with src/ reverted the new tests fail at collection. ruff, mypy clean; `uv run mkdocs build --strict` exit 0.",
       "notes": ""
     },
     {

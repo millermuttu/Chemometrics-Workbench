@@ -44,6 +44,7 @@ from chemometrics_workbench.preprocessing import (
 from chemometrics_workbench.regression import (
     PCR,
     PLS,
+    PLS2,
     coefficients_original_units,
     cross_validated_predictions,
     rmsecv_curve,
@@ -330,6 +331,27 @@ def test_whittaker_matches_the_reference_everywhere(dataset: str) -> None:
     """A dense inverse against a banded solve, the same penalised system."""
     ours = WhittakerTransformer(WHITTAKER_LAM).fit_transform(_baseline_block(dataset))
     assert parity.check(f"{dataset}.preprocess.whittaker.chemotools", ours).passed
+
+
+# --------------------------------------------------------------------------
+# PLS2 (#273)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_pls2_matches_nipals_at_its_fixed_point(dataset: str) -> None:
+    """`pls-regression.md` section 10.4: every response the dataset has, one model."""
+    data = LOADERS[dataset]()
+    centred = data.spectra - data.spectra.mean(axis=0)
+    response = np.column_stack([data.targets[column] for column in data.targets])
+    model = PLS2(N_COMPONENTS).fit(centred, response - response.mean(axis=0))
+    coefficients = parity.check(f"{dataset}.pls2.coefficients.sklearn", model.coefficients_)
+    predictions = parity.check(
+        f"{dataset}.pls2.predictions.sklearn", model.predict(centred) + response.mean(axis=0)
+    )
+    scores = parity.check(f"{dataset}.pls2.scores.sklearn", model.x_scores_)
+    assert coefficients.passed and not coefficients.sign_aligned
+    assert predictions.passed and scores.passed
 
 
 # --------------------------------------------------------------------------
