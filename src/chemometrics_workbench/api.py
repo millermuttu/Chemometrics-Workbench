@@ -573,6 +573,7 @@ def results_payload(
     # block and adds `classification` beside it.
     if result.task in ("regression", "classification"):
         payload["regression"] = {
+            "method": result.method or "pls",
             "target": result.target,
             "observed": result.observed,
             "predicted": result.predicted,

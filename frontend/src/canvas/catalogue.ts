@@ -126,6 +126,12 @@ export function stepMenu(targets: string[], classColumns: string[] = []): Catalo
             parameters: `5 components · ${target}`,
             payload: { spec: { kind: "pls", n_components: 5, algorithm: "nipals", target } },
           },
+          {
+            kind: "PCR 5 PC",
+            type: "estimator" as const,
+            parameters: `5 components · ${target}`,
+            payload: { spec: { kind: "pcr", n_components: 5, target } },
+          },
         ]
       : []),
     // Two-class only (#185, pls-da.md section 2): offered when the dataset

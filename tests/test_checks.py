@@ -30,6 +30,7 @@ from chemometrics_workbench.models import (
     MeanCentre,
     Normalise,
     PCASpec,
+    PCRSpec,
     Pipeline,
     PLSDASpec,
     PLSRegressionSpec,
@@ -291,6 +292,16 @@ def test_pls_da_is_the_same_model_and_gets_the_same_warning() -> None:
         )
     )
     assert [(w.code, w.node_id) for w in found] == [(PLS_WITHOUT_CENTRING, "plsda")]
+
+
+def test_pcr_without_centring_gets_the_same_warning() -> None:
+    """#272, pcr.md section 2: PCR centres nothing of its own either."""
+    found = check_pipeline(
+        pipeline(
+            EstimatorNode(id="pcr", inputs=("source",), spec=PCRSpec(n_components=3, target="fat")),
+        )
+    )
+    assert [(w.code, w.node_id) for w in found] == [(PLS_WITHOUT_CENTRING, "pcr")]
 
 
 @pytest.mark.parametrize("step", [MeanCentre(), Autoscale()])

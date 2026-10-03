@@ -48,10 +48,11 @@ REPORT = Path(__file__).parent.parent / "docs" / "parity-report.md"
 ALGORITHM_TITLES = {
     "pca": "Principal component analysis",
     "pls": "PLS regression",
+    "pcr": "Principal component regression",
     "plsda": "PLS-DA (two-class)",
     "preprocess": "Preprocessing",
 }
-ALGORITHM_ORDER = ["preprocess", "pca", "pls", "plsda"]
+ALGORITHM_ORDER = ["preprocess", "pca", "pls", "pcr", "plsda"]
 DATASET_ORDER = ["corn", "gasoline", "tecator"]
 
 TIER_LABELS = {
@@ -100,6 +101,7 @@ COVERAGE: tuple[Coverage, ...] = (
     Coverage("Median filter", ("MedianFilterTransformer",), ("preprocess.median",)),
     Coverage("Gaussian smoothing", ("GaussianTransformer",), ("preprocess.gaussian",)),
     Coverage("Whittaker smoothing", ("WhittakerTransformer",), ("preprocess.whittaker",)),
+    Coverage("PCR", ("PCR",), ("pcr.coefficients", "pcr.predictions")),
     Coverage("SNV", ("SNVTransformer",), ("preprocess.snv",)),
     Coverage("MSC", ("MSCTransformer",), ("preprocess.msc",)),
     Coverage("Mean centring", ("MeanCentreTransformer",), ("preprocess.mean_centred",)),
