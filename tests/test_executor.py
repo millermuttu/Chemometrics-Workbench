@@ -42,6 +42,7 @@ from chemometrics_workbench.models import (
     LeaveOneOut,
     MeanCentre,
     PCASpec,
+    PCRSpec,
     Pipeline,
     PLSDASpec,
     PLSRegressionSpec,
@@ -1417,3 +1418,39 @@ def test_a_stored_step_below_an_estimator_fails_the_run_by_name(
     )
     with pytest.raises(ExecutorError, match="node 'snv' takes its input from the estimator 'pca'"):
         execute(directory, pipeline, version)
+
+
+def test_a_pcr_node_fits_and_cross_validates_like_a_regression(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#272, `pcr.md`: a regression result with PCR's numbers and no VIP. The
+    RMSECV is checked against scikit-learn's PCA then least squares on the
+    run's own resolved folds, each fold preprocessed by its own training rows."""
+    from sklearn.decomposition import PCA as SkPCA
+    from sklearn.linear_model import LinearRegression
+
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=5, seed=42)),
+        PreprocessNode(id="centre", inputs=("split",), step=MeanCentre()),
+        EstimatorNode(id="pcr", inputs=("centre",), spec=PCRSpec(n_components=4, target="fat")),
+    )
+    run = execute(directory, pipeline, version)
+    result = run.results["pcr"]
+
+    assert result.task == "regression"
+    assert result.vip == []
+    assert len(result.coefficients) == version.n_variables
+    assert [f"rmsecv_a{a}" in result.metrics for a in range(1, 5)] == [True] * 4
+
+    spectra = _as_stored(tecator.spectra)
+    fat = np.asarray(tecator.targets["fat"])
+    [resolved] = run.resolved_splits
+    held = np.empty_like(fat)
+    for train, test in zip(resolved.train_indices, resolved.test_indices, strict=True):
+        mean = spectra[train].mean(axis=0)
+        pca = SkPCA(n_components=4, svd_solver="full").fit(spectra[train] - mean)
+        model = LinearRegression().fit(pca.transform(spectra[train] - mean), fat[train])
+        held[test] = model.predict(pca.transform(spectra[test] - mean))
+    assert result.metrics["rmsecv"] == pytest.approx(rmse(fat, held), rel=1e-6)

@@ -164,7 +164,9 @@ function Loadings({ pca }: { pca: PcaPayload }) {
  * which answers with a sentence when a step in the chain - SNV, MSC, a
  * baseline - is not a fixed linear map and cannot be folded. */
 function VariableImportance({ pca }: { pca: PcaPayload }) {
-  const [view, setView] = useState<"vip" | "coefficients">("vip");
+  // A PCR has no VIP (pcr.md section 6), so its panel is the coefficients.
+  const hasVip = (pca.regression?.vip.length ?? 0) > 0;
+  const [view, setView] = useState<"vip" | "coefficients">(hasVip ? "vip" : "coefficients");
   const coefficients = useCoefficients(pca.node_id);
   const folded = coefficients.data;
 
@@ -217,14 +219,14 @@ function VariableImportance({ pca }: { pca: PcaPayload }) {
         fontSize: 9.5,
       }}
     >
-      <option value="vip">VIP</option>
+      {hasVip ? <option value="vip">VIP</option> : null}
       <option value="coefficients">Coefficients, raw axis</option>
     </select>
   );
 
   return (
     <Panel title="Variable importance" note={choose}>
-      {view === "vip" ? (
+      {view === "vip" && hasVip ? (
         <div ref={vipHost} data-testid="vip-plot" style={{ flex: 1, minHeight: 0 }} />
       ) : folded?.available ? (
         <div ref={coefficientHost} data-testid="coefficients-plot" style={{ flex: 1, minHeight: 0 }} />
@@ -725,7 +727,7 @@ export function AnalysisResults({ nodeId, title }: { nodeId: string; title: stri
             {classification
               ? `PLS-DA on ${pca.classification?.class_column ?? "?"}`
               : regression
-                ? `PLS on ${pca.regression?.target ?? "?"}`
+                ? `${pca.regression?.method === "pcr" ? "PCR" : "PLS"} on ${pca.regression?.target ?? "?"}`
                 : "PCA"}{" "}
             {pca.n_components}{" "}
             components · {pca.n_samples} × {pca.n_variables}

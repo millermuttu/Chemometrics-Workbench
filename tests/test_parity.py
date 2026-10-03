@@ -42,6 +42,7 @@ from chemometrics_workbench.preprocessing import (
     WhittakerTransformer,
 )
 from chemometrics_workbench.regression import (
+    PCR,
     PLS,
     coefficients_original_units,
     cross_validated_predictions,
@@ -329,6 +330,26 @@ def test_whittaker_matches_the_reference_everywhere(dataset: str) -> None:
     """A dense inverse against a banded solve, the same penalised system."""
     ours = WhittakerTransformer(WHITTAKER_LAM).fit_transform(_baseline_block(dataset))
     assert parity.check(f"{dataset}.preprocess.whittaker.chemotools", ours).passed
+
+
+# --------------------------------------------------------------------------
+# PCR (#272)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_pcr_matches_pca_then_least_squares(dataset: str) -> None:
+    """`pcr.md` section 8: coefficients and predictions, sign-invariant."""
+    data = LOADERS[dataset]()
+    centred = data.spectra - data.spectra.mean(axis=0)
+    y = np.asarray(data.targets[parity.load_fixture()["targets"][dataset]])
+    model = PCR(N_COMPONENTS).fit(centred, y - y.mean())
+    coefficients = parity.check(f"{dataset}.pcr.coefficients.sklearn", model.coefficients_)
+    predictions = parity.check(
+        f"{dataset}.pcr.predictions.sklearn", model.predict(centred) + y.mean()
+    )
+    assert coefficients.passed and not coefficients.sign_aligned
+    assert predictions.passed
 
 
 # --------------------------------------------------------------------------

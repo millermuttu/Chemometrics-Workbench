@@ -262,3 +262,37 @@ test("a run started while a save is in flight runs what was saved", async ({ pag
   await expect(page.locator(".status")).toContainText("Done", { timeout: 60_000 });
   await expect(page.getByTestId("node-complete")).toHaveCount(before + 1);
 });
+
+test("a PCR runs on the dataset's target and reads as a regression without VIP", async ({
+  page,
+}) => {
+  // #272. Written through the pipeline's PUT beside the walkthrough's PCA,
+  // because the side list offers no estimator that needs a target.
+  await page.goto("/?token=e2e-token");
+  const auth = { Authorization: "Bearer e2e-token" };
+  const pipeline = await (await page.request.get("/api/pipelines/current", { headers: auth })).json();
+  const nodes = pipeline.nodes as { id: string; type: string; inputs: string[] }[];
+  const pca = nodes.find((node) => node.type === "estimator")!;
+  nodes.push({
+    id: "pcr",
+    type: "estimator",
+    inputs: pca.inputs,
+    spec: { kind: "pcr", n_components: 3, target: "moisture" },
+  } as (typeof nodes)[number]);
+  const saved = await page.request.put("/api/pipelines/current", {
+    headers: { ...auth, "Content-Type": "application/json" },
+    data: { nodes },
+  });
+  expect(saved.status()).toBe(200);
+
+  await page.reload();
+  await page.getByRole("button", { name: "Run pipeline" }).click();
+  await expect(page.locator(".status")).toContainText("Done", { timeout: 60_000 });
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /PCR 3 PC · moisture/ }).dblclick();
+  await expect(page.getByTestId("analysis-header")).toContainText("PCR on moisture 3 components");
+  await expect(page.getByLabel("Variable importance view").locator("option")).toHaveText([
+    "Coefficients, raw axis",
+  ]);
+  await expect(page.getByRole("region", { name: "Predicted vs measured" })).toBeVisible();
+});

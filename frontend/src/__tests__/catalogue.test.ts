@@ -53,3 +53,12 @@ it("offers the four smoothers, each labelled as the canvas labels it (#271)", ()
     expect(parameterLine(node)).toBe(step.parameters);
   }
 });
+
+it("offers PCR beside PLS when the dataset has a target, labelled alike (#272)", () => {
+  const pcr = stepMenu(["fat"]).find((step) => step.kind === "PCR 5 PC")!;
+  expect(pcr.payload.spec).toEqual({ kind: "pcr", n_components: 5, target: "fat" });
+  const node = { id: "pcr", type: "estimator", inputs: ["centre"], ...pcr.payload } as PipelineNode;
+  expect(nodeLabel(node)).toBe("PCR 5 PC · fat");
+  expect(parameterLine(node)).toBe(pcr.parameters);
+  expect(stepMenu([]).map((step) => step.kind)).not.toContain("PCR 5 PC");
+});

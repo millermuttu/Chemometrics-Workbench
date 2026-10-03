@@ -59,6 +59,7 @@ nav:
       - Algorithms:
           - PCA: algorithms/pca.md
           - PLS regression: algorithms/pls-regression.md
+          - PCR: algorithms/pcr.md
           - PLS-DA: algorithms/pls-da.md
           - Classification metrics: algorithms/classification.md
           - Smoothing and baselines: algorithms/smoothing-and-baselines.md

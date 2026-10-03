@@ -136,9 +136,9 @@
         "uv run python -m tests.parity_report - docs/parity-report.md regenerated with the new rows, and test_parity_coverage green",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-03. docs/algorithms/pcr.md written (PCA per pca.md, then least squares on the orthogonal scores; components nest so the RMSECV curve is one fit per fold; X diagnostics are the PCA's with the Jackson-Mudholkar SPE limit; no VIP; exports as a coefficient vector) and added to the docs nav; `uv run mkdocs build --strict` exit 0. regression.PCR has PLS's interface; cross_validated_predictions and rmsecv_curve take the estimator class. Executor: PCRSpec routes through the shared regression fit (renamed _fit_regression) with vip [] and the PCA's spe_limit_caveat; results carry `method` so the header says PCR. `uv run python tests/fixtures/generate_reference_values.py`: 141 entries, the 6 PCR ones added and nothing else changed. `uv run pytest`: `977 passed, 1 skipped`. test_parity.py: coefficients and predictions against scikit-learn PCA(svd_solver='full') + LinearRegression on corn, gasoline and tecator, A=5, without sign alignment; coverage row and ALGORITHM_ORDER updated; `uv run python -m tests.parity_report`: 138 claims. test_executor.py: a PCR below a 5-fold split is a regression with no VIP and its RMSECV equals scikit-learn's PCA + LinearRegression on the run's own resolved folds, each preprocessed by its training rows (rel 1e-6). test_export.py: a centred PCR exports as a bare coefficient vector and the NumPy snippet reproduces the predictions. test_checks.py: PCR without centring gets pls_without_centring. Proof: with src/ reverted the new tests fail at collection. ruff, mypy clean. `pnpm test`: 145 passed (PCR in stepMenu with a target, absent without; nodeLabel 'PCR 5 PC · fat'). `pnpm build` then `pnpm exec playwright test`: 78 passed, walkthrough.spec.ts running a PCR on moisture and reading 'PCR on moisture 3 components', a variable-importance select offering coefficients only, and the predicted-vs-measured panel.",
+      "notes": "Parity is against scikit-learn only; the plan's mdatools pcr reference would need the R script re-run and was not added. The side list offers no target-needing estimators (as for PLS); PCR is on the canvas drop menu."
     },
     {
       "id": "pls2-kernel",

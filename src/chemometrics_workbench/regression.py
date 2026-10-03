@@ -63,7 +63,7 @@ from numpy.typing import NDArray
 from scipy.stats import chi2
 
 from chemometrics_workbench.arrays import as_float64, as_float64_vector
-from chemometrics_workbench.decomposition import LimitFor, check_alpha, hotelling_t2_limit
+from chemometrics_workbench.decomposition import PCA, LimitFor, check_alpha, hotelling_t2_limit
 from chemometrics_workbench.preprocessing import (
     AutoscaleTransformer,
     GaussianTransformer,
@@ -78,6 +78,7 @@ from chemometrics_workbench.validation import Fold, rmse, validate_partition
 
 __all__ = [
     "FOLDABLE",
+    "PCR",
     "PLS",
     "coefficients_original_units",
     "cross_validated_predictions",
@@ -583,8 +584,116 @@ def coefficients_original_units(
 # --------------------------------------------------------------------------
 
 
+class PCR:
+    """Principal component regression, per `pcr.md`: PCA on X, then least
+    squares of y on the retained scores.
+
+    The same duck interface as `PLS`, so the executor, the cross-validation
+    helpers and the export treat the two alike. The scores of a PCA are
+    mutually orthogonal, so each component's regression coefficient
+    `q_a = t_a'y / t_a't_a` is independent of the others, and the first `a`
+    of an `A`-component model *are* the `a`-component model - the property
+    `rmsecv_curve` relies on for one fit per fold.
+
+    Like `PLS`, it centres nothing: X is centred by a pipeline node and y by
+    the executor. X diagnostics are the PCA's own, Jackson-Mudholkar SPE limit
+    included (`pca.md` §8), because the X model *is* a PCA.
+    """
+
+    x_scores_: NDArray[np.float64] | None = None
+    x_loadings_: NDArray[np.float64] | None = None
+    rotations_: NDArray[np.float64] | None = None
+    y_loadings_: NDArray[np.float64] | None = None
+    coefficients_: NDArray[np.float64] | None = None
+    n_components_: int | None = None
+
+    def __init__(self, n_components: int) -> None:
+        if n_components < 1:
+            raise ValueError(f"n_components must be at least 1, got {n_components}")
+        self.n_components = int(n_components)
+        self._pca = PCA(self.n_components)
+        self._y_total = 0.0
+
+    def fit(self, X: object, y: object) -> Self:
+        values = as_float64(X, "X")
+        response = as_float64_vector(y, "y")
+        if response.size != values.shape[0]:
+            raise ValueError(
+                f"X has {values.shape[0]} samples and y has {response.size}. Arrays are "
+                "n_samples x n_variables and are never silently transposed."
+            )
+        self._pca.fit(values)
+        scores = self._pca.scores_
+        loadings = self._pca.loadings_
+        assert scores is not None and loadings is not None
+        # pcr.md §3: orthogonal scores, so the normal equations are diagonal.
+        q = (scores.T @ response) / (scores**2).sum(axis=0)
+        self.x_scores_ = scores
+        self.x_loadings_ = loadings
+        self.rotations_ = loadings
+        self.y_loadings_ = q
+        self.coefficients_ = loadings @ q
+        self.n_components_ = self.n_components
+        self._y_total = float(response @ response)
+        return self
+
+    def _fitted(self, name: str) -> NDArray[np.float64]:
+        value = getattr(self, name)
+        if value is None:
+            raise RuntimeError("PCR has not been fitted")
+        return value  # type: ignore[no-any-return]
+
+    def transform(self, X: object) -> NDArray[np.float64]:
+        return self._pca.transform(X)
+
+    def predict(self, X: object) -> NDArray[np.float64]:
+        """`y_hat = X b` on the centred scale the model was fitted on, as `PLS.predict`."""
+        predicted: NDArray[np.float64] = as_float64(X, "X") @ self._fitted("coefficients_")
+        return predicted
+
+    def explained_variance_ratio(self, block: Block = "x") -> NDArray[np.float64]:
+        """X: the PCA's (`pca.md` §6). Y: `q_a^2 t_a't_a / y'y`, per component (pcr.md §5)."""
+        if block == "x":
+            return self._pca.explained_variance_ratio()
+        scores = self._fitted("x_scores_")
+        q = self._fitted("y_loadings_")
+        if self._y_total <= 0.0:
+            raise ValueError("y has no variance to explain")
+        ratio: NDArray[np.float64] = q**2 * (scores**2).sum(axis=0) / self._y_total
+        return ratio
+
+    def cumulative_explained_variance(self, block: Block = "x") -> NDArray[np.float64]:
+        cumulative: NDArray[np.float64] = np.cumsum(self.explained_variance_ratio(block))
+        return cumulative
+
+    def score_eigenvalues(self) -> NDArray[np.float64]:
+        eigenvalues = self._pca.eigenvalues_
+        assert eigenvalues is not None
+        retained: NDArray[np.float64] = eigenvalues[: self.n_components]
+        return retained
+
+    def hotelling_t2(self, X: object | None = None) -> NDArray[np.float64]:
+        return self._pca.hotelling_t2(X)
+
+    def hotelling_t2_limit(self, alpha: float = 0.05, samples: LimitFor = "calibration") -> float:
+        return self._pca.hotelling_t2_limit(alpha, samples)
+
+    def spe(self, X: object) -> NDArray[np.float64]:
+        return self._pca.spe(X)
+
+    def spe_limit(self, alpha: float = 0.05) -> float:
+        return self._pca.spe_limit(alpha)
+
+    def spe_limit_caveat(self) -> str | None:
+        return self._pca.spe_limit_caveat()
+
+
 def cross_validated_predictions(
-    X: object, y: object, folds: list[Fold], n_components: int
+    X: object,
+    y: object,
+    folds: list[Fold],
+    n_components: int,
+    estimator: type[PLS] | type[PCR] = PLS,
 ) -> NDArray[np.float64]:
     """One held-out prediction per sample, in the response's original units.
 
@@ -618,7 +727,7 @@ def cross_validated_predictions(
         train_y = response[fold.train]
         x_mean = train_x.mean(axis=0)
         y_mean = float(train_y.mean())
-        model = PLS(n_components).fit(train_x - x_mean, train_y - y_mean)
+        model = estimator(n_components).fit(train_x - x_mean, train_y - y_mean)
         held_out[fold.test] = model.predict(values[fold.test] - x_mean) + y_mean
     return held_out
 
@@ -640,7 +749,11 @@ def _fold_matrices(X: object, folds: list[Fold]) -> list[NDArray[np.float64]]:
 
 
 def rmsecv_curve(
-    X: object, y: object, folds: list[Fold], max_components: int
+    X: object,
+    y: object,
+    folds: list[Fold],
+    max_components: int,
+    estimator: type[PLS] | type[PCR] = PLS,
 ) -> NDArray[np.float64]:
     """RMSECV for `A = 1 ... max_components`, from one fold assignment (§9).
 
@@ -675,7 +788,9 @@ def rmsecv_curve(
         train_y = response[fold.train]
         x_mean = train_x.mean(axis=0)
         y_mean = float(train_y.mean())
-        model = PLS(max_components).fit(train_x - x_mean, train_y - y_mean)
+        # PCR's components nest exactly as NIPALS's do (pcr.md §3), so the
+        # same one-fit running sum gives its curve.
+        model = estimator(max_components).fit(train_x - x_mean, train_y - y_mean)
         rotations = model._fitted("rotations_")
         y_loadings = model._fitted("y_loadings_")
         scores = (values[fold.test] - x_mean) @ rotations

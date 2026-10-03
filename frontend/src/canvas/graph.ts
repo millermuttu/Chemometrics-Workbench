@@ -80,6 +80,7 @@ export function parameterLine(node: PipelineNode): string {
     case "pca":
       return `${spec!.n_components} components`;
     case "pls":
+    case "pcr":
       return `${spec!.n_components} components · ${spec!.target}`;
     case "plsda":
       return `${spec!.n_components} components · ${spec!.class_column}`;

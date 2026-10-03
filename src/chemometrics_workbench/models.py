@@ -373,6 +373,12 @@ class PLSRegressionSpec(Frozen):
     target: str = Field(description="Which target column in the dataset is being modelled.")
 
 
+class PCRSpec(Frozen):
+    kind: Literal["pcr"] = "pcr"
+    n_components: int = Field(ge=1, description="Principal components regressed on.")
+    target: str = Field(description="Which target column in the dataset is being modelled.")
+
+
 class PLSDASpec(Frozen):
     kind: Literal["plsda"] = "plsda"
     n_components: int = Field(ge=1)
@@ -380,7 +386,9 @@ class PLSDASpec(Frozen):
     class_column: str
 
 
-EstimatorSpec = Annotated[PCASpec | PLSRegressionSpec | PLSDASpec, Field(discriminator="kind")]
+EstimatorSpec = Annotated[
+    PCASpec | PLSRegressionSpec | PCRSpec | PLSDASpec, Field(discriminator="kind")
+]
 
 
 # --------------------------------------------------------------------------

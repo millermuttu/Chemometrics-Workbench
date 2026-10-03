@@ -36,6 +36,7 @@ from chemometrics_workbench.models import (
     Autoscale,
     MeanCentre,
     NodeId,
+    PCRSpec,
     Pipeline,
     PipelineNode,
     PLSDASpec,
@@ -173,7 +174,9 @@ def _pls_without_centring(
     PLS fits the matrices it is given and centres nothing of its own, so
     centring is a node in the recipe or it has not happened.
     """
-    if node.type != "estimator" or not isinstance(node.spec, PLSRegressionSpec | PLSDASpec):
+    if node.type != "estimator" or not isinstance(
+        node.spec, PLSRegressionSpec | PCRSpec | PLSDASpec
+    ):
         return []
 
     upstream = (by_id[other] for other in _ancestors(node.id, by_id))

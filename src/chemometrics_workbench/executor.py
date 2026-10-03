@@ -135,6 +135,7 @@ from chemometrics_workbench.models import (
     Metrics,
     NodeId,
     PCASpec,
+    PCRSpec,
     Pipeline,
     PipelineNode,
     PLSDASpec,
@@ -151,6 +152,7 @@ from chemometrics_workbench.project import (
     write_json,
 )
 from chemometrics_workbench.regression import (
+    PCR,
     PLS,
     cross_validated_predictions,
     rmsecv_curve,
@@ -210,7 +212,7 @@ def has_kernel(spec: EstimatorSpec) -> bool:
 #: What `_estimator` can fit. All three since #185; the tuple stays because
 #: `has_kernel` is the one place the answer lives, and the next estimator will
 #: not have a kernel on the day its spec lands either.
-_FITTED: tuple[type, ...] = (PCASpec, PLSRegressionSpec, PLSDASpec)
+_FITTED: tuple[type, ...] = (PCASpec, PLSRegressionSpec, PCRSpec, PLSDASpec)
 
 
 RESULTS_DIR = "results"
@@ -345,6 +347,11 @@ class EstimatorResult:
 
     target: str | None = None
     """Which target column was modelled. `None` on a decomposition."""
+
+    method: str = ""
+    """The estimator kind the regression half came from - `pls`, `pcr` or
+    `plsda` (#272) - so a screen can name it. Empty on a decomposition and on
+    a result stored before it."""
 
     observed: list[float] = field(default_factory=list)
     """The reference values for `rows`, so a predicted-versus-actual plot needs
@@ -1061,6 +1068,25 @@ def _estimator(
         write_json(stored, result.as_json())
         return result
 
+    if isinstance(node.spec, PCRSpec):
+        result = _fit_regression(
+            node,
+            "pcr",
+            node.spec.n_components,
+            node.spec.target,
+            _response(version, node, node.spec.target),
+            parent,
+            key,
+            matrix,
+            rows,
+            held_out,
+            fold,
+            estimator=PCR,
+        )
+        stored.parent.mkdir(parents=True, exist_ok=True)
+        write_json(stored, result.as_json())
+        return result
+
     if isinstance(node.spec, PLSDASpec):
         result = _plsda(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
         stored.parent.mkdir(parents=True, exist_ok=True)
@@ -1165,7 +1191,7 @@ def _pls(
     `checks.py` warns separately when `X` has no centring above it.
     """
     response = _response(version, node, spec.target)
-    return _fit_pls1(
+    return _fit_regression(
         node,
         "pls",
         spec.n_components,
@@ -1180,7 +1206,7 @@ def _pls(
     )
 
 
-def _fit_pls1(
+def _fit_regression(
     node: PipelineNode,
     kind: str,
     n_components: int,
@@ -1192,11 +1218,13 @@ def _fit_pls1(
     rows: NDArray[np.intp],
     held_out: NDArray[np.intp],
     fold: int | None,
+    estimator: type[PLS] | type[PCR] = PLS,
 ) -> EstimatorResult:
-    """PLS1 on `response`, with every quantity `pls-regression.md` §13 names.
+    """PLS1 or PCR on `response`, with every quantity `pls-regression.md` §13 names.
 
-    Shared by a regression and a two-class PLS-DA, which is this on a dummy
-    response (`pls-da.md` §2). `kind` is only for the sentences.
+    Shared by a PLS regression, a two-class PLS-DA, which is this on a dummy
+    response (`pls-da.md` §2), and a PCR (`pcr.md`), which has the same
+    interface and no VIP. `kind` is only for the sentences.
     """
     if response.size != matrix.shape[0]:
         raise ExecutorError(
@@ -1211,7 +1239,7 @@ def _fit_pls1(
     y_mean = float(train_y.mean())
 
     try:
-        model = PLS(spec_components).fit(train_x - x_mean, train_y - y_mean)
+        model = estimator(spec_components).fit(train_x - x_mean, train_y - y_mean)
     except (ValueError, RuntimeError) as error:
         raise ExecutorError(f"node {node.id!r} ({kind}) failed: {error}", node.id) from error
 
@@ -1256,12 +1284,12 @@ def _fit_pls1(
     cross_validated = np.array([], dtype=np.float64)
     if parent.folds is not None and len(parent.folds) > 1:
         folds = parent.folds
-        curve = rmsecv_curve(parent.arrays, response, folds, a)
+        curve = rmsecv_curve(parent.arrays, response, folds, a, estimator)
         for index, value in enumerate(curve, start=1):
             metrics[f"rmsecv_a{index}"] = float(value)
         metrics["rmsecv"] = float(curve[-1])
 
-        cross_validated = cross_validated_predictions(parent.arrays, response, folds, a)
+        cross_validated = cross_validated_predictions(parent.arrays, response, folds, a, estimator)
         # §6: PRESS over the whole calibration set, against the full
         # calibration mean. Never a per-fold mean - packages differ on this and
         # it is what keeps Q2 and R2 on a common denominator.
@@ -1303,14 +1331,17 @@ def _fit_pls1(
         hotelling_t2_limit=float(model.hotelling_t2_limit(ALPHA)),
         spe=_values(model.spe(train_x - x_mean)),
         spe_limit=float(model.spe_limit(ALPHA)),
+        spe_limit_caveat=model.spe_limit_caveat() if isinstance(model, PCR) else None,
         target=target,
+        method=kind,
         observed=_values(train_y),
         predicted=_values(predicted),
         coefficients=_values(model.coefficients_),
         x_mean=_values(x_mean),
         y_mean=y_mean,
         y_loadings=_values(model.y_loadings_),
-        vip=_values(model.vip()),
+        # VIP is a PLS quantity: PCR's components are chosen without y (pcr.md §6).
+        vip=_values(model.vip()) if isinstance(model, PLS) else [],
         cross_validated_predicted=_values(cross_validated),
         metrics=metrics,
         held_out=[int(row) for row in held_out],
@@ -1429,7 +1460,7 @@ def _plsda(
 ) -> EstimatorResult:
     """Two-class PLS-DA (#185): the regression fit on a dummy response, tallied."""
     classes, response = _class_response(version, node, spec.class_column)
-    fitted = _fit_pls1(
+    fitted = _fit_regression(
         node,
         "plsda",
         spec.n_components,

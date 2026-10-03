@@ -195,6 +195,8 @@ export interface PcaPayload {
   /** Present only when `task === "regression"`. The half of a PLS result that
    * has no counterpart on a decomposition; everything above is shared. */
   regression?: {
+    /** `pls` or `pcr` (#272); a result stored before it is served as `pls`. */
+    method?: string;
     target: string | null;
     observed: number[];
     predicted: number[];

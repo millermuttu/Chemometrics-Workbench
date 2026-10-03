@@ -41,6 +41,7 @@ from chemometrics_workbench.models import (
     MedianFilter,
     MovingAverage,
     PCASpec,
+    PCRSpec,
     Pipeline,
     PLSDASpec,
     PLSRegressionSpec,
@@ -200,6 +201,25 @@ def test_linear_smoothers_fold_and_a_median_is_carried(
     model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
 
     assert [step["kind"] for step in model["preprocessing"]] == ["median"]
+    predicted = _predict(python_snippet(model), tecator.spectra)
+    np.testing.assert_allclose(
+        predicted[np.asarray(result.rows)], result.predicted, rtol=RTOL, atol=ATOL
+    )
+
+
+def test_a_pcr_exports_as_a_bare_coefficient_vector(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#272, `pcr.md` section 7: b is a fixed vector, so a PCR exports as a PLS does."""
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(id="centre", inputs=("source",), step=MeanCentre()),
+        EstimatorNode(id="pcr", inputs=("centre",), spec=PCRSpec(n_components=6, target="fat")),
+    )
+    result = _run(directory, version, pipeline, "pcr")
+    model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
+    assert model["preprocessing"] == []
     predicted = _predict(python_snippet(model), tecator.spectra)
     np.testing.assert_allclose(
         predicted[np.asarray(result.rows)], result.predicted, rtol=RTOL, atol=ATOL
