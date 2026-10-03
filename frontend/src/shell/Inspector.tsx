@@ -5,7 +5,7 @@ import { sourceVersionOf, useStepSchema } from "@/api/queries";
 import { ParameterForm } from "@/inspector/ParameterForm";
 import { Provenance } from "@/inspector/Provenance";
 import { specFor, type StepSpec } from "@/inspector/schema";
-import { stratifiableColumns, twoValuedColumns } from "@/shell/classColumns";
+import { stratifiableColumns, classColumns } from "@/shell/classColumns";
 import type { Tab } from "@/shell/tabs";
 
 /** The right sidebar, and the only place a parameter is edited.
@@ -126,7 +126,7 @@ export function Inspector({
     withDatasetColumns(
       found,
       Object.keys(source?.targets ?? {}),
-      twoValuedColumns(source?.metadata_columns),
+      classColumns(source?.metadata_columns),
       stratifiableColumns(source?.metadata_columns),
     );
 

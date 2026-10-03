@@ -230,6 +230,10 @@ def _arrays(
         arrays["y_loadings"] = _float64(result.y_loadings)
         arrays["vip"] = _float64(result.vip)
         arrays["y_explained_variance_ratio"] = _float64(result.y_explained_variance_ratio)
+    if result.coefficient_matrix:
+        # #274: a PLS-DA of three or more classes, p x N with its column means.
+        arrays["coefficient_matrix"] = _float64(result.coefficient_matrix)
+        arrays["y_means"] = _float64(result.y_means)
 
     if split is not None and result.fold is not None:
         arrays["train_indices"] = np.asarray(result.rows, dtype=np.int64)

@@ -1266,7 +1266,7 @@ def test_a_plsda_node_is_the_regression_on_a_dummy_response_and_tallies_it(
     assert "accuracy" not in run.results["pls"].metrics
 
 
-def test_a_class_column_the_dataset_does_not_carry_or_with_three_values_is_refused(
+def test_a_class_column_the_dataset_does_not_carry_or_with_one_value_is_refused(
     project: tuple[Path, DatasetVersion], tecator: Any
 ) -> None:
     directory, version = project
@@ -1281,18 +1281,79 @@ def test_a_class_column_the_dataset_does_not_carry_or_with_three_values_is_refus
     with pytest.raises(ExecutorError, match="'grade', which this dataset does not carry"):
         execute(directory, missing, two)
 
-    three = two.model_copy(
-        update={"metadata_columns": {"grade": ["a", "b", "c"] * (version.n_samples // 3)}}
-    )
+    one = two.model_copy(update={"metadata_columns": {"grade": ["a"] * version.n_samples}})
     pipeline = _pipeline(
-        three.version_id,
+        one.version_id,
         PreprocessNode(id="centre", inputs=("source",), step=MeanCentre()),
         EstimatorNode(
             id="plsda", inputs=("centre",), spec=PLSDASpec(n_components=3, class_column="grade")
         ),
     )
-    with pytest.raises(ExecutorError, match="has 3 distinct values"):
-        execute(directory, pipeline, three)
+    with pytest.raises(ExecutorError, match="has one value"):
+        execute(directory, pipeline, one)
+
+
+def _terciles(version: DatasetVersion, tecator: Any) -> DatasetVersion:
+    """Tecator with three classes, its fat in thirds: lean, mid, rich."""
+    fat = np.asarray(tecator.targets["fat"])
+    low, high = np.quantile(fat, [1 / 3, 2 / 3])
+    labels = ["lean" if f < low else "mid" if f < high else "rich" for f in fat]
+    return version.model_copy(update={"metadata_columns": {"grade": labels}})
+
+
+def test_three_classes_are_pls2_on_a_one_hot_response_assigned_by_argmax(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#274, pls-da.md sections 2, 3, 5 and 7. Every assignment is checked
+    against scikit-learn's PLSRegression fitted to the same one-hot matrix
+    to its fixed point, on the run's own folds, each preprocessed by its own
+    training rows."""
+    import warnings
+
+    from sklearn.cross_decomposition import PLSRegression
+    from sklearn.exceptions import ConvergenceWarning
+
+    directory, version = project
+    version = _terciles(version, tecator)
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=5, stratify_by="grade")),
+        PreprocessNode(id="centre", inputs=("split",), step=MeanCentre()),
+        EstimatorNode(
+            id="plsda", inputs=("centre",), spec=PLSDASpec(n_components=6, class_column="grade")
+        ),
+    )
+    run = execute(directory, pipeline, version)
+    result = run.results["plsda"]
+    assert result.task == "classification"
+    assert result.classes == ["lean", "mid", "rich"]
+    assert np.asarray(result.coefficient_matrix).shape == (version.n_variables, 3)
+    assert len(result.y_means) == 3 and result.coefficients == []
+    assert [len(row) for row in result.confusion["cross_validation"]] == [3, 3, 3]
+    assert sum(map(sum, result.confusion["cross_validation"])) == version.n_samples
+    assert "accuracy_cv" in result.metrics and "sensitivity" not in result.metrics
+
+    labels = version.metadata_columns["grade"]
+    codes = np.asarray([result.classes.index(label) for label in labels])
+    onehot = np.eye(3)[codes]
+    spectra = _as_stored(tecator.spectra)
+    [resolved] = run.resolved_splits
+    assigned = np.empty(version.n_samples, dtype=int)
+    for index, (train, test) in enumerate(
+        zip(resolved.train_indices, resolved.test_indices, strict=True)
+    ):
+        mean = spectra[train].mean(axis=0)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", ConvergenceWarning)
+            reference = PLSRegression(6, scale=False, tol=0.0, max_iter=2000).fit(
+                spectra[train] - mean, onehot[train]
+            )
+        assigned[test] = reference.predict(spectra[test] - mean).argmax(axis=1)
+        if index == 0:
+            calibration = reference.predict(spectra[train] - mean).argmax(axis=1)
+            assert result.predicted_class == calibration.tolist()
+    expected = [[int(np.sum((codes == j) & (assigned == k))) for k in range(3)] for j in range(3)]
+    assert result.confusion["cross_validation"] == expected
 
 
 def test_a_pls_node_above_a_split_reports_no_cross_validated_metric(

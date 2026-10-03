@@ -134,8 +134,8 @@ export function stepMenu(targets: string[], classColumns: string[] = []): Catalo
           },
         ]
       : []),
-    // Two-class only (#185, pls-da.md section 2): offered when the dataset
-    // has a metadata column with exactly two values, and it models the first.
+    // Offered when the dataset has a metadata column with two or more values
+    // (#185, #274, pls-da.md section 2), and it models the first.
     ...(classColumn
       ? [
           {

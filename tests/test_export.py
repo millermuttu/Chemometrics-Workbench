@@ -226,6 +226,35 @@ def test_a_pcr_exports_as_a_bare_coefficient_vector(
     )
 
 
+def test_three_classes_export_a_matrix_and_assign_by_the_largest_column(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#274, model-export.md: one folded column per class, argmax in the snippet."""
+    directory, version = project
+    fat = np.asarray(tecator.targets["fat"])
+    low, high = np.quantile(fat, [1 / 3, 2 / 3])
+    labels = ["lean" if f < low else "mid" if f < high else "rich" for f in fat]
+    version = version.model_copy(update={"metadata_columns": {"grade": labels}})
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(
+            id="savgol", inputs=("source",), step=SavitzkyGolay(window_length=11, polyorder=2)
+        ),
+        PreprocessNode(id="centre", inputs=("savgol",), step=MeanCentre()),
+        EstimatorNode(
+            id="plsda", inputs=("centre",), spec=PLSDASpec(n_components=6, class_column="grade")
+        ),
+    )
+    result = _run(directory, version, pipeline, "plsda")
+    model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
+    assert model["model"]["assignment"] == "argmax" and model["model"]["threshold"] is None
+    assert np.asarray(model["coefficients"]).shape == (version.n_variables, 3)
+    assert len(model["intercept"]) == 3
+    predicted = _predict(python_snippet(model), tecator.spectra)
+    expected = [result.classes[k] for k in result.predicted_class]
+    assert predicted[np.asarray(result.rows)].tolist() == expected
+
+
 def test_msc_carries_the_reference_it_was_fitted_with(
     project: tuple[Path, DatasetVersion], tecator: Any
 ) -> None:

@@ -34,7 +34,7 @@ import { TabStrip } from "@/shell/TabStrip";
 import { FlaskIcon, KIND_ICONS } from "@/shell/icons";
 import { nodeMetrics } from "@/shell/nodeMetrics";
 import { emptyTabs, tabsReducer, type Tab } from "@/shell/tabs";
-import { twoValuedColumns } from "@/shell/classColumns";
+import { classColumns as classColumnsOf } from "@/shell/classColumns";
 
 /** The frame every screen opens inside. The measurements are the artboard's -
  * see src/styles/shell.css, which is ported from design/canvas/_base.css. */
@@ -347,7 +347,7 @@ export function Shell() {
   /** What a PLS node can model: the columns of the version the recipe runs on. */
   const source = sourceVersionOf(pipeline.data, datasets.data);
   const targets = Object.keys(source?.targets ?? {});
-  const classColumns = twoValuedColumns(source?.metadata_columns);
+  const classColumns = classColumnsOf(source?.metadata_columns);
 
   /** The active estimator node's headline numbers, from its own result. The
    * full results table is #48; this is what fits in 292px. */

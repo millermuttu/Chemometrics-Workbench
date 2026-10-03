@@ -37,6 +37,7 @@ from chemometrics_workbench.models import (
     MeanCentre,
     PCASpec,
     Pipeline,
+    PLSDASpec,
     PLSRegressionSpec,
     PreprocessNode,
     SourceNode,
@@ -395,3 +396,36 @@ def test_the_archive_is_a_plain_zip_anyone_can_list(
                 values = np.load(io.BytesIO(handle.read()))
             assert list(values.shape) == entry["shape"], name
             assert str(values.dtype) == entry["dtype"], name
+
+
+def test_three_classes_carry_their_coefficient_matrix(
+    fitted: tuple[Path, DatasetVersion, Pipeline, object], tecator: object
+) -> None:
+    """#274, model-artifact.md section 7: `coefficient_matrix` and `y_means`."""
+    directory, version, _, _ = fitted
+    fat = np.asarray(tecator.targets["fat"])  # type: ignore[attr-defined]
+    low, high = np.quantile(fat, [1 / 3, 2 / 3])
+    labels = ["lean" if f < low else "mid" if f < high else "rich" for f in fat]
+    version = version.model_copy(update={"metadata_columns": {"grade": labels}})
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(id="centre", inputs=("source",), step=MeanCentre()),
+        EstimatorNode(
+            id="plsda", inputs=("centre",), spec=PLSDASpec(n_components=4, class_column="grade")
+        ),
+    )
+    result = execute(directory, pipeline, version).results["plsda"]
+    path = directory / "plsda.cwmodel"
+    write_artifact(
+        path,
+        result,
+        pipeline=pipeline,
+        version=version,
+        node_axis=np.asarray(version.axis.values, dtype=np.float64),
+        split=None,
+        environment=capture_environment(),
+    )
+    read = read_artifact(path)
+    assert read.arrays["coefficient_matrix"].shape == (version.n_variables, 3)
+    np.testing.assert_array_equal(read.arrays["y_means"], np.asarray(result.y_means))
+    assert read.manifest["model"]["classes"] == ["lean", "mid", "rich"]

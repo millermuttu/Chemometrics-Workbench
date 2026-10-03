@@ -62,12 +62,13 @@ Everything after the last unfoldable step folds; everything up to and including 
 | --- | --- |
 | `schema_version` | Integer, currently **1**. A reader refuses a higher one by name, as [`model-artifact.md`](model-artifact.md) §2 has it |
 | `model.task` | `regression` or `classification`. **A decomposition has no prediction to export** and is refused: PCA produces scores, not a response |
-| `model.threshold` | `0.5` for a classification, `null` otherwise — `pls-da.md` §5's fixed cut, stated rather than assumed by the reader |
-| `model.classes` | `[C_0, C_1]` for a classification; the prediction is `classes[1]` at or above the threshold |
+| `model.threshold` | `0.5` for a two-class classification, `null` otherwise — `pls-da.md` §5's fixed cut, stated rather than assumed by the reader |
+| `model.assignment` | `"argmax"` for a classification of three or more classes (#274), `null` otherwise |
+| `model.classes` | The classes in Unicode order. With two, the prediction is `classes[1]` at or above the threshold; with more, it is `classes[k]` for the largest of the N predictions |
 | `axis.values` | The **raw** variable axis the model expects its input on, with as many entries as `coefficients` has when the residual chain preserves the variable count. It is the axis of the matrix the residual chain is applied to |
 | `preprocessing` | The residual chain, in the order it is applied, each step as `models.py` serialises it plus whatever fitted parameters it needs (§4) |
-| `coefficients` | `b` such that `y = x_after_chain · b + intercept` |
-| `intercept` | The scalar the fold produced, carrying the estimator's own `y` centring and every folded step's offset |
+| `coefficients` | `b` such that `y = x_after_chain · b + intercept`. For three or more classes, a `p × N` matrix with one column per class |
+| `intercept` | The scalar the fold produced, carrying the estimator's own `y` centring and every folded step's offset. For three or more classes, a list of N, one per column |
 | `provenance` | What this model came from. `metrics` is the estimator's own table |
 
 **The JSON model is self-contained and lossy on purpose.** It holds what predicting needs. Scores, loadings, VIP and the diagnostics are in the artifact; a JSON model is what you send to whoever has to run the calibration, not the record of how it was built.
@@ -94,7 +95,7 @@ For a row `x` of the raw matrix, the residual chain applies in order, then:
 
 $$\hat{y} = x_{\text{after chain}} \cdot b + \text{intercept}$$
 
-and a classification assigns `classes[1]` when `ŷ ≥ threshold` (`pls-da.md` §5).
+A two-class classification assigns `classes[1]` when `ŷ ≥ threshold`. With three or more classes, `ŷ` has one entry per class, and the class with the largest entry is assigned, ties going to the first (`pls-da.md` §5).
 
 The residual steps, exactly as `preprocessing.py` computes them:
 
