@@ -215,8 +215,8 @@
         "uv run python -m tests.parity_report - docs/parity-report.md regenerated with the new rows, and test_parity_coverage green",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green"
       ],
-      "status": "not_started",
-      "evidence": "",
+      "status": "passing",
+      "evidence": "2026-10-04. docs/algorithms/lda.md written: PCA-LDA always (n_components is the PCA front), estimator-centred, pooled within-class covariance on n-N degrees of freedom, empirical priors; discriminant (x - x_mean)B + c, argmax with ties to the first class even for two classes; export identical to multi-class PLS-DA. classification.LDA; executor _lda stores the PCA front's scores and diagnostics and B, c, x_mean as coefficient_matrix, y_means, x_mean. `uv run python tests/fixtures/generate_reference_values.py`: 156 entries, the 6 LDA ones added, nothing changed (checked by id). `uv run pytest`: `1005 passed, 1 skipped` plus test_parity_report green after `uv run python -m tests.parity_report` (153 claims). test_parity.py: decision function and assigned classes against scikit-learn PCA(svd_solver='full') + LinearDiscriminantAnalysis() on tercile classes of corn, gasoline and tecator, assignments identical. test_executor.py: an LDA below a stratified 5-fold after SNV on Tecator terciles - every cross-validated assignment equals scikit-learn's on the run's own resolved folds. test_export.py: Savitzky-Golay + LDA exports by argmax and the snippet reproduces every calibration assignment. Proof: with src/ reverted the new tests fail at collection. ruff, mypy clean; mkdocs --strict exit 0. `pnpm test`: 148 passed (LDA menu entry and labels). `pnpm build` then `pnpm exec playwright test`: 80 passed, analysis.spec.ts adding an LDA beside the seeded PLS-DA, reading 'LDA on fat_class 5 components', the cross-validated confusion, accuracy and the PCA-front scores panel, then restoring the recipe.",
       "notes": ""
     },
     {

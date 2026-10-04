@@ -9,7 +9,7 @@ report green in CI against published reference values* — means in practice. Th
 committed copy is not byte-compared: the last bits of a difference depend on the
 machine's BLAS (#38), so the suite checks its coverage and its tolerances instead.
 
-Fixture schema 1, generated 2026-10-03.
+Fixture schema 1, generated 2026-10-04.
 
 ---
 
@@ -21,11 +21,11 @@ strong the agreement is** rather than a bare pass or fail:
 
 | Claim | Count | Meaning |
 | --- | --- | --- |
-| identical within floating point | 116 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
-| agrees within stated tolerance | 23 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
+| identical within floating point | 120 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
+| agrees within stated tolerance | 25 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
 | differs by documented convention | 8 | Not compared numerically at all. The two quantities are not the same thing, and the reason is given in full below. |
 
-**147 comparisons, 147 passed, 0 failed.**
+**153 comparisons, 153 passed, 0 failed.**
 
 Three things a reader should hold on to, because the agreement column cannot
 show them:
@@ -79,6 +79,7 @@ those listed under *Gaps* or *Documented divergences* below.
 | Whittaker smoothing | `WhittakerTransformer` | 3 claims |
 | PCR | `PCR` | 6 claims |
 | PLS2 | `PLS2` | 9 claims |
+| LDA | `LDA` | 6 claims |
 | SIMCA | `SIMCA`, `acceptance_table`, `simca_class_metrics`, `simca_metrics` | **not compared.** No reference in this environment: the R mdatools comparison the plan named needs R, which the development environment does not carry, and scikit-learn has no SIMCA. Every class model is checked equal to decomposition.PCA on its centred class, which has its own parity claims, and every distance, decision and tally is recomputed from it in tests/test_classification.py (simca.md section 9). |
 | SNV | `SNVTransformer` | 3 claims |
 | MSC | `MSCTransformer` | 3 claims |
@@ -287,6 +288,17 @@ those listed under *Gaps* or *Documented divergences* below.
 | tecator | `confusion` | scikit-learn 1.9.0 | identical | 4 values, worst Δ 0, exactly |
 | tecator | `confusion_cv` | scikit-learn 1.9.0 | identical | 4 values, worst Δ 0, exactly |
 | tecator | `dummy_predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 240 values, worst Δ < 1e-13 |
+
+### LDA (PCA-LDA)
+
+| Dataset | Quantity | Reference | Claim | Ours vs reference |
+| --- | --- | --- | --- | --- |
+| corn | `assigned_class` | scikit-learn 1.9.0 | identical | 80 values, worst Δ 0, exactly |
+| corn | `decision_function` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 240 values, worst Δ < 1e-12 |
+| gasoline | `assigned_class` | scikit-learn 1.9.0 | identical | 60 values, worst Δ 0, exactly |
+| gasoline | `decision_function` | scikit-learn 1.9.0 | identical | 180 values, worst Δ < 1e-13 |
+| tecator | `assigned_class` | scikit-learn 1.9.0 | identical | 240 values, worst Δ 0, exactly |
+| tecator | `decision_function` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 720 values, worst Δ < 1e-12 |
 
 ---
 

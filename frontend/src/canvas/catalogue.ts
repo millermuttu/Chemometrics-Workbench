@@ -147,6 +147,12 @@ export function stepMenu(targets: string[], classColumns: string[] = []): Catalo
             },
           },
           {
+            kind: "LDA 5 PC",
+            type: "estimator" as const,
+            parameters: `5 components · ${classColumn}`,
+            payload: { spec: { kind: "lda", n_components: 5, class_column: classColumn } },
+          },
+          {
             kind: "SIMCA 3 PC",
             type: "estimator" as const,
             parameters: `3 components · ${classColumn}`,

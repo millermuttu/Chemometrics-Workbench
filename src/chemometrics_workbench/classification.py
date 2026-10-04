@@ -16,7 +16,7 @@ from numpy.typing import NDArray
 from chemometrics_workbench.arrays import as_float64
 from chemometrics_workbench.decomposition import PCA
 
-__all__ = ["SIMCA", "acceptance_table", "simca_class_metrics", "simca_metrics"]
+__all__ = ["LDA", "SIMCA", "acceptance_table", "simca_class_metrics", "simca_metrics"]
 
 
 @dataclass(frozen=True)
@@ -152,3 +152,71 @@ def simca_metrics(table: list[list[int]], sizes: list[int], suffix: str = "") ->
         )
         metrics[f"specificity{suffix}"] = 1.0 - accepted_others / pairs
     return metrics
+
+
+class LDA:
+    """PCA-LDA, per `lda.md`: centre X, project it on `n_components` principal
+    components, and fit Fisher's linear discriminant to the scores with a
+    pooled within-class covariance and the training class proportions as priors.
+
+    The discriminant is linear in X, so the whole model is one `p x N` matrix
+    `B` and `N` intercepts: `delta(x) = (x - x_mean) B + c`, assigned to the
+    largest. That is the form multi-class PLS-DA exports, and LDA reuses it.
+    """
+
+    coefficients_: NDArray[np.float64] | None = None
+    intercepts_: NDArray[np.float64] | None = None
+    x_mean_: NDArray[np.float64] | None = None
+
+    def __init__(self, n_components: int) -> None:
+        if n_components < 1:
+            raise ValueError(f"n_components must be at least 1, got {n_components}")
+        self.n_components = int(n_components)
+        self.pca_ = PCA(self.n_components)
+
+    def fit(self, X: object, codes: object, n_classes: int) -> Self:
+        values = as_float64(X, "X")
+        labels = np.asarray(codes, dtype=np.intp)
+        if labels.shape != (values.shape[0],):
+            raise ValueError(f"X has {values.shape[0]} rows and codes has {labels.size}")
+        counts = np.bincount(labels, minlength=n_classes)
+        if (counts == 0).any():
+            empty = int(np.flatnonzero(counts == 0)[0])
+            raise ValueError(f"class {empty} has no calibration samples (lda.md section 2)")
+        n_samples = values.shape[0]
+        if n_samples - n_classes < self.n_components:
+            raise ValueError(
+                f"{n_samples} samples in {n_classes} classes leave {n_samples - n_classes} "
+                f"degrees of freedom for a pooled covariance of {self.n_components} scores; "
+                "reduce n_components (lda.md section 3)"
+            )
+        x_mean = values.mean(axis=0)
+        self.pca_.fit(values - x_mean)
+        loadings = self.pca_.loadings_
+        assert loadings is not None
+        scores = (values - x_mean) @ loadings
+        means = np.stack([scores[labels == k].mean(axis=0) for k in range(n_classes)])
+        within = scores - means[labels]
+        pooled = within.T @ within / (n_samples - n_classes)
+        weights = np.linalg.solve(pooled, means.T)  # A x N: S^-1 mu_k
+        priors = counts / n_samples
+        self.x_mean_ = x_mean
+        self.coefficients_ = loadings @ weights
+        self.intercepts_ = -0.5 * np.einsum("ka,ak->k", means, weights) + np.log(priors)
+        self.scores_ = scores
+        return self
+
+    def decision_function(self, X: object) -> NDArray[np.float64]:
+        """`n x N`: `(x - x_mean) B + c`, the discriminant per class (`lda.md` §3)."""
+        if self.coefficients_ is None or self.intercepts_ is None or self.x_mean_ is None:
+            raise RuntimeError("LDA has not been fitted")
+        values = as_float64(X, "X")
+        scored: NDArray[np.float64] = (
+            values - self.x_mean_
+        ) @ self.coefficients_ + self.intercepts_
+        return scored
+
+    def predict(self, X: object) -> NDArray[np.intp]:
+        """The largest discriminant, ties to the first class (`lda.md` §4)."""
+        assigned: NDArray[np.intp] = self.decision_function(X).argmax(axis=1)
+        return assigned

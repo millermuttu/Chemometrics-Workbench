@@ -334,6 +334,33 @@ def test_whittaker_matches_the_reference_everywhere(dataset: str) -> None:
 
 
 # --------------------------------------------------------------------------
+# LDA (#276)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_lda_matches_pca_then_linear_discriminant_analysis(dataset: str) -> None:
+    """`lda.md` section 7: the decision function and the assignments."""
+    from chemometrics_workbench.classification import LDA
+
+    data = LOADERS[dataset]()
+    target = np.asarray(data.targets[parity.load_fixture()["targets"][dataset]])
+    low, high = np.quantile(target, [1 / 3, 2 / 3])
+    labels = np.where(target < low, "low", np.where(target < high, "mid", "high"))
+    classes = sorted(set(labels.tolist()))
+    codes = np.asarray([classes.index(label) for label in labels])
+    model = LDA(N_COMPONENTS).fit(data.spectra, codes, 3)
+    decision = parity.check(
+        f"{dataset}.lda.decision_function.sklearn", model.decision_function(data.spectra)
+    )
+    assigned = parity.check(
+        f"{dataset}.lda.predictions.sklearn", model.predict(data.spectra).astype(float)
+    )
+    assert decision.passed and not decision.sign_aligned
+    assert assigned.passed and assigned.max_abs_diff == 0.0
+
+
+# --------------------------------------------------------------------------
 # PLS2 (#273)
 # --------------------------------------------------------------------------
 

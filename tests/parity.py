@@ -238,6 +238,10 @@ QUANTITY_CLASS: dict[str, str] = {
     "confusion": "metrics",
     "accuracy_cv": "metrics",
     "confusion_cv": "metrics",
+    # LDA (lda.md section 7): the discriminant is a prediction; the assigned
+    # class index is a count-like integer, exact or wrong.
+    "decision_function": "predictions",
+    "assigned_class": "metrics",
 }
 
 # Quantities whose sign is arbitrary per component and must be aligned before

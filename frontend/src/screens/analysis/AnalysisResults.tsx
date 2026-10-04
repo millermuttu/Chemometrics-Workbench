@@ -926,7 +926,7 @@ export function AnalysisResults({ nodeId, title }: { nodeId: string; title: stri
             style={{ fontSize: 11, color: "var(--ink3)", overflow: "hidden", textOverflow: "ellipsis" }}
           >
             {classification
-              ? `PLS-DA on ${pca.classification?.class_column ?? "?"}`
+              ? `${pca.regression?.method === "lda" ? "LDA" : "PLS-DA"} on ${pca.classification?.class_column ?? "?"}`
               : regression
                 ? `${pca.regression?.method === "pcr" ? "PCR" : "PLS"} on ${pca.regression?.target ?? "?"}`
                 : "PCA"}{" "}

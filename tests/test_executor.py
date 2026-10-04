@@ -39,6 +39,7 @@ from chemometrics_workbench.models import (
     DatasetVersion,
     EstimatorNode,
     KFoldSplit,
+    LDASpec,
     LeaveOneOut,
     MeanCentre,
     PCASpec,
@@ -1573,3 +1574,40 @@ def test_a_simca_class_too_small_is_refused_by_name(
     )
     with pytest.raises(ExecutorError, match="class 'rare' has 3 calibration samples"):
         execute(directory, pipeline, version)
+
+
+def test_an_lda_node_classifies_by_its_folds_own_models(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#276, lda.md: every cross-validated assignment equals scikit-learn's
+    PCA then LinearDiscriminantAnalysis on the run's own resolved folds."""
+    from sklearn.decomposition import PCA as SkPCA
+    from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+
+    directory, version = project
+    version = _terciles(version, tecator)
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=5, stratify_by="grade")),
+        PreprocessNode(id="snv", inputs=("split",), step=SNV()),
+        EstimatorNode(
+            id="lda", inputs=("snv",), spec=LDASpec(n_components=6, class_column="grade")
+        ),
+    )
+    run = execute(directory, pipeline, version)
+    result = run.results["lda"]
+    assert (result.task, result.method) == ("classification", "lda")
+    assert np.asarray(result.coefficient_matrix).shape == (version.n_variables, 3)
+    assert len(result.scores[0]) == 6
+
+    codes = np.asarray([result.classes.index(label) for label in version.metadata_columns["grade"]])
+    corrected = _as_stored(SNVTransformer().fit_transform(_as_stored(tecator.spectra)))
+    [resolved] = run.resolved_splits
+    assigned = np.empty(version.n_samples, dtype=int)
+    for train, test in zip(resolved.train_indices, resolved.test_indices, strict=True):
+        mean = corrected[train].mean(axis=0)
+        pca = SkPCA(6, svd_solver="full").fit(corrected[train] - mean)
+        lda = LinearDiscriminantAnalysis().fit(pca.transform(corrected[train] - mean), codes[train])
+        assigned[test] = lda.predict(pca.transform(corrected[test] - mean))
+    expected = [[int(np.sum((codes == j) & (assigned == k))) for k in range(3)] for j in range(3)]
+    assert result.confusion["cross_validation"] == expected

@@ -385,6 +385,12 @@ class SIMCASpec(Frozen):
     class_column: str
 
 
+class LDASpec(Frozen):
+    kind: Literal["lda"] = "lda"
+    n_components: int = Field(ge=1, description="Principal components the discriminant uses.")
+    class_column: str
+
+
 class PLSDASpec(Frozen):
     kind: Literal["plsda"] = "plsda"
     n_components: int = Field(ge=1)
@@ -393,7 +399,8 @@ class PLSDASpec(Frozen):
 
 
 EstimatorSpec = Annotated[
-    PCASpec | PLSRegressionSpec | PCRSpec | PLSDASpec | SIMCASpec, Field(discriminator="kind")
+    PCASpec | PLSRegressionSpec | PCRSpec | PLSDASpec | SIMCASpec | LDASpec,
+    Field(discriminator="kind"),
 ]
 
 

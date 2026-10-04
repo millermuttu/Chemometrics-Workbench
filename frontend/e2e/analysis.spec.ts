@@ -268,3 +268,32 @@ test("a SIMCA tab reads as class models: acceptance, Coomans and limits", async 
     expect((await put(original)).status()).toBe(200);
   }
 });
+
+test("an LDA tab reads as a classification on the PCA front's scores", async ({ page }) => {
+  // #276. As the SIMCA test does: added beside the seeded PLS-DA, then removed.
+  const auth = { Authorization: "Bearer e2e-token" };
+  await page.goto("/?token=e2e-token");
+  const original = (await (await page.request.get("/api/pipelines/current", { headers: auth })).json())
+    .nodes as { id: string; inputs: string[] }[];
+  const plsda = original.find((node) => node.id === "plsda_d")!;
+  const put = (body: unknown[]) =>
+    page.request.put("/api/pipelines/current", {
+      headers: { ...auth, "Content-Type": "application/json" },
+      data: { nodes: body },
+    });
+  const lda = { id: "lda_d", type: "estimator", inputs: plsda.inputs, spec: { kind: "lda", n_components: 5, class_column: "fat_class" } };
+  expect((await put([...original, lda])).status()).toBe(200);
+  try {
+    await page.reload();
+    await page.getByRole("button", { name: "Run pipeline" }).click();
+    await expect(page.locator(".status")).toContainText("Done", { timeout: 120_000 });
+    const outline = page.getByRole("complementary", { name: "Project outline" });
+    await outline.getByRole("button", { name: /LDA 5 PC · fat_class/ }).dblclick();
+    await expect(page.getByTestId("analysis-header")).toContainText("LDA on fat_class 5 components");
+    await expect(page.getByTestId("confusion-cross_validation")).toBeVisible();
+    await expect(page.getByTestId("metric-Accuracy (CV)")).not.toHaveText("—");
+    await expect(page.getByRole("region", { name: "Scores" })).toBeVisible();
+  } finally {
+    expect((await put(original)).status()).toBe(200);
+  }
+});
