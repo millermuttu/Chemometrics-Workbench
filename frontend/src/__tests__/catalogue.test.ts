@@ -71,3 +71,11 @@ it("offers SIMCA beside PLS-DA on a class column, labelled alike (#275)", () => 
   expect(parameterLine(node)).toBe(simca.parameters);
   expect(stepMenu(["fat"]).map((step) => step.kind)).not.toContain("SIMCA 3 PC");
 });
+
+it("offers LDA beside PLS-DA on a class column, labelled alike (#276)", () => {
+  const lda = stepMenu([], ["grade"]).find((step) => step.kind === "LDA 5 PC")!;
+  expect(lda.payload.spec).toEqual({ kind: "lda", n_components: 5, class_column: "grade" });
+  const node = { id: "lda", type: "estimator", inputs: ["snv"], ...lda.payload } as PipelineNode;
+  expect(nodeLabel(node)).toBe("LDA 5 PC · grade");
+  expect(parameterLine(node)).toBe(lda.parameters);
+});

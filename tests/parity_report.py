@@ -50,10 +50,11 @@ ALGORITHM_TITLES = {
     "pls": "PLS regression",
     "pcr": "Principal component regression",
     "pls2": "PLS2 (several responses)",
+    "lda": "LDA (PCA-LDA)",
     "plsda": "PLS-DA (two-class)",
     "preprocess": "Preprocessing",
 }
-ALGORITHM_ORDER = ["preprocess", "pca", "pls", "pls2", "pcr", "plsda"]
+ALGORITHM_ORDER = ["preprocess", "pca", "pls", "pls2", "pcr", "plsda", "lda"]
 DATASET_ORDER = ["corn", "gasoline", "tecator"]
 
 TIER_LABELS = {
@@ -104,6 +105,7 @@ COVERAGE: tuple[Coverage, ...] = (
     Coverage("Whittaker smoothing", ("WhittakerTransformer",), ("preprocess.whittaker",)),
     Coverage("PCR", ("PCR",), ("pcr.coefficients", "pcr.predictions")),
     Coverage("PLS2", ("PLS2",), ("pls2.coefficients", "pls2.predictions", "pls2.scores")),
+    Coverage("LDA", ("LDA",), ("lda.decision_function", "lda.predictions")),
     Coverage(
         "SIMCA",
         ("SIMCA", "acceptance_table", "simca_class_metrics", "simca_metrics"),

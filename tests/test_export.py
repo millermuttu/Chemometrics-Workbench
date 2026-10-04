@@ -37,6 +37,7 @@ from chemometrics_workbench.models import (
     EstimatorNode,
     GaussianSmooth,
     KFoldSplit,
+    LDASpec,
     MeanCentre,
     MedianFilter,
     MovingAverage,
@@ -275,6 +276,32 @@ def test_a_simca_is_not_exported_as_json_and_says_why(
     result = _run(directory, version, pipeline, "simca")
     with pytest.raises(ExportError, match="is a SIMCA, which this version does not export"):
         json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
+
+
+def test_an_lda_exports_its_discriminant_and_assigns_by_argmax(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """lda.md section 6: exported as a multi-class PLS-DA is."""
+    directory, version = project
+    fat = np.asarray(tecator.targets["fat"])
+    low, high = np.quantile(fat, [1 / 3, 2 / 3])
+    labels = ["lean" if f < low else "mid" if f < high else "rich" for f in fat]
+    version = version.model_copy(update={"metadata_columns": {"grade": labels}})
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(
+            id="savgol", inputs=("source",), step=SavitzkyGolay(window_length=11, polyorder=2)
+        ),
+        EstimatorNode(
+            id="lda", inputs=("savgol",), spec=LDASpec(n_components=6, class_column="grade")
+        ),
+    )
+    result = _run(directory, version, pipeline, "lda")
+    model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
+    assert model["model"]["assignment"] == "argmax"
+    predicted = _predict(python_snippet(model), tecator.spectra)
+    expected = [result.classes[k] for k in result.predicted_class]
+    assert predicted[np.asarray(result.rows)].tolist() == expected
 
 
 def test_msc_carries_the_reference_it_was_fitted_with(

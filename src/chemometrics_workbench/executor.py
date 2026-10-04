@@ -124,6 +124,7 @@ from numpy.typing import NDArray
 
 from chemometrics_workbench import preprocessing, validation
 from chemometrics_workbench.classification import (
+    LDA,
     SIMCA,
     acceptance_table,
     simca_metrics,
@@ -136,6 +137,7 @@ from chemometrics_workbench.models import (
     Experiment,
     ExperimentStatus,
     KFoldSplit,
+    LDASpec,
     LeaveOneOut,
     Metrics,
     NodeId,
@@ -219,7 +221,14 @@ def has_kernel(spec: EstimatorSpec) -> bool:
 #: What `_estimator` can fit. All three since #185; the tuple stays because
 #: `has_kernel` is the one place the answer lives, and the next estimator will
 #: not have a kernel on the day its spec lands either.
-_FITTED: tuple[type, ...] = (PCASpec, PLSRegressionSpec, PCRSpec, PLSDASpec, SIMCASpec)
+_FITTED: tuple[type, ...] = (
+    PCASpec,
+    PLSRegressionSpec,
+    PCRSpec,
+    PLSDASpec,
+    SIMCASpec,
+    LDASpec,
+)
 
 
 RESULTS_DIR = "results"
@@ -426,12 +435,12 @@ class EstimatorResult:
     held_out_predicted_class: list[int] = field(default_factory=list)
 
     coefficient_matrix: list[list[float]] = field(default_factory=list)
-    """`p x N`, one column per class, for a PLS-DA of three or more classes
-    fitted by PLS2 (#274). Empty otherwise: two classes keep `coefficients`."""
+    """`p x N`, one column per class, assigned by the largest: a PLS-DA of
+    three or more classes (#274) and every LDA (#276). Empty otherwise."""
 
     y_means: list[float] = field(default_factory=list)
-    """The one-hot response's column means, added back to every prediction,
-    beside `coefficient_matrix`."""
+    """Added to every row of `X @ coefficient_matrix`: the one-hot response's
+    column means for a PLS-DA, the discriminant intercepts for an LDA (#276)."""
 
     simca: dict[str, Any] = field(default_factory=dict)
     """A SIMCA's class models and its decisions per set (`simca.md` §5, #275).
@@ -1107,6 +1116,12 @@ def _estimator(
         write_json(stored, result.as_json())
         return result
 
+    if isinstance(node.spec, LDASpec):
+        result = _lda(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
+        stored.parent.mkdir(parents=True, exist_ok=True)
+        write_json(stored, result.as_json())
+        return result
+
     if isinstance(node.spec, SIMCASpec):
         result = _simca(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
         stored.parent.mkdir(parents=True, exist_ok=True)
@@ -1639,6 +1654,91 @@ def _plsda_multiclass(
         held_out_scores=_rows(model.transform(held_x)) if held_out.size else [],
         held_out_hotelling_t2=_values(model.hotelling_t2(held_x)) if held_out.size else [],
         held_out_spe=_values(model.spe(held_x)) if held_out.size else [],
+    )
+
+
+def _lda(
+    node: PipelineNode,
+    spec: LDASpec,
+    parent: _State,
+    key: str,
+    matrix: NDArray[np.float64],
+    rows: NDArray[np.intp],
+    held_out: NDArray[np.intp],
+    fold: int | None,
+    version: DatasetVersion,
+) -> EstimatorResult:
+    """`lda.md`: PCA-LDA, tallied by `classification.md`, fold zero's model."""
+    classes, codes = _class_labels(version, node, spec.class_column, kind="lda")
+    n_classes = len(classes)
+
+    def fit(values: NDArray[np.float64], train: NDArray[np.intp]) -> LDA:
+        try:
+            return LDA(spec.n_components).fit(values[train], codes[train], n_classes)
+        except ValueError as error:
+            named = str(error)
+            for k, name in enumerate(classes):
+                named = named.replace(f"class {k} ", f"class {name!r} ")
+            raise ExecutorError(f"node {node.id!r} (lda) failed: {named}", node.id) from error
+
+    model = fit(matrix, rows)
+    assigned = model.predict(matrix[rows])
+    confusion = {"calibration": confusion_matrix(codes[rows], assigned, n_classes)}
+    metrics = classification_metrics(confusion["calibration"])
+    held_class = np.array([], dtype=np.intp)
+    if held_out.size:
+        held_class = model.predict(matrix[held_out])
+        confusion["held_out"] = confusion_matrix(codes[held_out], held_class, n_classes)
+        metrics.update(classification_metrics(confusion["held_out"], "_p"))
+    if parent.folds is not None and len(parent.folds) > 1:
+        cv = np.empty(matrix.shape[0], dtype=np.intp)
+        for one, values in zip(parent.folds, parent.arrays, strict=True):
+            cv[one.test] = fit(values, one.train).predict(values[one.test])
+        confusion["cross_validation"] = confusion_matrix(codes, cv, n_classes)
+        metrics.update(classification_metrics(confusion["cross_validation"], "_cv"))
+
+    pca = model.pca_
+    x_mean = np.asarray(model.x_mean_)
+    centred = matrix[rows] - x_mean
+    held_x = matrix[held_out] - x_mean
+    eigenvalues = np.asarray(pca.eigenvalues_)[: spec.n_components]
+    return EstimatorResult(
+        node_id=node.id,
+        key=key,
+        task="classification",
+        n_components=spec.n_components,
+        n_samples=int(rows.size),
+        n_variables=int(matrix.shape[1]),
+        rank=spec.n_components,
+        fold=fold,
+        rows=[int(row) for row in rows],
+        # The PCA front's (lda.md section 5): what the scores and diagnostics
+        # panels draw. The discriminant itself is the coefficient matrix.
+        scores=_rows(pca.transform(centred)),
+        loadings=_rows(np.asarray(pca.loadings_).T),
+        rotations=_rows(np.asarray(pca.loadings_).T),
+        eigenvalues=_values(eigenvalues),
+        explained_variance_ratio=_values(pca.explained_variance_ratio()),
+        cumulative_explained_variance=_values(pca.cumulative_explained_variance()),
+        hotelling_t2=_values(pca.hotelling_t2(centred)),
+        hotelling_t2_limit=float(pca.hotelling_t2_limit(ALPHA)),
+        spe=_values(pca.spe(centred)),
+        spe_limit=float(pca.spe_limit(ALPHA)),
+        spe_limit_caveat=pca.spe_limit_caveat(),
+        target=spec.class_column,
+        method="lda",
+        x_mean=_values(x_mean),
+        coefficient_matrix=_rows(np.asarray(model.coefficients_)),
+        y_means=_values(np.asarray(model.intercepts_)),
+        classes=classes,
+        predicted_class=[int(value) for value in assigned],
+        held_out_predicted_class=[int(value) for value in held_class],
+        confusion=confusion,
+        metrics=metrics,
+        held_out=[int(row) for row in held_out],
+        held_out_scores=_rows(pca.transform(held_x)) if held_out.size else [],
+        held_out_hotelling_t2=_values(pca.hotelling_t2(held_x)) if held_out.size else [],
+        held_out_spe=_values(pca.spe(held_x)) if held_out.size else [],
     )
 
 
