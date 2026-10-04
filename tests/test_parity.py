@@ -334,6 +334,31 @@ def test_whittaker_matches_the_reference_everywhere(dataset: str) -> None:
 
 
 # --------------------------------------------------------------------------
+# kNN (#277)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_knn_matches_pca_then_k_neighbours(dataset: str) -> None:
+    """`knn.md` section 7: assignments and vote fractions, both exact."""
+    from chemometrics_workbench.classification import KNN
+
+    data = LOADERS[dataset]()
+    target = np.asarray(data.targets[parity.load_fixture()["targets"][dataset]])
+    low, high = np.quantile(target, [1 / 3, 2 / 3])
+    labels = np.where(target < low, "low", np.where(target < high, "mid", "high"))
+    classes = sorted(set(labels.tolist()))
+    codes = np.asarray([classes.index(label) for label in labels])
+    model = KNN(5, N_COMPONENTS).fit(data.spectra, codes, 3)
+    assigned = parity.check(
+        f"{dataset}.knn.predictions.sklearn", model.predict(data.spectra).astype(float)
+    )
+    votes = parity.check(f"{dataset}.knn.votes.sklearn", model.votes(data.spectra))
+    assert assigned.passed and assigned.max_abs_diff == 0.0
+    assert votes.passed and votes.max_abs_diff == 0.0
+
+
+# --------------------------------------------------------------------------
 # LDA (#276)
 # --------------------------------------------------------------------------
 

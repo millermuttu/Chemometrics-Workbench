@@ -297,3 +297,37 @@ test("an LDA tab reads as a classification on the PCA front's scores", async ({ 
     expect((await put(original)).status()).toBe(200);
   }
 });
+
+test("a kNN tab reads as a classification, and its JSON export says why not", async ({ page }) => {
+  // #277. As the SIMCA and LDA tests do: added beside the seeded PLS-DA, then removed.
+  const auth = { Authorization: "Bearer e2e-token" };
+  await page.goto("/?token=e2e-token");
+  const original = (await (await page.request.get("/api/pipelines/current", { headers: auth })).json())
+    .nodes as { id: string; inputs: string[] }[];
+  const plsda = original.find((node) => node.id === "plsda_d")!;
+  const put = (body: unknown[]) =>
+    page.request.put("/api/pipelines/current", {
+      headers: { ...auth, "Content-Type": "application/json" },
+      data: { nodes: body },
+    });
+  const knn = {
+    id: "knn_d",
+    type: "estimator",
+    inputs: plsda.inputs,
+    spec: { kind: "knn", k: 5, n_components: 5, class_column: "fat_class" },
+  };
+  expect((await put([...original, knn])).status()).toBe(200);
+  try {
+    await page.reload();
+    await page.getByRole("button", { name: "Run pipeline" }).click();
+    await expect(page.locator(".status")).toContainText("Done", { timeout: 120_000 });
+    const outline = page.getByRole("complementary", { name: "Project outline" });
+    await outline.getByRole("button", { name: /kNN k5 · fat_class/ }).dblclick();
+    await expect(page.getByTestId("analysis-header")).toContainText("kNN on fat_class 5 components");
+    await expect(page.getByTestId("confusion-cross_validation")).toBeVisible();
+    await page.getByTestId("export-json").click();
+    await expect(page.getByText(/is a kNN, which this version does not export/)).toBeVisible();
+  } finally {
+    expect((await put(original)).status()).toBe(200);
+  }
+});

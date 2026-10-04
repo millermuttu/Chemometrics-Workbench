@@ -39,6 +39,7 @@ from chemometrics_workbench.models import (
     DatasetVersion,
     EstimatorNode,
     KFoldSplit,
+    KNNSpec,
     LDASpec,
     LeaveOneOut,
     MeanCentre,
@@ -1611,3 +1612,54 @@ def test_an_lda_node_classifies_by_its_folds_own_models(
         assigned[test] = lda.predict(pca.transform(corrected[test] - mean))
     expected = [[int(np.sum((codes == j) & (assigned == k))) for k in range(3)] for j in range(3)]
     assert result.confusion["cross_validation"] == expected
+
+
+def test_a_knn_node_classifies_by_its_folds_own_neighbours(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#277, knn.md: every cross-validated assignment equals scikit-learn's
+    PCA then KNeighborsClassifier on the run's own resolved folds."""
+    from sklearn.decomposition import PCA as SkPCA
+    from sklearn.neighbors import KNeighborsClassifier
+
+    directory, version = project
+    version = _terciles(version, tecator)
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=5, stratify_by="grade")),
+        PreprocessNode(id="snv", inputs=("split",), step=SNV()),
+        EstimatorNode(
+            id="knn", inputs=("snv",), spec=KNNSpec(k=3, n_components=6, class_column="grade")
+        ),
+    )
+    run = execute(directory, pipeline, version)
+    result = run.results["knn"]
+    assert (result.task, result.method, result.k) == ("classification", "knn", 3)
+    assert len(result.training_classes) == len(result.rows)
+
+    codes = np.asarray([result.classes.index(label) for label in version.metadata_columns["grade"]])
+    corrected = _as_stored(SNVTransformer().fit_transform(_as_stored(tecator.spectra)))
+    [resolved] = run.resolved_splits
+    assigned = np.empty(version.n_samples, dtype=int)
+    for train, test in zip(resolved.train_indices, resolved.test_indices, strict=True):
+        mean = corrected[train].mean(axis=0)
+        pca = SkPCA(6, svd_solver="full").fit(corrected[train] - mean)
+        knn = KNeighborsClassifier(3).fit(pca.transform(corrected[train] - mean), codes[train])
+        assigned[test] = knn.predict(pca.transform(corrected[test] - mean))
+    expected = [[int(np.sum((codes == j) & (assigned == k))) for k in range(3)] for j in range(3)]
+    assert result.confusion["cross_validation"] == expected
+
+
+def test_a_knn_asked_for_more_neighbours_than_samples_is_refused(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    directory, version = project
+    version = _terciles(version, tecator)
+    pipeline = _pipeline(
+        version.version_id,
+        EstimatorNode(
+            id="knn", inputs=("source",), spec=KNNSpec(k=500, n_components=3, class_column="grade")
+        ),
+    )
+    with pytest.raises(ExecutorError, match="k = 500 neighbours were asked of 240"):
+        execute(directory, pipeline, version)

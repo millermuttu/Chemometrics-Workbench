@@ -37,6 +37,7 @@ from chemometrics_workbench.models import (
     EstimatorNode,
     GaussianSmooth,
     KFoldSplit,
+    KNNSpec,
     LDASpec,
     MeanCentre,
     MedianFilter,
@@ -302,6 +303,25 @@ def test_an_lda_exports_its_discriminant_and_assigns_by_argmax(
     predicted = _predict(python_snippet(model), tecator.spectra)
     expected = [result.classes[k] for k in result.predicted_class]
     assert predicted[np.asarray(result.rows)].tolist() == expected
+
+
+def test_a_knn_is_not_exported_as_json_and_says_why(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """knn.md section 6: the artifact carries the neighbours; the JSON refuses."""
+    directory, version = project
+    fat = np.asarray(tecator.targets["fat"])
+    labels = ["a" if value > np.median(fat) else "b" for value in fat]
+    version = version.model_copy(update={"metadata_columns": {"grade": labels}})
+    pipeline = _pipeline(
+        version.version_id,
+        EstimatorNode(
+            id="knn", inputs=("source",), spec=KNNSpec(k=3, n_components=3, class_column="grade")
+        ),
+    )
+    result = _run(directory, version, pipeline, "knn")
+    with pytest.raises(ExportError, match="is a kNN, which this version does not export"):
+        json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
 
 
 def test_msc_carries_the_reference_it_was_fitted_with(

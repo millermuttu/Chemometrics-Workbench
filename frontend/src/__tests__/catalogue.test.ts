@@ -79,3 +79,11 @@ it("offers LDA beside PLS-DA on a class column, labelled alike (#276)", () => {
   expect(nodeLabel(node)).toBe("LDA 5 PC · grade");
   expect(parameterLine(node)).toBe(lda.parameters);
 });
+
+it("offers kNN beside PLS-DA on a class column, labelled alike (#277)", () => {
+  const knn = stepMenu([], ["grade"]).find((step) => step.kind === "kNN k5")!;
+  expect(knn.payload.spec).toEqual({ kind: "knn", k: 5, n_components: 5, class_column: "grade" });
+  const node = { id: "knn", type: "estimator", inputs: ["snv"], ...knn.payload } as PipelineNode;
+  expect(nodeLabel(node)).toBe("kNN k5 · grade");
+  expect(parameterLine(node)).toBe(knn.parameters);
+});

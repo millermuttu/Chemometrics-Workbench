@@ -242,6 +242,8 @@ QUANTITY_CLASS: dict[str, str] = {
     # class index is a count-like integer, exact or wrong.
     "decision_function": "predictions",
     "assigned_class": "metrics",
+    # kNN (knn.md section 7): vote fractions are counts over k, exact or wrong.
+    "class_votes": "metrics",
 }
 
 # Quantities whose sign is arbitrary per component and must be aligned before
