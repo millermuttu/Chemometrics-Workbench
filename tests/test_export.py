@@ -48,6 +48,7 @@ from chemometrics_workbench.models import (
     PreprocessNode,
     RangeSelect,
     SavitzkyGolay,
+    SIMCASpec,
     SourceNode,
     SplitNode,
     WhittakerSmooth,
@@ -253,6 +254,27 @@ def test_three_classes_export_a_matrix_and_assign_by_the_largest_column(
     predicted = _predict(python_snippet(model), tecator.spectra)
     expected = [result.classes[k] for k in result.predicted_class]
     assert predicted[np.asarray(result.rows)].tolist() == expected
+
+
+def test_a_simca_is_not_exported_as_json_and_says_why(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """simca.md section 7: the artifact carries it; the JSON model refuses."""
+    directory, version = project
+    labels = [
+        "a" if value > np.median(tecator.targets["fat"]) else "b"
+        for value in tecator.targets["fat"]
+    ]
+    version = version.model_copy(update={"metadata_columns": {"grade": labels}})
+    pipeline = _pipeline(
+        version.version_id,
+        EstimatorNode(
+            id="simca", inputs=("source",), spec=SIMCASpec(n_components=3, class_column="grade")
+        ),
+    )
+    result = _run(directory, version, pipeline, "simca")
+    with pytest.raises(ExportError, match="is a SIMCA, which this version does not export"):
+        json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
 
 
 def test_msc_carries_the_reference_it_was_fitted_with(

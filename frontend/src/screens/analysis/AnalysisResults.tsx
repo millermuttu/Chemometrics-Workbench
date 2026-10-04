@@ -675,6 +675,206 @@ function SaveModel({ nodeId, title }: { nodeId: string; title: string }) {
   );
 }
 
+const SIMCA_SETS: [string, string][] = [
+  ["cross_validation", "Cross-validated"],
+  ["held_out", "Held out (fold 0)"],
+  ["calibration", "Calibration"],
+];
+
+/** A SIMCA's acceptance tables (simca.md section 5): rows the observed
+ * class, columns the class model, a cell counting that class's samples the
+ * model accepted, and the samples no model accepted beside them. A row may
+ * add up to more or less than its class, because acceptance is per model.
+ * Exported for its test. */
+export function AcceptanceTable({ pca }: { pca: PcaPayload }) {
+  const simca = pca.simca;
+  if (!simca) return null;
+  const { classes } = simca;
+  return (
+    <Panel title="Acceptance" note={classes.join(" · ")}>
+      <div data-testid="acceptance" style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "6px 0" }}>
+        {SIMCA_SETS.filter(([key]) => simca.sets[key]).map(([key, label]) => {
+          const one = simca.sets[key];
+          return (
+            <div key={key} style={{ marginBottom: 10 }}>
+              <table data-testid={`acceptance-${key}`}>
+                <thead>
+                  <tr>
+                    <th style={{ width: 110 }}>{label}</th>
+                    {classes.map((name) => (
+                      <th key={name} className="n">
+                        ✓ {name}
+                      </th>
+                    ))}
+                    <th className="n">none</th>
+                    <th className="n">Sens.</th>
+                    <th className="n">Spec.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {one.table.map((row, j) => (
+                    <tr key={classes[j]}>
+                      <td className="mono">
+                        {classes[j]} ({one.sizes[j]})
+                      </td>
+                      {row.map((count, k) => (
+                        <td key={classes[k]} className="n">
+                          {count}
+                        </td>
+                      ))}
+                      <td className="n">{one.none[j]}</td>
+                      <td className="n">{metric(one.class_metrics[j].sensitivity, 3)}</td>
+                      <td className="n">{metric(one.class_metrics[j].specificity, 3)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        })}
+      </div>
+    </Panel>
+  );
+}
+
+/** Reduced distance to one class model against another's, with h = 1 drawn
+ * on both axes: the four quadrants are accepted by both, either, or neither
+ * (simca.md section 5). The set read is the cross-validated one when there is
+ * one, because a model's own calibration rows flatter it. */
+function Coomans({ pca }: { pca: PcaPayload }) {
+  const simca = pca.simca!;
+  const [a, setA] = useState(0);
+  const [b, setB] = useState(Math.min(1, simca.classes.length - 1));
+  const key = simca.sets.cross_validation ? "cross_validation" : "calibration";
+  const one = simca.sets[key];
+  const host = usePlot(
+    (theme) => {
+      const top = Math.max(1.5, ...one.distances.flatMap((row) => [row[a], row[b]]));
+      return {
+        data: [
+          {
+            type: "scattergl",
+            mode: "markers",
+            x: one.distances.map((row) => row[a]),
+            y: one.distances.map((row) => row[b]),
+            text: one.samples.map((sample) => sample.sample_id),
+            hovertemplate: "%{text}<br>h %{x:.3f} · %{y:.3f}<extra></extra>",
+            marker: { size: 6, color: theme.series[0], opacity: 0.8 },
+          },
+        ],
+        layout: {
+          shapes: [
+            { type: "line", x0: 1, x1: 1, y0: 0, y1: top, line: { color: theme.stale, dash: "dot", width: 1 } },
+            { type: "line", x0: 0, x1: top, y0: 1, y1: 1, line: { color: theme.stale, dash: "dot", width: 1 } },
+          ],
+          xaxis: { ...axisLayout(theme, `h to ${simca.classes[a]}`), rangemode: "tozero" },
+          yaxis: { ...axisLayout(theme, `h to ${simca.classes[b]}`), rangemode: "tozero" },
+          margin: { l: 48, r: 12, t: 8, b: 38 },
+        },
+      };
+    },
+    [pca, a, b],
+  );
+  const pick = (value: number, set: (n: number) => void, label: string) => (
+    <select
+      aria-label={label}
+      className="mono"
+      value={value}
+      onChange={(event) => set(Number(event.target.value))}
+      style={{ height: 18, fontSize: 9.5, border: "1px solid var(--rule)", background: "var(--surface)", color: "var(--ink2)" }}
+    >
+      {simca.classes.map((name, index) => (
+        <option key={name} value={index}>
+          {name}
+        </option>
+      ))}
+    </select>
+  );
+  return (
+    <Panel
+      title="Coomans"
+      note={
+        <span style={{ display: "flex", gap: 4 }}>
+          {pick(a, setA, "Coomans x class")}
+          {pick(b, setB, "Coomans y class")}
+        </span>
+      }
+    >
+      <div ref={host} data-testid="coomans-plot" style={{ flex: 1, minHeight: 0 }} />
+    </Panel>
+  );
+}
+
+function SimcaResults({ pca, nodeId, title }: { pca: PcaPayload; nodeId: string; title: string }) {
+  const simca = pca.simca!;
+  const m = pca.metrics ?? {};
+  return (
+    <div className="pane">
+      <div
+        data-testid="analysis-header"
+        style={{
+          height: 52,
+          flex: "none",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "0 14px",
+          borderBottom: "1px solid var(--rule2)",
+          whiteSpace: "nowrap",
+          gap: 12,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+          <span style={{ fontWeight: 600, fontSize: 13.5 }}>{title}</span>
+          <span className="mono" style={{ fontSize: 11, color: "var(--ink3)" }}>
+            SIMCA on {simca.class_column} {pca.n_components} components per class · {pca.n_samples} ×{" "}
+            {pca.n_variables}
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <div style={{ paddingRight: 11 }}>
+            <SaveModel nodeId={nodeId} title={title} />
+          </div>
+          {(
+            [
+              ["SENSITIVITY (CV)", metric(m.sensitivity_cv, 3)],
+              ["SPECIFICITY (CV)", metric(m.specificity_cv, 3)],
+            ] as [string, string][]
+          ).map(([label, value]) => (
+            <div
+              key={label}
+              style={{ display: "flex", flexDirection: "column", gap: 1, padding: "0 11px", borderLeft: "1px solid var(--rule2)" }}
+            >
+              <span className="ilabel" style={{ fontSize: 9 }}>
+                {label}
+              </span>
+              <span className="mono" style={{ fontSize: 14, fontWeight: 600, color: "var(--accentInk)" }}>
+                {value}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{ flex: 1, minHeight: 0, padding: "12px 14px", display: "flex", gap: 12 }}>
+        <AcceptanceTable pca={pca} />
+        <Coomans pca={pca} />
+        <Panel title="Class models" note={`α ${pca.diagnostics.alpha}`} width={260}>
+          <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "6px 0" }}>
+            {simca.models.map((model) => (
+              <div className="kv" key={model.class} title={model.spe_limit_caveat ?? undefined}>
+                <b>{model.class}</b>
+                <span className="mono">
+                  n {model.n_samples} · T² {model.t2_limit.toFixed(2)} · Q {model.q_limit.toPrecision(3)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
 export function AnalysisResults({ nodeId, title }: { nodeId: string; title: string }) {
   const results = useResults(nodeId);
   const [picked, setPicked] = useState<number | null>(null);
@@ -695,6 +895,7 @@ export function AnalysisResults({ nodeId, title }: { nodeId: string; title: stri
   }
 
   const pca = results.data;
+  if (pca.simca) return <SimcaResults pca={pca} nodeId={nodeId} title={title} />;
   const classification = pca.task === "classification";
   // A classification is the regression on a dummy response (pls-da.md
   // section 2), so every regression panel applies; only what it is called and

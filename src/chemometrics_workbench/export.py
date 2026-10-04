@@ -102,6 +102,13 @@ def json_model(
             "A PCA produces scores; export the artifact instead (docs/model-artifact.md)."
         )
 
+    if result.simca:
+        raise ExportError(
+            f"node {result.node_id!r} is a SIMCA, which this version does not export as a "
+            "JSON model or a Python snippet: a SIMCA decision needs the whole preprocessed "
+            "spectrum, not one coefficient vector (simca.md section 7). Save the model "
+            "artifact instead, which carries every class model."
+        )
     chain = _chain(pipeline, result.node_id)
     residual, foldable = _split(chain)
 

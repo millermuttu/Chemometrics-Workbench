@@ -50,10 +50,12 @@ from chemometrics_workbench.models import (
     RangeSelect,
     RepeatedKFoldSplit,
     SavitzkyGolay,
+    SIMCASpec,
     SourceNode,
     SplitNode,
     TrainTestSplit,
 )
+from chemometrics_workbench.preprocessing import SNVTransformer
 from chemometrics_workbench.project import (
     create_project,
     read_array,
@@ -1515,3 +1517,59 @@ def test_a_pcr_node_fits_and_cross_validates_like_a_regression(
         model = LinearRegression().fit(pca.transform(spectra[train] - mean), fat[train])
         held[test] = model.predict(pca.transform(spectra[test] - mean))
     assert result.metrics["rmsecv"] == pytest.approx(rmse(fat, held), rel=1e-6)
+
+
+def test_a_simca_node_decides_every_set_with_its_folds_own_models(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#275, simca.md sections 5 and 6: the cross-validated table pools every
+    fold's held-out decisions, each made by models fitted on that fold alone."""
+    from chemometrics_workbench.classification import SIMCA, acceptance_table
+
+    directory, version = project
+    version = _terciles(version, tecator)
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=4, stratify_by="grade")),
+        PreprocessNode(id="snv", inputs=("split",), step=SNV()),
+        EstimatorNode(
+            id="simca", inputs=("snv",), spec=SIMCASpec(n_components=3, class_column="grade")
+        ),
+    )
+    run = execute(directory, pipeline, version)
+    result = run.results["simca"]
+    assert result.task == "classification" and result.method == "simca"
+    assert result.classes == ["lean", "mid", "rich"]
+    assert set(result.simca["sets"]) == {"calibration", "held_out", "cross_validation"}
+    assert [model["class"] for model in result.simca["models"]] == result.classes
+
+    labels = version.metadata_columns["grade"]
+    codes = np.asarray([result.classes.index(label) for label in labels])
+    # Through the store twice, as the run does: the source, and the SNV output.
+    corrected = _as_stored(SNVTransformer().fit_transform(_as_stored(tecator.spectra)))
+    [resolved] = run.resolved_splits
+    distances = np.zeros((version.n_samples, 3))
+    for train, test in zip(resolved.train_indices, resolved.test_indices, strict=True):
+        model = SIMCA(3).fit(corrected[train], codes[train], 3)
+        distances[test] = model.distances(corrected[test])
+    cv = result.simca["sets"]["cross_validation"]
+    np.testing.assert_allclose(np.asarray(cv["distances"]), distances, rtol=1e-9)
+    table, none = acceptance_table(codes, distances <= 1.0)
+    assert (cv["table"], cv["none"]) == (table, none)
+    assert {"sensitivity_cv", "specificity_cv", "sensitivity_p"} <= set(result.metrics)
+
+
+def test_a_simca_class_too_small_is_refused_by_name(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    directory, version = project
+    labels = ["rare"] * 3 + ["common"] * (version.n_samples - 3)
+    version = version.model_copy(update={"metadata_columns": {"grade": labels}})
+    pipeline = _pipeline(
+        version.version_id,
+        EstimatorNode(
+            id="simca", inputs=("source",), spec=SIMCASpec(n_components=4, class_column="grade")
+        ),
+    )
+    with pytest.raises(ExecutorError, match="class 'rare' has 3 calibration samples"):
+        execute(directory, pipeline, version)

@@ -232,3 +232,39 @@ test("picking an outlier draws which variables put it there, summing to its own 
   await expect(page.getByTestId("contributions-plot")).toBeVisible();
   await expect(page.getByTestId("contributions-note")).toContainText("Σ =");
 });
+
+test("a SIMCA tab reads as class models: acceptance, Coomans and limits", async ({ page }) => {
+  // #275. Added beside the seeded PLS-DA through the pipeline's PUT, read,
+  // then the seeded recipe is put back: this project outlives the test.
+  const auth = { Authorization: "Bearer e2e-token" };
+  await page.goto("/?token=e2e-token");
+  const original = (await (await page.request.get("/api/pipelines/current", { headers: auth })).json())
+    .nodes as { id: string; inputs: string[] }[];
+  const plsda = original.find((node) => node.id === "plsda_d")!;
+  const nodes = [
+    ...original,
+    { id: "simca_d", type: "estimator", inputs: plsda.inputs, spec: { kind: "simca", n_components: 3, class_column: "fat_class" } },
+  ];
+  const put = (body: unknown[]) =>
+    page.request.put("/api/pipelines/current", {
+      headers: { ...auth, "Content-Type": "application/json" },
+      data: { nodes: body },
+    });
+  expect((await put(nodes)).status()).toBe(200);
+  try {
+    await page.reload();
+    await page.getByRole("button", { name: "Run pipeline" }).click();
+    await expect(page.locator(".status")).toContainText("Done", { timeout: 120_000 });
+    const outline = page.getByRole("complementary", { name: "Project outline" });
+    await outline.getByRole("button", { name: /SIMCA 3 PC · fat_class/ }).dblclick();
+    await expect(page.getByTestId("analysis-header")).toContainText(
+      "SIMCA on fat_class 3 components per class",
+    );
+    await expect(page.getByTestId("acceptance-cross_validation").locator("tbody tr")).toHaveCount(2);
+    await expect(page.getByTestId("coomans-plot")).toBeVisible();
+    await expect(page.getByRole("region", { name: "Class models" })).toContainText("high");
+    await expect(page.getByRole("region", { name: "Scores" })).toHaveCount(0);
+  } finally {
+    expect((await put(original)).status()).toBe(200);
+  }
+});

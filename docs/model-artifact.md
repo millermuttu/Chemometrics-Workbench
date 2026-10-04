@@ -72,6 +72,7 @@ Every field is required unless it is marked optional. `null` means *this quantit
 | `target` | string or null | The response modelled, for a regression; the class column, for a classification |
 | `classes` | array of string or null | `pls-da.md` §3's `[C_0, C_1]`, for a classification |
 | `y_mean` | number or null | The response mean the estimator subtracted before fitting and adds back to every prediction (`pls-regression.md` §3). `null` for a decomposition |
+| `simca` | array or null | For a SIMCA, one `{class, n_samples, t2_limit, q_limit}` per class in `classes` order (`simca.md` §3); `null` otherwise |
 | `alpha` | number | The confidence level the limits are quoted at |
 | `hotelling_t2_limit` | number | |
 | `spe_limit` | number | |
@@ -120,6 +121,7 @@ Which arrays are present depends on the task. A reader must not assume any of th
 | `coefficients` | `(n_variables,)` | regression, two-class classification | `b = Rq` on the node's matrix |
 | `coefficient_matrix` | `(n_variables, N)` | classification of three or more classes | `B = RQ'`, one column per class (#274) |
 | `y_means` | `(N,)` | classification of three or more classes | The one-hot response's column means, added back to every prediction |
+| `simca_<k>_mean`, `simca_<k>_loadings`, `simca_<k>_eigenvalues` | `(p,)`, `(A, p)`, `(A,)` | SIMCA | Class `classes[k]`'s centre, PCA loadings and retained eigenvalues (#275, `simca.md` §7). Its limits are in `model.simca` |
 | `y_loadings` | `(A,)` | regression, classification | |
 | `vip` | `(n_variables,)` | regression, classification | `pls-regression.md` §8 |
 | `y_explained_variance_ratio` | `(A,)` | regression, classification | |

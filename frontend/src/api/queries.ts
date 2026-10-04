@@ -208,6 +208,30 @@ export interface PcaPayload {
   /** Present only when `task === "classification"` (#185, `pls-da.md`). The
    * model is the regression block above on a {0, 1} dummy response; this is
    * the coding, the assignments and the confusion matrices. */
+  /** A SIMCA's own block (#275, simca.md section 5); the shared scores,
+   * loadings and limits are empty for it. */
+  simca?: {
+    class_column: string;
+    classes: string[];
+    models: {
+      class: string;
+      n_samples: number;
+      t2_limit: number;
+      q_limit: number;
+      spe_limit_caveat: string | null;
+    }[];
+    sets: Record<
+      string,
+      {
+        table: number[][];
+        none: number[];
+        sizes: number[];
+        class_metrics: { n: number; sensitivity?: number; specificity?: number }[];
+        samples: { index: number; sample_id: string }[];
+        distances: number[][];
+      }
+    >;
+  };
   classification?: {
     class_column: string | null;
     classes: string[];

@@ -235,6 +235,13 @@ def _arrays(
         arrays["coefficient_matrix"] = _float64(result.coefficient_matrix)
         arrays["y_means"] = _float64(result.y_means)
 
+    for k, model in enumerate(result.simca.get("models", [])):
+        # #275, simca.md section 7: every class model, indexed by its class's
+        # position in `classes`.
+        arrays[f"simca_{k}_mean"] = _float64(model["mean"])
+        arrays[f"simca_{k}_loadings"] = _float64(model["loadings"])
+        arrays[f"simca_{k}_eigenvalues"] = _float64(model["eigenvalues"])
+
     if split is not None and result.fold is not None:
         arrays["train_indices"] = np.asarray(result.rows, dtype=np.int64)
         arrays["test_indices"] = np.asarray(result.held_out, dtype=np.int64)
@@ -267,6 +274,11 @@ def _manifest(
             "hotelling_t2_limit": result.hotelling_t2_limit,
             "spe_limit": result.spe_limit,
             "spe_limit_caveat": result.spe_limit_caveat,
+            "simca": [
+                {name: model[name] for name in ("class", "n_samples", "t2_limit", "q_limit")}
+                for model in result.simca.get("models", [])
+            ]
+            or None,
         },
         # By value, never a reference: a pipeline gets edited, and an artifact
         # whose recipe pointed at one would lose its meaning the moment it was

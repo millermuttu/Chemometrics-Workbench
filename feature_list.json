@@ -9,7 +9,8 @@
     "2026-10-02. Smoothing: moving average, median, Gaussian, Whittaker.",
     "2026-10-02. Unchanged: scikit-learn and chemotools stay development dependencies. Every kernel is hand-written; parity is against a reference library, mdatools, or recorded not_compared with a reason.",
     "2026-10-02. One release, v1.1.0, at the end of the phase. Phase 4's timed exit run stays closed as recorded in docs/phase-4/.",
-    "2026-10-02. All Phase 5 development data comes from open, licensed datasets on the internet, downloaded into the gitignored dataset/ folder; CI-facing copies are committed as small fixtures with their licence. Sources and rules: docs/decisions/0006-phase-5-data-sources.md."
+    "2026-10-02. All Phase 5 development data comes from open, licensed datasets on the internet, downloaded into the gitignored dataset/ folder; CI-facing copies are committed as small fixtures with their licence. Sources and rules: docs/decisions/0006-phase-5-data-sources.md.",
+    "2026-10-04. No R in the development environment: SIMCA (and any later method whose only reference is mdatools) is recorded not_compared and checked by property tests against kernels that carry their own parity claims."
   ],
   "status_values": [
     "not_started",
@@ -194,9 +195,9 @@
         "uv run python -m tests.parity_report - docs/parity-report.md regenerated with the new rows, and test_parity_coverage green",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-04. docs/algorithms/simca.md written: one PCA per class centred on its own mean, reduced distance h_k = max(T2/T2lim, Q/Qlim) with the new-sample F T2 limit and the Jackson-Mudholkar Q limit at alpha 0.05, accepted when h_k <= 1, a sample may be accepted by none, one or several; acceptance table, per-class and pooled sensitivity/specificity, Coomans distances; JSON/snippet export not offered (artifact only). New kernel module classification.py (SIMCA, acceptance_table, simca_class_metrics, simca_metrics) added to KERNEL_MODULES. `uv run pytest`: `998 passed, 1 skipped`. test_classification.py: every class model equals decomposition.PCA on its centred class with the same limits; T2, Q, reduced distance and acceptance recomputed from that PCA; table, none, per-class and pooled metrics checked on a hand-built case; a class too small for A refused. test_executor.py: a SIMCA below a stratified 4-fold on Tecator terciles has calibration, held-out and cross-validated sets whose CV distances equal SIMCA refitted per resolved fold on the float32-stored SNV arrays (rtol 1e-9) and whose table and none match; a 3-sample class refused naming it. test_export.py: JSON export refused with simca.md's reason. test_artifact.py: every class's mean, loadings and limits round-trip. Parity: COVERAGE row not_compared with the reason (no R; scikit-learn has no SIMCA) per the maintainer's choice of option 2 on 2026-10-04; `uv run python -m tests.parity_report`: 147 claims plus the row. Proof: with src/ reverted the new tests fail at collection. ruff, mypy clean; mkdocs --strict exit 0. `pnpm test`: 147 passed (SIMCA menu entry and labels; acceptance panel with none column and an em dash for an absent metric). `pnpm build` then `pnpm exec playwright test`: 79 passed, analysis.spec.ts adding a SIMCA beside the seeded PLS-DA, running it, reading the header, the cross-validated acceptance table's two rows, the Coomans plot and the class models, with no scores panel, then restoring the seeded recipe.",
+      "notes": "Parity against R mdatools was replaced by property tests (no R, maintainer's decision 2026-10-04). JSON/snippet export deferred: it needs the foldable chain carried as an affine map (simca.md section 7)."
     },
     {
       "id": "lda",
