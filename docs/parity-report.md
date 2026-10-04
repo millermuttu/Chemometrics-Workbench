@@ -79,6 +79,7 @@ those listed under *Gaps* or *Documented divergences* below.
 | Whittaker smoothing | `WhittakerTransformer` | 3 claims |
 | PCR | `PCR` | 6 claims |
 | PLS2 | `PLS2` | 9 claims |
+| SIMCA | `SIMCA`, `acceptance_table`, `simca_class_metrics`, `simca_metrics` | **not compared.** No reference in this environment: the R mdatools comparison the plan named needs R, which the development environment does not carry, and scikit-learn has no SIMCA. Every class model is checked equal to decomposition.PCA on its centred class, which has its own parity claims, and every distance, decision and tally is recomputed from it in tests/test_classification.py (simca.md section 9). |
 | SNV | `SNVTransformer` | 3 claims |
 | MSC | `MSCTransformer` | 3 claims |
 | Mean centring | `MeanCentreTransformer` | 3 claims |

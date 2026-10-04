@@ -40,6 +40,7 @@ from chemometrics_workbench.models import (
     PLSDASpec,
     PLSRegressionSpec,
     PreprocessNode,
+    SIMCASpec,
     SourceNode,
     SplitNode,
 )
@@ -429,3 +430,35 @@ def test_three_classes_carry_their_coefficient_matrix(
     assert read.arrays["coefficient_matrix"].shape == (version.n_variables, 3)
     np.testing.assert_array_equal(read.arrays["y_means"], np.asarray(result.y_means))
     assert read.manifest["model"]["classes"] == ["lean", "mid", "rich"]
+
+
+def test_a_simca_carries_every_class_model(
+    fitted: tuple[Path, DatasetVersion, Pipeline, object], tecator: object
+) -> None:
+    """#275, simca.md section 7: each class's mean, loadings, eigenvalues and limits."""
+    directory, version, _, _ = fitted
+    fat = np.asarray(tecator.targets["fat"])  # type: ignore[attr-defined]
+    labels = ["high" if value > np.median(fat) else "low" for value in fat]
+    version = version.model_copy(update={"metadata_columns": {"grade": labels}})
+    pipeline = _pipeline(
+        version.version_id,
+        EstimatorNode(
+            id="simca", inputs=("source",), spec=SIMCASpec(n_components=3, class_column="grade")
+        ),
+    )
+    result = execute(directory, pipeline, version).results["simca"]
+    path = directory / "simca.cwmodel"
+    write_artifact(
+        path,
+        result,
+        pipeline=pipeline,
+        version=version,
+        node_axis=np.asarray(version.axis.values, dtype=np.float64),
+        split=None,
+        environment=capture_environment(),
+    )
+    read = read_artifact(path)
+    for k, model in enumerate(result.simca["models"]):
+        np.testing.assert_array_equal(read.arrays[f"simca_{k}_mean"], np.asarray(model["mean"]))
+        assert read.arrays[f"simca_{k}_loadings"].shape == (3, version.n_variables)
+        assert read.manifest["model"]["simca"][k]["q_limit"] == model["q_limit"]

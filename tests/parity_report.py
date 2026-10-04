@@ -104,6 +104,15 @@ COVERAGE: tuple[Coverage, ...] = (
     Coverage("Whittaker smoothing", ("WhittakerTransformer",), ("preprocess.whittaker",)),
     Coverage("PCR", ("PCR",), ("pcr.coefficients", "pcr.predictions")),
     Coverage("PLS2", ("PLS2",), ("pls2.coefficients", "pls2.predictions", "pls2.scores")),
+    Coverage(
+        "SIMCA",
+        ("SIMCA", "acceptance_table", "simca_class_metrics", "simca_metrics"),
+        not_compared="No reference in this environment: the R mdatools comparison the plan "
+        "named needs R, which the development environment does not carry, and scikit-learn has "
+        "no SIMCA. Every class model is checked equal to decomposition.PCA on its centred class, "
+        "which has its own parity claims, and every distance, decision and tally is recomputed "
+        "from it in tests/test_classification.py (simca.md section 9).",
+    ),
     Coverage("SNV", ("SNVTransformer",), ("preprocess.snv",)),
     Coverage("MSC", ("MSCTransformer",), ("preprocess.msc",)),
     Coverage("Mean centring", ("MeanCentreTransformer",), ("preprocess.mean_centred",)),
@@ -245,7 +254,14 @@ NOT_KERNELS: dict[str, str] = {
 }
 
 #: The modules whose public names `COVERAGE` must account for.
-KERNEL_MODULES = ("preprocessing", "decomposition", "regression", "validation", "export")
+KERNEL_MODULES = (
+    "preprocessing",
+    "decomposition",
+    "regression",
+    "classification",
+    "validation",
+    "export",
+)
 
 
 def _coverage_table(results: dict[str, Any]) -> list[str]:

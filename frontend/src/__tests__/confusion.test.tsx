@@ -11,7 +11,7 @@ import type { PcaPayload } from "@/api/queries";
 
 vi.mock("plotly.js-gl2d-dist-min", () => ({ default: { react: vi.fn(), purge: vi.fn() } }));
 
-const { ConfusionMatrix } = await import("@/screens/analysis/AnalysisResults");
+const { AcceptanceTable, ConfusionMatrix } = await import("@/screens/analysis/AnalysisResults");
 
 const FIXTURES = path.resolve(import.meta.dirname, "../../../tests/fixtures/contract");
 const pca = (JSON.parse(readFileSync(path.join(FIXTURES, "pca.json"), "utf8")) as Record<string, PcaPayload>)
@@ -66,5 +66,39 @@ describe("the confusion panel", () => {
 
   it("draws nothing for a decomposition", () => {
     expect(renderToStaticMarkup(<ConfusionMatrix pca={pca} />)).toBe("");
+  });
+});
+
+describe("the SIMCA acceptance panel (#275)", () => {
+  it("prints each set's table with the none column and per-class figures", () => {
+    const simca: PcaPayload = {
+      ...pca,
+      task: "classification",
+      simca: {
+        class_column: "grade",
+        classes: ["a", "b"],
+        models: [],
+        sets: {
+          cross_validation: {
+            table: [[9, 2], [1, 7]],
+            none: [1, 2],
+            sizes: [10, 9],
+            class_metrics: [
+              { n: 10, sensitivity: 0.9, specificity: 8 / 9 },
+              { n: 9, sensitivity: 7 / 9 },
+            ],
+            samples: [],
+            distances: [],
+          },
+        },
+      },
+    };
+    // React separates adjacent text with comments in static markup.
+    const html = renderToStaticMarkup(<AcceptanceTable pca={simca} />).replaceAll("<!-- -->", "");
+    expect(html).toContain("acceptance-cross_validation");
+    expect(html).not.toContain("acceptance-calibration");
+    expect(html).toMatch(/a \(10\)<\/td><td class="n">9<\/td><td class="n">2<\/td><td class="n">1<\/td><td class="n">0.900<\/td>/);
+    // b's specificity is absent and printed as an em dash.
+    expect(html).toMatch(/0.778<\/td><td class="n">—<\/td>/);
   });
 });

@@ -83,6 +83,7 @@ export function parameterLine(node: PipelineNode): string {
     case "pcr":
       return `${spec!.n_components} components · ${spec!.target}`;
     case "plsda":
+    case "simca":
       return `${spec!.n_components} components · ${spec!.class_column}`;
     case "snv":
       return "population statistics per row";

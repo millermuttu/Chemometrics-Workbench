@@ -61,6 +61,7 @@ from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 from chemometrics_workbench import __version__, preprocessing, readers
 from chemometrics_workbench.artifact import ArtifactError, write_artifact
 from chemometrics_workbench.checks import PipelineWarning, check_pipeline
+from chemometrics_workbench.classification import simca_class_metrics
 from chemometrics_workbench.decomposition import spe_contributions, t2_contributions
 from chemometrics_workbench.executor import (
     EstimatorResult,
@@ -593,6 +594,34 @@ def results_payload(
             for key in (f"rmsecv_a{a}" for a in range(1, result.n_components + 1))
             if key in result.metrics
         ]
+    if result.simca:
+        # simca.md section 5: no single X model and no confusion matrix, so
+        # its own block - the class models' sizes and limits and, per set, the
+        # acceptance table, its per-class reading and the reduced distances.
+        payload["simca"] = {
+            "class_column": result.target,
+            "classes": result.classes,
+            "models": [
+                {
+                    name: model[name]
+                    for name in ("class", "n_samples", "t2_limit", "q_limit", "spe_limit_caveat")
+                }
+                for model in result.simca["models"]
+            ],
+            "sets": {
+                name: {
+                    "table": one["table"],
+                    "none": one["none"],
+                    "sizes": one["sizes"],
+                    "class_metrics": simca_class_metrics(one["table"], one["sizes"]),
+                    "samples": _samples(one["rows"], version),
+                    "distances": one["distances"],
+                }
+                for name, one in result.simca["sets"].items()
+            },
+        }
+        payload["metrics"] = dict(result.metrics)
+        return payload
     if result.task == "classification":
         payload["classification"] = {
             "class_column": result.target,

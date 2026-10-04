@@ -123,6 +123,11 @@ import numpy as np
 from numpy.typing import NDArray
 
 from chemometrics_workbench import preprocessing, validation
+from chemometrics_workbench.classification import (
+    SIMCA,
+    acceptance_table,
+    simca_metrics,
+)
 from chemometrics_workbench.decomposition import PCA
 from chemometrics_workbench.models import (
     DatasetVersion,
@@ -141,6 +146,7 @@ from chemometrics_workbench.models import (
     PLSDASpec,
     PLSRegressionSpec,
     ResolvedSplit,
+    SIMCASpec,
     TrainTestSplit,
 )
 from chemometrics_workbench.project import (
@@ -213,7 +219,7 @@ def has_kernel(spec: EstimatorSpec) -> bool:
 #: What `_estimator` can fit. All three since #185; the tuple stays because
 #: `has_kernel` is the one place the answer lives, and the next estimator will
 #: not have a kernel on the day its spec lands either.
-_FITTED: tuple[type, ...] = (PCASpec, PLSRegressionSpec, PCRSpec, PLSDASpec)
+_FITTED: tuple[type, ...] = (PCASpec, PLSRegressionSpec, PCRSpec, PLSDASpec, SIMCASpec)
 
 
 RESULTS_DIR = "results"
@@ -426,6 +432,11 @@ class EstimatorResult:
     y_means: list[float] = field(default_factory=list)
     """The one-hot response's column means, added back to every prediction,
     beside `coefficient_matrix`."""
+
+    simca: dict[str, Any] = field(default_factory=dict)
+    """A SIMCA's class models and its decisions per set (`simca.md` §5, #275).
+    Empty for every other estimator. A SIMCA has no single X model, so the
+    shared scores, loadings and limits above are empty and zero for it."""
 
     confusion: dict[str, list[list[int]]] = field(default_factory=dict)
     """`calibration`, and below a split `cross_validation` and `held_out`: rows
@@ -1096,6 +1107,12 @@ def _estimator(
         write_json(stored, result.as_json())
         return result
 
+    if isinstance(node.spec, SIMCASpec):
+        result = _simca(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
+        stored.parent.mkdir(parents=True, exist_ok=True)
+        write_json(stored, result.as_json())
+        return result
+
     if isinstance(node.spec, PLSDASpec):
         result = _plsda(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
         stored.parent.mkdir(parents=True, exist_ok=True)
@@ -1365,7 +1382,7 @@ def _fit_regression(
 
 
 def _class_labels(
-    version: DatasetVersion, node: PipelineNode, name: str
+    version: DatasetVersion, node: PipelineNode, name: str, kind: str = "plsda"
 ) -> tuple[list[str], NDArray[np.intp]]:
     """The classes in Unicode order and each sample's index into them (`pls-da.md` §3).
 
@@ -1376,14 +1393,14 @@ def _class_labels(
     if labels is None:
         available = ", ".join(sorted(version.metadata_columns)) or "none"
         raise ExecutorError(
-            f"node {node.id!r} (plsda) classifies by {name!r}, which this dataset does not "
+            f"node {node.id!r} ({kind}) classifies by {name!r}, which this dataset does not "
             f"carry as a metadata column. It has: {available}.",
             node.id,
         )
     classes = sorted({str(label) for label in labels})
     if len(classes) < 2:
         raise ExecutorError(
-            f"node {node.id!r} (plsda) classifies by {name!r}, which has one value "
+            f"node {node.id!r} ({kind}) classifies by {name!r}, which has one value "
             f"({classes[0]!r} on every sample): there is nothing to separate.",
             node.id,
         )
@@ -1622,6 +1639,110 @@ def _plsda_multiclass(
         held_out_scores=_rows(model.transform(held_x)) if held_out.size else [],
         held_out_hotelling_t2=_values(model.hotelling_t2(held_x)) if held_out.size else [],
         held_out_spe=_values(model.spe(held_x)) if held_out.size else [],
+    )
+
+
+def _simca(
+    node: PipelineNode,
+    spec: SIMCASpec,
+    parent: _State,
+    key: str,
+    matrix: NDArray[np.float64],
+    rows: NDArray[np.intp],
+    held_out: NDArray[np.intp],
+    fold: int | None,
+    version: DatasetVersion,
+) -> EstimatorResult:
+    """`simca.md`: one PCA per class, decisions per set, fold zero's models."""
+    classes, codes = _class_labels(version, node, spec.class_column, kind="simca")
+    n_classes = len(classes)
+
+    def fit(values: NDArray[np.float64], train: NDArray[np.intp]) -> SIMCA:
+        try:
+            return SIMCA(spec.n_components, ALPHA).fit(values[train], codes[train], n_classes)
+        except ValueError as error:
+            named = str(error)
+            for k, name in enumerate(classes):
+                named = named.replace(f"class {k} ", f"class {name!r} ")
+            raise ExecutorError(f"node {node.id!r} (simca) failed: {named}", node.id) from error
+
+    def decided(
+        model: SIMCA, values: NDArray[np.float64], picked: NDArray[np.intp]
+    ) -> dict[str, Any]:
+        distances = model.distances(values[picked])
+        table, none = acceptance_table(codes[picked], distances <= 1.0)
+        sizes = [int(np.count_nonzero(codes[picked] == k)) for k in range(n_classes)]
+        return {
+            "rows": [int(row) for row in picked],
+            "distances": _rows(distances),
+            "table": table,
+            "none": none,
+            "sizes": sizes,
+        }
+
+    model = fit(matrix, rows)
+    sets = {"calibration": decided(model, matrix, rows)}
+    metrics = simca_metrics(sets["calibration"]["table"], sets["calibration"]["sizes"])
+    if held_out.size:
+        sets["held_out"] = decided(model, matrix, held_out)
+        metrics.update(simca_metrics(sets["held_out"]["table"], sets["held_out"]["sizes"], "_p"))
+    if parent.folds is not None and len(parent.folds) > 1:
+        distances = np.zeros((matrix.shape[0], n_classes))
+        for one, values in zip(parent.folds, parent.arrays, strict=True):
+            distances[one.test] = fit(values, one.train).distances(values[one.test])
+        everyone = np.arange(matrix.shape[0], dtype=np.intp)
+        table, none = acceptance_table(codes, distances <= 1.0)
+        sizes = [int(np.count_nonzero(codes == k)) for k in range(n_classes)]
+        sets["cross_validation"] = {
+            "rows": [int(row) for row in everyone],
+            "distances": _rows(distances),
+            "table": table,
+            "none": none,
+            "sizes": sizes,
+        }
+        metrics.update(simca_metrics(table, sizes, "_cv"))
+
+    fitted = model.models_ or []
+    return EstimatorResult(
+        node_id=node.id,
+        key=key,
+        task="classification",
+        n_components=spec.n_components,
+        n_samples=int(rows.size),
+        n_variables=int(matrix.shape[1]),
+        rank=spec.n_components,
+        fold=fold,
+        rows=[int(row) for row in rows],
+        scores=[],
+        loadings=[],
+        eigenvalues=[],
+        explained_variance_ratio=[],
+        cumulative_explained_variance=[],
+        hotelling_t2=[],
+        hotelling_t2_limit=0.0,
+        spe=[],
+        spe_limit=0.0,
+        target=spec.class_column,
+        method="simca",
+        classes=classes,
+        held_out=[int(row) for row in held_out],
+        metrics=metrics,
+        simca={
+            "models": [
+                {
+                    "class": name,
+                    "n_samples": one.n_samples,
+                    "t2_limit": one.t2_limit,
+                    "q_limit": one.q_limit,
+                    "spe_limit_caveat": one.pca.spe_limit_caveat(),
+                    "mean": _values(one.mean),
+                    "loadings": _rows(np.asarray(one.pca.loadings_).T),
+                    "eigenvalues": _values(np.asarray(one.pca.eigenvalues_)[: spec.n_components]),
+                }
+                for name, one in zip(classes, fitted, strict=True)
+            ],
+            "sets": sets,
+        },
     )
 
 

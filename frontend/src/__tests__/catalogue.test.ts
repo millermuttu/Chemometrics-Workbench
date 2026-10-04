@@ -62,3 +62,12 @@ it("offers PCR beside PLS when the dataset has a target, labelled alike (#272)",
   expect(parameterLine(node)).toBe(pcr.parameters);
   expect(stepMenu([]).map((step) => step.kind)).not.toContain("PCR 5 PC");
 });
+
+it("offers SIMCA beside PLS-DA on a class column, labelled alike (#275)", () => {
+  const simca = stepMenu([], ["grade"]).find((step) => step.kind === "SIMCA 3 PC")!;
+  expect(simca.payload.spec).toEqual({ kind: "simca", n_components: 3, class_column: "grade" });
+  const node = { id: "simca", type: "estimator", inputs: ["snv"], ...simca.payload } as PipelineNode;
+  expect(nodeLabel(node)).toBe("SIMCA 3 PC · grade");
+  expect(parameterLine(node)).toBe(simca.parameters);
+  expect(stepMenu(["fat"]).map((step) => step.kind)).not.toContain("SIMCA 3 PC");
+});
