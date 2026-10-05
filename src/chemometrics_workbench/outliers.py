@@ -146,30 +146,88 @@ def _fast_mcd(
     values: NDArray[np.float64], h: int, rng: np.random.Generator
 ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
     """Rousseeuw and Van Driessen's FastMCD: random `(p + 1)`-subsets, two
-    C-steps each, the best ten iterated until the determinant stops falling."""
+    C-steps each, the best ten iterated until the determinant stops falling.
+
+    The starts are drawn one at a time, so a seed always gives the same ones,
+    and then stepped together as stacked arrays (#314): 500 starts as 500
+    loops of small linear algebra cost 1.5 s at 3,000 samples."""
     n, p = values.shape
-    candidates: list[tuple[float, NDArray[np.intp]]] = []
+    locations: list[NDArray[np.float64]] = []
+    covariances: list[NDArray[np.float64]] = []
     for _ in range(_N_TRIALS):
         start = rng.choice(n, size=p + 1, replace=False)
-        location, covariance = values[start].mean(axis=0), _covariance(values[start])
+        covariance = _covariance(values[start])
         # A singular start grows by one random row until it is not (§4).
         while np.linalg.matrix_rank(covariance) < p and start.size < n:
             rest = np.setdiff1d(np.arange(n), start)
             start = np.append(start, rng.choice(rest))
-            location, covariance = values[start].mean(axis=0), _covariance(values[start])
+            covariance = _covariance(values[start])
         if np.linalg.matrix_rank(covariance) < p:
             continue
-        support = _nearest(values, location, covariance, h)
-        candidates.append(_c_steps(values, support, h, 2))
-    if not candidates:
+        locations.append(values[start].mean(axis=0))
+        covariances.append(covariance)
+    if not locations:
         raise ValueError("every starting subset was singular; the scores have no full-rank spread")
-    candidates.sort(key=lambda item: item[0])
+
+    supports = _nearest_many(values, np.asarray(locations), np.asarray(covariances), h)
+    log_dets = _log_dets(values, supports)
+    # Two C-steps for every start at once; a start stops as soon as one fails
+    # to lower its determinant, exactly as `_c_steps` would stop it.
+    active = np.ones(len(supports), dtype=bool)
+    for _ in range(2):
+        rows = values[supports[active]]
+        following = _nearest_many(values, rows.mean(axis=1), _covariances(rows), h)
+        following_dets = _log_dets(values, following)
+        better = following_dets < log_dets[active]
+        indices = np.flatnonzero(active)
+        supports[indices[better]] = following[better]
+        log_dets[indices[better]] = following_dets[better]
+        active[indices[~better]] = False
+        if not active.any():
+            break
+
+    order = np.argsort(log_dets, kind="stable")[:_N_BEST]
     best = min(
-        (_c_steps(values, support, h, _MAX_STEPS) for _, support in candidates[:_N_BEST]),
+        (_c_steps(values, supports[i], h, _MAX_STEPS) for i in order),
         key=lambda item: item[0],
     )
     rows = values[best[1]]
     return rows.mean(axis=0), _covariance(rows)
+
+
+def _nearest_many(
+    values: NDArray[np.float64],
+    locations: NDArray[np.float64],
+    covariances: NDArray[np.float64],
+    h: int,
+) -> NDArray[np.intp]:
+    """`_nearest` for a stack of estimates: each row of the result is one
+    estimate's `h` nearest rows, sorted. Taken in blocks of estimates, so the
+    `estimates x n x p` intermediate stays near 4 million numbers."""
+    n, p = values.shape
+    block = max(1, 4_000_000 // (n * p))
+    precisions = np.linalg.pinv(covariances, hermitian=True)
+    out = np.empty((len(locations), h), dtype=np.intp)
+    for first in range(0, len(locations), block):
+        last = first + block
+        centred = values[None, :, :] - locations[first:last, None, :]
+        distances = ((centred @ precisions[first:last]) * centred).sum(axis=2)
+        out[first:last] = np.sort(np.argsort(distances, axis=1, kind="stable")[:, :h], axis=1)
+    return out
+
+
+def _covariances(rows: NDArray[np.float64]) -> NDArray[np.float64]:
+    """`_covariance` for a stack of row sets, `estimates x h x p`."""
+    centred = rows - rows.mean(axis=1, keepdims=True)
+    covariances: NDArray[np.float64] = centred.transpose(0, 2, 1) @ centred / rows.shape[1]
+    return covariances
+
+
+def _log_dets(values: NDArray[np.float64], supports: NDArray[np.intp]) -> NDArray[np.float64]:
+    """`_log_det` for every support at once."""
+    signs, log_dets = np.linalg.slogdet(_covariances(values[supports]))
+    out: NDArray[np.float64] = np.where(signs > 0, log_dets, -np.inf)
+    return out
 
 
 def _c_steps(

@@ -5,6 +5,7 @@ import {
   useCoefficients,
   useContributions,
   useExcludeSamples,
+  useOutliers,
   useResults,
   useSaveModel,
   type OutlierRule,
@@ -645,6 +646,45 @@ function Flags({
   );
 }
 
+/** The outlier row (#278), fetched on its own (#314) so the panels above draw
+ * while the robust-distance search runs. */
+function OutlierRow({
+  pca,
+  nodeId,
+  picked,
+  onPick,
+  onRun,
+}: {
+  pca: PcaPayload;
+  nodeId: string;
+  picked: number | null;
+  onPick: (index: number) => void;
+  onRun?: () => void;
+}) {
+  const query = useOutliers(nodeId, true);
+  if (!query.data) {
+    return (
+      <div data-testid="outliers-row" style={ROW}>
+        <Panel title="Outliers">
+          <div className="empty" style={{ padding: 12 }} role={query.isError ? "alert" : undefined}>
+            {query.isError ? query.error.message : "Computing the outlier diagnostics…"}
+          </div>
+        </Panel>
+      </div>
+    );
+  }
+  const diagnosed = { ...pca, outliers: query.data };
+  return (
+    <div data-testid="outliers-row" style={ROW}>
+      <Influence pca={diagnosed} />
+      {query.data.studentised_residuals !== null || query.data.caveats.residual ? (
+        <LeverageResidual pca={diagnosed} />
+      ) : null}
+      <Flags pca={diagnosed} picked={picked} onPick={onPick} onExcluded={onRun} />
+    </div>
+  );
+}
+
 function PredictedVsMeasured({ pca }: { pca: PcaPayload }) {
   const host = usePlot(
     (theme) => ({
@@ -1232,15 +1272,15 @@ export function AnalysisResults({
         )}
         {/* #278: the outlier diagnostics, a row of their own, for a PCA, PLS
             or PCR (outliers.md section 1). */}
-        {pca.outliers && (
-          <div data-testid="outliers-row" style={ROW}>
-            <Influence pca={pca} />
-            {pca.outliers.studentised_residuals !== null || pca.outliers.caveats.residual ? (
-              <LeverageResidual pca={pca} />
-            ) : null}
-            <Flags pca={pca} picked={picked} onPick={setPicked} onExcluded={onRun} />
-          </div>
-        )}
+        {pca.task === "decomposition" || ["pls", "pcr"].includes(pca.regression?.method ?? "") ? (
+          <OutlierRow
+            pca={pca}
+            nodeId={nodeId}
+            picked={picked}
+            onPick={setPicked}
+            onRun={onRun}
+          />
+        ) : null}
       </div>
     </div>
   );

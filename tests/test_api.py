@@ -31,6 +31,8 @@ from chemometrics_workbench.api import (
     MAX_TRACES,
     MAX_UPLOAD_BYTES,
     contributions_payload,
+    diagnosed,
+    outliers_payload,
     results_payload,
     router,
     spectra_payload,
@@ -417,8 +419,7 @@ def test_the_results_payload_is_the_shape_the_fixture_publishes(tmp_path: Path) 
     payload = results_payload(run.results["pca_a"], version)
     published = fixture("pca")["pca_a"]
 
-    # Additive since the fixture: #278's outlier diagnostics.
-    assert set(payload) == set(published) | {"outliers"}
+    assert set(payload) == set(published)
     assert set(payload["loadings"]) == set(published["loadings"])
     # Additive since the fixture: #71's caveat, `None` on Tecator, whose h0 is
     # positive. A screen that ignores the key renders what it rendered before.
@@ -442,7 +443,7 @@ def test_a_split_branch_adds_its_validation_rows_without_changing_the_rest(
     published = fixture("pca")["pca_d"]
 
     # The keys the 1.1 screen reads are unchanged, and so are their lengths.
-    assert set(payload) - set(published) == {"validation", "outliers"}
+    assert set(payload) - set(published) == {"validation"}
     assert len(payload["samples"]) == len(published["samples"]) == 216
     assert len(payload["diagnostics"]["hotelling_t2"]) == 216
 
@@ -494,7 +495,7 @@ def test_a_regression_payload_flags_its_outliers_by_rule(tmp_path: Path) -> None
         }
     )
     run = execute(directory, pipeline, version)
-    block = results_payload(run.results["pls_a"], version)["outliers"]
+    block = outliers_payload(run.results["pls_a"], version)
     diagnostics = results_payload(run.results["pls_a"], version)["diagnostics"]
     limits = block["limits"]
     n = run.results["pls_a"].n_samples
@@ -523,14 +524,16 @@ def test_a_regression_payload_flags_its_outliers_by_rule(tmp_path: Path) -> None
 def test_a_pca_has_no_residuals_and_a_classification_no_outlier_block(tmp_path: Path) -> None:
     """Section 1: residuals need a response, and a class is not one."""
     run, version = executed(tmp_path / "results")
-    block = results_payload(run.results["pca_a"], version)["outliers"]
+    block = outliers_payload(run.results["pca_a"], version)
     assert block["studentised_residuals"] is None
     assert all("residual" not in row["rules"] for row in block["flags"])
 
     from dataclasses import replace
 
     plsda = replace(run.results["pca_a"], task="classification", method="plsda")
-    assert "outliers" not in results_payload(plsda, version)
+    assert not diagnosed(plsda) and diagnosed(run.results["pca_a"])
+    # #314: the search is not on the path every tab waits for.
+    assert "outliers" not in results_payload(run.results["pca_a"], version)
 
 
 # --------------------------------------------------------------------------

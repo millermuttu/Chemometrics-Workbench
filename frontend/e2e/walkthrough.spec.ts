@@ -310,7 +310,8 @@ test("a flagged sample is excluded from the outlier table, rerun, and named in l
   const source = original.find((node) => node.type === "source")!;
   const served = await (await page.request.get("/api/results/pcr", { headers: auth })).json();
   const n = (served.samples as unknown[]).length;
-  const flags = served.outliers.flags as { index: number }[];
+  const block = await (await page.request.get("/api/results/pcr/outliers", { headers: auth })).json();
+  const flags = block.flags as { index: number }[];
   expect(flags.length, "a 30-sample calibration flags something").toBeGreaterThan(0);
   const sample = served.samples[flags[0].index].sample_id as string;
 

@@ -596,15 +596,6 @@ def results_payload(
             for key in (f"rmsecv_a{a}" for a in range(1, result.n_components + 1))
             if key in result.metrics
         ]
-    if result.task == "decomposition" or result.method in ("pls", "pcr"):
-        # outliers.md: PCA, PLS and PCR only (section 1), from the stored
-        # scores and fit, so an older result gets the same numbers.
-        payload["outliers"] = _outliers(result)
-        # #279: the version these rows are rows of, so an exclusion from the
-        # flags table is made against exactly the version the table was drawn
-        # from - never against wherever the source has moved since.
-        payload["outliers"]["dataset_id"] = str(version.dataset_id)
-        payload["outliers"]["version_id"] = str(version.version_id)
     if result.simca:
         # simca.md section 5: no single X model and no confusion matrix, so
         # its own block - the class models' sizes and limits and, per set, the
@@ -646,6 +637,28 @@ def results_payload(
             },
         }
     return payload
+
+
+def diagnosed(result: EstimatorResult) -> bool:
+    """`outliers.md` section 1: PCA, PLS and PCR only."""
+    return result.task == "decomposition" or result.method in ("pls", "pcr")
+
+
+def outliers_payload(result: EstimatorResult, version: DatasetVersion) -> dict[str, Any]:
+    """`outliers.md`'s diagnostics for one result, served on their own (#314).
+
+    Not part of `results_payload`: the robust distance is a FastMCD search,
+    about a second at 3,000 samples, and every tab that opens a result waited
+    on it. Only the outlier row asks for this, and the rest of the tab draws
+    without it.
+    """
+    block = _outliers(result)
+    # #279: the version these rows are rows of, so an exclusion from the
+    # flags table is made against exactly the version the table was drawn
+    # from - never against wherever the source has moved since.
+    block["dataset_id"] = str(version.dataset_id)
+    block["version_id"] = str(version.version_id)
+    return block
 
 
 def _outliers(result: EstimatorResult) -> dict[str, Any]:
@@ -1670,6 +1683,26 @@ def get_results(node_id: str) -> Any:
             node_id=node_id,
         )
     return results_payload(result, version, axis=node_axis(pipeline, NodeId(node_id), version))
+
+
+@router.get("/results/{node_id}/outliers")
+def get_outliers(node_id: str) -> Any:
+    """`outliers.md`: leverage, residuals, robust distance and the flags table."""
+    directory, pipeline, version = _runnable()
+    result = _stored_result(directory, pipeline, version, node_id)
+    if result is None:
+        raise _fail(
+            404, "not_found", f"node {node_id!r} has no fitted result yet.", node_id=node_id
+        )
+    if not diagnosed(result):
+        raise _fail(
+            422,
+            "not_diagnosed",
+            f"node {node_id!r} is a {result.method or result.task}, which outliers.md does not "
+            "diagnose: only a PCA, a PLS or a PCR (section 1).",
+            node_id=node_id,
+        )
+    return outliers_payload(result, version)
 
 
 @router.get("/results/{node_id}/coefficients")
