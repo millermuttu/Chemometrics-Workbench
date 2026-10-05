@@ -8,6 +8,9 @@ import {
   useIpls,
   useCars,
   useNested,
+  useJob,
+  usePermutation,
+  useStartPermutation,
   usePipeline,
   useSavePipeline,
   useOutliers,
@@ -31,6 +34,7 @@ import {
   scoresTrace,
   selectionTraces,
   thresholdSelection,
+  permutationFigure,
   varianceFigure,
   vipFigure,
 } from "@/plot/analysis";
@@ -979,6 +983,76 @@ function RmsecvCurve({ pca }: { pca: PcaPayload }) {
   );
 }
 
+/** `metrics-and-validation.md` section 14 (#333): is the model better than
+ * chance? The response is permuted N times, the whole cross-validation rerun
+ * on each, and the observed score placed in that null. A job, because it is
+ * the cross-validation N times over. */
+function PermutationTest({ pca }: { pca: PcaPayload }) {
+  const [count, setCount] = useState("100");
+  const [jobId, setJobId] = useState<string | null>(null);
+  const start = useStartPermutation(pca.node_id);
+  const job = useJob(jobId);
+  const done = job.data?.status === "succeeded";
+  const result = usePermutation(jobId, done);
+  const host = usePlot(
+    (theme) => {
+      if (!result.data) return { data: [], layout: { margin: { l: 48, r: 12, t: 8, b: 38 } } };
+      const figure = permutationFigure(result.data, theme);
+      return {
+        data: figure.data,
+        layout: {
+          shapes: figure.shapes,
+          xaxis: axisLayout(theme, result.data.greater_is_better ? "CV accuracy" : "RMSECV"),
+          yaxis: axisLayout(theme, "Permutations"),
+          margin: { l: 48, r: 12, t: 8, b: 38 },
+          showlegend: false,
+        },
+      };
+    },
+    [result.data],
+  );
+  const running = job.data?.status === "queued" || job.data?.status === "running";
+  const failed = job.data?.status === "failed" ? job.data.message : null;
+  return (
+    <Panel
+      title="Permutation test"
+      note={
+        result.data
+          ? `p = ${result.data.p_value.toPrecision(3)} · ${result.data.n_permutations} permutations · seed ${result.data.seed}`
+          : "is it better than chance?"
+      }
+    >
+      <div
+        className="mono"
+        style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", fontSize: 10 }}
+      >
+        <input
+          aria-label="Permutations"
+          value={count}
+          onChange={(event) => setCount(event.target.value)}
+          style={{ width: 48 }}
+        />
+        <button
+          type="button"
+          className="btn"
+          disabled={running || start.isPending}
+          onClick={() =>
+            start.mutate(Number(count), { onSuccess: (submitted) => setJobId(submitted.job_id) })
+          }
+        >
+          {running ? `Running… ${Math.round((job.data?.progress ?? 0) * 100)}%` : "Run permutation test"}
+        </button>
+      </div>
+      {failed || start.error ? (
+        <p role="alert" className="mono" style={{ margin: "2px 10px", fontSize: 10, color: "var(--fail)" }}>
+          {failed ?? start.error?.message}
+        </p>
+      ) : null}
+      <div ref={host} data-testid="permutation-plot" style={{ flex: 1, minHeight: 0 }} />
+    </Panel>
+  );
+}
+
 /** The confusion matrices a classification reports (`classification.md`):
  * rows observed, columns assigned, in the classes' order, for the calibration
  * set and - below a split - the cross-validated and held-out sets, each with
@@ -1515,6 +1589,13 @@ export function AnalysisResults({
             <RegressionMetrics pca={pca} />
           </div>
         )}
+        {/* #333: a permutation test, for an estimator with a cross-validated score. */}
+        {["pls", "pcr", "plsda", "lda", "knn"].includes(pca.regression?.method ?? "") &&
+        (pca.metrics?.rmsecv !== undefined || pca.metrics?.accuracy_cv !== undefined) ? (
+          <div style={ROW}>
+            <PermutationTest pca={pca} />
+          </div>
+        ) : null}
         {/* #278: the outlier diagnostics, a row of their own, for a PCA, PLS
             or PCR (outliers.md section 1). */}
         {pca.task === "decomposition" || ["pls", "pcr"].includes(pca.regression?.method ?? "") ? (

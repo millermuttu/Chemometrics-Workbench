@@ -4,6 +4,7 @@ import type {
   ContributionsPayload,
   IplsPayload,
   PcaPayload,
+  PermutationPayload,
 } from "@/api/queries";
 
 import type { PlotTheme } from "./theme";
@@ -440,4 +441,41 @@ export function carsTraces(payload: CarsPayload, theme: PlotTheme) {
       hoverinfo: "skip",
     },
   ];
+}
+
+/** The null distribution as twenty bins, with the observed score as a line
+ * (#333). Counted here rather than by a histogram trace: the bins are a
+ * drawing decision and the counts the reader sees should be the ones drawn. */
+export function permutationFigure(payload: PermutationPayload, theme: PlotTheme) {
+  const values = payload.null;
+  const low = Math.min(...values, payload.observed);
+  const high = Math.max(...values, payload.observed);
+  const bins = 20;
+  const width = (high - low) / bins || 1;
+  const counts = new Array<number>(bins).fill(0);
+  for (const value of values) counts[Math.min(bins - 1, Math.floor((value - low) / width))] += 1;
+  return {
+    data: [
+      {
+        type: "bar",
+        x: counts.map((_, k) => low + (k + 0.5) * width),
+        y: counts,
+        width: width,
+        marker: { color: theme.band },
+        hovertemplate: "%{x:.4g} · %{y} permutations<extra></extra>",
+        name: "permuted",
+      },
+    ],
+    shapes: [
+      {
+        type: "line",
+        yref: "paper",
+        x0: payload.observed,
+        x1: payload.observed,
+        y0: 0,
+        y1: 1,
+        line: { width: 1.5, color: theme.series[0] },
+      },
+    ],
+  };
 }

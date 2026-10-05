@@ -627,6 +627,36 @@ export interface NestedPayload {
   selected_per_fold: number[];
 }
 
+/** `metrics-and-validation.md` section 14 (#333): a y-permutation test. */
+export interface PermutationPayload {
+  node_id: string;
+  n_permutations: number;
+  observed: number;
+  null: number[];
+  p_value: number;
+  seed: number;
+  greater_is_better: boolean;
+}
+
+/** Submit a permutation test; the answer is a job, polled with `useJob`. */
+export function useStartPermutation(nodeId: string) {
+  return useMutation({
+    mutationFn: (n: number) =>
+      api<Job>(`/results/${nodeId}/permutation?n_permutations=${n}`, { method: "POST" }),
+  });
+}
+
+/** A finished permutation test's result; asked for only once its job succeeded. */
+export function usePermutation(jobId: string | null, done: boolean) {
+  return useQuery({
+    queryKey: ["permutation", jobId],
+    queryFn: () => api<PermutationPayload>(`/permutations/${jobId}`),
+    enabled: Boolean(jobId) && done,
+    staleTime: Infinity,
+    retry: false,
+  });
+}
+
 /** Run only when asked: `query` is null until the user presses Validate. */
 export function useNested(nodeId: string, query: string | null) {
   return useQuery({

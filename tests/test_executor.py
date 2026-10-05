@@ -30,6 +30,7 @@ from chemometrics_workbench.executor import (
     execute,
     experiment_for,
     node_keys,
+    permutation_test_for,
     result_path,
 )
 from chemometrics_workbench.models import (
@@ -1765,3 +1766,54 @@ def test_a_knn_asked_for_more_neighbours_than_samples_is_refused(
     )
     with pytest.raises(ExecutorError, match="k = 500 neighbours were asked of 240"):
         execute(directory, pipeline, version)
+
+
+# --------------------------------------------------------------------------
+# the permutation test (#333)
+# --------------------------------------------------------------------------
+
+
+def test_a_permutation_test_reruns_the_stored_cross_validation(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """metrics-and-validation.md section 14: the observed score is the run's own
+    CV score, the null follows from the seed, and a real model beats it."""
+    directory, version = project
+    version = _terciles(version, tecator)
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=4, seed=42)),
+        PreprocessNode(id="centre", inputs=("split",), step=MeanCentre()),
+        EstimatorNode(
+            id="pls", inputs=("centre",), spec=PLSRegressionSpec(n_components=4, target="fat")
+        ),
+        EstimatorNode(
+            id="knn", inputs=("centre",), spec=KNNSpec(k=3, n_components=4, class_column="grade")
+        ),
+    )
+    run = execute(directory, pipeline, version)
+
+    pls = permutation_test_for(directory, pipeline, version, "pls", 10, seed=1)
+    assert pls.observed == pytest.approx(run.results["pls"].metrics["rmsecv"], rel=1e-12)
+    assert not pls.greater_is_better and min(pls.null) > pls.observed
+    assert pls.p_value == pytest.approx(1 / 11)
+    assert pls == permutation_test_for(directory, pipeline, version, "pls", 10, seed=1)
+
+    knn = permutation_test_for(directory, pipeline, version, "knn", 5, seed=1)
+    assert knn.observed == pytest.approx(run.results["knn"].metrics["accuracy_cv"], rel=1e-12)
+    assert knn.greater_is_better and max(knn.null) < knn.observed
+
+
+def test_a_permutation_test_without_a_split_is_refused_by_name(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        EstimatorNode(
+            id="pls", inputs=("source",), spec=PLSRegressionSpec(n_components=2, target="fat")
+        ),
+    )
+    execute(directory, pipeline, version)
+    with pytest.raises(ExecutorError, match="needs a K-fold or leave-one-out split"):
+        permutation_test_for(directory, pipeline, version, "pls", 5)

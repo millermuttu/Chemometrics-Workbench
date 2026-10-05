@@ -44,11 +44,13 @@ from chemometrics_workbench.arrays import as_float64_vector
 
 __all__ = [
     "Fold",
+    "PermutationResult",
     "bias",
     "by_group",
     "folds_from_indices",
     "k_fold",
     "leave_one_out",
+    "permutation_test",
     "q2",
     "r2",
     "rmse",
@@ -346,6 +348,56 @@ def by_group(groups: Sequence[str], split: Callable[[int], list[Fold]]) -> list[
         Fold(train=every[np.isin(codes, fold.train)], test=every[np.isin(codes, fold.test)])
         for fold in folds
     ]
+
+
+@dataclass(frozen=True)
+class PermutationResult:
+    """§14: the observed score, its null distribution and the p-value."""
+
+    observed: float
+    null: list[float]
+    p_value: float
+    seed: int
+    greater_is_better: bool
+
+
+def permutation_test(
+    score: Callable[[NDArray[np.intp]], float],
+    n_samples: int,
+    n_permutations: int,
+    *,
+    seed: int = 0,
+    greater_is_better: bool,
+    on_progress: Callable[[int], None] | None = None,
+) -> PermutationResult:
+    """§14: score the unpermuted response, then `n_permutations` permutations of it.
+
+    `score(order)` reruns the whole cross-validation with the response taken
+    in `order` - `numpy.arange(n)` for the observed score - and returns its
+    cross-validated score. The orders are drawn from one
+    `numpy.random.default_rng(seed)`, so a seed always gives the same null.
+
+    The p-value counts the permutations that score at least as well as the
+    observed one, plus one for the observed itself, over `n_permutations + 1`:
+    never zero, because the observed labelling is one of the labellings the
+    null could have produced.
+
+    `on_progress` is told how many permutations are done; a caller that wants
+    to stop raises from it.
+    """
+    if n_permutations < 1:
+        raise ValueError(f"a permutation test needs at least one permutation, got {n_permutations}")
+    observed = float(score(np.arange(n_samples, dtype=np.intp)))
+    rng = np.random.default_rng(seed)
+    null: list[float] = []
+    for i in range(n_permutations):
+        null.append(float(score(rng.permutation(n_samples))))
+        if on_progress is not None:
+            on_progress(i + 1)
+    values = np.asarray(null)
+    as_good = values >= observed if greater_is_better else values <= observed
+    p_value = (int(as_good.sum()) + 1) / (n_permutations + 1)
+    return PermutationResult(observed, null, p_value, seed, greater_is_better)
 
 
 def folds_from_indices(

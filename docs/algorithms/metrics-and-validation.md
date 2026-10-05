@@ -310,4 +310,28 @@ Recorded so the parity report can classify them as *differs by documented conven
 - **Slope-and-bias correction and other model updating** — post-1.0.
 - **Automatic selection of $A$**, including the one-standard-error rule and Wold's R. A workflow question; see [`pls-regression.md` §11](pls-regression.md).
 - **Continuous-response binning** for stratification, and stratified repeated K-fold (§8.7).
-- **Nested cross-validation** — needed only once something is tuned inside the loop, and nothing is in v1.
+- **Nested cross-validation** of the component count. A variable selection is validated in an outer loop since #331 (`variable-selection.md` §8); nothing else is tuned inside the loop.
+
+---
+
+## 14. The permutation test
+
+[#333](https://github.com/millermuttu/Chemometrics-Workbench/issues/333). A cross-validated score says how well a model predicts; a permutation test says whether it predicts better than chance would. It answers "could a model this good have come from a response with no relation to the spectra?", which matters most when samples are few and variables many.
+
+**What is permuted.** The response of a PLS or PCR, or the class labels of a PLS-DA, LDA or kNN. The spectra, the split and the preprocessing stay exactly as they are: each permutation reruns the estimator's whole cross-validation on the stored per-fold matrices and the stored folds, with only the response reordered.
+
+**The orders.** $N$ permutations of $0 \dots n-1$, drawn in turn from one `numpy.random.default_rng(seed)`, seed 0 unless one is given. A seed always gives the same null. The observed score is the unpermuted order's.
+
+**The score.** RMSECV (§4, §7) for a regression, where lower is better, and the cross-validated accuracy (`classification.md`) for a classifier, where higher is better.
+
+**The p-value** is
+
+$$p = \frac{1 + \#\{\text{permutations scoring at least as well as the observed}\}}{N + 1}.$$
+
+It is never zero: the observed labelling is one of those the null could have drawn. With $N$ permutations the smallest $p$ is $1/(N+1)$, so 99 permutations can say $p = 0.01$ and no less.
+
+**Grouping.** The response is permuted sample by sample, also under a grouped split (§8.8). Replicates of one sample then usually carry different permuted values, which is a null with less structure than the real data. A test that shuffles whole groups is not specified here.
+
+**It runs as a job** (`POST /api/results/{id}/permutation`), because it is the cross-validation repeated $N$ times. It reports progress per permutation, can be cancelled, and like every job is not persisted.
+
+**Parity.** scikit-learn's `permutation_test_score` is given the same permutations, through a `RandomState` whose `permutation` draws from the same `default_rng(seed)`, and the same folds. It averages a score per fold where §7 pools, so the comparison uses folds of equal size, where the two coincide. For a regression it compares negative MSE, whose fold mean over equal folds is minus the pooled MSE. The null distributions and the p-values agree, for a PLS RMSECV and a two-class PLS-DA accuracy on Tecator (`tests/test_permutation.py`).

@@ -506,6 +506,30 @@ test("an iPLS selection from a PLS-DA is applied above a copy of the PLS-DA, whi
   }
 });
 
+test("a permutation test runs as a job and places the PLS in its null", async ({ page }) => {
+  // #333. Read-only. Tecator's fat is no accident, so no permutation should
+  // match the real RMSECV and p is its floor, 1 / (N + 1).
+  test.setTimeout(180_000);
+  await page.goto("/?token=e2e-token");
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /PLS 5 LV/ }).first().dblclick();
+  await page.getByLabel("Permutations").fill("20");
+  await page.getByRole("button", { name: "Run permutation test" }).click();
+  await expect(page.getByText("p = 0.0476 · 20 permutations · seed 0")).toBeVisible({
+    timeout: 150_000,
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const plot = document.querySelector("[data-testid=permutation-plot]") as HTMLElement & {
+          data?: { y?: number[] }[];
+        };
+        return (plot.data?.[0]?.y ?? []).reduce((total, n) => total + n, 0);
+      }),
+    )
+    .toBe(20);
+});
+
 test("a VIP selection is validated in an outer loop, beside its optimistic error", async ({
   page,
 }) => {

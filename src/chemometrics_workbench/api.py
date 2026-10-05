@@ -50,6 +50,7 @@ import os
 import tempfile
 import threading
 from collections.abc import Callable, Sequence
+from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -66,11 +67,14 @@ from chemometrics_workbench.classification import simca_class_metrics
 from chemometrics_workbench.decomposition import spe_contributions, t2_contributions
 from chemometrics_workbench.executor import (
     EstimatorResult,
+    Progress,
+    RunCancelled,
     class_metrics,
     governing_split,
     has_kernel,
     metrics_for,
     node_axis,
+    permutation_test_for,
     stored,
 )
 from chemometrics_workbench.executor import stored_display as _stored_display
@@ -78,7 +82,7 @@ from chemometrics_workbench.executor import stored_fitted_matrix as _stored_fitt
 from chemometrics_workbench.executor import stored_fold_matrices as _stored_fold_matrices
 from chemometrics_workbench.executor import stored_result as _stored_result
 from chemometrics_workbench.export import ExportError, json_model, python_snippet
-from chemometrics_workbench.jobs import Job, Jobs, submit_run
+from chemometrics_workbench.jobs import Job, Jobs, JobStatus, Reporter, submit_run
 from chemometrics_workbench.models import (
     Dataset,
     DatasetVersion,
@@ -1597,6 +1601,66 @@ def cancel_job(job_id: str) -> Any:
     if job is None:
         raise _fail(404, "not_found", f"no job {job_id}.", job_id=job_id)
     return job.payload()
+
+
+@router.post("/results/{node_id}/permutation")
+def run_permutation(node_id: str, n_permutations: int = 100, seed: int = 0) -> Any:
+    """`metrics-and-validation.md` §14 (#333): a y-permutation test, as a job.
+
+    It is the cross-validation repeated `n_permutations` times, so it is
+    submitted and polled rather than waited on, and its result is read from
+    `GET /permutations/{job_id}` once the job has succeeded. Like every job it
+    is not persisted: a restart loses it.
+    """
+    if not 1 <= n_permutations <= 10_000:
+        raise _fail(
+            422,
+            "invalid_permutation",
+            f"n_permutations must be between 1 and 10000, got {n_permutations}.",
+            node_id=node_id,
+        )
+    directory, pipeline, version = _runnable()
+
+    def work(reporter: Reporter) -> Any:
+        def advance(done: int) -> None:
+            if reporter.cancelled:
+                raise RunCancelled(f"cancelled after {done} permutations")
+            reporter.advance(
+                Progress(
+                    done, n_permutations, NodeId(node_id), f"Permutation {done} of {n_permutations}"
+                )
+            )
+
+        found = permutation_test_for(
+            directory,
+            pipeline,
+            version,
+            NodeId(node_id),
+            n_permutations,
+            seed=seed,
+            on_progress=advance,
+        )
+        return {"node_id": node_id, "n_permutations": n_permutations, **asdict(found)}
+
+    # Its own experiment id, so the canvas's "is this pipeline running" is
+    # not answered by a permutation test.
+    return JOBS.submit(f"permutation:{node_id}", work).payload()
+
+
+@router.get("/permutations/{job_id}")
+def get_permutation(job_id: str) -> Any:
+    """A permutation test's result: the observed score, the null and the p-value."""
+    job = JOBS.get(job_id)
+    if job is None or not job.experiment_id.startswith("permutation:"):
+        raise _fail(404, "not_found", f"no permutation test {job_id}.", job_id=job_id)
+    if job.status is not JobStatus.SUCCEEDED:
+        raise _fail(
+            409,
+            "not_finished",
+            f"permutation test {job_id} is {job.status}: {job.message}",
+            job_id=job_id,
+        )
+    return job.result
 
 
 def _running_job(experiment_id: str) -> Job | None:

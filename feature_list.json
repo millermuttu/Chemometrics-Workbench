@@ -97,9 +97,9 @@
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-05, feature/333_permutation-test. uv run pytest: exit 0 (full suite). Parity, tests/test_permutation.py: scikit-learn permutation_test_score handed our permutations (a RandomState drawing from default_rng(seed)) and our five equal folds gives the same null and p-value - PLS RMSECV via neg MSE (rtol 1e-6) and two-class PLS-DA accuracy (exact), 30 permutations on Tecator; the null follows from its seed and p is never zero. tests/test_executor.py: permutation_test_for's observed score equals the run's RMSECV and kNN accuracy_cv; refused without a split. tests/test_server.py: POST /results/plsda/permutation as a job, GET /permutations/{job_id}. Failing first: with src and frontend/src stashed, test_permutation.py and test_executor.py fail to collect and the endpoint is 404. ruff check, ruff format --check, mypy (87 files): clean. pnpm test 162 passed; pnpm exec playwright test: 93 passed (3.4m), including 'a permutation test runs as a job and places the PLS in its null'.",
+      "notes": "The response is permuted sample by sample also under a grouped split; metrics-and-validation.md section 14 says so."
     },
     {
       "id": "bootstrap-intervals",
@@ -280,6 +280,21 @@
       "status": "not_started",
       "evidence": "",
       "notes": "Asked by the maintainer on 2026-10-05."
+    },
+    {
+      "id": "windows-scores-plot-flake",
+      "priority": 16,
+      "area": "frontend",
+      "issue": 351,
+      "title": "Windows e2e: the PCA tab's scores plot is not found",
+      "depends_on": [],
+      "user_visible_behavior": "None; analysis.spec.ts's openResults passes on the Windows runner.",
+      "verification": [
+        "Read the job log for a console error first; fix the cause; e2e (windows-latest) green"
+      ],
+      "status": "not_started",
+      "evidence": "",
+      "notes": "Seen once on #350 (job 111909342941); ubuntu, macOS and local runs passed."
     }
   ]
 }
