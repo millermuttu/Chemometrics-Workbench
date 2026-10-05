@@ -1467,6 +1467,18 @@ def test_the_selections_run_from_a_pls_da_on_its_dummy_response(client: TestClie
         assert served.status_code == 200, (path, served.text)
     assert client.get("/api/results/plsda/ipls?n_intervals=5", headers=AUTH).json()["selected"]
 
+    # #333: the permutation test is a job, and its result is read once it is done.
+    job = client.post("/api/results/plsda/permutation?n_permutations=5&seed=3", headers=AUTH)
+    assert job.status_code == 200, job.text
+    job_id = job.json()["job_id"]
+    assert wait_for(client, job_id, seconds=120)["status"] == "succeeded"
+    found = client.get(f"/api/permutations/{job_id}", headers=AUTH).json()
+    assert found["node_id"] == "plsda" and len(found["null"]) == 5 and found["seed"] == 3
+    assert found["greater_is_better"] and 0 < found["p_value"] <= 1
+    assert client.get("/api/permutations/nope", headers=AUTH).status_code == 404
+    refused = client.post("/api/results/plsda/permutation?n_permutations=0", headers=AUTH)
+    assert refused.status_code == 422
+
 
 def test_a_mat_file_previews_with_its_choices_and_imports(client: TestClient) -> None:
     """#284: the preview takes corrections, so choosing the derivative matrix

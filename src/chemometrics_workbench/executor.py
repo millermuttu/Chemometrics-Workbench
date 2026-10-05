@@ -180,9 +180,11 @@ from chemometrics_workbench.regression import (
 )
 from chemometrics_workbench.validation import (
     Fold,
+    PermutationResult,
     by_group,
     k_fold,
     leave_one_out,
+    permutation_test,
     stratified_k_fold,
     stratified_train_test,
     train_test,
@@ -212,6 +214,7 @@ __all__ = [
     "metrics_for",
     "node_keys",
     "node_label",
+    "permutation_test_for",
     "result_path",
     "stored",
     "stored_display",
@@ -2273,6 +2276,76 @@ def stored_result(
         return EstimatorResult.from_json(json.loads(file.read_text(encoding="utf-8")))
     except (OSError, ValueError, TypeError):
         return None
+
+
+def permutation_test_for(
+    directory: str | Path,
+    pipeline: Pipeline,
+    version: DatasetVersion,
+    node_id: NodeId,
+    n_permutations: int,
+    *,
+    seed: int = 0,
+    on_progress: Callable[[int], None] | None = None,
+) -> PermutationResult:
+    """`metrics-and-validation.md` §14 (#333): one estimator's cross-validation,
+    rerun with its response or class labels permuted.
+
+    The folds and the per-fold matrices are the stored ones, so every
+    permutation is scored on exactly the split and the preprocessing the
+    observed model was. The score is RMSECV for a PLS or PCR and the
+    cross-validated accuracy for a PLS-DA, LDA or kNN.
+    """
+    path = Path(directory)
+    by_id = {node.id: node for node in pipeline.nodes}
+    node = by_id.get(node_id)
+    if node is None or node.type != "estimator" or not isinstance(node.spec, _PERMUTABLE):
+        raise ExecutorError(
+            f"node {node_id!r} is not a PLS, PCR, PLS-DA, LDA or kNN, so it has no "
+            "cross-validated score to permute.",
+            node_id,
+        )
+    stored = stored_fold_matrices(path, pipeline, version, node_id)
+    if stored is None or len(stored[1]) < 2:
+        raise ExecutorError(
+            f"node {node_id!r} has no stored cross-validation to rerun: it needs a K-fold or "
+            "leave-one-out split above it with at least two folds, and a completed run.",
+            node_id,
+        )
+    arrays, folds = stored
+    parent = _State(arrays=arrays, folds=folds)
+    key = node_keys(pipeline, version)[node_id]
+    regression = isinstance(node.spec, PLSRegressionSpec | PCRSpec)
+    column = node.spec.target if regression else node.spec.class_column  # type: ignore[union-attr]
+    values = list(
+        version.targets[column] if regression else version.metadata_columns.get(column, [])
+    )
+    if len(values) != version.n_samples:
+        raise ExecutorError(f"node {node_id!r} has no column {column!r} to permute.", node_id)
+    metric = "rmsecv" if regression else "accuracy_cv"
+
+    def score(order: NDArray[np.intp]) -> float:
+        permuted = [values[i] for i in order]
+        field_name = "targets" if regression else "metadata_columns"
+        columns = {**getattr(version, field_name), column: permuted}
+        shuffled = version.model_copy(update={field_name: columns})
+        # The model fitted here is fold zero's and discarded: only the CV
+        # score, every fold's, is read.
+        fitted = _fitted(node, parent, key, arrays[0], folds[0].train, _NONE, None, shuffled)
+        return fitted.metrics[metric]
+
+    return permutation_test(
+        score,
+        version.n_samples,
+        n_permutations,
+        seed=seed,
+        greater_is_better=not regression,
+        on_progress=on_progress,
+    )
+
+
+#: The estimators §14 permutes: those with a cross-validated score.
+_PERMUTABLE = (PLSRegressionSpec, PCRSpec, PLSDASpec, LDASpec, KNNSpec)
 
 
 def governing_split(node_id: NodeId, by_id: dict[NodeId, PipelineNode]) -> PipelineNode | None:

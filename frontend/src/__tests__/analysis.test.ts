@@ -22,6 +22,7 @@ import {
   leverageTraces,
   loadingsTraces,
   outliers,
+  permutationFigure,
   predictedTraces,
   rmsecvTrace,
   scoresTrace,
@@ -403,5 +404,27 @@ describe("the CARS plot (#283)", () => {
     expect(line.text![2]).toBe("9 variables · A 4");
     expect(kept.x).toEqual([2]);
     expect(kept.y).toEqual([2.2]);
+  });
+});
+
+
+describe("the permutation test's figure (#333)", () => {
+  it("bins every permuted score, and marks the observed one", () => {
+    const payload = {
+      node_id: "pls",
+      n_permutations: 6,
+      observed: 1,
+      null: [4, 5, 5, 6, 7, 9],
+      p_value: 1 / 7,
+      seed: 0,
+      greater_is_better: false,
+    };
+    const figure = permutationFigure(payload, theme);
+    const counts = figure.data[0].y as number[];
+    expect(counts).toHaveLength(20);
+    expect(counts.reduce((total, n) => total + n, 0)).toBe(6);
+    expect(figure.shapes[0].x0).toBe(1);
+    // The observed value is the low end of the axis, outside every bar.
+    expect(counts[0]).toBe(0);
   });
 });

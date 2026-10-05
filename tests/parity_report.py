@@ -308,6 +308,15 @@ COVERAGE: tuple[Coverage, ...] = (
         ("split.leave_one_group_out", "split.group_kfold"),
     ),
     Coverage(
+        "Permutation test",
+        ("permutation_test", "PermutationResult"),
+        not_compared="Compared in tests/test_permutation.py rather than through the fixture, "
+        "because it is a procedure over a fitted model rather than a value: scikit-learn's "
+        "`permutation_test_score`, handed our permutations and our folds, gives the same null "
+        "distribution and p-value for a PLS RMSECV and a PLS-DA accuracy "
+        "(`metrics-and-validation.md` section 14).",
+    ),
+    Coverage(
         "Model export: JSON model and prediction snippet",
         ("json_model", "python_snippet"),
         not_compared="Not a computation with an outside reference: the export must reproduce "
