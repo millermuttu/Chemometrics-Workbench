@@ -1227,7 +1227,10 @@ def test_below_a_split_the_curve_is_every_folds_and_the_model_is_every_samples(
     y = np.asarray(tecator.targets["fat"], dtype=np.float64)
     x_mean, y_mean = centred.mean(axis=0), float(y.mean())
     reference = PLS(4).fit(centred - x_mean, y - y_mean)
-    np.testing.assert_allclose(result.coefficients, reference.coefficients_, rtol=1e-9, atol=1e-12)
+    assert reference.coefficients_ is not None
+    np.testing.assert_allclose(
+        np.asarray(result.coefficients), reference.coefficients_, rtol=1e-9, atol=1e-12
+    )
     np.testing.assert_allclose(
         result.predicted, reference.predict(centred - x_mean) + y_mean, rtol=1e-9
     )
