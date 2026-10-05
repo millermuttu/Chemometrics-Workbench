@@ -2,7 +2,7 @@
 
 Compact state for the next session. **Overwrite this file at the end of every session** — it is a snapshot, not a log. Read it first, then `feature_list.json`, `git log` on `dev`, and the open issues.
 
-**Updated:** 2026-10-05
+**Updated:** 2026-10-05 (after #344)
 
 ---
 
@@ -11,9 +11,12 @@ Compact state for the next session. **Overwrite this file at the end of every se
 **`v1.1.0` is released** (2026-10-05), closing Phase 5; its list is archived at
 `docs/phase-5/feature_list.json` and its exit run at `docs/phase-5/exit-run.md`.
 
-**Phase 6, validation integrity, is open** (2026-10-05). `feature_list.json` is its list: 13 entries,
-issues #329 to #341, and a `decisions` block. In short:
-- Grouped splits (#329), so replicates never straddle a fold.
+**Phase 6, validation integrity, is open** (#342, merged 2026-10-05). `feature_list.json` is its list:
+14 entries, issues #329 to #341 plus #343, and a `decisions` block. In short:
+- **Grouped splits (#329) — passing, merged in #344.** `group_by` on K-fold, train/test and
+  leave-one-out (then leave-one-group-out); `validation.by_group` runs a splitter over the groups;
+  spec `metrics-and-validation.md` §8.8. Leave-one-group-out is identical to scikit-learn; grouped
+  K-fold is a recorded divergence from `GroupKFold`. Grouped and stratified together is refused.
 - The model saved and exported below a split is refitted on every sample (#330), decided by the
   maintainer; fold zero's stays only as the held-out view.
 - Nested validation of variable selection (#331) and selection from PLS-DA (#332).
@@ -23,8 +26,15 @@ issues #329 to #341, and a `decisions` block. In short:
 - Signed packages (#339), `blocked` until the maintainer has an Apple Developer ID and a Windows
   certificate.
 - Docs (#340), exit run (#341), one release `v1.2.0`.
+- **New, found during #329: #343.** A classifier below a split whose training fold holds one class
+  fails with "X and y have no covariance"; it should refuse naming the fold and class, once, in the
+  shared fit path. The e2e grouped test removes the seeded `plsda_d` for its duration because of it.
 
 `PROPOSAL.md` §16 has the Phase 6 row.
+
+**GitHub attribution:** the maintainer said on 2026-10-05 not to put "Generated with Claude"
+footers, session links or Claude `Co-Authored-By` trailers anywhere on GitHub — PRs, issues,
+comments or commits. Two earlier commits (`28cd7ec`, `51b8b7e`) carry them and were left as they are.
 
 ## Development data
 
@@ -73,7 +83,7 @@ that moves a quoted number fails the suite until the page is updated.
 so a user's pan survives), React Flow's `Controls` give a fit-view button, and the add-step menu
 opens away from the nearer window edge. `docs-examples.spec.ts` no longer reloads or drops upward.
 
-**Merging:** the maintainer gave a standing "merge when CI is green" on 2026-09-29, for that session.
+**Merging:** the maintainer asked for #342 and #344 to be merged on 2026-10-05, after CI was green. No standing approval carries into a new session.
 
 **#247, `ui-export-buttons`, is done.** `download()` in `api/client.ts` fetches with the token and
 saves through a blob URL; `screens/DownloadButton.tsx` shows the server's refusal beside the button.
@@ -185,7 +195,7 @@ Merged through green pull requests on `dev`:
   test factors both out. A splice-correction step would be a preprocessing feature, not a reader one.
 
 - **The classification example** runs on `docs/examples/meat.csv` (Quadram, CC0), which averages each
-  sample's two runs: the workbench has no grouped CV. Its walk is `e2e/docs-classification.spec.ts`
+  sample's two runs: the workbench had no grouped CV until #329 (the exit run, #341, uses the raw set). Its walk is `e2e/docs-classification.spec.ts`
   on a sixth Playwright server (8770, `classification`); the docs specs share `e2e/docs-helpers.ts`.
   The outlier and selection how-tos (`docs/how-to/`) continue the Tecator PLS example and quote
   numbers `tests/test_examples.py` recomputes.
@@ -194,5 +204,5 @@ Merged through green pull requests on `dev`:
 
 ## Next action
 
-Start `grouped-splits` (#329): it has no dependencies and the exit criterion leans on it. Then
-`final-model` (#330). Read each issue's body as well as its entry.
+Start `final-model` (#330): no dependencies, and the exit criterion needs an all-sample model that
+exports. Read the issue body as well as its entry. #343 is small and can follow it.
