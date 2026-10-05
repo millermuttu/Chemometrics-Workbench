@@ -296,3 +296,57 @@ test("a PCR runs on the dataset's target and reads as a regression without VIP",
   ]);
   await expect(page.getByRole("region", { name: "Predicted vs measured" })).toBeVisible();
 });
+
+test("a flagged sample is excluded from the outlier table, rerun, and named in lineage", async ({
+  page,
+}) => {
+  // #279, on the PCR the test above added. Excluding writes a derived version
+  // (#270's endpoint), the run starts by itself, and the comparison of the two
+  // runs names the source as what changed.
+  const auth = { Authorization: "Bearer e2e-token" };
+  await page.goto("/?token=e2e-token");
+  const original = (await (await page.request.get("/api/pipelines/current", { headers: auth })).json())
+    .nodes as { id: string; type: string; version_id?: string }[];
+  const source = original.find((node) => node.type === "source")!;
+  const served = await (await page.request.get("/api/results/pcr", { headers: auth })).json();
+  const n = (served.samples as unknown[]).length;
+  const flags = served.outliers.flags as { index: number }[];
+  expect(flags.length, "a 30-sample calibration flags something").toBeGreaterThan(0);
+  const sample = served.samples[flags[0].index].sample_id as string;
+
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /PCR 3 PC · moisture/ }).dblclick();
+  const row = page.getByTestId("outliers-row");
+  await row.scrollIntoViewIfNeeded();
+  await row.getByLabel(`Exclude ${sample}`, { exact: true }).check();
+  await row.getByRole("button", { name: "Exclude 1 and rerun" }).click();
+
+  try {
+    // The rerun is on the version without it.
+    await expect
+      .poll(
+        async () => {
+          const response = await page.request.get("/api/results/pcr", { headers: auth });
+          return response.ok() ? ((await response.json()).samples as unknown[]).length : 0;
+        },
+        { timeout: 60_000 },
+      )
+      .toBe(n - 1);
+    await expect(page.locator(".status")).toContainText("Done", { timeout: 60_000 });
+
+    // And lineage says what changed between the two runs: the source's version.
+    await outline.getByRole("button", { name: /^Run \d+/ }).first().dblclick();
+    await expect(page.getByTestId("experiment-view")).toBeVisible();
+    await page.getByTestId("compare-with").selectOption({ index: 1 });
+    const changed = page.getByTestId("lineage-view").getByTestId("lineage-node-changed");
+    await expect(changed).toHaveCount(1);
+    await expect(changed).toHaveAttribute("data-node", source.id);
+    await expect(changed).toContainText("version_id");
+  } finally {
+    // Back onto the version the walkthrough imported.
+    await page.request.put("/api/pipelines/current", {
+      headers: { ...auth, "Content-Type": "application/json" },
+      data: { nodes: original },
+    });
+  }
+});

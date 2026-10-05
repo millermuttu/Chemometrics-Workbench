@@ -82,6 +82,7 @@ function Pane({
   onOpenNode,
   onCompare,
   onCompareRuns,
+  onRun,
 }: {
   tab: Tab | undefined;
   datasets: DatasetEntry[] | undefined;
@@ -90,6 +91,7 @@ function Pane({
   onOpenNode: (id: string, label: string) => void;
   onCompare: (left: string, right: string) => void;
   onCompareRuns: (left: string, right: string) => void;
+  onRun: () => void;
   onImported: (versionId: string, name: string) => void;
   onCloseImport: () => void;
 }) {
@@ -117,7 +119,7 @@ function Pane({
       />
     );
   }
-  if (tab?.kind === "results") return <AnalysisResults nodeId={tab.id} title={tab.title} />;
+  if (tab?.kind === "results") return <AnalysisResults nodeId={tab.id} title={tab.title} onRun={onRun} />;
   if (tab?.kind === "model") return <ModelView modelId={tab.id} title={tab.title} />;
   if (tab?.kind === "experiment")
     return (
@@ -267,6 +269,10 @@ export function Shell() {
       setActionError(error instanceof Error ? error.message : "The request failed.");
     }
   }, []);
+
+  /** A run the analysis tab asks for after an exclusion (#279), tracked in
+   * the status bar like any other. */
+  const rerun = useCallback(() => void attempt(startRun), [attempt, startRun]);
 
   const open = useCallback(
     (tab: Omit<Tab, "transient">, transient: boolean) =>
@@ -502,11 +508,11 @@ export function Shell() {
             <EmptyProject onImport={openImport} />
           ) : state.splitId ? (
             <div className="split">
-              <Pane tab={activeTab} datasets={datasets.data} targets={targets} classColumns={classColumns} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} onCompareRuns={openLineage} />
-              <Pane tab={splitTab} datasets={datasets.data} targets={targets} classColumns={classColumns} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} onCompareRuns={openLineage} />
+              <Pane tab={activeTab} datasets={datasets.data} targets={targets} classColumns={classColumns} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} onCompareRuns={openLineage} onRun={rerun} />
+              <Pane tab={splitTab} datasets={datasets.data} targets={targets} classColumns={classColumns} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} onCompareRuns={openLineage} onRun={rerun} />
             </div>
           ) : (
-            <Pane tab={activeTab} datasets={datasets.data} targets={targets} classColumns={classColumns} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} onCompareRuns={openLineage} />
+            <Pane tab={activeTab} datasets={datasets.data} targets={targets} classColumns={classColumns} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} onCompareRuns={openLineage} onRun={rerun} />
           )}
         </main>
 

@@ -291,9 +291,9 @@
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; an e2e test flags, excludes, reruns and sees the exclusion in the comparison"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-05: uv run ruff check, ruff format --check, mypy (74 files) clean; uv run pytest - 1037 passed, 1 skipped. tests/test_api.py::test_a_regression_payload_flags_its_outliers_by_rule now asserts the outliers block names its dataset_id and version_id; with src/chemometrics_workbench/api.py stashed it fails with KeyError: 'version_id'. pnpm typecheck, lint, test (152 passed), build; pnpm exec playwright test - 84 passed. New e2e walkthrough.spec.ts 'a flagged sample is excluded from the outlier table, rerun, and named in lineage': ticks a flagged sample on the PCR's flags table, 'Exclude 1 and rerun', the served PCR result drops to n-1 samples, and the lineage of the newest run against the previous one marks exactly one changed node, the source, on version_id. With frontend/src stashed and rebuilt it fails at locator.check (no checkbox); 5 other walkthrough tests pass.",
+      "notes": "The exclusion is posted against the version the flags table was drawn from (outliers.dataset_id / version_id in the payload), not the pipeline's current source, so it cannot drop the wrong rows if the source has moved. The rerun is the shell's own startRun, so the status bar tracks it."
     },
     {
       "id": "select-variables-step",

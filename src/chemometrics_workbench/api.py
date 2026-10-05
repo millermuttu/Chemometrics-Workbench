@@ -599,6 +599,11 @@ def results_payload(
         # outliers.md: PCA, PLS and PCR only (section 1), from the stored
         # scores and fit, so an older result gets the same numbers.
         payload["outliers"] = _outliers(result)
+        # #279: the version these rows are rows of, so an exclusion from the
+        # flags table is made against exactly the version the table was drawn
+        # from - never against wherever the source has moved since.
+        payload["outliers"]["dataset_id"] = str(version.dataset_id)
+        payload["outliers"]["version_id"] = str(version.version_id)
     if result.simca:
         # simca.md section 5: no single X model and no confusion matrix, so
         # its own block - the class models' sizes and limits and, per set, the

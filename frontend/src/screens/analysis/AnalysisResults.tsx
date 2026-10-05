@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import {
   useCoefficients,
   useContributions,
+  useExcludeSamples,
   useResults,
   useSaveModel,
   type OutlierRule,
@@ -523,16 +524,63 @@ function Flags({
   pca,
   picked,
   onPick,
+  onExcluded,
 }: {
   pca: PcaPayload;
   picked: number | null;
   onPick: (index: number) => void;
+  /** Called once the derived version exists, to run the pipeline on it (#279). */
+  onExcluded?: () => void;
 }) {
+  // Ticked rows, by dataset row: what an exclusion is made of (#279).
+  const [ticked, setTicked] = useState<Set<number>>(new Set());
+  const exclude = useExcludeSamples();
   const block = pca.outliers;
   if (!block) return null;
   const caveats = Object.entries(block.caveats) as [OutlierRule, string][];
+  const toggle = (row: number) =>
+    setTicked((current) => {
+      const next = new Set(current);
+      if (next.has(row)) next.delete(row);
+      else next.add(row);
+      return next;
+    });
   return (
     <Panel title="Flagged samples" note={`${block.flags.length} of ${pca.n_samples}`} width={300}>
+      {/* Flagging is the diagnostics' job; leaving a sample out is the user's
+          (outliers.md section 1). It writes a derived version, as the dataset
+          table's exclusion does, and the pipeline reruns on it. */}
+      {ticked.size > 0 ? (
+        <div style={{ padding: "6px 12px", borderBottom: "1px solid var(--rule2)" }}>
+          <button
+            type="button"
+            className="btn"
+            disabled={exclude.isPending}
+            onClick={() =>
+              exclude.mutate(
+                {
+                  datasetId: block.dataset_id,
+                  fromVersionId: block.version_id,
+                  exclude: [...ticked],
+                },
+                {
+                  onSuccess: () => {
+                    setTicked(new Set());
+                    onExcluded?.();
+                  },
+                },
+              )
+            }
+          >
+            Exclude {ticked.size} and rerun
+          </button>
+        </div>
+      ) : null}
+      {exclude.error ? (
+        <p role="alert" className="mono" style={{ margin: "4px 12px", fontSize: 10, color: "var(--fail)" }}>
+          {exclude.error.message}
+        </p>
+      ) : null}
       {caveats.map(([rule, sentence]) => (
         <p
           key={rule}
@@ -547,6 +595,7 @@ function Flags({
         <table>
           <thead>
             <tr>
+              <th style={{ width: 26 }} aria-label="Exclude" />
               <th style={{ width: 74 }}>Sample</th>
               <th>Rules</th>
             </tr>
@@ -571,6 +620,15 @@ function Flags({
                     background: picked === sample.index ? "var(--sunken)" : undefined,
                   }}
                 >
+                  {/* Its own control: ticking a row is not opening it. */}
+                  <td onClick={(event) => event.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      aria-label={`Exclude ${sample.sample_id}`}
+                      checked={ticked.has(sample.index)}
+                      onChange={() => toggle(sample.index)}
+                    />
+                  </td>
                   <td className="mono" style={{ color: "var(--ink)" }}>
                     {sample.sample_id}
                   </td>
@@ -1007,7 +1065,16 @@ function SimcaResults({ pca, nodeId, title }: { pca: PcaPayload; nodeId: string;
   );
 }
 
-export function AnalysisResults({ nodeId, title }: { nodeId: string; title: string }) {
+export function AnalysisResults({
+  nodeId,
+  title,
+  onRun,
+}: {
+  nodeId: string;
+  title: string;
+  /** Starts a run the shell tracks, after an exclusion from the flags table. */
+  onRun?: () => void;
+}) {
   const results = useResults(nodeId);
   const [picked, setPicked] = useState<number | null>(null);
 
@@ -1171,7 +1238,7 @@ export function AnalysisResults({ nodeId, title }: { nodeId: string; title: stri
             {pca.outliers.studentised_residuals !== null || pca.outliers.caveats.residual ? (
               <LeverageResidual pca={pca} />
             ) : null}
-            <Flags pca={pca} picked={picked} onPick={setPicked} />
+            <Flags pca={pca} picked={picked} onPick={setPicked} onExcluded={onRun} />
           </div>
         )}
       </div>

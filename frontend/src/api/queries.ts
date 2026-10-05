@@ -194,6 +194,10 @@ export interface PcaPayload {
     caveats: Partial<Record<OutlierRule, string>>;
     /** Every calibration row that breaks a rule, naming each rule it breaks. */
     flags: { index: number; rules: OutlierRule[] }[];
+    /** The version these rows are rows of (#279): an exclusion from the flags
+     * table is made against it, not against wherever the source is now. */
+    dataset_id: string;
+    version_id: string;
   };
   /** The held-out rows of the fitted fold, present only below a split. Its
    * `observed` and `predicted` are there only for a regression. */
