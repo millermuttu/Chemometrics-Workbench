@@ -432,9 +432,9 @@
         "uv run pytest tests/test_readers_spc.py - real fixtures with licence: new and old format, single and multi-file, even and explicit axis",
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": "Source: archaeological bone and antler FTIR, 10.5281/zenodo.16108826 (CC-BY-4.0); local copy in dataset/spc/. Old-format and multi-file variety may come from rohanisaac/spc test_data (GPL-3.0) per decision 0006."
+      "status": "passing",
+      "evidence": "2026-10-05: uv run pytest tests/test_readers_spc.py - 11 passed on real fixtures with licences (tests/fixtures/readers/spc/LICENSE.md): new-format multifile even axis (nir.spc, 20 x 700 nm), new-format explicit x array (s_xy.spc), old-format single (DOERNER.spc, Raman shift) and old-format multifile (m_ordz.spc, 10 x 857) each match rohanisaac/spc's text conversion to rtol 1e-9; a negative subfile exponent is read signed (m_evenz.spc, matching the conversion times 2^exp where it reads zero); the CC-BY-4.0 bone FTIR file reads as 1 x 14935, 3999.88 to 399.92 cm-1; xyxy (ms.spc), non-SPC and truncated files are refused by name. tests/test_server.py imports nir.spc as one 20 x 700 dataset. With src/ stashed 12 fail. uv run pytest - 1092 passed, 1 skipped; ruff, mypy clean; pnpm exec playwright test - 88 passed; docs/first-pca.md lists .spc; mkdocs --strict clean.",
+      "notes": "Settled against the reference files: each subfile is scaled by its own signed exponent, except a single old-format spectrum (main header's); old-format integers are high word first. Big-endian new format (0x4C) and xyxy are refused by name. A folder or zip of single-spectrum SPC files (the bone set is 31) imports one file at a time for now; .zip is the OPUS reader's suffix."
     },
     {
       "id": "reader-spa",
