@@ -5,7 +5,9 @@ functions over arrays with no knowledge of the application, and the executor
 holds the orchestration. So nothing here reaches into `preprocessing.py`, and
 nothing about caching, folds or jobs is added to it. `from_spec` is the seam,
 and after #82 it needs exactly one thing the recipe does not carry: the
-variable axis for `RangeSelect`, which belongs to the `DatasetVersion`.
+variable axis for `RangeSelect`, which belongs to the `DatasetVersion`. Each
+step is given the axis of its own input - the dataset's, narrowed by every
+selection above it (`node_axis`, #312).
 
 ## What a node's output is
 
@@ -149,7 +151,9 @@ from chemometrics_workbench.models import (
     PipelineNode,
     PLSDASpec,
     PLSRegressionSpec,
+    RangeSelect,
     ResolvedSplit,
+    SelectVariables,
     SIMCASpec,
     TrainTestSplit,
 )
@@ -671,7 +675,12 @@ def execute(
             # array k times, and one file, and are read back once.
             arrays: list[NDArray[np.float64]] = []
             read_back: dict[str, NDArray[np.float64]] = {}
-            for values in _computed(node, parent, folds, path, version, axis):
+            # #312: the axis this step's input is on, which a selection above
+            # it has narrowed.
+            given = (
+                node_axis(pipeline, node.inputs[0], version) if node.type == "preprocess" else axis
+            )
+            for values in _computed(node, parent, folds, path, version, given):
                 array_path, content_hash = write_array(path, values)
                 del values
                 stored.append(array_path)
@@ -2041,6 +2050,51 @@ def stored_fitted_matrix(
         return None
     state = _from_cache(path, paths, governing_folds(parent, by_id, version))
     return None if state is None else state.arrays[0]
+
+
+def node_axis(pipeline: Pipeline, node_id: NodeId, version: DatasetVersion) -> NDArray[np.float64]:
+    """The axis a node's output is on, which is not always the dataset's.
+
+    `RangeSelect` and `SelectVariables` (#280) change the variable count, so a node
+    under one is on a shorter axis than the `DatasetVersion` records and every
+    payload that pairs the two has to know it, and so does the executor: each
+    step is built with its input's axis, not the dataset's (#312). No per-node
+    axis is stored - a second thing beside the cached arrays would have to
+    stay consistent with them - so this derives it instead, from the recipe.
+
+    That derivation is free of the executor's guarantees precisely because it
+    is a pure function of the pipeline: it reads no array, writes nothing, and
+    cannot move a content hash or invalidate a cache entry.
+
+    Every non-source node holds exactly one input, so the ancestry is a chain
+    rather than a tree and the selections apply in order down it. The mask is
+    taken from the step's `Selection` transformer rather than restated here, so the
+    interval's meaning — inclusive bounds, either axis direction, an empty
+    selection refused — is stated once.
+    """
+    by_id = {node.id: node for node in pipeline.nodes}
+    chain: list[PipelineNode] = []
+    current = node_id
+    while True:
+        node = by_id[current]
+        chain.append(node)
+        if not node.inputs:
+            break
+        current = node.inputs[0]
+
+    axis = np.asarray(version.axis.values, dtype=np.float64)
+    for node in reversed(chain):
+        if node.type != "preprocess" or not isinstance(node.step, RangeSelect | SelectVariables):
+            continue
+        transformer = preprocessing.from_spec(node.step, axis=axis)
+        assert isinstance(transformer, preprocessing.Selection)
+        # Fitting a range selection needs the axis and the variable count, not
+        # the data: `_fit` reads `X.shape[1]` and nothing else. One empty row
+        # supplies the width without loading an array this function has no
+        # reason to read.
+        transformer.fit(np.zeros((1, axis.size)))
+        axis = transformer.selected_axis()
+    return axis
 
 
 def stored_fold_matrices(

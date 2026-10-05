@@ -71,6 +71,7 @@ from chemometrics_workbench.executor import (
     governing_split,
     has_kernel,
     metrics_for,
+    node_axis,
     stored,
 )
 from chemometrics_workbench.executor import stored_display as _stored_display
@@ -90,8 +91,6 @@ from chemometrics_workbench.models import (
     PipelineNode,
     PreprocessStep,
     Project,
-    RangeSelect,
-    SelectVariables,
     SourceNode,
     SplitSpec,
 )
@@ -870,50 +869,6 @@ def decimate(
         kept_list.extend(sorted((low, high)))
     kept = np.asarray(kept_list, dtype=np.intp)
     return kept, axis[kept]
-
-
-def node_axis(pipeline: Pipeline, node_id: NodeId, version: DatasetVersion) -> NDArray[np.float64]:
-    """The axis a node's output is on, which is not always the dataset's.
-
-    `RangeSelect` and `SelectVariables` (#280) change the variable count, so a node
-    under one is on a shorter axis than the `DatasetVersion` records and every
-    payload that pairs the two has to know it. `executor.py` deliberately keeps
-    no per-node axis — a second thing beside the cached arrays would have to
-    stay consistent with them — so this derives it instead, from the recipe.
-
-    That derivation is free of the executor's guarantees precisely because it
-    is a pure function of the pipeline: it reads no array, writes nothing, and
-    cannot move a content hash or invalidate a cache entry.
-
-    Every non-source node holds exactly one input, so the ancestry is a chain
-    rather than a tree and the selections apply in order down it. The mask is
-    taken from the step's `Selection` transformer rather than restated here, so the
-    interval's meaning — inclusive bounds, either axis direction, an empty
-    selection refused — is stated once.
-    """
-    by_id = {node.id: node for node in pipeline.nodes}
-    chain: list[PipelineNode] = []
-    current = node_id
-    while True:
-        node = by_id[current]
-        chain.append(node)
-        if not node.inputs:
-            break
-        current = node.inputs[0]
-
-    axis = np.asarray(version.axis.values, dtype=np.float64)
-    for node in reversed(chain):
-        if node.type != "preprocess" or not isinstance(node.step, RangeSelect | SelectVariables):
-            continue
-        transformer = preprocessing.from_spec(node.step, axis=axis)
-        assert isinstance(transformer, preprocessing.Selection)
-        # Fitting a range selection needs the axis and the variable count, not
-        # the data: `_fit` reads `X.shape[1]` and nothing else. One empty row
-        # supplies the width without loading an array this function has no
-        # reason to read.
-        transformer.fit(np.zeros((1, axis.size)))
-        axis = transformer.selected_axis()
-    return axis
 
 
 def _preprocess_chain(pipeline: Pipeline, node_id: NodeId) -> tuple[list[PipelineNode], NodeId]:

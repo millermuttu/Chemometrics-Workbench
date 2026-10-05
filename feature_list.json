@@ -341,9 +341,9 @@
       "verification": [
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": "Found during #280. The executor hands every step the dataset's axis; api.node_axis already derives the right one."
+      "status": "passing",
+      "evidence": "2026-10-05: tests/test_select_variables.py::test_a_range_selection_below_another_selection_runs, parametrised over a RangeSelect and a SelectVariables above a RangeSelect, failed on dev with 'axis has 100 values but X has 71 variables' and '... 70 variables' and passes now, the PLS below fitted on the 2 positions kept and node_axis reporting their real wavelengths. tests/test_executor.py's test recording the refusal as a limit is replaced by one asserting the composition (the second selection reads its bounds on the narrowed axis), matching test_node_axis.py::test_two_selections_compose_in_order. uv run ruff check, ruff format --check, mypy (77 files) clean; uv run pytest - 1071 passed, 1 skipped; pnpm exec playwright test - 87 passed.",
+      "notes": "node_axis moved from api.py into executor.py (api re-exports it) and the executor builds each preprocessing step with its input's axis. SelectVariablesTransformer's positions fallback for a wrong-width axis is gone: a mismatch now raises, as RangeSelect's does."
     },
     {
       "id": "vip-selection",

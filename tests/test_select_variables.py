@@ -138,3 +138,44 @@ def _version(tecator: Any, array_path: str) -> DatasetVersion:
         targets={"fat": [float(v) for v in tecator.targets["fat"]]},
         array_path=array_path,
     )
+
+
+@pytest.mark.parametrize(
+    "above",
+    [
+        RangeSelect(start=0.0, end=1.0),  # replaced below by a real window
+        SelectVariables(indices=list(range(10, 80))),
+    ],
+)
+def test_a_range_selection_below_another_selection_runs(tmp_path: Path, above: Any) -> None:
+    """#312: the executor handed every step the dataset's axis, so a range
+    selection below any selection refused an axis longer than its input."""
+    tecator = load_tecator()
+    axis = np.asarray(tecator.axis.values)
+    if isinstance(above, RangeSelect):
+        above = RangeSelect(start=float(axis[10]), end=float(axis[80]))
+    directory = tmp_path / "project"
+    create_project(directory, "nested")
+    array_path, _ = write_array(directory, tecator.spectra)
+    version = _version(tecator, array_path)
+    pipeline = Pipeline(
+        project_id=uuid4(),
+        name="nested",
+        nodes=[
+            SourceNode(id="source", version_id=version.version_id),
+            PreprocessNode(id="outer", inputs=("source",), step=above),
+            PreprocessNode(
+                id="inner",
+                inputs=("outer",),
+                step=RangeSelect(start=float(axis[20]), end=float(axis[50])),
+            ),
+            PreprocessNode(id="pick", inputs=("inner",), step=SelectVariables(indices=[0, 30])),
+            EstimatorNode(
+                id="pls", inputs=("pick",), spec=PLSRegressionSpec(n_components=1, target="fat")
+            ),
+        ],
+    )
+    result = execute(directory, pipeline, version).results["pls"]
+    assert result.n_variables == 2
+    # And the axis it is on is the real one, end to end.
+    assert node_axis(pipeline, "pls", version).tolist() == axis[[20, 50]].tolist()

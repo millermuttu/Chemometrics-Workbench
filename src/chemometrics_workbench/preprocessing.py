@@ -532,17 +532,11 @@ class SelectVariablesTransformer(Selection):
         mask = np.zeros(width, dtype=bool)
         mask[self.indices] = True
         self.mask_ = mask
-        # The executor hands every step the dataset's axis, which is not this
-        # input's once a selection sits above it; only the payload and export
-        # read `selected_axis`, and they pass the axis they have narrowed. So
-        # an axis of the wrong width is not this input's, and positions stand
-        # in for it rather than a wrong axis being sliced.
-        given = self._axis
-        self.axis = (
-            given
-            if given is not None and given.size == width
-            else np.arange(width, dtype=np.float64)
-        )
+        # Without an axis, positions stand in for one. With one, it is this
+        # input's: the executor narrows it after every selection (#312).
+        if self._axis is not None and self._axis.size != width:
+            raise ValueError(f"axis has {self._axis.size} values but X has {width} variables")
+        self.axis = np.arange(width, dtype=np.float64) if self._axis is None else self._axis
 
 
 # --------------------------------------------------------------------------
