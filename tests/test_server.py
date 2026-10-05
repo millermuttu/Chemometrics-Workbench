@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib
+import io
 import json
 import sqlite3
 import time
@@ -1448,3 +1449,17 @@ def test_an_spc_multifile_imports_as_one_dataset(client: TestClient) -> None:
     version = entry.json()["versions"][0]
     assert (version["n_samples"], version["n_variables"]) == (20, 700)
     assert version["axis"]["kind"] == "wavelength_nm"
+
+
+def test_a_zip_of_spa_files_imports_as_one_dataset(client: TestClient) -> None:
+    """#286: a zip whose members are all SPA files goes to the SPA reader, not OPUS."""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as bundle:
+        for file in sorted((READER_FILES / "spa" / "dust").glob("*.SPA")):
+            bundle.write(file, file.name)
+    files = {"file": ("dust.zip", buffer.getvalue())}
+    entry = client.post("/api/import", files=files, headers=AUTH)
+    assert entry.status_code == 200, entry.text
+    version = entry.json()["versions"][0]
+    assert (version["n_samples"], version["n_variables"]) == (3, 29868)
+    assert version["axis"]["kind"] == "wavenumber_cm-1"

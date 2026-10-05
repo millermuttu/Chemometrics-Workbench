@@ -135,6 +135,9 @@ Merged through green pull requests on `dev`:
 | LDA | #276 | #305 |
 | kNN | #277 | #307 |
 | SIMCA and kNN export, the chain as an affine map | #306 | #308 |
+| MATLAB `.mat` reader | #284 | #320 |
+| Galactic SPC reader | #285 | #321 |
+| Thermo OMNIC SPA reader (single file, or a zip of them) | #286 | #322 (open) |
 
 ## What these left behind, worth knowing
 
@@ -159,8 +162,12 @@ Merged through green pull requests on `dev`:
   deterministically; check its diff is only the new entries and the date. The parity report needs the
   whole suite run first (`uv run pytest`, then `uv run python -m tests.parity_report`).
 
+- **Reader fixtures** live in `tests/fixtures/readers/<format>/` with a `LICENSE.md`; the source DOIs
+  are in decision 0006. **A `.zip` is OPUS's unless every member is `.spa`** (`spa.is_spa_archive`,
+  checked first in `reader_for`). A future zip-of-X reader should extend that check the same way.
+
 ## Next action
 
-Every classifier is done. Pick up `outlier-diagnostics` (#278), then `exclude-flagged` (#279), which
-needs it and `sample-exclusion`. After those, the variable-selection run: `select-variables-step`
-(#280), then VIP, iPLS and CARS. The four readers (#284 to #287) have no dependencies.
+#322 (SPA) is waiting on CI and then needs a merge. After it: `reader-asd` (#287, no dependencies,
+data in `dataset/asd/`), then `outlier-diagnostics` (#278), then `exclude-flagged` (#279), then the
+variable-selection run: `select-variables-step` (#280), VIP, iPLS and CARS.
