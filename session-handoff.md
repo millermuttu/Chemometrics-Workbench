@@ -135,6 +135,14 @@ Merged through green pull requests on `dev`:
 | LDA | #276 | #305 |
 | kNN | #277 | #307 |
 | SIMCA and kNN export, the chain as an affine map | #306 | #308 |
+| Outlier diagnostics: leverage, studentised residuals, FastMCD, flags table | #278 | #310 |
+| Exclude flagged samples | #279 | #311 |
+| FastMCD speed, outliers off the payload | #314 | #315 |
+| `select_variables` step | #280 | #313 |
+| VIP selection | #281 | #316 |
+| iPLS | #282 | #317 |
+| CARS | #283 | #318 |
+| Each step gets its input's axis (nested selections) | #312 | #319 |
 | MATLAB `.mat` reader | #284 | #320 |
 | Galactic SPC reader | #285 | #321 |
 | Thermo OMNIC SPA reader (single file, or a zip of them) | #286 | #322 |
@@ -172,6 +180,7 @@ Merged through green pull requests on `dev`:
 
 ## Next action
 
-All four readers are done; #323 (ASD) merges when CI is green. Next: `outlier-diagnostics` (#278), then
-`exclude-flagged` (#279), then the variable-selection run: `select-variables-step` (#280), VIP, iPLS
-and CARS.
+Every Phase 5 method and reader is passing; #323 (ASD) merges when CI is green. What is left:
+`docs-phase-5` (#288: algorithm pages, a worked classification example on the Quadram meat set
+recomputed by `tests/test_examples.py` and walked by `docs-examples.spec.ts`, outlier and selection
+how-tos), then `phase-5-exit-run` (#289), then `dev` into `main` and the `v1.1.0` tag.
