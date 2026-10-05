@@ -120,6 +120,7 @@ from chemometrics_workbench.project import (
 )
 from chemometrics_workbench.regression import coefficients_original_units
 from chemometrics_workbench.report import render_report, report_filename
+from chemometrics_workbench.validation import Fold
 
 __all__ = [
     "ESTIMATOR_NOT_FITTED",
@@ -1709,9 +1710,18 @@ def get_outliers(node_id: str) -> Any:
     return outliers_payload(result, version)
 
 
-@router.get("/results/{node_id}/ipls")
-def get_ipls(node_id: str, n_intervals: int = 20, max_components: int | None = None) -> Any:
-    """`variable-selection.md` §2-§4: interval PLS on a PLS node's input (#282)."""
+def _selection_inputs(
+    node_id: str, method: str
+) -> tuple[
+    EstimatorResult,
+    list[NDArray[np.float64]],
+    list[Fold],
+    NDArray[np.float64],
+    NDArray[np.float64],
+]:
+    """What iPLS and CARS run on (`variable-selection.md` §2, §6): a PLS node's
+    stored per-fold input, its folds, its response and its axis - or a refusal
+    naming what is missing."""
     directory, pipeline, version = _runnable()
     result = _stored_result(directory, pipeline, version, node_id)
     if result is None:
@@ -1722,8 +1732,8 @@ def get_ipls(node_id: str, n_intervals: int = 20, max_components: int | None = N
         raise _fail(
             422,
             "not_a_pls",
-            f"node {node_id!r} is a {result.method or result.task}; iPLS fits PLS models, so it "
-            "is run from a PLS regression (variable-selection.md section 2).",
+            f"node {node_id!r} is a {result.method or result.task}; {method} fits PLS models, so "
+            "it is run from a PLS regression (variable-selection.md).",
             node_id=node_id,
         )
     stored = _stored_fold_matrices(directory, pipeline, version, NodeId(node_id))
@@ -1731,20 +1741,25 @@ def get_ipls(node_id: str, n_intervals: int = 20, max_components: int | None = N
         raise _fail(
             422,
             "needs_cross_validation",
-            f"node {node_id!r} has no cross-validation split above it. iPLS compares "
+            f"node {node_id!r} has no cross-validation split above it. {method} compares "
             "cross-validated errors, so it needs a K-fold or leave-one-out split with at least "
-            "two folds (variable-selection.md section 2).",
+            "two folds (variable-selection.md).",
             node_id=node_id,
         )
-    matrices, folds = stored
     y = np.asarray(version.targets[result.target or ""], dtype=np.float64)
+    return result, stored[0], stored[1], y, node_axis(pipeline, NodeId(node_id), version)
+
+
+@router.get("/results/{node_id}/ipls")
+def get_ipls(node_id: str, n_intervals: int = 20, max_components: int | None = None) -> Any:
+    """`variable-selection.md` §2-§4: interval PLS on a PLS node's input (#282)."""
+    result, matrices, folds, y, axis = _selection_inputs(node_id, "iPLS")
     try:
         found = selection.ipls(
             matrices, y, folds, n_intervals, max_components or result.n_components
         )
     except ValueError as error:
         raise _fail(422, "invalid_ipls", str(error), node_id=node_id) from error
-    axis = node_axis(pipeline, NodeId(node_id), version)
     return {
         "intervals": [
             {
@@ -1759,6 +1774,33 @@ def get_ipls(node_id: str, n_intervals: int = 20, max_components: int | None = N
         ],
         "full": {"rmsecv": found.full_rmsecv, "n_components": found.full_components},
         "steps": [{"interval": k, "rmsecv": rmsecv} for k, rmsecv in found.steps],
+        "selected": found.selected,
+    }
+
+
+@router.get("/results/{node_id}/cars")
+def get_cars(
+    node_id: str, n_runs: int = 50, seed: int = 0, max_components: int | None = None
+) -> Any:
+    """`variable-selection.md` §6: CARS on a PLS node's input (#283)."""
+    result, matrices, folds, y, _ = _selection_inputs(node_id, "CARS")
+    try:
+        found = selection.cars(
+            matrices, y, folds, max_components or result.n_components, n_runs=n_runs, seed=seed
+        )
+    except ValueError as error:
+        raise _fail(422, "invalid_cars", str(error), node_id=node_id) from error
+    return {
+        "runs": [
+            {
+                "n_variables": len(run.variables),
+                "rmsecv": run.rmsecv,
+                "n_components": run.n_components,
+            }
+            for run in found.runs
+        ],
+        "best": found.best,
+        "seed": seed,
         "selected": found.selected,
     }
 

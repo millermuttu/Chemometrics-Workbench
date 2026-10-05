@@ -399,9 +399,9 @@
         "uv run python -m tests.parity_report - docs/parity-report.md regenerated with the new rows, and test_parity_coverage green",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-05: variable-selection.md covers CARS (section 6: schedule, forced removal, adaptive reweighted sampling, seeded generator, per-fold RMSECV, reported quantities, not-compared reason) and section 0 the selection_shares_samples warning. uv run pytest - 1069 passed, 1 skipped: tests/test_selection.py CARS deterministic for a seed (and different for another), recovers all five informative variables of a 60-variable synthetic set with fewer than 20 kept, retained set never grows and ends at <= 2, refusals; tests/test_checks.py selection_shares_samples fires on a CARS selection under a split and names the estimator, is silent with no validation and with no chosen_by, and an unset chosen_by leaves the step's JSON (hash) unchanged; tests/test_server.py /results/pls/cars seeded and repeatable, refused 422 needs_cross_validation without a split. With src/ stashed, test_checks and test_selection fail at collection. Parity report regenerated: CARS COVERAGE row not compared with its reason, 168/168 claims, test_parity_coverage green. pnpm typecheck, lint, test (161 passed: carsTraces, chosen_by recorded by applySelection, 'Select 4 vars · CARS'), build; pnpm exec playwright test - 87 passed. New e2e: CARS 20 runs, count equals the seeded server run, Apply runs pls_d_selected on exactly those variables, validate returns selection_shares_samples on pls_d_select naming pls_d_selected, outline shows 'Select N vars · CARS'; with frontend/src stashed and rebuilt it fails at selectOption. mkdocs --strict clean.",
+      "notes": "Served at GET /results/{node}/cars?n_runs=&seed=, sharing its input checks with iPLS (api._selection_inputs). SelectVariables gained an optional chosen_by (vip, coefficients, ipls, cars), excluded when unset so existing steps keep their hash; every Apply now records it, so VIP, |b| and iPLS selections earn the same warning."
     },
     {
       "id": "reader-mat",

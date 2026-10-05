@@ -271,6 +271,13 @@ describe("applying a variable selection (#281)", () => {
     ]);
   });
 
+  it("records which method chose the positions, and nothing when none did", () => {
+    const [chosen] = applySelection(nodes, "pls", [1, 2], "cars").slice(3);
+    expect(chosen.step).toEqual({ kind: "select_variables", indices: [1, 2], chosen_by: "cars" });
+    const [plain] = applySelection(nodes, "pls", [1, 2]).slice(3);
+    expect(plain.step).not.toHaveProperty("chosen_by");
+  });
+
   it("refuses an empty selection and anything that is not an estimator", () => {
     expect(() => applySelection(nodes, "pls", [])).toThrow("keeps no variables");
     expect(() => applySelection(nodes, "centre", [1])).toThrow("applied to an estimator");

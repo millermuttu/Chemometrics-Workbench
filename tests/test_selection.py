@@ -12,7 +12,7 @@ import pytest
 
 from chemometrics_workbench.datasets import load_tecator
 from chemometrics_workbench.regression import rmsecv_curve
-from chemometrics_workbench.selection import interval_bounds, ipls
+from chemometrics_workbench.selection import cars, interval_bounds, ipls
 from chemometrics_workbench.validation import k_fold, train_test
 
 
@@ -69,3 +69,61 @@ def test_a_matrix_per_fold_is_used_fold_by_fold() -> None:
     folds = k_fold(30, 3)
     same = ipls([x, x, x], y, folds, 3, 2)
     assert same.intervals == ipls(x, y, folds, 3, 2).intervals
+
+
+# --------------------------------------------------------------------------
+# CARS, section 6
+# --------------------------------------------------------------------------
+
+
+def _planted(seed: int = 3) -> tuple[np.ndarray, np.ndarray, list[int]]:
+    """Sixty noise variables, five of which carry y."""
+    rng = np.random.default_rng(seed)
+    x = rng.standard_normal((80, 60))
+    informative = [7, 19, 33, 41, 52]
+    y = x[:, informative] @ np.array([1.0, -0.8, 0.6, 0.9, -0.7]) + 0.05 * rng.standard_normal(80)
+    return x, y, informative
+
+
+def test_cars_is_deterministic_for_a_seed() -> None:
+    x, y, _ = _planted()
+    folds = k_fold(80, 5)
+    first, again = cars(x, y, folds, 5, seed=11), cars(x, y, folds, 5, seed=11)
+    assert first.runs == again.runs and first.best == again.best
+    assert cars(x, y, folds, 5, seed=12).runs != first.runs
+
+
+def test_cars_recovers_the_informative_variables() -> None:
+    x, y, informative = _planted()
+    result = cars(x, y, k_fold(80, 5), 5, n_runs=50)
+    assert set(informative) <= set(result.selected)
+    assert len(result.selected) < 20, "and leaves most of the noise behind"
+
+
+def test_cars_shrinks_on_its_schedule_and_reports_every_run() -> None:
+    x, y, _ = _planted()
+    result = cars(x, y, k_fold(80, 5), 3, n_runs=20)
+    sizes = [len(run.variables) for run in result.runs]
+    assert len(sizes) == 20
+    assert sizes == sorted(sizes, reverse=True), "the retained set never grows"
+    assert sizes[-1] <= 2
+    assert result.runs[result.best].rmsecv == min(run.rmsecv for run in result.runs)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"n_runs": 1}, "at least two sampling runs"),
+        ({"fraction": 1.0}, "between 0 and 1"),
+    ],
+)
+def test_cars_refuses_settings_it_cannot_run(kwargs: dict[str, float], message: str) -> None:
+    x, y, _ = _planted()
+    with pytest.raises(ValueError, match=message):
+        cars(x, y, k_fold(80, 5), 3, **kwargs)  # type: ignore[arg-type]
+
+
+def test_cars_without_cross_validation_is_refused() -> None:
+    x, y, _ = _planted()
+    with pytest.raises(ValueError, match="at least two folds"):
+        cars(x, y, train_test(80, 0.25), 3)

@@ -17,8 +17,11 @@ Three methods produce positions:
 | VIP threshold (#281) | VIP at or above a cut, conventionally 1 (`pls-regression.md` §9) |
 | Coefficient threshold (#281) | $\lvert b_j \rvert$ at or above a cut, on the estimator's own axis |
 | iPLS (#282) | The union of the intervals forward selection adds (§3) |
+| CARS (#283) | The subset of the sampling run with the lowest RMSECV (§6) |
 
 **A selection made on every sample leaks.** iPLS chooses its intervals by cross-validated error, and the cross-validated error of the model built on those intervals is then optimistic, because the same folds chose them. This is the same leak `metrics-and-validation.md` §9 describes for preprocessing, moved one level up. The honest estimate of a selected model's error comes from samples the selection never saw: a held-out set, or a selection repeated inside an outer loop.
+
+**The pipeline says so.** *Apply selection* records the method in the step's `chosen_by`. When an estimator below such a step is validated, that is, has a split anywhere above it, `checks.py` raises `selection_shares_samples` on the step and names the estimator. A step written by hand, with no `chosen_by`, is not warned about, and an unset `chosen_by` leaves a step's JSON, and so its content hash, as it was before the field existed.
 
 ---
 
@@ -76,10 +79,34 @@ Against scikit-learn 1.9's `PLSRegression(scale=False)`, on the folds the PLS en
 
 ---
 
-## 6. Known divergences
+## 6. CARS
+
+Competitive adaptive reweighted sampling (Li, Liang, Xu and Cao, 2009, *Anal. Chim. Acta* 648, 77). With $p$ variables on the estimator's input and $N$ sampling runs (default 50):
+
+1. All $p$ variables are retained at the start.
+2. For run $i = 1, \dots, N$:
+   - Draw a random $80\%$ of the samples (rounded), without replacement.
+   - Fit a PLS (`pls-regression.md`) on those samples and the retained variables, centred on the drawn samples. The component count is $\min(A_{\max}$, retained count, drawn count $- 1)$.
+   - Weight each retained variable by $w_j = \lvert b_j \rvert / \sum \lvert b \rvert$. If every $b_j$ is zero, the weights are equal.
+   - **Forced removal by the exponentially decreasing function**: keep the $m_i = \max(2, \operatorname{round}(r_i p))$ heaviest variables, where $r_i = a e^{-k i}$, $a = (p/2)^{1/(N-1)}$ and $k = \ln(p/2)/(N-1)$. So $r_1 = 1$ and $r_N = 2/p$. Ties go to the earlier position.
+   - **Adaptive reweighted sampling**: draw $m_i$ times, with replacement, from those $m_i$ variables with probability proportional to their weights. The distinct variables drawn are the ones retained.
+   - Cross-validate a PLS on the retained variables as in §2, and record its RMSECV and component count.
+3. The selection is the retained set of the run with the lowest RMSECV, the earliest one on a tie.
+
+**Randomness.** Both the samples drawn and the reweighted sampling come from one `numpy.random.default_rng(seed)`, with seed 0 unless one is given. A seed always gives the same runs. Every fit is cross-validated on the stored per-fold matrices, as iPLS's are. The sampling fits use fold zero's matrix, which is the matrix the estimator itself was fitted on.
+
+**Reported quantities.** Per run: the retained count, the RMSECV and the component count. Also the best run, the seed and the selected positions.
+
+**Parity: not compared.** There is no reference implementation in this environment. CARS is published as MATLAB code, and its Python ports are not established, versioned libraries. Its randomness also makes a value-by-value comparison meaningless unless both sides draw the same numbers. The claim rests on these checks in `tests/test_selection.py` instead: the same seed gives the same runs and a different seed different ones; the retained set never grows and ends at two variables or fewer; and on a synthetic set of 60 noise variables, five of which carry the response, the selection contains all five and fewer than 20 variables in total.
+
+---
+
+## 7. Known divergences
 
 | Area | Here | Elsewhere |
 | --- | --- | --- |
 | Interval cut | $K$ intervals by variable count | `mdatools` and the original MATLAB toolbox also cut by a fixed width |
 | Component count | The first minimum of each curve | Some tools take the first local minimum, or a minimum within one standard error |
 | Direction | Forward only | `mdatools` also offers backward elimination |
+| CARS components | Capped at $A_{\max}$, chosen per run at the RMSECV curve's first minimum | The original fixes $A$, and chooses it by its own cross-validation |
+| CARS sampling | 80% of the samples per run, one seeded generator | The original's fraction is also 80%; its runs are not reproducible across implementations |

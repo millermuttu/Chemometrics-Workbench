@@ -121,6 +121,15 @@ COVERAGE: tuple[Coverage, ...] = (
         ("ipls.interval_rmsecv", "ipls.forward_path"),
     ),
     Coverage(
+        "CARS",
+        ("cars", "CARSRun", "CARSResult"),
+        not_compared="No established reference: CARS is published as MATLAB code, its Python "
+        "ports are not versioned libraries, and its randomness makes a value-by-value comparison "
+        "meaningless unless both sides draw the same numbers. Determinism for a seed, the "
+        "shrinking schedule and recovery of the informative variables on a synthetic set are "
+        "tested in tests/test_selection.py (variable-selection.md section 6).",
+    ),
+    Coverage(
         "Leverage and studentised residuals",
         ("leverage", "leverage_limit", "studentised_residuals"),
         not_compared="No reference in this environment: the R mdatools comparison the plan "

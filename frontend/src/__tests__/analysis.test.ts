@@ -16,6 +16,7 @@ import {
   coefficientTrace,
   contributionTrace,
   ellipseTrace,
+  carsTraces,
   influenceTraces,
   iplsFigure,
   leverageTraces,
@@ -381,5 +382,26 @@ describe("the iPLS figure (#282)", () => {
     expect(bars.marker.color).toEqual([theme.band, theme.series[0], theme.band]);
     // The full spectrum's RMSECV is the line they are read against.
     expect(shapes[0].y0).toBe(1.8);
+  });
+});
+
+describe("the CARS plot (#283)", () => {
+  it("draws RMSECV per run and rings the run that was kept", () => {
+    const payload = {
+      runs: [
+        { n_variables: 100, rmsecv: 3.1, n_components: 5 },
+        { n_variables: 40, rmsecv: 2.2, n_components: 5 },
+        { n_variables: 9, rmsecv: 2.6, n_components: 4 },
+      ],
+      best: 1,
+      seed: 0,
+      selected: [1, 2],
+    };
+    const [line, kept] = carsTraces(payload, theme) as { x: number[]; y: number[]; text?: string[] }[];
+    expect(line.x).toEqual([1, 2, 3]);
+    expect(line.y).toEqual([3.1, 2.2, 2.6]);
+    expect(line.text![2]).toBe("9 variables · A 4");
+    expect(kept.x).toEqual([2]);
+    expect(kept.y).toEqual([2.2]);
   });
 });

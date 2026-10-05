@@ -601,6 +601,25 @@ export interface IplsPayload {
   selected: number[];
 }
 
+/** `variable-selection.md` section 6 (#283). */
+export interface CarsPayload {
+  runs: { n_variables: number; rmsecv: number; n_components: number }[];
+  best: number;
+  seed: number;
+  selected: number[];
+}
+
+/** Run only when asked: `runs` is null until the user presses Run. */
+export function useCars(nodeId: string, runs: number | null) {
+  return useQuery({
+    queryKey: ["cars", nodeId, runs],
+    queryFn: () => api<CarsPayload>(`/results/${nodeId}/cars?n_runs=${runs}`),
+    enabled: runs !== null,
+    staleTime: Infinity,
+    retry: false,
+  });
+}
+
 /** Run only when asked: `intervals` is null until the user presses Run. */
 export function useIpls(nodeId: string, intervals: number | null) {
   return useQuery({

@@ -307,6 +307,15 @@ class SelectVariables(Frozen):
 
     kind: Literal["select_variables"] = "select_variables"
     indices: list[int] = Field(min_length=1)
+    chosen_by: Literal["vip", "coefficients", "ipls", "cars"] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description=(
+            "The method that chose the positions, if one did (#283). A selection chosen "
+            "from the data shares its samples with any validation below it, which "
+            "checks.py says."
+        ),
+    )
 
     @model_validator(mode="after")
     def _canonical(self) -> Self:

@@ -6,6 +6,7 @@ import {
   useContributions,
   useExcludeSamples,
   useIpls,
+  useCars,
   usePipeline,
   useSavePipeline,
   useOutliers,
@@ -18,6 +19,7 @@ import {
   coefficientTrace,
   contributionTrace,
   ellipseTrace,
+  carsTraces,
   influenceTraces,
   iplsFigure,
   leverageTraces,
@@ -273,7 +275,10 @@ function VariableImportance({ pca, onRun }: { pca: PcaPayload; onRun?: () => voi
  *
  * #282: or run iPLS on a PLS, see each interval's RMSECV over the spectrum
  * against the full spectrum's, and Apply the intervals forward selection kept. */
-type SelectBy = "vip" | "b" | "ipls";
+type SelectBy = "vip" | "b" | "ipls" | "cars";
+
+/** What `chosen_by` records for each method (#283). */
+const CHOSEN_BY = { vip: "vip", b: "coefficients", ipls: "ipls", cars: "cars" } as const;
 
 function SelectVariables({
   pca,
@@ -290,7 +295,7 @@ function SelectVariables({
   // such number, so it starts at the mean magnitude.
   const cutFor = (by: SelectBy) => {
     if (by === "vip") return "1";
-    if (by === "ipls") return "";
+    if (by === "ipls" || by === "cars") return "";
     const b = valuesOf("b");
     return String(Number((b.reduce((sum, v) => sum + Math.abs(v), 0) / b.length).toPrecision(3)));
   };
@@ -302,13 +307,19 @@ function SelectVariables({
   const [intervals, setIntervals] = useState<string>(String(Math.min(20, width)));
   const [requested, setRequested] = useState<number | null>(null);
   const ipls = useIpls(pca.node_id, basis === "ipls" ? requested : null);
+  // CARS likewise: the run count asked for, and what was run.
+  const [runs, setRuns] = useState<string>("50");
+  const [carsRequested, setCarsRequested] = useState<number | null>(null);
+  const carsQuery = useCars(pca.node_id, basis === "cars" ? carsRequested : null);
 
   // An empty or unreadable box selects nothing rather than everything.
   const cut = threshold.trim() === "" ? Number.NaN : Number(threshold);
   const selected =
     basis === "ipls"
       ? (ipls.data?.selected ?? [])
-      : Number.isFinite(cut)
+      : basis === "cars"
+        ? (carsQuery.data?.selected ?? [])
+        : Number.isFinite(cut)
         ? thresholdSelection(valuesOf(basis), cut, basis === "b")
         : [];
   const pipeline = usePipeline();
@@ -318,6 +329,17 @@ function SelectVariables({
     (theme) => {
       const label = `${pca.loadings.axis.kind} (${pca.loadings.axis.unit ?? ""})`;
       const margin = { l: 48, r: 12, t: 8, b: 38 };
+      if (basis === "cars" && carsQuery.data) {
+        return {
+          data: carsTraces(carsQuery.data, theme),
+          layout: {
+            xaxis: axisLayout(theme, "Sampling run"),
+            yaxis: axisLayout(theme, "RMSECV"),
+            margin,
+            showlegend: false,
+          },
+        };
+      }
       if (basis === "ipls" && ipls.data) {
         const figure = iplsFigure(ipls.data, theme);
         return {
@@ -335,19 +357,27 @@ function SelectVariables({
         layout: { xaxis: axisLayout(theme, label), yaxis: axisLayout(theme, "Mean"), margin },
       };
     },
-    [pca, basis, ipls.data, selected.join(",")],
+    [pca, basis, ipls.data, carsQuery.data, selected.join(",")],
   );
   const apply = async () => {
     setError(null);
     try {
       if (!pipeline.data) throw new Error("The pipeline has not loaded yet.");
-      await save.mutateAsync(applySelection(pipeline.data.nodes, pca.node_id, selected));
+      await save.mutateAsync(
+        applySelection(pipeline.data.nodes, pca.node_id, selected, CHOSEN_BY[basis]),
+      );
       onRun?.();
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "The selection could not be applied.");
     }
   };
-  const problem = error ?? (basis === "ipls" && ipls.isError ? ipls.error.message : null);
+  const problem =
+    error ??
+    (basis === "ipls" && ipls.isError
+      ? ipls.error.message
+      : basis === "cars" && carsQuery.isError
+        ? carsQuery.error.message
+        : null);
   return (
     <>
       <div
@@ -367,8 +397,26 @@ function SelectVariables({
           <option value="b">|b| ≥</option>
           {/* iPLS fits PLS models (variable-selection.md section 2). */}
           {hasVip ? <option value="ipls">iPLS</option> : null}
+          {hasVip ? <option value="cars">CARS</option> : null}
         </select>
-        {basis === "ipls" ? (
+        {basis === "cars" ? (
+          <>
+            <input
+              aria-label="Sampling runs"
+              value={runs}
+              onChange={(event) => setRuns(event.target.value)}
+              style={{ width: 40 }}
+            />
+            <button
+              type="button"
+              className="btn"
+              disabled={carsQuery.isFetching}
+              onClick={() => setCarsRequested(Number(runs))}
+            >
+              {carsQuery.isFetching ? "Running…" : "Run CARS"}
+            </button>
+          </>
+        ) : basis === "ipls" ? (
           <>
             <input
               aria-label="Intervals"
