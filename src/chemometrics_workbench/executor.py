@@ -2043,6 +2043,30 @@ def stored_fitted_matrix(
     return None if state is None else state.arrays[0]
 
 
+def stored_fold_matrices(
+    directory: str | Path, pipeline: Pipeline, version: DatasetVersion, node_id: NodeId
+) -> tuple[list[NDArray[np.float64]], list[Fold]] | None:
+    """An estimator's input as every fold saw it, and the folds (#282).
+
+    Below a split each preprocessing node is refitted per training fold, so a
+    method that cross-validates on the estimator's input - iPLS - needs fold
+    `i`'s own matrix for fold `i`. `None` when the node is not an estimator,
+    its input has not been run, or there is no split above it.
+    """
+    path = Path(directory)
+    by_id = {node.id: node for node in pipeline.nodes}
+    node = by_id.get(node_id)
+    if node is None or node.type != "estimator":
+        return None
+    parent = node.inputs[0]
+    folds = governing_folds(parent, by_id, version)
+    paths = read_cache_index(path).get(node_keys(pipeline, version)[parent])
+    if not paths or folds is None:
+        return None
+    state = _from_cache(path, paths, folds)
+    return None if state is None else (list(state.arrays), folds)
+
+
 def stored_result(
     directory: str | Path, pipeline: Pipeline, version: DatasetVersion, node_id: NodeId
 ) -> EstimatorResult | None:

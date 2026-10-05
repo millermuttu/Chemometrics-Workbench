@@ -1150,3 +1150,24 @@ def test_robust_distance_matches_mcd_at_its_minimum(dataset: str) -> None:
     scores = PCA(N_COMPONENTS).fit(centred).scores_
     result = parity.check(f"{dataset}.mcd.robust_distance.sklearn", min_cov_det(scores).distances)
     assert result.passed
+
+
+# --------------------------------------------------------------------------
+# iPLS (#282)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_ipls_matches_interval_models_fitted_by_scikit_learn(dataset: str) -> None:
+    """`variable-selection.md` section 5: every interval's best RMSECV, and the
+    intervals forward selection adds, in order, on the PLS entries' folds."""
+    from chemometrics_workbench.selection import ipls
+
+    entry = parity.entries_by_id()[f"{dataset}.ipls.interval_rmsecv.sklearn"]
+    result = ipls(LOADERS[dataset]().spectra, _target(dataset), _folds_from_entry(entry), 10, 5)
+    per_interval = parity.check(
+        f"{dataset}.ipls.interval_rmsecv.sklearn", [i.rmsecv for i in result.intervals]
+    )
+    path = parity.check(f"{dataset}.ipls.forward_path.sklearn", [float(k) for k, _ in result.steps])
+    assert per_interval.passed
+    assert path.passed and path.max_abs_diff == 0.0

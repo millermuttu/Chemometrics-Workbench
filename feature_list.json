@@ -379,9 +379,9 @@
         "uv run python -m tests.parity_report - docs/parity-report.md regenerated with the new rows, and test_parity_coverage green",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-05: docs/algorithms/variable-selection.md written (selection as an applied step and its leak, intervals, interval PLS, forward selection, reported quantities, parity, divergences). uv run pytest - 1059 passed, 1 skipped: tests/test_selection.py 7 passed (interval bounds, refusals, a planted interval chosen first, each forward step lowering RMSECV, per-fold matrices); tests/test_server.py iPLS endpoint under a 4-fold split and refused 422 needs_cross_validation without one; tests/test_parity.py::test_ipls_matches_interval_models_fitted_by_scikit_learn 3 passed. uv run python -m tests.parity_report - 168 comparisons, 168 passed: interval_rmsecv identical on corn and gasoline and within the metrics tolerance on tecator (worst < 1e-11), forward_path identical on all three; test_parity_coverage and test_reference_values green. pnpm typecheck, lint, test (159 passed, iplsFigure), build; pnpm exec playwright test - 86 passed. New e2e 'iPLS runs on the PLS's folds, draws its intervals, and its selection is applied': 10 bars from the served payload, the count equals the served selection, Apply runs pls_d_selected on exactly those variables; with frontend/src stashed and rebuilt it fails at selectOption. mkdocs build --strict clean.",
+      "notes": "Verification named parity against mdatools ipls; there is no R here (decision 2026-10-04), so the reference is scikit-learn's PLSRegression on every interval and union, on the PLS entries' folds, with the interval and forward rules restated in the generator - recorded in variable-selection.md section 5. Served at GET /results/{node}/ipls, computed on the stored per-fold matrices of the PLS's input (executor.stored_fold_matrices)."
     },
     {
       "id": "cars",

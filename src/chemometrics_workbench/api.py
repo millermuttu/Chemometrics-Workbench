@@ -59,7 +59,7 @@ from fastapi.responses import PlainTextResponse
 from numpy.typing import NDArray
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
-from chemometrics_workbench import __version__, outliers, preprocessing, readers
+from chemometrics_workbench import __version__, outliers, preprocessing, readers, selection
 from chemometrics_workbench.artifact import ArtifactError, write_artifact
 from chemometrics_workbench.checks import PipelineWarning, check_pipeline
 from chemometrics_workbench.classification import simca_class_metrics
@@ -75,6 +75,7 @@ from chemometrics_workbench.executor import (
 )
 from chemometrics_workbench.executor import stored_display as _stored_display
 from chemometrics_workbench.executor import stored_fitted_matrix as _stored_fitted_matrix
+from chemometrics_workbench.executor import stored_fold_matrices as _stored_fold_matrices
 from chemometrics_workbench.executor import stored_result as _stored_result
 from chemometrics_workbench.export import ExportError, json_model, python_snippet
 from chemometrics_workbench.jobs import Job, Jobs, submit_run
@@ -1706,6 +1707,60 @@ def get_outliers(node_id: str) -> Any:
             node_id=node_id,
         )
     return outliers_payload(result, version)
+
+
+@router.get("/results/{node_id}/ipls")
+def get_ipls(node_id: str, n_intervals: int = 20, max_components: int | None = None) -> Any:
+    """`variable-selection.md` §2-§4: interval PLS on a PLS node's input (#282)."""
+    directory, pipeline, version = _runnable()
+    result = _stored_result(directory, pipeline, version, node_id)
+    if result is None:
+        raise _fail(
+            404, "not_found", f"node {node_id!r} has no fitted result yet.", node_id=node_id
+        )
+    if result.task != "regression" or result.method not in ("pls", ""):
+        raise _fail(
+            422,
+            "not_a_pls",
+            f"node {node_id!r} is a {result.method or result.task}; iPLS fits PLS models, so it "
+            "is run from a PLS regression (variable-selection.md section 2).",
+            node_id=node_id,
+        )
+    stored = _stored_fold_matrices(directory, pipeline, version, NodeId(node_id))
+    if stored is None or len(stored[1]) < 2:
+        raise _fail(
+            422,
+            "needs_cross_validation",
+            f"node {node_id!r} has no cross-validation split above it. iPLS compares "
+            "cross-validated errors, so it needs a K-fold or leave-one-out split with at least "
+            "two folds (variable-selection.md section 2).",
+            node_id=node_id,
+        )
+    matrices, folds = stored
+    y = np.asarray(version.targets[result.target or ""], dtype=np.float64)
+    try:
+        found = selection.ipls(
+            matrices, y, folds, n_intervals, max_components or result.n_components
+        )
+    except ValueError as error:
+        raise _fail(422, "invalid_ipls", str(error), node_id=node_id) from error
+    axis = node_axis(pipeline, NodeId(node_id), version)
+    return {
+        "intervals": [
+            {
+                "start": one.start,
+                "stop": one.stop,
+                "axis_start": float(axis[one.start]),
+                "axis_end": float(axis[one.stop - 1]),
+                "rmsecv": one.rmsecv,
+                "n_components": one.n_components,
+            }
+            for one in found.intervals
+        ],
+        "full": {"rmsecv": found.full_rmsecv, "n_components": found.full_components},
+        "steps": [{"interval": k, "rmsecv": rmsecv} for k, rmsecv in found.steps],
+        "selected": found.selected,
+    }
 
 
 @router.get("/results/{node_id}/coefficients")

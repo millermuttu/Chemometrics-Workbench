@@ -5,6 +5,7 @@ import {
   useCoefficients,
   useContributions,
   useExcludeSamples,
+  useIpls,
   usePipeline,
   useSavePipeline,
   useOutliers,
@@ -18,6 +19,7 @@ import {
   contributionTrace,
   ellipseTrace,
   influenceTraces,
+  iplsFigure,
   leverageTraces,
   loadingsTraces,
   outliers,
@@ -267,7 +269,12 @@ function VariableImportance({ pca, onRun }: { pca: PcaPayload; onRun?: () => voi
 
 /** #281: threshold VIP or |b| on the estimator's own axis, see what it keeps
  * over the mean spectrum, and Apply it as a `select_variables` step above a
- * copy of the estimator - which is then run, so the two can be compared. */
+ * copy of the estimator - which is then run, so the two can be compared.
+ *
+ * #282: or run iPLS on a PLS, see each interval's RMSECV over the spectrum
+ * against the full spectrum's, and Apply the intervals forward selection kept. */
+type SelectBy = "vip" | "b" | "ipls";
+
 function SelectVariables({
   pca,
   hasVip,
@@ -281,30 +288,54 @@ function SelectVariables({
   const valuesOf = (by: "vip" | "b") => (by === "vip" ? regression.vip : regression.coefficients);
   // VIP's conventional cut is 1 (pls-regression.md section 9); |b| has no
   // such number, so it starts at the mean magnitude.
-  const cutFor = (by: "vip" | "b") => {
+  const cutFor = (by: SelectBy) => {
     if (by === "vip") return "1";
+    if (by === "ipls") return "";
     const b = valuesOf("b");
     return String(Number((b.reduce((sum, v) => sum + Math.abs(v), 0) / b.length).toPrecision(3)));
   };
-  const [basis, setBasis] = useState<"vip" | "b">(hasVip ? "vip" : "b");
+  const [basis, setBasis] = useState<SelectBy>(hasVip ? "vip" : "b");
   const [threshold, setThreshold] = useState<string>(() => cutFor(hasVip ? "vip" : "b"));
-  const values = valuesOf(basis);
+  // iPLS is a computation, run when asked: the box is what will be asked for,
+  // `requested` what was.
+  const width = pca.n_variables;
+  const [intervals, setIntervals] = useState<string>(String(Math.min(20, width)));
+  const [requested, setRequested] = useState<number | null>(null);
+  const ipls = useIpls(pca.node_id, basis === "ipls" ? requested : null);
+
   // An empty or unreadable box selects nothing rather than everything.
   const cut = threshold.trim() === "" ? Number.NaN : Number(threshold);
-  const selected = Number.isFinite(cut) ? thresholdSelection(values, cut, basis === "b") : [];
+  const selected =
+    basis === "ipls"
+      ? (ipls.data?.selected ?? [])
+      : Number.isFinite(cut)
+        ? thresholdSelection(valuesOf(basis), cut, basis === "b")
+        : [];
   const pipeline = usePipeline();
   const save = useSavePipeline();
   const [error, setError] = useState<string | null>(null);
   const host = usePlot(
-    (theme) => ({
-      data: selectionTraces(pca, selected, theme),
-      layout: {
-        xaxis: axisLayout(theme, `${pca.loadings.axis.kind} (${pca.loadings.axis.unit ?? ""})`),
-        yaxis: axisLayout(theme, "Mean"),
-        margin: { l: 48, r: 12, t: 8, b: 38 },
-      },
-    }),
-    [pca, selected.join(",")],
+    (theme) => {
+      const label = `${pca.loadings.axis.kind} (${pca.loadings.axis.unit ?? ""})`;
+      const margin = { l: 48, r: 12, t: 8, b: 38 };
+      if (basis === "ipls" && ipls.data) {
+        const figure = iplsFigure(ipls.data, theme);
+        return {
+          data: figure.data,
+          layout: {
+            shapes: figure.shapes,
+            xaxis: axisLayout(theme, label),
+            yaxis: { ...axisLayout(theme, "RMSECV"), rangemode: "tozero" },
+            margin,
+          },
+        };
+      }
+      return {
+        data: selectionTraces(pca, selected, theme),
+        layout: { xaxis: axisLayout(theme, label), yaxis: axisLayout(theme, "Mean"), margin },
+      };
+    },
+    [pca, basis, ipls.data, selected.join(",")],
   );
   const apply = async () => {
     setError(null);
@@ -316,6 +347,7 @@ function SelectVariables({
       setError(failure instanceof Error ? failure.message : "The selection could not be applied.");
     }
   };
+  const problem = error ?? (basis === "ipls" && ipls.isError ? ipls.error.message : null);
   return (
     <>
       <div
@@ -326,22 +358,43 @@ function SelectVariables({
           aria-label="Select by"
           value={basis}
           onChange={(event) => {
-            const next = event.target.value as "vip" | "b";
+            const next = event.target.value as SelectBy;
             setBasis(next);
             setThreshold(cutFor(next));
           }}
         >
           {hasVip ? <option value="vip">VIP ≥</option> : null}
           <option value="b">|b| ≥</option>
+          {/* iPLS fits PLS models (variable-selection.md section 2). */}
+          {hasVip ? <option value="ipls">iPLS</option> : null}
         </select>
-        <input
-          aria-label="Threshold"
-          value={threshold}
-          onChange={(event) => setThreshold(event.target.value)}
-          style={{ width: 64 }}
-        />
+        {basis === "ipls" ? (
+          <>
+            <input
+              aria-label="Intervals"
+              value={intervals}
+              onChange={(event) => setIntervals(event.target.value)}
+              style={{ width: 40 }}
+            />
+            <button
+              type="button"
+              className="btn"
+              disabled={ipls.isFetching}
+              onClick={() => setRequested(Number(intervals))}
+            >
+              {ipls.isFetching ? "Running…" : "Run iPLS"}
+            </button>
+          </>
+        ) : (
+          <input
+            aria-label="Threshold"
+            value={threshold}
+            onChange={(event) => setThreshold(event.target.value)}
+            style={{ width: 64 }}
+          />
+        )}
         <span data-testid="selection-count">
-          {selected.length} of {values.length}
+          {selected.length} of {width}
         </span>
         <button
           type="button"
@@ -352,9 +405,9 @@ function SelectVariables({
           Apply selection
         </button>
       </div>
-      {error ? (
+      {problem ? (
         <p role="alert" className="mono" style={{ margin: "2px 10px", fontSize: 10, color: "var(--fail)" }}>
-          {error}
+          {problem}
         </p>
       ) : null}
       <div ref={host} data-testid="selection-plot" style={{ flex: 1, minHeight: 0 }} />

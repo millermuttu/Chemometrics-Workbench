@@ -247,6 +247,10 @@ QUANTITY_CLASS: dict[str, str] = {
     # Outliers (outliers.md section 7): once both searches reach the same
     # support, a distance is a covariance inverse applied to scores.
     "robust_distance": "decomposition",
+    # iPLS (variable-selection.md section 5): an RMSECV per interval is a
+    # metric; the forward path is a list of interval indices, exact or wrong.
+    "interval_rmsecv": "metrics",
+    "forward_path": "metrics",
 }
 
 # Quantities whose sign is arbitrary per component and must be aligned before
