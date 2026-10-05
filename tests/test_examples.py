@@ -318,7 +318,6 @@ def test_every_number_the_outliers_how_to_quotes(client: TestClient) -> None:  #
     quoted = [
         f"**{len(flags)} of {pls['n_samples']}**",
         f"fitted on the {pls['n_samples']} samples",
-        f"the other {240 - pls['n_samples']} are",
         f"{sum(f['rules'] == ['robust'] for f in flags)} of the {len(flags)} are flagged only",
         f"Three break {WORDS[len(worst[0]['rules'])]} each",
         f"**Exclude {len(worst)} and rerun**",

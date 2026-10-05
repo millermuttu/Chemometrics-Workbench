@@ -915,7 +915,9 @@ function PredictedVsMeasured({ pca }: { pca: PcaPayload }) {
   return (
     <Panel
       title="Predicted vs measured"
-      note={held ? `${pca.n_samples} calibration · ${held} held out` : `${pca.n_samples} samples`}
+      // #330: the model is fitted on every sample; the held-out points are
+      // fold 0's model's, which never saw them.
+      note={held ? `${pca.n_samples} fitted · ${held} held out (fold 0)` : `${pca.n_samples} samples`}
     >
       <div ref={host} data-testid="predicted-plot" style={{ flex: 1, minHeight: 0 }} />
     </Panel>

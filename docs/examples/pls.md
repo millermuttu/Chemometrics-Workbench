@@ -55,9 +55,10 @@ now read:
 | | |
 | --- | --- |
 | Cross-validated | RMSECV **2.46**, Q² **0.970** |
-| Calibration | RMSEC **2.36**, R² **0.973** |
+| Calibration | RMSEC **2.37**, R² **0.973** |
 
 RMSEC is measured on the samples the model was fitted to, and RMSECV on samples it had not seen.
+The model itself is fitted on every sample; the folds are only how its error is estimated.
 The two are close, which is what a model that is not overfitted looks like. Both are in the units
 of fat, percent by weight. **Predicted vs measured** plots each sample against the 1:1 line, with
 the held-out fold marked.

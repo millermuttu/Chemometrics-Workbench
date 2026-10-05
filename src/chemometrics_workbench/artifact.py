@@ -52,7 +52,7 @@ __all__ = [
 #: `docs/model-artifact.md` §2. Bumped when a field is removed, renamed or
 #: changes meaning; adding an optional one does not bump it, because a reader
 #: that ignores an unknown key loses nothing.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 MANIFEST = "manifest.json"
 ARRAYS = "arrays"
@@ -115,7 +115,7 @@ def write_artifact(
     landed, which is what a later read can be checked against.
     """
     target = Path(path)
-    arrays = _arrays(result, version, node_axis, split)
+    arrays = _arrays(result, version, node_axis)
     manifest = _manifest(result, pipeline, version, split, environment, arrays)
 
     buffer = io.BytesIO()
@@ -210,7 +210,6 @@ def _arrays(
     result: EstimatorResult,
     version: DatasetVersion,
     node_axis: object,
-    split: ResolvedSplit | None,
 ) -> dict[str, NDArray[Any]]:
     """Every array §7 names that this model has. A reader must not assume any
     of them beyond `dataset_axis`, so absent is absent rather than empty."""
@@ -249,9 +248,8 @@ def _arrays(
         arrays[f"simca_{k}_loadings"] = _float64(model["loadings"])
         arrays[f"simca_{k}_eigenvalues"] = _float64(model["eigenvalues"])
 
-    if split is not None and result.fold is not None:
-        arrays["train_indices"] = np.asarray(result.rows, dtype=np.int64)
-        arrays["test_indices"] = np.asarray(result.held_out, dtype=np.int64)
+    # Version 2 (#330): below a split the model is fitted on every sample, so
+    # there are no index sets to carry - version 1's were fold zero's.
     return arrays
 
 
@@ -303,11 +301,11 @@ def _manifest(
             "excluded_samples": list(version.excluded_samples),
         },
         "split": None
-        if split is None or result.fold is None
+        if split is None
         else {
             "node_id": split.node_id,
-            "fold": result.fold,
             "n_folds": len(split.test_indices),
+            "fitted_on": "all_samples",
         },
         "metrics": dict(result.metrics),
         "environment": None if environment is None else json.loads(environment.model_dump_json()),

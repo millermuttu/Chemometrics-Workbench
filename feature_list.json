@@ -46,9 +46,9 @@
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": "Decided 2026-10-05 by the maintainer: the all-sample model is the one saved and exported; fold zero's stays only as the held-out view."
+      "status": "passing",
+      "evidence": "2026-10-05, feature/330_final-model. uv run pytest: green (full suite, including tests/test_examples.py with the quoted numbers updated: pls.md RMSEC 2.37, classification.md 20 samples, how-to/outliers.md 84 of 240). New tests: test_executor 'a_pca_below_a_split_is_fitted_on_every_sample...' and 'the_curve_is_every_folds_and_the_model_is_every_samples' (coefficients and predictions equal PLS fitted on all rows; held-out predictions equal fold zero's model), test_export 'exports_the_all_sample_model' (snippet reproduces every prediction within model-export.md section 5), test_artifact 'an_artifact_written_before_the_final_model_still_loads' (schema 1 reads under schema 2). Failing first: with src and frontend/src stashed, 7 of them FAILED. uv run ruff check, uv run mypy: clean. pnpm typecheck, lint, test (161 passed), build: green; pnpm exec playwright test: 90 passed (3.3m).",
+      "notes": "Estimator keys carry RESULT_FORMAT, so every result stored before #330 is a cache miss. Artifact schema 2 drops split.fold and the index arrays. CARS still samples from fold zero's matrix; #331 revisits it."
     },
     {
       "id": "nested-selection",

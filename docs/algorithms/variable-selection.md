@@ -93,7 +93,7 @@ Competitive adaptive reweighted sampling (Li, Liang, Xu and Cao, 2009, *Anal. Ch
    - Cross-validate a PLS on the retained variables as in §2, and record its RMSECV and component count.
 3. The selection is the retained set of the run with the lowest RMSECV, the earliest one on a tie.
 
-**Randomness.** Both the samples drawn and the reweighted sampling come from one `numpy.random.default_rng(seed)`, with seed 0 unless one is given. A seed always gives the same runs. Every fit is cross-validated on the stored per-fold matrices, as iPLS's are. The sampling fits use fold zero's matrix, which is the matrix the estimator itself was fitted on.
+**Randomness.** Both the samples drawn and the reweighted sampling come from one `numpy.random.default_rng(seed)`, with seed 0 unless one is given. A seed always gives the same runs. Every fit is cross-validated on the stored per-fold matrices, as iPLS's are. The sampling fits use fold zero's matrix, every row of it. Since #330 the estimator itself is fitted on the all-sample matrix instead; nested validation of the selection (#331) revisits which matrix CARS samples from.
 
 **Reported quantities.** Per run: the retained count, the RMSECV and the component count. Also the best run, the seed and the selected positions.
 

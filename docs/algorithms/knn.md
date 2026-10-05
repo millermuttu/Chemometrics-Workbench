@@ -39,7 +39,7 @@ Both tie rules are scikit-learn's, so they are stated rather than left to chance
 
 ## 4. Reported quantities
 
-- **Classification:** the confusion matrices and metrics of `classification.md`, for calibration, fold zero's held-out rows and the cross-validated set.
+- **Classification:** the confusion matrices and metrics of `classification.md`, for calibration (the model refitted on every sample, `metrics-and-validation.md` §9), fold zero's held-out rows (fold zero's model) and the cross-validated set.
 - **Calibration accuracy is resubstitution.** Each calibration sample is its own nearest neighbour at distance zero, so with $k = 1$ the calibration accuracy is 1 by construction. It is reported because it is defined, and **the cross-validated figure is the one to read**.
 - **Panels:** the scores, loadings, $T^2$, SPE and their limits are the PCA front end's, as for LDA.
 - **Model:** $\bar{x}$, the loadings, the calibration scores (the neighbours), their classes and $k$.

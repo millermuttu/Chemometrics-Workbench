@@ -437,23 +437,22 @@ def test_the_results_payload_is_the_shape_the_fixture_publishes(tmp_path: Path) 
 def test_a_split_branch_adds_its_validation_rows_without_changing_the_rest(
     tmp_path: Path,
 ) -> None:
-    """§9's held-out rows, pushed through the model that never saw them."""
+    """§9's held-out rows, pushed through fold zero's model, which never saw them."""
     run, version = executed(tmp_path / "results")
     payload = results_payload(run.results["pca_d"], version)
     published = fixture("pca")["pca_d"]
 
-    # The keys the 1.1 screen reads are unchanged, and so are their lengths.
+    # The keys the 1.1 screen reads are unchanged. Their lengths are not: the
+    # 1.1 fixture is fold zero's model, and since #330 the model is fitted on
+    # every sample.
     assert set(payload) - set(published) == {"validation"}
-    assert len(payload["samples"]) == len(published["samples"]) == 216
-    assert len(payload["diagnostics"]["hotelling_t2"]) == 216
+    assert len(published["samples"]) == 216
+    assert len(payload["samples"]) == len(payload["diagnostics"]["hotelling_t2"]) == 240
 
     validation = payload["validation"]
     assert validation["fold"] == 0
     assert len(validation["samples"]) == len(validation["scores"]) == 24
     assert len(validation["hotelling_t2"]) == len(validation["spe"]) == 24
-    assert {row["index"] for row in validation["samples"]}.isdisjoint(
-        {row["index"] for row in payload["samples"]}
-    )
 
 
 def test_a_branch_with_no_split_carries_no_validation_key(tmp_path: Path) -> None:
@@ -782,12 +781,13 @@ def test_contributions_sum_to_the_diagnostics_the_result_serves(tmp_path: Path) 
         )
 
 
-def test_contributions_below_a_split_use_fold_zeros_matrix_and_the_estimators_centring(
+def test_contributions_below_a_split_use_the_all_sample_matrix_and_the_estimators_centring(
     tmp_path: Path,
 ) -> None:
-    """A PCA below the split was fitted on fold zero's array; a PLS beside it
-    centred that array by its fit rows' mean inside the estimator. Both sums
-    have to land on the served diagnostics, held-out rows included."""
+    """A PCA below the split is fitted on the all-sample array (#330); a PLS
+    beside it centred that array by its own mean inside the estimator. Both
+    sums have to land on the served diagnostics, for every row - fold zero's
+    held-out ones included, which the final model has seen."""
     from chemometrics_workbench.api import node_axis
     from chemometrics_workbench.executor import stored_fitted_matrix
     from chemometrics_workbench.models import EstimatorNode, PLSRegressionSpec
@@ -817,11 +817,9 @@ def test_contributions_below_a_split_use_fold_zeros_matrix_and_the_estimators_ce
         matrix = stored_fitted_matrix(directory, pipeline, version, node_id)
         assert matrix is not None
         axis = node_axis(pipeline, node_id, version)
-        # A calibration row and a held-out one.
-        for row, served_t2, served_spe in (
-            (result.rows[0], result.hotelling_t2[0], result.spe[0]),
-            (result.held_out[0], result.held_out_hotelling_t2[0], result.held_out_spe[0]),
-        ):
+        # The first row, and a row fold zero held out.
+        for row in (result.rows[0], result.held_out[0]):
+            served_t2, served_spe = result.hotelling_t2[row], result.spe[row]
             payload = contributions_payload(result, matrix, row, version, axis)
             assert payload["hotelling_t2"]["total"] == pytest.approx(served_t2, rel=1e-4)
             assert payload["spe"]["total"] == pytest.approx(served_spe, rel=1e-4)
