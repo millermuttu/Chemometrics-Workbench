@@ -22,7 +22,7 @@ It also adds a **flags table** (§5) that names, for each sample, every rule it 
 
 A PLS-DA, an LDA and a kNN are not diagnosed. Their response is a class, so a studentised residual of a dummy variable is not a meaningful quantity. A SIMCA has one model per class, and its distances are its own decision (`simca.md` §3).
 
-All three are computed from the stored result: its scores, observed values and predictions. A result fitted before this document existed therefore gets the same numbers as a fresh one.
+All three are computed from the stored result: its scores, observed values and predictions. A result fitted before this document existed therefore gets the same numbers as a fresh one. They are served at `/results/{node}/outliers` rather than inside the result payload (#314). The robust distance is a search that takes about a second at 3,000 samples, and nothing else on the analysis tab should wait for it.
 
 ---
 

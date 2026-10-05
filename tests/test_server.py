@@ -1335,3 +1335,38 @@ def test_a_model_needs_a_name(client: TestClient) -> None:
 
     assert refused.status_code == 422
     assert client.get("/api/models", headers=AUTH).json() == []
+
+
+def test_the_outlier_diagnostics_are_served_on_their_own(client: TestClient) -> None:
+    """#314: `outliers.md`'s block has its own URL, so the FastMCD search is
+    paid by the outlier row alone and never by the payload every tab waits for."""
+    imported(client)
+    source = client.get("/api/pipelines/current", headers=AUTH).json()["nodes"][0]
+    nodes = [
+        source,
+        {
+            "id": "centre",
+            "type": "preprocess",
+            "inputs": ["source"],
+            "step": {"kind": "mean_centre"},
+        },
+        {
+            "id": "pls",
+            "type": "estimator",
+            "inputs": ["centre"],
+            "spec": {"kind": "pls", "n_components": 3, "algorithm": "nipals", "target": "fat"},
+        },
+    ]
+    assert (
+        client.put("/api/pipelines/current", json={"nodes": nodes}, headers=AUTH).status_code == 200
+    )
+    job = client.post("/api/experiments/current/run", headers=AUTH).json()
+    assert wait_for(client, job["job_id"])["status"] == "succeeded"
+
+    assert "outliers" not in client.get("/api/results/pls", headers=AUTH).json()
+    served = client.get("/api/results/pls/outliers", headers=AUTH)
+    assert served.status_code == 200, served.text
+    block = served.json()
+    assert block["version_id"] == source["version_id"]
+    assert len(block["leverage"]) == len(block["studentised_residuals"])
+    assert client.get("/api/results/nope/outliers", headers=AUTH).status_code == 404

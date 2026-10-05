@@ -296,6 +296,24 @@
       "notes": "The exclusion is posted against the version the flags table was drawn from (outliers.dataset_id / version_id in the payload), not the pipeline's current source, so it cannot drop the wrong rows if the source has moved. The rerun is the shell's own startRun, so the status bar tracks it."
     },
     {
+      "id": "outliers-off-the-payload",
+      "priority": 12,
+      "area": "backend",
+      "issue": 314,
+      "title": "FastMCD holds up the first view of a result",
+      "depends_on": [
+        "outlier-diagnostics"
+      ],
+      "user_visible_behavior": "A result tab draws at once; the outlier row fills in when its diagnostics arrive.",
+      "verification": [
+        "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
+        "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green"
+      ],
+      "status": "passing",
+      "evidence": "2026-10-05: found as #313's red e2e (macos-latest): three tests opening a PLS tab timed out on analysis-header in the 3,000-sample runs project. min_cov_det measured at 0.42 s (n=240), 1.05 s (2,250) and 1.49 s (3,000). Fix: the block moved to GET /results/{node}/outliers (api.outliers_payload, 422 not_diagnosed for anything but PCA/PLS/PCR), fetched only by the outlier row; and FastMCD's 500 starts and two C-steps are batched with matmul (0.17 s, 0.80 s, 1.01 s). tests/test_server.py::test_the_outlier_diagnostics_are_served_on_their_own fails on dev ('outliers' in the results payload) and passes now. uv run pytest - 1038 passed, 1 skipped, the MCD parity claims among them; ruff, mypy clean. pnpm typecheck, lint, test (152), build; pnpm exec playwright test - 84 passed.",
+      "notes": "Random draws stay in the original loop so a seed gives the same starts and the same distances."
+    },
+    {
       "id": "select-variables-step",
       "priority": 13,
       "area": "backend",
