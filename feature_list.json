@@ -280,6 +280,21 @@
       "status": "not_started",
       "evidence": "",
       "notes": "Asked by the maintainer on 2026-10-05."
+    },
+    {
+      "id": "windows-scores-plot-flake",
+      "priority": 16,
+      "area": "frontend",
+      "issue": 351,
+      "title": "Windows e2e: the PCA tab's scores plot is not found",
+      "depends_on": [],
+      "user_visible_behavior": "None; analysis.spec.ts's openResults passes on the Windows runner.",
+      "verification": [
+        "Read the job log for a console error first; fix the cause; e2e (windows-latest) green"
+      ],
+      "status": "not_started",
+      "evidence": "",
+      "notes": "Seen once on #350 (job 111909342941); ubuntu, macOS and local runs passed."
     }
   ]
 }
