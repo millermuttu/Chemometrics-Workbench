@@ -235,9 +235,28 @@
         "uv run python -m tests.parity_report - docs/parity-report.md regenerated with the new rows, and test_parity_coverage green",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green"
       ],
+      "status": "passing",
+      "evidence": "2026-10-05. docs/algorithms/knn.md written: PCA-kNN always (distances on n_components scores of the centred matrix), k <= n, unweighted votes, equal distances keep calibration order and a tied vote goes to the first class (both scikit-learn's), calibration accuracy stated as resubstitution; artifact carries x_mean, loadings, neighbours' scores and classes, k; JSON/snippet refused (tracked in #306). classification.KNN; executor _knn stores training_classes and k. `uv run python tests/fixtures/generate_reference_values.py`: 162 entries, the 6 kNN ones added, nothing changed (checked by id). `uv run pytest`: `1015 passed, 1 skipped` plus test_parity_report green after `uv run python -m tests.parity_report` (159 claims). test_parity.py: assignments and predict_proba vote fractions against scikit-learn PCA(svd_solver='full') + KNeighborsClassifier(5) on tercile classes of corn, gasoline and tecator, both identical (max abs diff 0). test_executor.py: a kNN (k=3, A=6) below a stratified 5-fold after SNV on Tecator terciles - every cross-validated assignment equals scikit-learn's on the run's own resolved folds; k larger than the calibration set refused. test_export.py: JSON refused with knn.md's reason. test_artifact.py: neighbours' scores, classes and k round-trip. Proof: with src/ reverted the new tests fail at collection. ruff, mypy clean; mkdocs --strict exit 0. `pnpm test`: 149 passed (kNN menu entry and labels). `pnpm build` then `pnpm exec playwright test`: 81 passed, analysis.spec.ts adding a kNN beside the seeded PLS-DA, reading 'kNN on fat_class 5 components' and its cross-validated confusion, and seeing the Export JSON refusal's sentence beside the button, then restoring the recipe.",
+      "notes": "JSON and snippet export of kNN and SIMCA deferred to export-affine-chain (#306)."
+    },
+    {
+      "id": "export-affine-chain",
+      "priority": 10,
+      "area": "backend",
+      "issue": 306,
+      "title": "Export SIMCA and kNN as JSON and a NumPy snippet, carrying the chain as an affine map",
+      "depends_on": [
+        "simca",
+        "knn"
+      ],
+      "user_visible_behavior": "Export JSON and Export Python work for SIMCA and kNN as they do for the linear models.",
+      "verification": [
+        "uv run pytest - the snippet reproduces every calibration decision of a SIMCA and a kNN, through residual and foldable steps",
+        "docs/model-export.md documents the affine-map form and its size"
+      ],
       "status": "not_started",
       "evidence": "",
-      "notes": ""
+      "notes": "Deferred from #275 and #277 (simca.md section 7, knn.md section 6); the artifact already carries both models."
     },
     {
       "id": "outlier-diagnostics",

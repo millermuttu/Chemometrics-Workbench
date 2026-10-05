@@ -64,6 +64,7 @@ nav:
           - Classification metrics: algorithms/classification.md
           - SIMCA: algorithms/simca.md
           - LDA: algorithms/lda.md
+          - kNN: algorithms/knn.md
           - Smoothing and baselines: algorithms/smoothing-and-baselines.md
           - Metrics and validation: algorithms/metrics-and-validation.md
       - Model artifact: model-artifact.md

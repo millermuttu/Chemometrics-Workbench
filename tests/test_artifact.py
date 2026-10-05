@@ -34,6 +34,7 @@ from chemometrics_workbench.models import (
     DatasetVersion,
     EstimatorNode,
     KFoldSplit,
+    KNNSpec,
     MeanCentre,
     PCASpec,
     Pipeline,
@@ -462,3 +463,34 @@ def test_a_simca_carries_every_class_model(
         np.testing.assert_array_equal(read.arrays[f"simca_{k}_mean"], np.asarray(model["mean"]))
         assert read.arrays[f"simca_{k}_loadings"].shape == (3, version.n_variables)
         assert read.manifest["model"]["simca"][k]["q_limit"] == model["q_limit"]
+
+
+def test_a_knn_carries_its_neighbours(
+    fitted: tuple[Path, DatasetVersion, Pipeline, object], tecator: object
+) -> None:
+    """#277, knn.md section 6: the neighbours' scores and classes, and k."""
+    directory, version, _, _ = fitted
+    fat = np.asarray(tecator.targets["fat"])  # type: ignore[attr-defined]
+    labels = ["high" if value > np.median(fat) else "low" for value in fat]
+    version = version.model_copy(update={"metadata_columns": {"grade": labels}})
+    pipeline = _pipeline(
+        version.version_id,
+        EstimatorNode(
+            id="knn", inputs=("source",), spec=KNNSpec(k=4, n_components=3, class_column="grade")
+        ),
+    )
+    result = execute(directory, pipeline, version).results["knn"]
+    path = directory / "knn.cwmodel"
+    write_artifact(
+        path,
+        result,
+        pipeline=pipeline,
+        version=version,
+        node_axis=np.asarray(version.axis.values, dtype=np.float64),
+        split=None,
+        environment=capture_environment(),
+    )
+    read = read_artifact(path)
+    np.testing.assert_array_equal(read.arrays["knn_scores"], np.asarray(result.scores))
+    np.testing.assert_array_equal(read.arrays["knn_classes"], np.asarray(result.training_classes))
+    assert read.manifest["model"]["k"] == 4

@@ -391,6 +391,13 @@ class LDASpec(Frozen):
     class_column: str
 
 
+class KNNSpec(Frozen):
+    kind: Literal["knn"] = "knn"
+    k: int = Field(ge=1, description="Neighbours that vote.")
+    n_components: int = Field(ge=1, description="Principal components distances are taken in.")
+    class_column: str
+
+
 class PLSDASpec(Frozen):
     kind: Literal["plsda"] = "plsda"
     n_components: int = Field(ge=1)
@@ -399,7 +406,7 @@ class PLSDASpec(Frozen):
 
 
 EstimatorSpec = Annotated[
-    PCASpec | PLSRegressionSpec | PCRSpec | PLSDASpec | SIMCASpec | LDASpec,
+    PCASpec | PLSRegressionSpec | PCRSpec | PLSDASpec | SIMCASpec | LDASpec | KNNSpec,
     Field(discriminator="kind"),
 ]
 

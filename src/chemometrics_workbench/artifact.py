@@ -235,6 +235,13 @@ def _arrays(
         arrays["coefficient_matrix"] = _float64(result.coefficient_matrix)
         arrays["y_means"] = _float64(result.y_means)
 
+    if result.training_classes:
+        # #277, knn.md section 6: the neighbours themselves, in score space,
+        # and their classes.
+        arrays["knn_scores"] = _float64(result.scores)
+        arrays["knn_classes"] = np.asarray(result.training_classes, dtype=np.int64)
+        arrays["x_mean"] = _float64(result.x_mean)
+
     for k, model in enumerate(result.simca.get("models", [])):
         # #275, simca.md section 7: every class model, indexed by its class's
         # position in `classes`.
@@ -274,6 +281,7 @@ def _manifest(
             "hotelling_t2_limit": result.hotelling_t2_limit,
             "spe_limit": result.spe_limit,
             "spe_limit_caveat": result.spe_limit_caveat,
+            "k": result.k,
             "simca": [
                 {name: model[name] for name in ("class", "n_samples", "t2_limit", "q_limit")}
                 for model in result.simca.get("models", [])

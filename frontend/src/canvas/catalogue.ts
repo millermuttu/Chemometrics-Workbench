@@ -153,6 +153,12 @@ export function stepMenu(targets: string[], classColumns: string[] = []): Catalo
             payload: { spec: { kind: "lda", n_components: 5, class_column: classColumn } },
           },
           {
+            kind: "kNN k5",
+            type: "estimator" as const,
+            parameters: `k 5 · 5 components · ${classColumn}`,
+            payload: { spec: { kind: "knn", k: 5, n_components: 5, class_column: classColumn } },
+          },
+          {
             kind: "SIMCA 3 PC",
             type: "estimator" as const,
             parameters: `3 components · ${classColumn}`,

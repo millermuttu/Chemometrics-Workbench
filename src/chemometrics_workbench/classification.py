@@ -16,7 +16,7 @@ from numpy.typing import NDArray
 from chemometrics_workbench.arrays import as_float64
 from chemometrics_workbench.decomposition import PCA
 
-__all__ = ["LDA", "SIMCA", "acceptance_table", "simca_class_metrics", "simca_metrics"]
+__all__ = ["KNN", "LDA", "SIMCA", "acceptance_table", "simca_class_metrics", "simca_metrics"]
 
 
 @dataclass(frozen=True)
@@ -219,4 +219,68 @@ class LDA:
     def predict(self, X: object) -> NDArray[np.intp]:
         """The largest discriminant, ties to the first class (`lda.md` §4)."""
         assigned: NDArray[np.intp] = self.decision_function(X).argmax(axis=1)
+        return assigned
+
+
+class KNN:
+    """PCA-kNN, per `knn.md`: centre X, project it on `n_components`
+    principal components, and assign each sample the majority class of its
+    `k` nearest calibration samples by Euclidean distance in score space.
+
+    Ties are scikit-learn's: among equal distances the earlier calibration
+    row is nearer, and a tied vote goes to the first class (`knn.md` §3).
+    """
+
+    x_mean_: NDArray[np.float64] | None = None
+    scores_: NDArray[np.float64] | None = None
+    codes_: NDArray[np.intp] | None = None
+
+    def __init__(self, k: int, n_components: int) -> None:
+        if k < 1:
+            raise ValueError(f"k must be at least 1, got {k}")
+        self.k = int(k)
+        self.n_components = int(n_components)
+        self.pca_ = PCA(self.n_components)
+        self.n_classes = 0
+
+    def fit(self, X: object, codes: object, n_classes: int) -> Self:
+        values = as_float64(X, "X")
+        labels = np.asarray(codes, dtype=np.intp)
+        if labels.shape != (values.shape[0],):
+            raise ValueError(f"X has {values.shape[0]} rows and codes has {labels.size}")
+        if self.k > values.shape[0]:
+            raise ValueError(
+                f"k = {self.k} neighbours were asked of {values.shape[0]} calibration samples "
+                "(knn.md section 2)"
+            )
+        self.x_mean_ = values.mean(axis=0)
+        self.pca_.fit(values - self.x_mean_)
+        self.scores_ = self.pca_.transform(values - self.x_mean_)
+        self.codes_ = labels
+        self.n_classes = int(n_classes)
+        return self
+
+    def _fitted(self) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.intp]]:
+        if self.x_mean_ is None or self.scores_ is None or self.codes_ is None:
+            raise RuntimeError("KNN has not been fitted")
+        return self.x_mean_, self.scores_, self.codes_
+
+    def votes(self, X: object) -> NDArray[np.float64]:
+        """`n x N`: the fraction of each sample's `k` neighbours in each class."""
+        x_mean, scores, codes = self._fitted()
+        projected = self.pca_.transform(as_float64(X, "X") - x_mean)
+        squared = (
+            (projected**2).sum(axis=1)[:, None]
+            - 2.0 * projected @ scores.T
+            + (scores**2).sum(axis=1)[None, :]
+        )
+        # Stable, so equal distances keep calibration order (knn.md section 3).
+        nearest = np.argsort(squared, axis=1, kind="stable")[:, : self.k]
+        counts = np.stack([np.bincount(codes[row], minlength=self.n_classes) for row in nearest])
+        fractions: NDArray[np.float64] = counts / self.k
+        return fractions
+
+    def predict(self, X: object) -> NDArray[np.intp]:
+        """The majority class, a tied vote to the first class (`knn.md` §3)."""
+        assigned: NDArray[np.intp] = self.votes(X).argmax(axis=1)
         return assigned
