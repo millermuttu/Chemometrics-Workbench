@@ -76,7 +76,7 @@ fix/<n>_<short-name>      ──merge──►
 - **`dev`** is the integration line. Every feature and fix branch is cut from `dev` and merged back into `dev`. It is the default base for all new work.
 - **`feature/<n>_<short-name>` / `fix/<n>_<short-name>`** — one per GitHub issue, `<n>` being the issue number. See the `new-branch` skill for the naming rules.
 
-**Merges happen through pull requests, not local `git merge`.** A feature branch reaches `dev` by:
+**Merges happen through pull requests, not local `git merge`** — with one exception: a commit that only rewrites `session-handoff.md` is committed and pushed straight to `dev`, no branch and no pull request (maintainer, 2026-10-05). A feature branch reaches `dev` by:
 
 1. Push the branch.
 2. Open a pull request **with `dev` as the base** — never `main`. GitHub's default base is the repository's default branch, so if that is still `main` the base must be set explicitly or the pull request targets the release line.
