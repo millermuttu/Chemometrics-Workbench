@@ -372,7 +372,10 @@ test("an outlier row flags samples by rule, and hovering one names it", async ({
   const served = await (
     await page.request.get("/api/results/pls_d", { headers: { Authorization: "Bearer e2e-token" } })
   ).json();
-  const flags = served.outliers.flags as { index: number; rules: string[] }[];
+  const block = await (
+    await page.request.get("/api/results/pls_d/outliers", { headers: { Authorization: "Bearer e2e-token" } })
+  ).json();
+  const flags = block.flags as { index: number; rules: string[] }[];
   expect(flags.length).toBeGreaterThan(0);
 
   const row = page.getByTestId("outliers-row");

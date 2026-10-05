@@ -184,7 +184,11 @@ export interface PcaPayload {
   };
   /** `outliers.md` (#278): PCA, PLS and PCR only. Calibration rows, in the
    * order of `samples`. A diagnostic that could not be computed is `null`,
-   * with the kernel's sentence in `caveats` under its rule's name. */
+   * with the kernel's sentence in `caveats` under its rule's name.
+   *
+   * Not in `/results/{node}` (#314): the robust distance is a search the rest
+   * of the tab should not wait for. The outlier row fetches it from
+   * `/results/{node}/outliers` and attaches it here for the panels. */
   outliers?: {
     leverage: number[] | null;
     /** `null` for a PCA; an entry is `null` where the row is fitted exactly. */
@@ -565,6 +569,15 @@ export function useCoefficients(nodeId: string | undefined) {
     queryKey: ["coefficients", nodeId],
     queryFn: () => api<CoefficientsPayload>(`/results/${nodeId}/coefficients`),
     enabled: Boolean(nodeId),
+    staleTime: Infinity,
+  });
+}
+
+export function useOutliers(nodeId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["outliers", nodeId],
+    queryFn: () => api<NonNullable<PcaPayload["outliers"]>>(`/results/${nodeId}/outliers`),
+    enabled,
     staleTime: Infinity,
   });
 }
