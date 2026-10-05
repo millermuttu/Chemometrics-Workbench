@@ -1679,21 +1679,23 @@ def _selection_inputs(
     NDArray[np.float64],
     NDArray[np.float64],
 ]:
-    """What iPLS and CARS run on (`variable-selection.md` §2, §6): a PLS node's
-    stored per-fold input, its folds, its response and its axis - or a refusal
-    naming what is missing."""
+    """What iPLS and CARS run on (`variable-selection.md` §2, §6): a PLS or
+    PLS-DA node's stored per-fold input, its folds, its response and its axis -
+    or a refusal naming what is missing. A PLS-DA's response is its dummy
+    (§9): the {0, 1} codes for two classes, one-hot for three or more."""
     directory, pipeline, version = _runnable()
     result = _stored_result(directory, pipeline, version, node_id)
     if result is None:
         raise _fail(
             404, "not_found", f"node {node_id!r} has no fitted result yet.", node_id=node_id
         )
-    if result.task != "regression" or result.method not in ("pls", ""):
+    plsda = result.task == "classification" and result.method == "plsda"
+    if not plsda and (result.task != "regression" or result.method not in ("pls", "")):
         raise _fail(
             422,
             "not_a_pls",
             f"node {node_id!r} is a {result.method or result.task}; {method} fits PLS models, so "
-            "it is run from a PLS regression (variable-selection.md).",
+            "it is run from a PLS regression or a PLS-DA (variable-selection.md).",
             node_id=node_id,
         )
     stored = _stored_fold_matrices(directory, pipeline, version, NodeId(node_id))
@@ -1706,7 +1708,16 @@ def _selection_inputs(
             "two folds (variable-selection.md).",
             node_id=node_id,
         )
-    y = np.asarray(version.targets[result.target or ""], dtype=np.float64)
+    if plsda:
+        labels = [str(label) for label in version.metadata_columns[result.target or ""]]
+        codes = np.asarray([result.classes.index(label) for label in labels])
+        y = (
+            codes.astype(np.float64)
+            if len(result.classes) == 2
+            else np.eye(len(result.classes))[codes]
+        )
+    else:
+        y = np.asarray(version.targets[result.target or ""], dtype=np.float64)
     return result, stored[0], stored[1], y, node_axis(pipeline, NodeId(node_id), version)
 
 
@@ -1791,6 +1802,13 @@ def get_nested(
     elif method == "b":
         if cut is None:
             raise _fail(422, "invalid_nested", "a |b| selection needs its cut.", node_id=node_id)
+        if not result.coefficients:
+            raise _fail(
+                422,
+                "invalid_nested",
+                "a |b| cut needs one coefficient vector; this model has one per class.",
+                node_id=node_id,
+            )
         b = np.abs(np.asarray(result.coefficients))
         chosen = [int(j) for j in np.flatnonzero(b >= cut)]
         select = selection.coefficient_selector(a, cut)

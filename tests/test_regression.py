@@ -827,3 +827,35 @@ def test_pls2_refuses_mismatched_rows_and_too_many_components() -> None:
         PLS2(2).fit(x, y[1:])
     with pytest.raises(ValueError, match="supports at most min"):
         PLS2(500).fit(x, y)
+
+
+def test_a_one_hot_curve_is_pls2_pooled_over_every_element() -> None:
+    """#332, pls-da.md section 7: a one-hot response is scored by one RMSE over
+    every held-out element, each fold's model scikit-learn's multi-target PLS."""
+    import warnings
+
+    from sklearn.cross_decomposition import PLSRegression
+    from sklearn.exceptions import ConvergenceWarning
+
+    tecator = load_tecator()
+    x = np.asarray(tecator.spectra, dtype=np.float64)
+    fat = np.asarray(tecator.targets["fat"])
+    codes = np.digitize(fat, np.quantile(fat, [1 / 3, 2 / 3]))
+    onehot = np.eye(3)[codes]
+    folds = k_fold(len(fat), 5, seed=42)
+
+    ours = rmsecv_curve(x, onehot, folds, 4)
+
+    expected = []
+    for a in range(1, 5):
+        held = np.empty_like(onehot)
+        for fold in folds:
+            xt, yt = x[fold.train], onehot[fold.train]
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", ConvergenceWarning)
+                model = PLSRegression(a, scale=False, tol=0.0, max_iter=2000).fit(
+                    xt - xt.mean(axis=0), yt - yt.mean(axis=0)
+                )
+            held[fold.test] = model.predict(x[fold.test] - xt.mean(axis=0)) + yt.mean(axis=0)
+        expected.append(float(np.sqrt(np.mean((onehot - held) ** 2))))
+    np.testing.assert_allclose(ours, expected, rtol=1e-6)

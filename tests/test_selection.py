@@ -18,6 +18,7 @@ from chemometrics_workbench.regression import rmsecv_curve
 from chemometrics_workbench.selection import (
     cars,
     cars_selector,
+    coefficient_selector,
     interval_bounds,
     ipls,
     ipls_selector,
@@ -147,9 +148,17 @@ def test_cars_without_cross_validation_is_refused() -> None:
 
 
 def _sklearn_pls(x: np.ndarray, y: np.ndarray, a: int) -> Any:
-    from sklearn.cross_decomposition import PLSRegression
+    """Iterated to its fixed point, so a one-hot response agrees with PLS2's SVD."""
+    import warnings
 
-    return PLSRegression(n_components=a, scale=False).fit(x - x.mean(axis=0), y - y.mean())
+    from sklearn.cross_decomposition import PLSRegression
+    from sklearn.exceptions import ConvergenceWarning
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ConvergenceWarning)
+        return PLSRegression(n_components=a, scale=False, tol=0.0, max_iter=2000).fit(
+            x - x.mean(axis=0), y - y.mean(axis=0)
+        )
 
 
 def _sklearn_vip(model: Any) -> np.ndarray:
@@ -172,10 +181,9 @@ def _sklearn_rmsecv_curve(
         for fold in folds:
             xt, yt = x[fold.train], y[fold.train]
             model = _sklearn_pls(xt, yt, a)
-            held[fold.test] = (
-                np.asarray(model.predict(x[fold.test] - xt.mean(axis=0))).ravel() + yt.mean()
-            )
-        curve.append(rmse(y, held))
+            predicted = np.asarray(model.predict(x[fold.test] - xt.mean(axis=0)))
+            held[fold.test] = predicted.reshape(held[fold.test].shape) + yt.mean(axis=0)
+        curve.append(rmse(y.ravel(), held.ravel()))
     return curve
 
 
@@ -307,3 +315,58 @@ def test_an_outer_fold_that_selects_nothing_is_refused_by_number() -> None:
     x = np.random.default_rng(2).standard_normal((20, 4))
     with pytest.raises(ValueError, match="outer fold 0's selection kept no variable"):
         nested(x, x[:, 0], k_fold(20, 2), lambda *_: [], 2)
+
+
+# --------------------------------------------------------------------------
+# from a PLS-DA, section 9 (#332)
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def tecator_terciles() -> tuple[np.ndarray, np.ndarray]:
+    """Tecator in three classes by fat, one-hot."""
+    tecator = load_tecator()
+    fat = np.asarray(tecator.targets["fat"])
+    codes = np.digitize(fat, np.quantile(fat, [1 / 3, 2 / 3]))
+    return np.asarray(tecator.spectra, dtype=np.float64), np.eye(3)[codes]
+
+
+def test_ipls_on_a_one_hot_response_matches_a_scikit_learn_rebuild(
+    tecator_terciles: tuple[np.ndarray, np.ndarray],
+) -> None:
+    x, onehot = tecator_terciles
+    folds = k_fold(len(onehot), 5, seed=42)
+    ours = ipls(x, onehot, folds, 5, 3)
+    for interval, (start, stop) in zip(ours.intervals, interval_bounds(100, 5), strict=True):
+        reference = min(_sklearn_rmsecv_curve(x[:, start:stop], onehot, folds, 3))
+        assert interval.rmsecv == pytest.approx(reference, rel=1e-6)
+    assert ours.selected == _sklearn_ipls(x, onehot, folds, 5, 3)
+
+
+def test_two_classes_are_pls1_on_the_codes(tecator_fat: tuple[np.ndarray, np.ndarray]) -> None:
+    """Two classes: the dummy is a vector, and a one-hot of two columns pools to
+    the same RMSE, because the columns' residuals are equal and opposite."""
+    x, y = tecator_fat
+    codes = (y > np.median(y)).astype(np.float64)
+    folds = k_fold(len(y), 5, seed=42)
+    vector = rmsecv_curve(x, codes, folds, 3)
+    pooled = rmsecv_curve(x, np.eye(2)[codes.astype(int)], folds, 3)
+    np.testing.assert_allclose(vector, pooled, rtol=1e-9)
+
+
+def test_cars_and_the_nested_loop_run_on_a_one_hot_response(
+    tecator_terciles: tuple[np.ndarray, np.ndarray],
+) -> None:
+    x, onehot = tecator_terciles
+    folds = k_fold(len(onehot), 4, seed=42)
+    first = cars(x, onehot, folds, 3, n_runs=8, seed=1)
+    assert first == cars(x, onehot, folds, 3, n_runs=8, seed=1) and first.selected
+    found = nested(x, onehot, folds, vip_selector(3), 3, inner_splits=3)
+    assert len(found.predicted) == onehot.size and found.outer_rmsecv > 0
+
+
+def test_a_coefficient_cut_on_three_classes_is_refused() -> None:
+    x = np.random.default_rng(3).standard_normal((30, 5))
+    onehot = np.eye(3)[np.arange(30) % 3]
+    with pytest.raises(ValueError, match="one per class"):
+        coefficient_selector(2, 0.1)(x, onehot, k_fold(30, 3))

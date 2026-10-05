@@ -1431,6 +1431,43 @@ def test_ipls_runs_on_a_pls_under_a_split_and_refuses_one_without(client: TestCl
     assert refused.json()["error"]["code"] == "needs_cross_validation"
 
 
+def test_the_selections_run_from_a_pls_da_on_its_dummy_response(client: TestClient) -> None:
+    """#332, variable-selection.md section 9: iPLS, CARS and the nested loop
+    from a two-class PLS-DA, on the seeded Tecator's fat_class."""
+    from tests.seed_e2e import tecator_csv
+
+    response = client.post(
+        "/api/import", files={"file": ("tecator.csv", tecator_csv())}, headers=AUTH
+    )
+    assert response.status_code == 200, response.text
+    source = client.get("/api/pipelines/current", headers=AUTH).json()["nodes"][0]
+    nodes = [
+        source,
+        {
+            "id": "split",
+            "type": "split",
+            "inputs": ["source"],
+            "spec": {"kind": "kfold", "n_splits": 4},
+        },
+        {
+            "id": "plsda",
+            "type": "estimator",
+            "inputs": ["split"],
+            "spec": {"kind": "plsda", "n_components": 3, "class_column": "fat_class"},
+        },
+    ]
+    assert (
+        client.put("/api/pipelines/current", json={"nodes": nodes}, headers=AUTH).status_code == 200
+    )
+    job = client.post("/api/experiments/current/run", headers=AUTH).json()
+    assert wait_for(client, job["job_id"], seconds=120)["status"] == "succeeded"
+
+    for path in ("ipls?n_intervals=5", "cars?n_runs=5&seed=2", "nested?method=vip&inner_splits=3"):
+        served = client.get(f"/api/results/plsda/{path}", headers=AUTH)
+        assert served.status_code == 200, (path, served.text)
+    assert client.get("/api/results/plsda/ipls?n_intervals=5", headers=AUTH).json()["selected"]
+
+
 def test_a_mat_file_previews_with_its_choices_and_imports(client: TestClient) -> None:
     """#284: the preview takes corrections, so choosing the derivative matrix
     shows the table that will be imported; the import reads it."""

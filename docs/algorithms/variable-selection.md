@@ -134,3 +134,19 @@ The inner folds see one outer fold's preprocessing, fitted on all of its trainin
 **Reported quantities.** The outer and inner RMSECV, the outer fold count, the inner fold count, the size of the selection made on every sample, and the size of each outer fold's selection.
 
 **Parity.** No library offers this loop as one call. `tests/test_selection.py` rebuilds it with scikit-learn's `PLSRegression`, VIP computed from its weights and iPLS restated with its fits, on the same outer folds, and the selections and outer predictions agree.
+
+---
+
+## 9. From a PLS-DA
+
+[#332](https://github.com/millermuttu/Chemometrics-Workbench/issues/332). Every method above runs from a PLS-DA as well as from a PLS regression, on the PLS-DA's **dummy response** (`pls-da.md` §3): the $\{0, 1\}$ codes for two classes, which is PLS1, and the one-hot $n \times N$ matrix for three or more, which is PLS2 (`pls-regression.md` §10).
+
+- **VIP** is the PLS-DA's own (`pls-regression.md` §8). For PLS2 its per-component weights sum the response sum of squares over every column.
+- **iPLS and CARS** score a subset by the dummy RMSECV `pls-da.md` §7 defines: one RMSE pooled over every element of the held-out one-hot predictions, so every class counts in proportion to its samples. Two classes give PLS1's RMSECV exactly.
+- **CARS's weights** for PLS2 are each variable's $\lvert b_{jc} \rvert$ summed over the classes, normalised as in §6.
+- **The coefficient threshold** needs one coefficient vector, so it is offered for two classes and refused for three or more.
+- **Nested validation** (§8) scores the outer held-out rows by the same pooled RMSE.
+
+*Apply selection* writes the same `select_variables` step above a copy of the PLS-DA, as it does for a regression.
+
+**Parity.** `tests/test_selection.py` compares iPLS on a one-hot response with a rebuild in which every fit is scikit-learn's multi-target `PLSRegression`, iterated to its fixed point, on Tecator split into fat terciles. The interval RMSECVs agree and the forward path is identical. `tests/test_regression.py` compares the pooled curve the same way.
