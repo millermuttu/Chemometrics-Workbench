@@ -185,9 +185,11 @@ function VariableImportance({ pca, onRun }: { pca: PcaPayload; onRun?: () => voi
   const hasVip = (pca.regression?.vip.length ?? 0) > 0;
   const [view, setView] = useState<ImportanceView>(hasVip ? "vip" : "coefficients");
   // #281: a selection is made on a regression's own axis, over the mean
-  // spectrum its estimator saw. A result served before x_mean was kept, and a
-  // classification's dummy response, are not offered one.
-  const selectable = pca.task === "regression" && (pca.regression?.x_mean?.length ?? 0) > 0;
+  // spectrum its estimator saw; #332 extends it to a PLS-DA, on its dummy
+  // response. A result served before x_mean was kept is not offered one.
+  const selectable =
+    (pca.task === "regression" || pca.regression?.method === "plsda") &&
+    (pca.regression?.x_mean?.length ?? 0) > 0;
   const coefficients = useCoefficients(pca.node_id);
   const folded = coefficients.data;
 
@@ -407,7 +409,8 @@ function SelectVariables({
           }}
         >
           {hasVip ? <option value="vip">VIP ≥</option> : null}
-          <option value="b">|b| ≥</option>
+          {/* A PLS-DA of three or more classes has a coefficient vector per class. */}
+          {regression.coefficients.length > 0 ? <option value="b">|b| ≥</option> : null}
           {/* iPLS fits PLS models (variable-selection.md section 2). */}
           {hasVip ? <option value="ipls">iPLS</option> : null}
           {hasVip ? <option value="cars">CARS</option> : null}

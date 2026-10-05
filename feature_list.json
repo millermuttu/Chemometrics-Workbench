@@ -80,8 +80,8 @@
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; an e2e test applies a selection from a PLS-DA"
       ],
-      "status": "not_started",
-      "evidence": "",
+      "status": "passing",
+      "evidence": "2026-10-05, feature/332_selection-for-plsda. uv run pytest: exit 0 (full suite). References: tests/test_regression.py one-hot RMSECV curve equals scikit-learn multi-target PLSRegression (tol=0, max_iter=2000) pooled over every element, rtol 1e-6; tests/test_selection.py iPLS on Tecator fat terciles one-hot - every interval RMSECV within rel 1e-6 of a scikit-learn rebuild and an identical selection; two classes as codes and as a two-column one-hot give the same curve; CARS and the nested loop run on one-hot and are seeded; a |b| cut on three classes is refused. tests/test_server.py: ipls, cars and nested from a two-class PLS-DA on the seeded Tecator's fat_class. Failing first: with src stashed, all 6 new tests FAILED. ruff check, ruff format --check, mypy (86 files): clean. pnpm test 161 passed; pnpm exec playwright test: 92 passed (3.3m), including 'an iPLS selection from a PLS-DA is applied above a copy of the PLS-DA, which runs'.",
       "notes": ""
     },
     {

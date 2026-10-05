@@ -14,8 +14,7 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
-from chemometrics_workbench.arrays import as_float64_vector
-from chemometrics_workbench.regression import PLS, _fold_matrices, rmsecv_curve
+from chemometrics_workbench.regression import PLS, PLS2, _fold_matrices, _response, rmsecv_curve
 from chemometrics_workbench.validation import Fold, by_group, k_fold, rmse, validate_partition
 
 __all__ = [
@@ -197,7 +196,7 @@ def cars(
     if len(folds) < 2:
         raise ValueError("CARS compares cross-validated errors, and needs at least two folds")
     matrices = _fold_matrices(X, folds)
-    response = as_float64_vector(y, "y")
+    response = _response(y)
     # The sampling fits use fold zero's matrix, every row of it
     # (`variable-selection.md` §6; #331 revisits it).
     values = matrices[0]
@@ -216,10 +215,12 @@ def cars(
         rows = rng.choice(n, size=take, replace=False)
         block = values[np.ix_(rows, retained)]
         target = response[rows]
-        model = PLS(min(max_components, retained.size, take - 1)).fit(
-            block - block.mean(axis=0), target - target.mean()
+        model = _model(response)(min(max_components, retained.size, take - 1)).fit(
+            block - block.mean(axis=0), target - target.mean(axis=0)
         )
-        weights = np.abs(np.asarray(model.coefficients_, dtype=np.float64).ravel())
+        # §9: a one-hot response weighs a variable by its |b| summed over classes.
+        b = np.abs(np.asarray(model.coefficients_, dtype=np.float64))
+        weights = b.sum(axis=1) if b.ndim == 2 else b.ravel()
         if not weights.sum() > 0:
             weights = np.ones_like(weights)
         keep = max(2, round(a * np.exp(-k * i) * p))
@@ -247,8 +248,13 @@ Selector = Callable[[NDArray[np.float64], NDArray[np.float64], list[Fold]], list
 rows in, the column positions it keeps out."""
 
 
+def _model(response: NDArray[np.float64]) -> type[PLS]:
+    """PLS1 for a response vector, PLS2 for a one-hot matrix (§9)."""
+    return PLS2 if response.ndim == 2 else PLS
+
+
 def _centred_pls(x: NDArray[np.float64], y: NDArray[np.float64], n_components: int) -> PLS:
-    return PLS(min(n_components, x.shape[1])).fit(x - x.mean(axis=0), y - y.mean())
+    return _model(y)(min(n_components, x.shape[1])).fit(x - x.mean(axis=0), y - y.mean(axis=0))
 
 
 def vip_selector(n_components: int, cut: float = 1.0) -> Selector:
@@ -262,6 +268,8 @@ def coefficient_selector(n_components: int, cut: float) -> Selector:
     """§0's coefficient threshold: |b| at or above `cut`."""
 
     def select(x: NDArray[np.float64], y: NDArray[np.float64], _: list[Fold]) -> list[int]:
+        if y.ndim == 2:
+            raise ValueError("a |b| cut needs one coefficient vector; this model has one per class")
         b = np.asarray(_centred_pls(x, y, n_components).coefficients_, dtype=np.float64).ravel()
         return [int(j) for j in np.flatnonzero(np.abs(b) >= cut)]
 
@@ -309,15 +317,15 @@ def nested(
     given, so a grouped outer split stays grouped inside.
     """
     matrices = _fold_matrices(X, folds)
-    response = as_float64_vector(y, "y")
+    response = _response(y)
     n = matrices[0].shape[0]
-    if response.size != n:
-        raise ValueError(f"X has {n} samples and y has {response.size}")
+    if response.shape[0] != n:
+        raise ValueError(f"X has {n} samples and y has {response.shape[0]}")
     if len(folds) < 2:
         raise ValueError("a nested validation needs an outer split of at least two folds")
     validate_partition(folds, n)
 
-    predicted = np.empty(n, dtype=np.float64)
+    predicted = np.empty(response.shape, dtype=np.float64)
     chosen_per_fold: list[list[int]] = []
     for index, (fold, values) in enumerate(zip(folds, matrices, strict=True)):
         train = fold.train
@@ -336,11 +344,16 @@ def nested(
         if chosen.size == 0:
             raise ValueError(f"outer fold {index}'s selection kept no variable")
         block = x[:, chosen]
-        mean, y_mean = block.mean(axis=0), float(target.mean())
-        model = PLS(min(n_components, chosen.size)).fit(block - mean, target - y_mean)
+        mean, y_mean = block.mean(axis=0), target.mean(axis=0)
+        model = _model(response)(min(n_components, chosen.size)).fit(block - mean, target - y_mean)
         predicted[fold.test] = model.predict(values[np.ix_(fold.test, chosen)] - mean) + y_mean
         chosen_per_fold.append([int(j) for j in chosen])
-    return NestedResult(rmse(response, predicted), [float(v) for v in predicted], chosen_per_fold)
+    # Pooled over every element for a one-hot response (§9, pls-da.md §7).
+    return NestedResult(
+        rmse(response.ravel(), predicted.ravel()),
+        [float(v) for v in predicted.ravel()],
+        chosen_per_fold,
+    )
 
 
 def selected_rmsecv(

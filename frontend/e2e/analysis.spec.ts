@@ -455,6 +455,57 @@ test("a VIP selection is applied as a step above a copy of the PLS, which runs",
   }
 });
 
+test("an iPLS selection from a PLS-DA is applied above a copy of the PLS-DA, which runs", async ({
+  page,
+}) => {
+  // #332: the same panel on a classification, scored on its dummy response.
+  test.setTimeout(180_000);
+  const auth = { Authorization: "Bearer e2e-token" };
+  await page.goto("/?token=e2e-token");
+  const original = (await (await page.request.get("/api/pipelines/current", { headers: auth })).json())
+    .nodes as unknown[];
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /PLS-DA 5 LV/ }).first().dblclick();
+  await page.getByLabel("Variable importance view").selectOption("selection");
+  await page.getByLabel("Select by").selectOption("ipls");
+  await page.getByLabel("Intervals").fill("10");
+  await page.getByRole("button", { name: "Run iPLS" }).click();
+
+  const served = await (
+    await page.request.get("/api/results/plsda_d/ipls?n_intervals=10", { headers: auth })
+  ).json();
+  const kept = (served.selected as number[]).length;
+  await expect(page.getByTestId("selection-count")).toHaveText(`${kept} of 100`);
+
+  try {
+    await page.getByRole("button", { name: "Apply selection" }).click();
+    await expect
+      .poll(
+        async () => {
+          const response = await page.request.get("/api/results/plsda_d_selected", {
+            headers: auth,
+          });
+          return response.ok() ? (await response.json()).n_variables : 0;
+        },
+        { timeout: 120_000 },
+      )
+      .toBe(kept);
+    const copy = await (
+      await page.request.get("/api/results/plsda_d_selected", { headers: auth })
+    ).json();
+    expect(copy.task).toBe("classification");
+  } finally {
+    expect(
+      (
+        await page.request.put("/api/pipelines/current", {
+          headers: { ...auth, "Content-Type": "application/json" },
+          data: { nodes: original },
+        })
+      ).status(),
+    ).toBe(200);
+  }
+});
+
 test("a VIP selection is validated in an outer loop, beside its optimistic error", async ({
   page,
 }) => {

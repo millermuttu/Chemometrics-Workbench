@@ -875,26 +875,41 @@ def rmsecv_curve(
     if max_components < 1:
         raise ValueError(f"a curve needs at least one component, got {max_components}")
     matrices = _fold_matrices(X, folds)
-    response = as_float64_vector(y, "y")
+    response = _response(y)
     n_samples = matrices[0].shape[0]
-    if response.size != n_samples:
-        raise ValueError(f"X has {n_samples} samples and y has {response.size}")
+    if response.shape[0] != n_samples:
+        raise ValueError(f"X has {n_samples} samples and y has {response.shape[0]}")
     validate_partition(folds, n_samples)
+    # A one-hot response (pls-da.md §7, #332) is PLS2's, scored pooled over
+    # every element.
+    model_class: type[PLS] | type[PCR] = PLS2 if response.ndim == 2 else estimator
 
-    held_out = np.empty((max_components, n_samples), dtype=np.float64)
+    held_out = np.empty((max_components, *response.shape), dtype=np.float64)
     for fold, values in zip(folds, matrices, strict=True):
         train_x = values[fold.train]
         train_y = response[fold.train]
         x_mean = train_x.mean(axis=0)
-        y_mean = float(train_y.mean())
+        y_mean = train_y.mean(axis=0)
         # PCR's components nest exactly as NIPALS's do (pcr.md §3), so the
         # same one-fit running sum gives its curve.
-        model = estimator(max_components).fit(train_x - x_mean, train_y - y_mean)
+        model = model_class(max_components).fit(train_x - x_mean, train_y - y_mean)
         rotations = model._fitted("rotations_")
         y_loadings = model._fitted("y_loadings_")
         scores = (values[fold.test] - x_mean) @ rotations
-        # Column `a` of the running sum is the prediction with `a + 1` components.
-        partial = np.cumsum(scores * y_loadings, axis=1)
+        fitted = scores.shape[1]
         for a in range(max_components):
-            held_out[a, fold.test] = partial[:, min(a, partial.shape[1] - 1)] + y_mean
-    return np.asarray([rmse(response, predicted) for predicted in held_out])
+            # The prediction with `a + 1` components; a fit that stopped early
+            # predicts with every component it has.
+            width = min(a + 1, fitted)
+            if response.ndim == 2:
+                held_out[a, fold.test] = scores[:, :width] @ y_loadings[:, :width].T + y_mean
+            else:
+                held_out[a, fold.test] = scores[:, :width] @ y_loadings[:width] + y_mean
+    return np.asarray([rmse(response.ravel(), predicted.ravel()) for predicted in held_out])
+
+
+def _response(y: object) -> NDArray[np.float64]:
+    """A response vector, or a one-hot `n x m` matrix for a PLS-DA of three or more."""
+    if np.asarray(y).ndim == 2:
+        return as_float64(y, "Y")
+    return as_float64_vector(y, "y")
