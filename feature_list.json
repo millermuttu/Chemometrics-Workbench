@@ -264,6 +264,22 @@
       "status": "not_started",
       "evidence": "",
       "notes": "Found during #329."
+    },
+    {
+      "id": "docs-without-decisions",
+      "priority": 15,
+      "area": "docs",
+      "issue": 346,
+      "title": "Remove the Decisions section from the documentation site",
+      "depends_on": [],
+      "user_visible_behavior": "The docs site no longer lists or builds docs/decisions/; the files stay in the repository.",
+      "verification": [
+        "uv run mkdocs build --strict - green, and site/ holds no decisions/ directory",
+        "CI docs job green"
+      ],
+      "status": "not_started",
+      "evidence": "",
+      "notes": "Asked by the maintainer on 2026-10-05."
     }
   ]
 }
