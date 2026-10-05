@@ -150,6 +150,7 @@ Merged through green pull requests on `dev`:
 | Phase 5 docs: classification example, outlier and selection how-tos | #288 | #324 |
 | Phase 5 exit run, met; version 1.1.0 | #289 | #325 |
 | dev into main, `v1.1.0` released | #289 | #326 |
+| Exit run: Tecator PCR and selected PLS, lineage (asked by #289, missed at first) | #289 | #328 |
 
 ## What these left behind, worth knowing
 
@@ -191,7 +192,7 @@ Merged through green pull requests on `dev`:
 
 ## Next action
 
-**Phase 5 is complete and released as `v1.1.0`** (2026-10-05):
+**Phase 5 is complete and released as `v1.1.0`** (2026-10-05). The exit run was extended after the release with the Tecator claim issue #289 asked for (claim 3) and a lineage check; the application did not change. **Read the issue body, not only `feature_list.json`, before calling a feature done.** Release:
 https://github.com/millermuttu/Chemometrics-Workbench/releases/tag/v1.1.0. Every Phase 5 feature in
 `feature_list.json` is `passing`. Phase 6 has not been scoped. Opening it means: archive
 `feature_list.json` to `docs/phase-5/feature_list.json`, decide the phase's scope with the
