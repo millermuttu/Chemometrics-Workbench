@@ -1,4 +1,9 @@
-import type { CoefficientsPayload, ContributionsPayload, PcaPayload } from "@/api/queries";
+import type {
+  CoefficientsPayload,
+  ContributionsPayload,
+  IplsPayload,
+  PcaPayload,
+} from "@/api/queries";
 
 import type { PlotTheme } from "./theme";
 
@@ -369,4 +374,40 @@ export function selectionTraces(pca: PcaPayload, selected: number[], theme: Plot
       hovertemplate: "%{x:.1f} · selected<extra></extra>",
     },
   ];
+}
+
+/** iPLS over the spectrum (#282): one bar per interval at its place on the
+ * axis, as tall as its RMSECV, the intervals forward selection kept in the
+ * series colour, and the full spectrum's RMSECV as the line they are read
+ * against. */
+export function iplsFigure(payload: IplsPayload, theme: PlotTheme) {
+  const kept = new Set(payload.steps.map((step) => step.interval));
+  const centre = (one: IplsPayload["intervals"][number]) => (one.axis_start + one.axis_end) / 2;
+  return {
+    data: [
+      {
+        type: "bar",
+        x: payload.intervals.map(centre),
+        y: payload.intervals.map((one) => one.rmsecv),
+        width: payload.intervals.map((one) => Math.abs(one.axis_end - one.axis_start) || 1),
+        marker: {
+          color: payload.intervals.map((_, k) => (kept.has(k) ? theme.series[0] : theme.band)),
+        },
+        text: payload.intervals.map((one) => `A ${one.n_components}`),
+        hovertemplate: "%{x:.1f} · RMSECV %{y:.4g} · %{text}<extra></extra>",
+        name: "interval",
+      },
+    ],
+    shapes: [
+      {
+        type: "line",
+        xref: "paper",
+        x0: 0,
+        x1: 1,
+        y0: payload.full.rmsecv,
+        y1: payload.full.rmsecv,
+        line: { width: 1, dash: "dot", color: theme.ink3 },
+      },
+    ],
+  };
 }

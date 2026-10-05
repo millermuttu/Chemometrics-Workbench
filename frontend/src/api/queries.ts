@@ -585,6 +585,33 @@ export function useOutliers(nodeId: string, enabled: boolean) {
   });
 }
 
+/** `variable-selection.md` section 4 (#282). */
+export interface IplsPayload {
+  intervals: {
+    start: number;
+    stop: number;
+    axis_start: number;
+    axis_end: number;
+    rmsecv: number;
+    n_components: number;
+  }[];
+  full: { rmsecv: number; n_components: number };
+  steps: { interval: number; rmsecv: number }[];
+  /** The column positions Apply writes: every interval on the forward path. */
+  selected: number[];
+}
+
+/** Run only when asked: `intervals` is null until the user presses Run. */
+export function useIpls(nodeId: string, intervals: number | null) {
+  return useQuery({
+    queryKey: ["ipls", nodeId, intervals],
+    queryFn: () => api<IplsPayload>(`/results/${nodeId}/ipls?n_intervals=${intervals}`),
+    enabled: intervals !== null,
+    staleTime: Infinity,
+    retry: false,
+  });
+}
+
 export function useContributions(nodeId: string | undefined, sample: number | null) {
   return useQuery({
     queryKey: ["contributions", nodeId, sample],

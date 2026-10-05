@@ -53,10 +53,11 @@ ALGORITHM_TITLES = {
     "lda": "LDA (PCA-LDA)",
     "knn": "kNN (PCA-kNN)",
     "mcd": "Robust distance (FastMCD)",
+    "ipls": "iPLS (interval PLS)",
     "plsda": "PLS-DA (two-class)",
     "preprocess": "Preprocessing",
 }
-ALGORITHM_ORDER = ["preprocess", "pca", "pls", "pls2", "pcr", "plsda", "lda", "knn", "mcd"]
+ALGORITHM_ORDER = ["preprocess", "pca", "pls", "pls2", "pcr", "plsda", "lda", "knn", "mcd", "ipls"]
 DATASET_ORDER = ["corn", "gasoline", "tecator"]
 
 TIER_LABELS = {
@@ -113,6 +114,11 @@ COVERAGE: tuple[Coverage, ...] = (
         "Robust distance (FastMCD)",
         ("min_cov_det", "RobustCovariance", "robust_distance_limit"),
         ("mcd.robust_distance",),
+    ),
+    Coverage(
+        "iPLS",
+        ("ipls", "interval_bounds", "Interval", "IPLSResult"),
+        ("ipls.interval_rmsecv", "ipls.forward_path"),
     ),
     Coverage(
         "Leverage and studentised residuals",
@@ -292,6 +298,7 @@ KERNEL_MODULES = (
     "validation",
     "export",
     "outliers",
+    "selection",
 )
 
 

@@ -1370,3 +1370,39 @@ def test_the_outlier_diagnostics_are_served_on_their_own(client: TestClient) -> 
     assert block["version_id"] == source["version_id"]
     assert len(block["leverage"]) == len(block["studentised_residuals"])
     assert client.get("/api/results/nope/outliers", headers=AUTH).status_code == 404
+
+
+def test_ipls_runs_on_a_pls_under_a_split_and_refuses_one_without(client: TestClient) -> None:
+    """#282, variable-selection.md section 2: cross-validated, or refused by name."""
+    imported(client)
+    source = client.get("/api/pipelines/current", headers=AUTH).json()["nodes"][0]
+    pls = {"kind": "pls", "n_components": 2, "algorithm": "nipals", "target": "fat"}
+    nodes = [
+        source,
+        {
+            "id": "split",
+            "type": "split",
+            "inputs": ["source"],
+            "spec": {"kind": "kfold", "n_splits": 4, "shuffle": False},
+        },
+        {"id": "pls", "type": "estimator", "inputs": ["split"], "spec": pls},
+        {"id": "flat", "type": "estimator", "inputs": ["source"], "spec": pls},
+    ]
+    assert (
+        client.put("/api/pipelines/current", json={"nodes": nodes}, headers=AUTH).status_code == 200
+    )
+    job = client.post("/api/experiments/current/run", headers=AUTH).json()
+    assert wait_for(client, job["job_id"])["status"] == "succeeded"
+
+    served = client.get("/api/results/pls/ipls?n_intervals=3", headers=AUTH)
+    assert served.status_code == 200, served.text
+    body = served.json()
+    assert len(body["intervals"]) == 3 and body["intervals"][0]["start"] == 0
+    assert body["steps"] and body["selected"]
+    # Contiguous intervals over the PLS's whole input.
+    bounds = [(one["start"], one["stop"]) for one in body["intervals"]]
+    assert all(bounds[k][1] == bounds[k + 1][0] for k in range(len(bounds) - 1))
+
+    refused = client.get("/api/results/flat/ipls", headers=AUTH)
+    assert refused.status_code == 422
+    assert refused.json()["error"]["code"] == "needs_cross_validation"

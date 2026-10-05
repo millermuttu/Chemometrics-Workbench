@@ -21,11 +21,11 @@ strong the agreement is** rather than a bare pass or fail:
 
 | Claim | Count | Meaning |
 | --- | --- | --- |
-| identical within floating point | 129 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
-| agrees within stated tolerance | 25 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
+| identical within floating point | 134 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
+| agrees within stated tolerance | 26 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
 | differs by documented convention | 8 | Not compared numerically at all. The two quantities are not the same thing, and the reason is given in full below. |
 
-**162 comparisons, 162 passed, 0 failed.**
+**168 comparisons, 168 passed, 0 failed.**
 
 Three things a reader should hold on to, because the agreement column cannot
 show them:
@@ -82,6 +82,7 @@ those listed under *Gaps* or *Documented divergences* below.
 | LDA | `LDA` | 6 claims |
 | kNN | `KNN` | 6 claims |
 | Robust distance (FastMCD) | `min_cov_det`, `RobustCovariance`, `robust_distance_limit` | 3 claims |
+| iPLS | `ipls`, `interval_bounds`, `Interval`, `IPLSResult` | 6 claims |
 | Leverage and studentised residuals | `leverage`, `leverage_limit`, `studentised_residuals` | **not compared.** No reference in this environment: the R mdatools comparison the plan named needs R, and scikit-learn has no influence measures. The leverage is checked against the hat matrix formed by an explicit inverse, and the PLS and PCR calibration fits against least squares on [1, T], which makes the studentisation exact, in tests/test_outliers.py (outliers.md section 7). |
 | SIMCA | `SIMCA`, `acceptance_table`, `simca_class_metrics`, `simca_metrics` | **not compared.** No reference in this environment: the R mdatools comparison the plan named needs R, which the development environment does not carry, and scikit-learn has no SIMCA. Every class model is checked equal to decomposition.PCA on its centred class, which has its own parity claims, and every distance, decision and tally is recomputed from it in tests/test_classification.py (simca.md section 9). |
 | SNV | `SNVTransformer` | 3 claims |
@@ -322,6 +323,17 @@ those listed under *Gaps* or *Documented divergences* below.
 | corn | `robust_distance` | scikit-learn 1.9.0 | identical | 80 values, worst Δ < 1e-12 |
 | gasoline | `robust_distance` | scikit-learn 1.9.0 | identical | 60 values, worst Δ < 1e-13 |
 | tecator | `robust_distance` | scikit-learn 1.9.0 | identical | 240 values, worst Δ < 1e-12 |
+
+### iPLS (interval PLS)
+
+| Dataset | Quantity | Reference | Claim | Ours vs reference |
+| --- | --- | --- | --- | --- |
+| corn | `forward_path` | scikit-learn 1.9.0 | identical | 3 values, worst Δ 0, exactly |
+| corn | `interval_rmsecv` | scikit-learn 1.9.0 | identical | 10 values, worst Δ < 1e-14 |
+| gasoline | `forward_path` | scikit-learn 1.9.0 | identical | 7 values, worst Δ 0, exactly |
+| gasoline | `interval_rmsecv` | scikit-learn 1.9.0 | identical | 10 values, worst Δ < 1e-14 |
+| tecator | `forward_path` | scikit-learn 1.9.0 | identical | 2 values, worst Δ 0, exactly |
+| tecator | `interval_rmsecv` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 10 values, worst Δ < 1e-11 |
 
 ---
 

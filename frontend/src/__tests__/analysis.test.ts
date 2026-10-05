@@ -17,6 +17,7 @@ import {
   contributionTrace,
   ellipseTrace,
   influenceTraces,
+  iplsFigure,
   leverageTraces,
   loadingsTraces,
   outliers,
@@ -356,5 +357,29 @@ describe("a variable selection (#281)", () => {
     expect(line.y).toEqual(mean);
     expect(marks.x).toEqual([pca.loadings.axis.values[2], pca.loadings.axis.values[5]]);
     expect(marks.y).toEqual([mean[2], mean[5]]);
+  });
+});
+
+describe("the iPLS figure (#282)", () => {
+  const payload = {
+    intervals: [
+      { start: 0, stop: 5, axis_start: 850, axis_end: 858, rmsecv: 2.1, n_components: 3 },
+      { start: 5, stop: 10, axis_start: 860, axis_end: 868, rmsecv: 1.4, n_components: 4 },
+      { start: 10, stop: 15, axis_start: 870, axis_end: 878, rmsecv: 3.0, n_components: 2 },
+    ],
+    full: { rmsecv: 1.8, n_components: 5 },
+    steps: [{ interval: 1, rmsecv: 1.4 }],
+    selected: [5, 6, 7, 8, 9],
+  };
+
+  it("puts each interval's bar at its place on the axis, the kept one in the series colour", () => {
+    const { data, shapes } = iplsFigure(payload, theme);
+    const bars = data[0] as { x: number[]; y: number[]; width: number[]; marker: { color: string[] } };
+    expect(bars.x).toEqual([854, 864, 874]);
+    expect(bars.y).toEqual([2.1, 1.4, 3.0]);
+    expect(bars.width).toEqual([8, 8, 8]);
+    expect(bars.marker.color).toEqual([theme.band, theme.series[0], theme.band]);
+    // The full spectrum's RMSECV is the line they are read against.
+    expect(shapes[0].y0).toBe(1.8);
   });
 });
