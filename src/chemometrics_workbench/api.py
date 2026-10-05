@@ -655,8 +655,14 @@ def results_payload(
 
 
 def diagnosed(result: EstimatorResult) -> bool:
-    """`outliers.md` section 1: PCA, PLS and PCR only."""
-    return result.task == "decomposition" or result.method in ("pls", "pcr")
+    """`outliers.md` section 1: PCA, PLS and PCR on their own model, and since
+    #335 PLS-DA, LDA and kNN class by class (section 8). SIMCA's class models
+    are its decision, not a diagnostic."""
+    return result.task == "decomposition" or result.method in ("pls", "pcr", *CLASSWISE)
+
+
+#: `outliers.md` section 8: the classifiers diagnosed against their own class.
+CLASSWISE = ("plsda", "lda", "knn")
 
 
 def outliers_payload(result: EstimatorResult, version: DatasetVersion) -> dict[str, Any]:
@@ -722,15 +728,7 @@ def _outliers(result: EstimatorResult) -> dict[str, Any]:
         "residual": [None if v is None else abs(v) for v in residuals] if residuals else None,
         "robust": robust,
     }
-    flags = []
-    for index in range(n):
-        rules = [
-            rule
-            for rule, values in columns.items()
-            if values is not None and values[index] is not None and values[index] > limits[rule]  # type: ignore[operator]
-        ]
-        if rules:
-            flags.append({"index": index, "rules": rules})
+    flags = _flags(n, columns, {rule: [value] * n for rule, value in limits.items()})
     return {
         "leverage": hat,
         "studentised_residuals": residuals,
@@ -738,6 +736,75 @@ def _outliers(result: EstimatorResult) -> dict[str, Any]:
         "limits": limits,
         "caveats": caveats,
         "flags": flags,
+    }
+
+
+def _flags(
+    n: int,
+    columns: dict[str, list[float | None] | None],
+    limits: dict[str, list[float]],
+) -> list[dict[str, Any]]:
+    """`outliers.md` section 5: every sample that breaks a rule, the rules it
+    breaks and how many, most rules first (#335) and by row within a count."""
+    flags = []
+    for index in range(n):
+        rules = [
+            rule
+            for rule, values in columns.items()
+            if values is not None
+            and values[index] is not None
+            and values[index] > limits[rule][index]  # type: ignore[operator]
+        ]
+        if rules:
+            flags.append({"index": index, "rules": rules, "n_rules": len(rules)})
+    return sorted(flags, key=lambda flag: (-flag["n_rules"], flag["index"]))
+
+
+def classwise_payload(
+    result: EstimatorResult, matrix: NDArray[np.float64], version: DatasetVersion
+) -> dict[str, Any]:
+    """`outliers.md` section 8 (#335): a classifier's samples, each against
+    its own class's PCA on the estimator's input. The same keys as a PCA's
+    block, so the flags table reads both; `classwise` carries what has a
+    limit per class, which the influence plot draws as ratios to it."""
+    labels = [str(label) for label in version.metadata_columns[result.target or ""]]
+    codes = np.asarray([result.classes.index(label) for label in labels])
+    rows = np.asarray(result.rows, dtype=np.intp)
+    found = outliers.class_diagnostics(matrix[rows], codes[rows], result.n_components, result.alpha)
+
+    def listed(values: NDArray[np.float64]) -> list[float]:
+        return [float(value) for value in values]
+
+    columns: dict[str, list[float | None] | None] = {
+        "t2": list(listed(found.t2)),
+        "q": list(listed(found.q)),
+        "leverage": list(listed(found.leverage)),
+    }
+    limits = {
+        "t2": listed(found.t2_limit),
+        "q": listed(found.q_limit),
+        "leverage": listed(found.leverage_limit),
+    }
+    return {
+        "leverage": list(listed(found.leverage)),
+        "studentised_residuals": None,
+        "robust_distance": None,
+        # The flags table reads one number per rule; per class there are several.
+        "limits": {},
+        "caveats": {},
+        "flags": _flags(len(rows), columns, limits),
+        "classwise": {
+            "classes": result.classes,
+            "class_of": [int(code) for code in codes[rows]],
+            "n_components": found.n_components,
+            "t2": columns["t2"],
+            "t2_limit": limits["t2"],
+            "q": columns["q"],
+            "q_limit": limits["q"],
+            "leverage_limit": limits["leverage"],
+        },
+        "dataset_id": str(version.dataset_id),
+        "version_id": str(version.version_id),
     }
 
 
@@ -1739,9 +1806,23 @@ def get_outliers(node_id: str) -> Any:
             422,
             "not_diagnosed",
             f"node {node_id!r} is a {result.method or result.task}, which outliers.md does not "
-            "diagnose: only a PCA, a PLS or a PCR (section 1).",
+            "diagnose: a PCA, PLS or PCR on its own model, or a PLS-DA, LDA or kNN class by "
+            "class (sections 1 and 8).",
             node_id=node_id,
         )
+    if result.method in CLASSWISE:
+        matrix = _stored_fitted_matrix(directory, pipeline, version, node_id)
+        if matrix is None:
+            raise _fail(
+                404,
+                "not_found",
+                f"node {node_id!r}'s input has no stored array. Run the pipeline.",
+                node_id=node_id,
+            )
+        try:
+            return classwise_payload(result, matrix, version)
+        except ValueError as error:
+            raise _fail(422, "not_diagnosed", str(error), node_id=node_id) from error
     return outliers_payload(result, version)
 
 

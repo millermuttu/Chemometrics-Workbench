@@ -146,3 +146,50 @@ def test_too_few_rows_for_a_robust_covariance_is_refused() -> None:
 
 def test_the_limit_is_the_chi_squared_quantile() -> None:
     assert robust_distance_limit(5) == pytest.approx(chi2.ppf(0.975, 5))
+
+
+# --------------------------------------------------------------------------
+# class-wise diagnostics, section 8 (#335)
+# --------------------------------------------------------------------------
+
+
+def test_class_wise_diagnostics_match_an_independent_pca_per_class() -> None:
+    """Each class against its own PCA: T² and Q from scikit-learn's PCA of that
+    class's rows, leverage from the hat diagonal of its scores, limits at that
+    class's n (pca.md sections 7 and 8, outliers.md section 2)."""
+    from sklearn.decomposition import PCA as Reference
+
+    from chemometrics_workbench.outliers import class_diagnostics, leverage_limit
+
+    tecator = load_tecator()
+    x = np.asarray(tecator.spectra, dtype=np.float64)
+    fat = np.asarray(tecator.targets["fat"])
+    codes = np.digitize(fat, np.quantile(fat, [1 / 3, 2 / 3]))
+    found = class_diagnostics(x, codes, 4)
+
+    assert found.n_components == [4, 4, 4]
+    for code in range(3):
+        rows = np.flatnonzero(codes == code)
+        centred = x[rows] - x[rows].mean(axis=0)
+        reference = Reference(4, svd_solver="full").fit(centred)
+        scores = reference.transform(centred)
+        t2 = np.sum(scores**2 / reference.explained_variance_, axis=1)
+        q = np.sum((centred - scores @ reference.components_) ** 2, axis=1)
+        np.testing.assert_allclose(found.t2[rows], t2, rtol=1e-6)
+        np.testing.assert_allclose(found.q[rows], q, rtol=1e-6, atol=1e-12)
+        z = np.column_stack([np.ones(rows.size), scores])
+        hat = np.diag(z @ np.linalg.inv(z.T @ z) @ z.T)
+        np.testing.assert_allclose(found.leverage[rows], hat, rtol=1e-8)
+        assert set(found.leverage_limit[rows]) == {leverage_limit(rows.size, 4)}
+        own = PCA(4).fit(centred)
+        assert set(found.t2_limit[rows]) == {own.hotelling_t2_limit(0.05)}
+        assert set(found.q_limit[rows]) == {own.spe_limit(0.05)}
+
+
+def test_a_class_too_small_for_a_pca_is_refused_by_code() -> None:
+    from chemometrics_workbench.outliers import class_diagnostics
+
+    x = np.random.default_rng(0).standard_normal((12, 5))
+    codes = np.array([0] * 10 + [1] * 2)
+    with pytest.raises(ValueError, match="class 1 has 2 samples"):
+        class_diagnostics(x, codes, 2)

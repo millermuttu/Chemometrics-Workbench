@@ -19,13 +19,16 @@ from numpy.typing import NDArray
 from scipy.stats import chi2
 
 from chemometrics_workbench.arrays import as_float64, as_float64_vector
+from chemometrics_workbench.decomposition import PCA
 
 __all__ = [
     "LEVERAGE_FACTOR",
     "MCD_SEED",
     "RESIDUAL_LIMIT",
     "ROBUST_QUANTILE",
+    "ClassDiagnostics",
     "RobustCovariance",
+    "class_diagnostics",
     "leverage",
     "leverage_limit",
     "min_cov_det",
@@ -299,3 +302,63 @@ def _consistency(p: int, fraction: float) -> float:
     (Croux and Haesbroeck 1999, as Pison et al. 2002 write it)."""
     quantile = chi2.ppf(fraction, p)
     return float(fraction / chi2.cdf(quantile, p + 2))
+
+
+# --------------------------------------------------------------------------
+# class-wise diagnostics, section 8
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ClassDiagnostics:
+    """§8: every sample measured against its own class's PCA.
+
+    Each array has one entry per sample, in row order, and each limit is the
+    limit of that sample's own class - so a sample breaks a rule when its value
+    exceeds the limit beside it.
+    """
+
+    t2: NDArray[np.float64]
+    t2_limit: NDArray[np.float64]
+    q: NDArray[np.float64]
+    q_limit: NDArray[np.float64]
+    leverage: NDArray[np.float64]
+    leverage_limit: NDArray[np.float64]
+    n_components: list[int]
+    """Per class, in code order: `min(A, n_c - 1, p)`."""
+
+
+def class_diagnostics(
+    X: object, codes: object, n_components: int, alpha: float = 0.05
+) -> ClassDiagnostics:
+    """§8: per class, a PCA of that class's rows centred on their own mean,
+    with `T^2`, `Q` and leverage (§2) and their limits at that class's `n`.
+
+    A class with fewer than three samples cannot support even one component
+    and a residual, and is refused by its code.
+    """
+    values = as_float64(X, "X")
+    labels = np.asarray(codes, dtype=np.intp)
+    if labels.shape != (values.shape[0],):
+        raise ValueError(f"{labels.size} class codes for {values.shape[0]} samples")
+    n = values.shape[0]
+    t2, t2_limit, q, q_limit, hat, hat_limit = (np.empty(n) for _ in range(6))
+    used: list[int] = []
+    for code in range(int(labels.max()) + 1):
+        rows = np.flatnonzero(labels == code)
+        if rows.size < 3:
+            raise ValueError(
+                f"class {code} has {rows.size} samples; a class-wise PCA needs at least 3"
+            )
+        a = min(n_components, rows.size - 1, values.shape[1])
+        centred = values[rows] - values[rows].mean(axis=0)
+        model = PCA(a, data_eps=PCA.STORED_EPS).fit(centred)
+        a = model.n_components
+        t2[rows] = model.hotelling_t2()
+        t2_limit[rows] = model.hotelling_t2_limit(alpha)
+        q[rows] = model.spe(centred)
+        q_limit[rows] = model.spe_limit(alpha)
+        hat[rows] = leverage(model.scores_)
+        hat_limit[rows] = leverage_limit(rows.size, a)
+        used.append(a)
+    return ClassDiagnostics(t2, t2_limit, q, q_limit, hat, hat_limit, used)

@@ -301,8 +301,8 @@ describe("the outlier plots (#278)", () => {
       dataset_id: "d",
       version_id: "v",
       flags: [
-        { index: 1, rules: ["leverage"] },
-        { index: 3, rules: ["residual"] },
+        { index: 1, rules: ["leverage"], n_rules: 1 },
+        { index: 3, rules: ["residual"], n_rules: 1 },
       ],
     },
   };
@@ -438,5 +438,41 @@ describe("bootstrap bands (#334)", () => {
     expect(upper.y).toEqual([2, 3]);
     expect(upper.fill).toBe("tonexty");
     expect(lower.fill).toBeUndefined();
+  });
+});
+
+
+describe("a classifier's influence plot (#335)", () => {
+  it("draws each class's T² and Q as ratios to that class's own limit", () => {
+    const pca = {
+      samples: [0, 1, 2].map((index) => ({ index, sample_id: `s${index}` })),
+      diagnostics: { hotelling_t2: [], spe: [], hotelling_t2_limit: 1, spe_limit: 1, alpha: 0.05 },
+      outliers: {
+        leverage: [0.1, 0.2, 0.3],
+        studentised_residuals: null,
+        robust_distance: null,
+        limits: {},
+        caveats: {},
+        flags: [],
+        dataset_id: "d",
+        version_id: "v",
+        classwise: {
+          classes: ["a", "b"],
+          class_of: [0, 1, 1],
+          n_components: [1, 1],
+          t2: [2, 3, 8],
+          t2_limit: [4, 6, 4],
+          q: [1, 1, 1],
+          q_limit: [2, 2, 0.5],
+          leverage_limit: [1, 1, 1],
+        },
+      },
+    } as unknown as PcaPayload;
+    const traces = influenceTraces(pca, theme);
+    const [, , a, b] = traces as { name?: string; x: number[]; y: number[] }[];
+    expect(a.name).toBe("a");
+    expect(a.x).toEqual([0.5]);
+    expect(b.x).toEqual([0.5, 2]);
+    expect(b.y).toEqual([0.5, 2]);
   });
 });

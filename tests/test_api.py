@@ -515,16 +515,18 @@ def test_a_regression_payload_flags_its_outliers_by_rule(tmp_path: Path) -> None
         "residual": [abs(value) for value in block["studentised_residuals"]],
         "robust": block["robust_distance"],
     }
-    expected = [
-        {"index": i, "rules": [rule for rule, v in columns.items() if v[i] > limits[rule]]}
-        for i in range(n)
-    ]
-    assert block["flags"] == [row for row in expected if row["rules"]]
+    broken = [[rule for rule, v in columns.items() if v[i] > limits[rule]] for i in range(n)]
+    # #335: most rules first, by row within a count.
+    rows = sorted(
+        ((i, rules) for i, rules in enumerate(broken) if rules), key=lambda r: (-len(r[1]), r[0])
+    )
+    assert block["flags"] == [{"index": i, "rules": r, "n_rules": len(r)} for i, r in rows]
     assert {rule for row in block["flags"] for rule in row["rules"]} == set(columns)
 
 
-def test_a_pca_has_no_residuals_and_a_classification_no_outlier_block(tmp_path: Path) -> None:
-    """Section 1: residuals need a response, and a class is not one."""
+def test_a_pca_has_no_residuals_and_a_simca_no_outlier_block(tmp_path: Path) -> None:
+    """Section 1: residuals need a response; section 8: a PLS-DA, LDA or kNN is
+    diagnosed class by class, and a SIMCA's class models are its own decision."""
     run, version = executed(tmp_path / "results")
     block = outliers_payload(run.results["pca_a"], version)
     assert block["studentised_residuals"] is None
@@ -532,8 +534,10 @@ def test_a_pca_has_no_residuals_and_a_classification_no_outlier_block(tmp_path: 
 
     from dataclasses import replace
 
-    plsda = replace(run.results["pca_a"], task="classification", method="plsda")
-    assert not diagnosed(plsda) and diagnosed(run.results["pca_a"])
+    for method, expected in (("plsda", True), ("lda", True), ("knn", True), ("simca", False)):
+        classifier = replace(run.results["pca_a"], task="classification", method=method)
+        assert diagnosed(classifier) is expected, method
+    assert diagnosed(run.results["pca_a"])
     # #314: the search is not on the path every tab waits for.
     assert "outliers" not in results_payload(run.results["pca_a"], version)
 

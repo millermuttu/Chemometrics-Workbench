@@ -750,19 +750,22 @@ const RULE_LABELS: Record<OutlierRule, string> = {
 };
 
 function Influence({ pca }: { pca: PcaPayload }) {
+  // #335: a classifier's samples are measured against their own class's limits.
+  const wise = Boolean(pca.outliers?.classwise);
   const host = usePlot(
     (theme) => ({
       data: influenceTraces(pca, theme),
       layout: {
-        xaxis: axisLayout(theme, "Hotelling T²"),
-        yaxis: axisLayout(theme, "Q (SPE)"),
+        xaxis: axisLayout(theme, wise ? "T² / own class's limit" : "Hotelling T²"),
+        yaxis: axisLayout(theme, wise ? "Q / own class's limit" : "Q (SPE)"),
+        showlegend: wise,
         margin: { l: 52, r: 12, t: 8, b: 38 },
       },
     }),
     [pca],
   );
   return (
-    <Panel title="Influence" note={`α = ${pca.diagnostics.alpha}`}>
+    <Panel title={wise ? "Influence, by class" : "Influence"} note={`α = ${pca.diagnostics.alpha}`}>
       <div ref={host} data-testid="influence-plot" style={{ flex: 1, minHeight: 0 }} />
     </Panel>
   );
@@ -874,6 +877,7 @@ function Flags({
             <tr>
               <th style={{ width: 26 }} aria-label="Exclude" />
               <th style={{ width: 74 }}>Sample</th>
+              <th style={{ width: 22 }} title="Rules broken">#</th>
               <th>Rules</th>
             </tr>
           </thead>
@@ -908,6 +912,9 @@ function Flags({
                   </td>
                   <td className="mono" style={{ color: "var(--ink)" }}>
                     {sample.sample_id}
+                  </td>
+                  <td className="mono" data-testid="flag-count">
+                    {flag.n_rules}
                   </td>
                   <td className="mono" style={{ color: "var(--stale)" }}>
                     {flag.rules.map((rule) => RULE_LABELS[rule]).join(" · ")}
@@ -1627,7 +1634,8 @@ export function AnalysisResults({
         ) : null}
         {/* #278: the outlier diagnostics, a row of their own, for a PCA, PLS
             or PCR (outliers.md section 1). */}
-        {pca.task === "decomposition" || ["pls", "pcr"].includes(pca.regression?.method ?? "") ? (
+        {pca.task === "decomposition" ||
+        ["pls", "pcr", "plsda", "lda", "knn"].includes(pca.regression?.method ?? "") ? (
           <OutlierRow
             pca={pca}
             nodeId={nodeId}
