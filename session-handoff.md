@@ -137,7 +137,8 @@ Merged through green pull requests on `dev`:
 | SIMCA and kNN export, the chain as an affine map | #306 | #308 |
 | MATLAB `.mat` reader | #284 | #320 |
 | Galactic SPC reader | #285 | #321 |
-| Thermo OMNIC SPA reader (single file, or a zip of them) | #286 | #322 (open) |
+| Thermo OMNIC SPA reader (single file, or a zip of them) | #286 | #322 |
+| ASD FieldSpec reader (reflectance against the stored white reference) | #287 | #323 |
 
 ## What these left behind, worth knowing
 
@@ -163,11 +164,14 @@ Merged through green pull requests on `dev`:
   whole suite run first (`uv run pytest`, then `uv run python -m tests.parity_report`).
 
 - **Reader fixtures** live in `tests/fixtures/readers/<format>/` with a `LICENSE.md`; the source DOIs
-  are in decision 0006. **A `.zip` is OPUS's unless every member is `.spa`** (`spa.is_spa_archive`,
-  checked first in `reader_for`). A future zip-of-X reader should extend that check the same way.
+  are in decision 0006. **A `.zip` is OPUS's unless every member is `.spa` or every member is `.asd`**
+  (`_archive_of` in `reader_for`); both read members through `readers.spectrum_files`.
+- **ASD reflectance is the plain ratio** target / stored white reference, as ViewSpec shows it. The
+  Eaton Fire record's published values also carry a panel calibration curve and a VNIR splice; the
+  test factors both out. A splice-correction step would be a preprocessing feature, not a reader one.
 
 ## Next action
 
-#322 (SPA) is waiting on CI and then needs a merge. After it: `reader-asd` (#287, no dependencies,
-data in `dataset/asd/`), then `outlier-diagnostics` (#278), then `exclude-flagged` (#279), then the
-variable-selection run: `select-variables-step` (#280), VIP, iPLS and CARS.
+All four readers are done; #323 (ASD) merges when CI is green. Next: `outlier-diagnostics` (#278), then
+`exclude-flagged` (#279), then the variable-selection run: `select-variables-step` (#280), VIP, iPLS
+and CARS.
