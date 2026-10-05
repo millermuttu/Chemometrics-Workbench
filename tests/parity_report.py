@@ -308,6 +308,14 @@ COVERAGE: tuple[Coverage, ...] = (
         ("split.leave_one_group_out", "split.group_kfold"),
     ),
     Coverage(
+        "Bootstrap intervals",
+        ("bootstrap", "BootstrapResult"),
+        not_compared="A procedure over a fitted model rather than a value: tests/test_server.py "
+        "rebuilds the intervals with scikit-learn's PLSRegression on the same resampled rows, "
+        "drawn from the same stream, and they agree to rtol 1e-6 (`pls-regression.md` section "
+        "16).",
+    ),
+    Coverage(
         "Permutation test",
         ("permutation_test", "PermutationResult"),
         not_compared="Compared in tests/test_permutation.py rather than through the fixture, "

@@ -22,6 +22,7 @@ import {
   leverageTraces,
   loadingsTraces,
   outliers,
+  bandTraces,
   permutationFigure,
   predictedTraces,
   rmsecvTrace,
@@ -426,5 +427,16 @@ describe("the permutation test's figure (#333)", () => {
     expect(figure.shapes[0].x0).toBe(1);
     // The observed value is the low end of the axis, outside every bar.
     expect(counts[0]).toBe(0);
+  });
+});
+
+
+describe("bootstrap bands (#334)", () => {
+  it("draw the lower bound, then the upper filled down to it", () => {
+    const [lower, upper] = bandTraces([1, 2], { lower: [0, 1], upper: [2, 3] }, "VIP band", theme);
+    expect(lower.y).toEqual([0, 1]);
+    expect(upper.y).toEqual([2, 3]);
+    expect(upper.fill).toBe("tonexty");
+    expect(lower.fill).toBeUndefined();
   });
 });

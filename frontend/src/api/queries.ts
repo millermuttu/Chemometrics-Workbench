@@ -657,6 +657,28 @@ export function usePermutation(jobId: string | null, done: boolean) {
   });
 }
 
+/** `pls-regression.md` section 16 (#334): percentile bands, or null where
+ * there is none - a PCR's VIP, an unfoldable chain's coefficients. */
+export interface BootstrapPayload {
+  node_id: string;
+  level: number;
+  n_resamples: number;
+  seed: number;
+  vip: { lower: number[]; upper: number[] } | null;
+  coefficients: { lower: number[]; upper: number[] } | null;
+}
+
+/** Run only when asked: `resamples` is null until the user presses Bootstrap. */
+export function useBootstrap(nodeId: string, resamples: number | null) {
+  return useQuery({
+    queryKey: ["bootstrap", nodeId, resamples],
+    queryFn: () => api<BootstrapPayload>(`/results/${nodeId}/bootstrap?n_resamples=${resamples}`),
+    enabled: resamples !== null,
+    staleTime: Infinity,
+    retry: false,
+  });
+}
+
 /** Run only when asked: `query` is null until the user presses Validate. */
 export function useNested(nodeId: string, query: string | null) {
   return useQuery({

@@ -81,3 +81,9 @@ scikit-learn `PCA(svd_solver="full")` followed by `LinearRegression` on its scor
 - the calibration predictions in the response's original units.
 
 Both are sign-invariant: flipping a component negates $t_a$, $p_a$ and $q_a$ together. They are therefore compared without alignment.
+
+---
+
+## 9. Bootstrap intervals
+
+The coefficients carry bootstrap percentile intervals exactly as `pls-regression.md` §16 specifies for PLS: each resample refits the chain and the PCR, and the folded coefficients are measured. There is no VIP interval, because there is no VIP (§6).

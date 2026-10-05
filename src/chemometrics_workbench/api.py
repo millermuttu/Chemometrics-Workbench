@@ -120,9 +120,9 @@ from chemometrics_workbench.project import (
     write_model,
     write_pipeline,
 )
-from chemometrics_workbench.regression import coefficients_original_units
+from chemometrics_workbench.regression import PCR, PLS, coefficients_original_units
 from chemometrics_workbench.report import render_report, report_filename
-from chemometrics_workbench.validation import Fold
+from chemometrics_workbench.validation import Fold, bootstrap
 
 __all__ = [
     "ESTIMATOR_NOT_FITTED",
@@ -896,6 +896,26 @@ def _preprocess_chain(pipeline: Pipeline, node_id: NodeId) -> tuple[list[Pipelin
         current = node.inputs[0]
 
 
+def _fit_chain(
+    chain: list[PipelineNode],
+    values: NDArray[np.float64],
+    rows: NDArray[np.intp],
+    version: DatasetVersion,
+) -> tuple[list[preprocessing.Transformer], NDArray[np.float64]]:
+    """Fit each step of `chain` on `rows` of its input and transform every row."""
+    axis = np.asarray(version.axis.values, dtype=np.float64)
+    transformers: list[preprocessing.Transformer] = []
+    for node in chain:
+        assert node.type == "preprocess"
+        transformer = preprocessing.from_spec(node.step, axis=axis)
+        transformer.fit(values[rows])
+        values = transformer.transform(values)
+        if isinstance(transformer, preprocessing.Selection):
+            axis = transformer.selected_axis()
+        transformers.append(transformer)
+    return transformers, values
+
+
 def folded_coefficients(
     directory: Path,
     pipeline: Pipeline,
@@ -942,16 +962,7 @@ def folded_coefficients(
     # here are the parameters the coefficients were produced with.
     rows = np.asarray(result.rows, dtype=np.intp)
 
-    axis = np.asarray(version.axis.values, dtype=np.float64)
-    transformers: list[preprocessing.Transformer] = []
-    for node in chain:
-        assert node.type == "preprocess"
-        transformer = preprocessing.from_spec(node.step, axis=axis)
-        transformer.fit(values[rows])
-        values = transformer.transform(values)
-        if isinstance(transformer, preprocessing.Selection):
-            axis = transformer.selected_axis()
-        transformers.append(transformer)
+    transformers, values = _fit_chain(chain, values, rows, version)
 
     # The estimator's own centring, as it recorded it (#211). This used to be
     # recomputed from the refitted chain - the same number when the chain is
@@ -1930,6 +1941,84 @@ def get_coefficients(node_id: str) -> Any:
             node_id=node_id,
         )
     return folded_coefficients(directory, pipeline, NodeId(node_id), version, result)
+
+
+@router.get("/results/{node_id}/bootstrap")
+def get_bootstrap(node_id: str, n_resamples: int = 200, level: float = 0.95, seed: int = 0) -> Any:
+    """`pls-regression.md` §16, `pcr.md` §9 (#334): bootstrap intervals for a
+    PLS's or PCR's coefficients and VIP.
+
+    Each resample refits every step of the chain from the source, then the
+    estimator, on the resampled rows - the same refit `folded_coefficients`
+    makes on every row. The coefficients are folded to the dataset's axis, as
+    the coefficient plot draws them, or `null` when the chain cannot be folded;
+    VIP is on the estimator's own axis, and `null` for a PCR.
+    """
+    directory, pipeline, version = _runnable()
+    result = _stored_result(directory, pipeline, version, node_id)
+    if result is None:
+        raise _fail(
+            404, "not_found", f"node {node_id!r} has no fitted result yet.", node_id=node_id
+        )
+    if result.task != "regression" or result.method not in ("pls", "pcr", ""):
+        raise _fail(
+            422,
+            "not_a_regression",
+            f"node {node_id!r} is a {result.method or result.task}; bootstrap intervals are for "
+            "a PLS or PCR's coefficients and VIP.",
+            node_id=node_id,
+        )
+    if not 2 <= n_resamples <= 5000:
+        raise _fail(
+            422,
+            "invalid_bootstrap",
+            f"n_resamples must be between 2 and 5000, got {n_resamples}.",
+            node_id=node_id,
+        )
+    chain, _ = _preprocess_chain(pipeline, NodeId(node_id))
+    try:
+        raw = read_array(directory, version.array_path)
+    except ProjectError as error:
+        raise _fail(500, "project_unavailable", str(error)) from error
+    y = np.asarray(version.targets[result.target or ""], dtype=np.float64)
+    pcr = result.method == "pcr"
+    foldable = folded_coefficients(directory, pipeline, NodeId(node_id), version, result)[
+        "available"
+    ]
+
+    def statistic(rows: NDArray[np.intp]) -> NDArray[np.float64]:
+        sample = raw[rows]
+        every = np.arange(rows.size, dtype=np.intp)
+        transformers, x = _fit_chain(chain, sample, every, version)
+        target = y[rows]
+        x_mean, y_mean = x.mean(axis=0), float(target.mean())
+        model = (PCR if pcr else PLS)(result.n_components).fit(x - x_mean, target - y_mean)
+        b = np.asarray(model.coefficients_, dtype=np.float64).ravel()
+        parts = [] if pcr else [np.asarray(model.vip(), dtype=np.float64)]  # type: ignore[union-attr]
+        if foldable:
+            folded, _ = coefficients_original_units(
+                b, transformers, n_variables=version.n_variables, y_mean=y_mean - float(x_mean @ b)
+            )
+            parts.append(np.asarray(folded, dtype=np.float64))
+        return np.concatenate(parts)
+
+    try:
+        found = bootstrap(statistic, version.n_samples, n_resamples, level=level, seed=seed)
+    except ValueError as error:
+        raise _fail(422, "invalid_bootstrap", str(error), node_id=node_id) from error
+    p = 0 if pcr else len(result.vip)
+
+    def band(lower: NDArray[np.float64], upper: NDArray[np.float64]) -> dict[str, list[float]]:
+        return {"lower": [float(v) for v in lower], "upper": [float(v) for v in upper]}
+
+    return {
+        "node_id": node_id,
+        "level": found.level,
+        "n_resamples": found.n_resamples,
+        "seed": found.seed,
+        "vip": None if pcr else band(found.lower[:p], found.upper[:p]),
+        "coefficients": band(found.lower[p:], found.upper[p:]) if foldable else None,
+    }
 
 
 @router.get("/results/{node_id}/contributions/{sample}")
