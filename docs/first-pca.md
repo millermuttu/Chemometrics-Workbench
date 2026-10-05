@@ -10,6 +10,7 @@ variables, usually the wavelengths. The workbench reads:
 - Excel: `.xlsx`, `.xlsm`;
 - JCAMP-DX: `.jdx`, `.dx`, `.jcm`;
 - Bruker OPUS files;
+- Thermo Galactic `.spc`, new and old format, one spectrum or many in a file;
 - MATLAB `.mat` (versions 4 to 7.2). The preview asks which matrix holds the spectra, which way
   round it is stored, and which vector is its axis. A v7.3 file is refused with how to re-save it.
 

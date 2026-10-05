@@ -199,9 +199,9 @@ def reader_for(path: str | Path) -> Any:
     suffix is a reader that will one day parse a spreadsheet as text and
     produce a diagnostic about line 1.
     """
-    from chemometrics_workbench.readers import delimited, jcamp, mat, opus, xlsx
+    from chemometrics_workbench.readers import delimited, jcamp, mat, opus, spc, xlsx
 
-    modules = [delimited, jcamp, xlsx, opus, mat]
+    modules = [delimited, jcamp, xlsx, opus, mat, spc]
     suffix = Path(path).suffix.lower()
     for module in modules:
         if suffix in module.SUFFIXES:

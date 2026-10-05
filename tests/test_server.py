@@ -1439,3 +1439,12 @@ def test_a_mat_file_previews_with_its_choices_and_imports(client: TestClient) ->
     version = entry["versions"][0]
     assert (version["n_samples"], version["n_variables"]) == (12, 52)
     assert list(version["targets"]) == ["matrixYNirPropertyDensityNormalized"]
+
+
+def test_an_spc_multifile_imports_as_one_dataset(client: TestClient) -> None:
+    """#285: a multifile SPC is one dataset, one row per subfile."""
+    entry = client.post("/api/import", files=upload("spc/rohanisaac/nir.spc"), headers=AUTH)
+    assert entry.status_code == 200, entry.text
+    version = entry.json()["versions"][0]
+    assert (version["n_samples"], version["n_variables"]) == (20, 700)
+    assert version["axis"]["kind"] == "wavelength_nm"
