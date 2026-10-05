@@ -54,7 +54,7 @@ Each fold's model is fitted on that fold's training rows of its own preprocessed
 
 ## 6. Export
 
-The model artifact carries everything a decision needs: $\bar{x}$, the loadings, the neighbours' scores and classes, and $k$. **The JSON model and the Python snippet are not offered in this version**, and the export refuses with that reason. As with SIMCA (`simca.md` §7), a kNN decision needs the whole preprocessed spectrum, so the foldable tail of the chain would have to travel as an explicit affine map. That form is tracked as its own issue.
+The model artifact carries everything a decision needs: $\bar{x}$, the loadings, the neighbours' scores and classes, and $k$. **The JSON model and the Python snippet carry the same** (#306). As with SIMCA (`simca.md` §7), a kNN decision needs the whole preprocessed spectrum, so the foldable tail of the chain travels as an explicit affine map; `model-export.md` §6 specifies that form and its size.
 
 ---
 

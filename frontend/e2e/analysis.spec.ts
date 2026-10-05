@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+
 import { expect, test, type Page } from "@playwright/test";
 
 /** The analysis tab: the artboard's panel grid, the T² ellipse drawn from the
@@ -298,7 +300,7 @@ test("an LDA tab reads as a classification on the PCA front's scores", async ({ 
   }
 });
 
-test("a kNN tab reads as a classification, and its JSON export says why not", async ({ page }) => {
+test("a kNN tab reads as a classification, and exports its JSON model", async ({ page }) => {
   // #277. As the SIMCA and LDA tests do: added beside the seeded PLS-DA, then removed.
   const auth = { Authorization: "Bearer e2e-token" };
   await page.goto("/?token=e2e-token");
@@ -325,8 +327,12 @@ test("a kNN tab reads as a classification, and its JSON export says why not", as
     await outline.getByRole("button", { name: /kNN k5 · fat_class/ }).dblclick();
     await expect(page.getByTestId("analysis-header")).toContainText("kNN on fat_class 5 components");
     await expect(page.getByTestId("confusion-cross_validation")).toBeVisible();
-    await page.getByTestId("export-json").click();
-    await expect(page.getByText(/is a kNN, which this version does not export/)).toBeVisible();
+    // #306: exported with its neighbours behind the chain's affine map.
+    const [file] = await Promise.all([page.waitForEvent("download"), page.getByTestId("export-json").click()]);
+    expect(file.suggestedFilename()).toBe("knn_d_model.json");
+    const model = JSON.parse(await readFile((await file.path())!, "utf8"));
+    expect(model.model.assignment).toBe("knn");
+    expect(model.knn.k).toBe(5);
   } finally {
     expect((await put(original)).status()).toBe(200);
   }

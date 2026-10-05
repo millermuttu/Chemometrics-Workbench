@@ -77,7 +77,7 @@ As everywhere: below a split, each fold's class models are fitted on that fold's
 
 ## 7. Export
 
-The model artifact carries every class model: its mean, loadings, eigenvalues and both limits. **The JSON model and the Python snippet are not offered for SIMCA in this version**, and the export refuses with that reason. A SIMCA decision needs the whole preprocessed spectrum, not a dot product with one coefficient vector. Exporting it means carrying the foldable tail of the chain as an explicit affine map, which is a new export form rather than a variation of the existing one.
+The model artifact carries every class model: its mean, loadings, eigenvalues and both limits. **The JSON model and the Python snippet carry them too** (#306). A SIMCA decision needs the whole preprocessed spectrum, not a dot product with one coefficient vector, so the foldable tail of the chain travels as an explicit affine map rather than folded into coefficients. `model-export.md` §6 specifies that form and its size. The snippet returns, for each spectrum, which class models accept it.
 
 ---
 

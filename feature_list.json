@@ -254,9 +254,9 @@
         "uv run pytest - the snippet reproduces every calibration decision of a SIMCA and a kNN, through residual and foldable steps",
         "docs/model-export.md documents the affine-map form and its size"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": "Deferred from #275 and #277 (simca.md section 7, knn.md section 6); the artifact already carries both models."
+      "status": "passing",
+      "evidence": "2026-10-05: uv run pytest tests/test_export.py - 17 passed, among them test_a_simca_exports_its_class_models_behind_an_affine_map (SNV carried, Savitzky-Golay and centring as one 100 x 100 map; every calibration acceptance identical), test_a_knn_exports_its_neighbours_behind_an_affine_map (median carried, range selection and moving average as a 100 x 51 map; every calibration assignment identical) and test_a_knn_with_nothing_to_fold_carries_no_map. uv run pytest - 1018 passed, 1 skipped. pnpm exec playwright test e2e/analysis.spec.ts -g kNN - 1 passed: the kNN tab's Export JSON downloads knn_d_model.json with assignment knn. docs/model-export.md section 6 documents the affine form, its fields and its size (p x p' floats; about 20 MB at 1,000 variables); uv run mkdocs build --strict clean.",
+      "notes": "Deferred from #275 and #277. Found on the way: with a carried step before a range selection, the export told the fold the width after the selection and refused the chain (a PLS on SNV then a range selection raised); the width is now measured before the foldable tail, and test_a_range_selection_after_a_carried_step_folds_from_the_full_width fails on dev without the fix."
     },
     {
       "id": "outlier-diagnostics",
