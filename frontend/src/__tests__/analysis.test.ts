@@ -292,6 +292,8 @@ describe("the outlier plots (#278)", () => {
       robust_distance: Array.from({ length: n }, () => 1),
       limits: { t2: 10, q: 1, leverage: 0.1, residual: 3, robust: 12 },
       caveats: {},
+      dataset_id: "d",
+      version_id: "v",
       flags: [
         { index: 1, rules: ["leverage"] },
         { index: 3, rules: ["residual"] },

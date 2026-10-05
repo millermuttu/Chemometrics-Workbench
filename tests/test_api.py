@@ -499,6 +499,9 @@ def test_a_regression_payload_flags_its_outliers_by_rule(tmp_path: Path) -> None
     limits = block["limits"]
     n = run.results["pls_a"].n_samples
     assert block["caveats"] == {}
+    # #279: an exclusion from the flags table names the version they are rows of.
+    assert block["version_id"] == str(version.version_id)
+    assert block["dataset_id"] == str(version.dataset_id)
     assert len(block["leverage"]) == len(block["studentised_residuals"]) == n
     assert len(block["robust_distance"]) == n
 
