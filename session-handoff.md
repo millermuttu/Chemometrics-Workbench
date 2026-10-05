@@ -8,21 +8,23 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 ## Where things stand
 
-**`v1.1.0` is released** (2026-10-05), closing Phase 5. `v1.0.0` was released 2026-10-01. Phase 4's list is archived at `docs/phase-4/feature_list.json`;
-its timed exit run stays `blocked` there, closed on the maintainer's decision, and is not carried forward.
+**`v1.1.0` is released** (2026-10-05), closing Phase 5; its list is archived at
+`docs/phase-5/feature_list.json` and its exit run at `docs/phase-5/exit-run.md`.
 
-**Phase 5, methods breadth, is open** (2026-10-02). `feature_list.json` is its list: 22 entries, issues
-#268 to #289, and a `decisions` block. In short:
-- Classifiers: multi-class PLS-DA (on a new PLS2 kernel), SIMCA, LDA, kNN. SVM deferred.
-- Outliers are flagged; the user excludes. An exclusion is a derived `DatasetVersion`
-  (`excluded_samples`, `derived_from` already exist in `models.py` but nothing honours them yet).
-- Variable selection: VIP threshold, iPLS, CARS, each applied as an explicit `select_variables` step.
-- Readers: MATLAB `.mat`, SPC, SPA, ASD, each with a real licensed fixture.
-- Smoothing: moving average, median, Gaussian, Whittaker.
-- One release, `v1.1.0`, at the end.
+**Phase 6, validation integrity, is open** (2026-10-05). `feature_list.json` is its list: 13 entries,
+issues #329 to #341, and a `decisions` block. In short:
+- Grouped splits (#329), so replicates never straddle a fold.
+- The model saved and exported below a split is refitted on every sample (#330), decided by the
+  maintainer; fold zero's stays only as the held-out view.
+- Nested validation of variable selection (#331) and selection from PLS-DA (#332).
+- Permutation tests (#333) and bootstrap intervals (#334).
+- Class-wise outlier diagnostics (#335), a correctable axis unit (#336), a complete Step list (#337).
+- SVM (#338), hand-written SMO.
+- Signed packages (#339), `blocked` until the maintainer has an Apple Developer ID and a Windows
+  certificate.
+- Docs (#340), exit run (#341), one release `v1.2.0`.
 
-`PROPOSAL.md` §16 has the Phase 5 row and §6 marks the four formats Phase 5. `AGENTS.md`, `.agents/`,
-`.codex/` and the root `tecator.csv` are now gitignored.
+`PROPOSAL.md` §16 has the Phase 6 row.
 
 ## Development data
 
@@ -116,7 +118,7 @@ the served application end to end and rewrite their phase's `docs/phase-N/exit-r
 `uv run python -m tests.memory_probe 6000 1200` prints the peak resident memory of a ten-fold branch,
 which is the number #176 is judged by.
 
-## Phase 5 so far
+## Phase 5, for reference
 
 Merged through green pull requests on `dev`:
 
@@ -192,9 +194,5 @@ Merged through green pull requests on `dev`:
 
 ## Next action
 
-**Phase 5 is complete and released as `v1.1.0`** (2026-10-05). The exit run was extended after the release with the Tecator claim issue #289 asked for (claim 3) and a lineage check; the application did not change. **Read the issue body, not only `feature_list.json`, before calling a feature done.** Release:
-https://github.com/millermuttu/Chemometrics-Workbench/releases/tag/v1.1.0. Every Phase 5 feature in
-`feature_list.json` is `passing`. Phase 6 has not been scoped. Opening it means: archive
-`feature_list.json` to `docs/phase-5/feature_list.json`, decide the phase's scope with the
-maintainer (PROPOSAL.md §16's post-1.0 list still holds permutation and bootstrap validation, SVM,
-genetic-algorithm selection, the plugin API and self-hosted mode), and write the new list.
+Start `grouped-splits` (#329): it has no dependencies and the exit criterion leans on it. Then
+`final-model` (#330). Read each issue's body as well as its entry.
