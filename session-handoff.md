@@ -2,7 +2,7 @@
 
 Compact state for the next session. **Overwrite this file at the end of every session** — it is a snapshot, not a log. Read it first, then `feature_list.json`, `git log` on `dev`, and the open issues.
 
-**Updated:** 2026-10-03
+**Updated:** 2026-10-05
 
 ---
 
@@ -129,6 +129,12 @@ Merged through green pull requests on `dev`:
 | Nothing follows an estimator (found during #271) | #296 | #298 |
 | A run started during a save runs what was saved (#291's cause) | #291 | #299 |
 | PCR | #272 | #300 |
+| PLS2 kernel | #273 | #302 |
+| Multi-class PLS-DA | #274 | #303 |
+| SIMCA | #275 | #304 |
+| LDA | #276 | #305 |
+| kNN | #277 | #307 |
+| SIMCA and kNN export, the chain as an affine map | #306 | #308 |
 
 ## What these left behind, worth knowing
 
@@ -144,14 +150,17 @@ Merged through green pull requests on `dev`:
 - **e2e tests that change a project** go in `walkthrough.spec.ts`, which runs in order on the one server
   whose project a test may change. Wait for the drafts to clear ("No steps yet") or rely on #299 before
   asserting on a run after Save.
+- **SIMCA and kNN export** (#308, `model-export.md` §6): the foldable tail is carried as `x @ M + c`,
+  measured by pushing zeros and unit vectors through the fitted steps; `null` when empty. `M` is p x p'
+  floats, about 20 MB at 1,000 variables. #308 also fixed the fold being told the post-range-selection
+  width when a carried step preceded a range selection.
+- **SIMCA has no external parity** (R not installed); its claim rests on per-class `decomposition.PCA`.
 - **Parity fixture.** `uv run python tests/fixtures/generate_reference_values.py` regenerates
   deterministically; check its diff is only the new entries and the date. The parity report needs the
   whole suite run first (`uv run pytest`, then `uv run python -m tests.parity_report`).
 
 ## Next action
 
-Pick up `pls2-kernel` (#273): NIPALS PLS2 in `regression.py`, `pls-regression.md` §10 replaced by its
-specification, parity against scikit-learn `PLSRegression` with a multi-column Y. Then
-`plsda-multiclass` (#274), which needs it and `multiclass-groundwork`. The R `mdatools` references
-named in the plan for PCR were not added (scikit-learn only); SIMCA's parity plan still relies on
-`tests/fixtures/r_mdatools_reference.R`, so R will be needed there.
+Every classifier is done. Pick up `outlier-diagnostics` (#278), then `exclude-flagged` (#279), which
+needs it and `sample-exclusion`. After those, the variable-selection run: `select-variables-step`
+(#280), then VIP, iPLS and CARS. The four readers (#284 to #287) have no dependencies.
