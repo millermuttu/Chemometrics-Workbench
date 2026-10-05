@@ -8,7 +8,7 @@ Compact state for the next session. **Overwrite this file at the end of every se
 
 ## Where things stand
 
-**`v1.0.0` is released** (2026-10-01). Phase 4's list is archived at `docs/phase-4/feature_list.json`;
+**`v1.1.0` is released** (2026-10-05), closing Phase 5. `v1.0.0` was released 2026-10-01. Phase 4's list is archived at `docs/phase-4/feature_list.json`;
 its timed exit run stays `blocked` there, closed on the maintainer's decision, and is not carried forward.
 
 **Phase 5, methods breadth, is open** (2026-10-02). `feature_list.json` is its list: 22 entries, issues
@@ -148,7 +148,8 @@ Merged through green pull requests on `dev`:
 | Thermo OMNIC SPA reader (single file, or a zip of them) | #286 | #322 |
 | ASD FieldSpec reader (reflectance against the stored white reference) | #287 | #323 |
 | Phase 5 docs: classification example, outlier and selection how-tos | #288 | #324 |
-| Phase 5 exit run, met; version 1.1.0 | #289 | #325 (open) |
+| Phase 5 exit run, met; version 1.1.0 | #289 | #325 |
+| dev into main, `v1.1.0` released | #289 | #326 |
 
 ## What these left behind, worth knowing
 
@@ -190,8 +191,9 @@ Merged through green pull requests on `dev`:
 
 ## Next action
 
-**Phase 5's exit run is met** (`docs/phase-5/exit-run.md`; `--tighten 1e-9` shows it can fail).
-The version is 1.1.0. `phase-5-exit-run` stays `in_progress` only for its last verification step,
-the release: once #325 is merged into `dev`, open a pull request from `dev` into `main`, merge it,
-then `git tag -a v1.1.0 -m "notes"` and push the tag (release.yml builds and publishes). Then mark
-the feature `passing`, archive `feature_list.json` to `docs/phase-5/`, and open Phase 6.
+**Phase 5 is complete and released as `v1.1.0`** (2026-10-05):
+https://github.com/millermuttu/Chemometrics-Workbench/releases/tag/v1.1.0. Every Phase 5 feature in
+`feature_list.json` is `passing`. Phase 6 has not been scoped. Opening it means: archive
+`feature_list.json` to `docs/phase-5/feature_list.json`, decide the phase's scope with the
+maintainer (PROPOSAL.md §16's post-1.0 list still holds permutation and bootstrap validation, SVM,
+genetic-algorithm selection, the plugin API and self-hosted mode), and write the new list.
