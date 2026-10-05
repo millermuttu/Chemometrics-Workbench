@@ -20,8 +20,9 @@ Open the PLS node's results and scroll to the **Outliers** row. It has three pan
 
 Hover over a point to see which sample it is.
 
-**Flagged samples** reads **67 of 216**. The model on screen was fitted on the 216 samples in
-fold 0's training set; the other 24 are its held-out samples. 55 of the 67 are flagged only by
+**Flagged samples** reads **84 of 240**. The model on screen was fitted on the 240 samples, every
+one: below a split, cross-validation measures the error and the model you see is refitted on every
+sample. 67 of the 84 are flagged only by
 **robust distance**. Robust distance measures each sample against the most tightly clustered part
 of the data, and Tecator's fat content runs from 0.9% to 58.5%, so the samples at either end are far
 from that core without being wrong. One rule on its own is a reason to look at a sample, not to

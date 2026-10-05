@@ -78,20 +78,26 @@ exactly when the node above it does. The file is not content-addressed the way
 arrays are: a key names one result, and the path is derived from it rather than
 looked up in an index.
 
-A node below a split is fitted on the training rows of **fold zero**, which is
-what the Phase 1.1 fixture does and is deliberately not an aggregation. There
-is no single model over ten folds, and inventing one — an average of loadings,
-say — would be arithmetic no document specifies. The fold is recorded in the
-result, and the held-out rows are projected through the fitted model and stored
-beside the calibration ones, because §9's rule is that they are pushed through
-the training fold's parameters rather than left out of the picture.
+A node below a split is **refitted on every sample** (#330): cross-validation
+estimates the error of the recipe, and the model kept is fitted once more on
+all of it. To make that possible every node below a split carries, beside its
+fold arrays, an all-sample array (`_State.full`, stored under `<key>#all`):
+every row through parameters fitted on every row. The estimator is fitted on
+its input's. There is no single model over ten folds and no average of them -
+that would be arithmetic no document specifies - but there is one over every
+sample, and it is the one a user saves and exports.
 
-A `PLSRegressionSpec` node is fitted too, since #142. **The model is fold
-zero's and the cross-validated numbers are every fold's**, which is not a
+Fold zero's model survives as the **held-out view**: fitted on fold zero's
+training rows of fold zero's array, it predicts that fold's held-out rows, and
+those predictions, diagnostics and `_p` metrics are stored beside the
+all-sample model's (`_with_held_out`), because §9's rule is that a held-out row
+is pushed through parameters that never saw it.
+
+A `PLSRegressionSpec` node is fitted too, since #142. **The model is every
+sample's and the cross-validated numbers are every fold's**, which is not a
 contradiction: §13's reported quantities belong to one fitted model, and
 RMSECV is a property of the *split* rather than of any model — which is why §7
-pools residuals across folds instead of averaging per-fold errors. Taking the
-curve from fold zero alone would be a worse estimate from the same work.
+pools residuals across folds instead of averaging per-fold errors.
 
 The response is centred by the estimator rather than by a node, because `y` is
 not on the canvas and no `MeanCentre` can reach it. Predictions come back in
@@ -239,6 +245,10 @@ _FITTED: tuple[type, ...] = (
 )
 
 
+#: Part of every estimator's key. Changed when what a stored result means
+#: changes under an unchanged recipe, so every older result is a cache miss.
+RESULT_FORMAT = "final-model"
+
 RESULTS_DIR = "results"
 
 #: The confidence level every limit is quoted at. One number, in one place: a
@@ -305,7 +315,8 @@ class NodeOutput:
 
     @property
     def array_path(self) -> str:
-        """The one array for a node above a split; fold zero's below one.
+        """The one array for a node above a split; fold zero's below one (its
+        all-sample array is under `<key>#all`, #330).
 
         Callers that mean "the array to draw" want `Run.display`, which
         assembles the out-of-fold rows. This is the stored path, and for a
@@ -327,9 +338,9 @@ class EstimatorResult:
     axis and the node's label — is the HTTP layer's job, because those come
     from the `DatasetVersion` rather than from the model.
 
-    `rows` are the samples the model was fitted on. Below a split those are one
-    fold's training rows, and `held_out` are the rows it is validated against,
-    projected through the same fitted model.
+    `rows` are the samples the model was fitted on: every sample, below a split
+    as above one (#330). Below a split `held_out` are fold zero's held-out rows,
+    projected through fold zero's model rather than this one, which has seen them.
     """
 
     node_id: NodeId
@@ -340,6 +351,8 @@ class EstimatorResult:
     n_variables: int
     rank: int
     fold: int | None
+    """Which fold's held-out rows `held_out` are: 0 below a split, `None` above one.
+    Before #330 it was also the fold the model was fitted on; see `all_samples`."""
     rows: list[int]
     scores: list[list[float]]
     loadings: list[list[float]]
@@ -359,6 +372,11 @@ class EstimatorResult:
     held_out_scores: list[list[float]] = field(default_factory=list)
     held_out_hotelling_t2: list[float] = field(default_factory=list)
     held_out_spe: list[float] = field(default_factory=list)
+    all_samples: bool = False
+    """Below a split, the model is fitted on every sample (#330) and `held_out*`
+    come from fold zero's model, which never saw those rows. `False` above a
+    split, where every sample is all there is. A result stored before #330 is
+    under an older key (`RESULT_FORMAT`) and is never served."""
 
     # --- The regression half (#142) ---------------------------------------
     #
@@ -543,6 +561,10 @@ class _State:
 
     arrays: list[NDArray[np.float64]]
     folds: list[Fold] | None
+    full: NDArray[np.float64] | None = None
+    """Below a split, every row through parameters fitted on every row (#330):
+    the matrix the final model is fitted on. `None` above a split, where
+    `arrays[0]` already is that."""
 
     @property
     def display(self) -> NDArray[np.float64]:
@@ -693,6 +715,20 @@ def execute(
                 arrays.append(read_back[array_path])
             del read_back
             state = _State(arrays=arrays, folds=folds)
+
+        if folds is not None:
+            assert parent is not None, "a node below a split has an input"
+            state.full, full_path = _all_samples(
+                node,
+                parent,
+                path,
+                index.get(f"{key}#all") if use_cache else None,
+                pipeline,
+                version,
+            )
+            if use_cache and index.get(f"{key}#all") != [full_path]:
+                index[f"{key}#all"] = [full_path]
+                index_changed = True
 
         states[node.id] = state
         if node.type == "split":
@@ -869,6 +905,11 @@ def node_keys(pipeline: Pipeline, version: DatasetVersion) -> dict[NodeId, str]:
         if node.type == "source":
             parts.append(str(version.version_id))
             parts.append(version.content_hash)
+        if node.type == "estimator":
+            # #330 changed what an estimator below a split stores - the model
+            # refitted on every sample, not fold zero's - under the same recipe.
+            # A new key is how every stored result made before it goes stale.
+            parts.append(RESULT_FORMAT)
         parts.extend(key_of(parent) for parent in node.inputs)
         digest = hashlib.sha256("\x1f".join(parts).encode()).hexdigest()
         keys[node_id] = digest
@@ -1000,6 +1041,35 @@ def _metadata_column(version: DatasetVersion, node: PipelineNode, name: str) -> 
     return labels
 
 
+def _all_samples(
+    node: PipelineNode,
+    parent: _State,
+    directory: Path,
+    stored: list[str] | None,
+    pipeline: Pipeline,
+    version: DatasetVersion,
+) -> tuple[NDArray[np.float64], str]:
+    """A node's all-sample array below a split, and where it is stored (#330).
+
+    The split passes its input through; a step below it is fitted on every row
+    of its input's all-sample array. Stored under `<key>#all`, written and read
+    back like every other array so a cached run and a fresh one agree. An index
+    written before #330 has no such entry and computes it here.
+    """
+    if stored:
+        try:
+            return read_array(directory, stored[0]), stored[0]
+        except ProjectError:
+            pass
+    if node.type == "split":
+        values = parent.full if parent.full is not None else parent.arrays[0]
+    else:
+        assert node.type == "preprocess" and parent.full is not None
+        values = _transform(node, parent.full, None, node_axis(pipeline, node.inputs[0], version))
+    array_path, _ = write_array(directory, values)
+    return read_array(directory, array_path), array_path
+
+
 def _computed(
     node: PipelineNode,
     parent: _State | None,
@@ -1112,27 +1182,93 @@ def _estimator(
             # pruned array is: the cache is a saving, never an authority.
             pass
 
-    fold = None if parent.folds is None else 0
-    if parent.folds is None:
+    if parent.folds is not None and parent.full is not None:
+        # #330: below a split the model is refitted on every sample, through
+        # every step above it refitted on every sample too. Cross-validation
+        # estimates its error - the CV numbers are every fold's, as before -
+        # and fold zero's model, fitted on its training rows, supplies the
+        # held-out view: rows that model never saw.
+        everyone = np.arange(parent.full.shape[0], dtype=np.intp)
+        final = _fitted(node, parent, key, parent.full, everyone, _NONE, None, version)
+        fold = parent.folds[0]
+        view = _fitted(
+            node,
+            _State(arrays=[parent.arrays[0]], folds=None),
+            key,
+            parent.arrays[0],
+            fold.train,
+            fold.test,
+            0,
+            version,
+        )
+        result = _with_held_out(final, view)
+    else:
         matrix = parent.arrays[0]
         rows = np.arange(matrix.shape[0], dtype=np.intp)
-        held_out = np.array([], dtype=np.intp)
-    else:
-        # Fold zero, as the Phase 1.1 fixture fits it. Not an aggregation:
-        # there is no single model over ten folds, and averaging loadings
-        # across them is arithmetic no document specifies.
-        matrix = parent.arrays[0]
-        rows = parent.folds[0].train
-        held_out = parent.folds[0].test
+        result = _fitted(node, parent, key, matrix, rows, _NONE, None, version)
+    stored.parent.mkdir(parents=True, exist_ok=True)
+    write_json(stored, result.as_json())
+    return result
 
+
+_NONE = np.array([], dtype=np.intp)
+
+#: Metrics measured on the held-out rows (`metrics-and-validation.md` §11):
+#: RMSEP and SEP, and the `_p` classification metrics.
+_HELD_OUT_METRICS = ("rmsep", "sep")
+
+
+def _with_held_out(final: EstimatorResult, view: EstimatorResult) -> EstimatorResult:
+    """The all-sample model, with fold zero's held-out rows as its held-out view (#330).
+
+    Everything that describes the model - scores, loadings, coefficients, the
+    calibration predictions and metrics, the cross-validated numbers - is the
+    final model's. What describes the held-out rows is fold zero's model's,
+    because the final model has seen them.
+    """
+    held = {f.name: getattr(view, f.name) for f in fields(view) if f.name.startswith("held_out")}
+    metrics = dict(final.metrics)
+    metrics.update(
+        {k: v for k, v in view.metrics.items() if k in _HELD_OUT_METRICS or k.endswith("_p")}
+    )
+    confusion = dict(final.confusion)
+    if "held_out" in view.confusion:
+        confusion["held_out"] = view.confusion["held_out"]
+    simca = final.simca
+    if "held_out" in view.simca.get("sets", {}):
+        simca = {
+            **final.simca,
+            "sets": {**final.simca["sets"], "held_out": view.simca["sets"]["held_out"]},
+        }
+    return replace(
+        final,
+        **held,
+        fold=view.fold,
+        all_samples=True,
+        metrics=metrics,
+        confusion=confusion,
+        simca=simca,
+    )
+
+
+def _fitted(
+    node: PipelineNode,
+    parent: _State,
+    key: str,
+    matrix: NDArray[np.float64],
+    rows: NDArray[np.intp],
+    held_out: NDArray[np.intp],
+    fold: int | None,
+    version: DatasetVersion,
+) -> EstimatorResult:
+    """Fit one estimator on `matrix[rows]`, validated on `held_out` and, when
+    `parent` carries more than one fold, cross-validated on its fold arrays."""
+    assert node.type == "estimator"
     if isinstance(node.spec, PLSRegressionSpec):
-        result = _pls(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
-        stored.parent.mkdir(parents=True, exist_ok=True)
-        write_json(stored, result.as_json())
-        return result
+        return _pls(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
 
     if isinstance(node.spec, PCRSpec):
-        result = _fit_regression(
+        return _fit_regression(
             node,
             "pcr",
             node.spec.n_components,
@@ -1146,33 +1282,18 @@ def _estimator(
             fold,
             estimator=PCR,
         )
-        stored.parent.mkdir(parents=True, exist_ok=True)
-        write_json(stored, result.as_json())
-        return result
 
     if isinstance(node.spec, KNNSpec):
-        result = _knn(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
-        stored.parent.mkdir(parents=True, exist_ok=True)
-        write_json(stored, result.as_json())
-        return result
+        return _knn(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
 
     if isinstance(node.spec, LDASpec):
-        result = _lda(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
-        stored.parent.mkdir(parents=True, exist_ok=True)
-        write_json(stored, result.as_json())
-        return result
+        return _lda(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
 
     if isinstance(node.spec, SIMCASpec):
-        result = _simca(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
-        stored.parent.mkdir(parents=True, exist_ok=True)
-        write_json(stored, result.as_json())
-        return result
+        return _simca(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
 
     if isinstance(node.spec, PLSDASpec):
-        result = _plsda(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
-        stored.parent.mkdir(parents=True, exist_ok=True)
-        write_json(stored, result.as_json())
-        return result
+        return _plsda(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
 
     assert isinstance(node.spec, PCASpec)
     try:
@@ -1220,9 +1341,6 @@ def _estimator(
         ),
         held_out_spe=_values(model.spe(matrix[held_out])) if held_out.size else [],
     )
-
-    stored.parent.mkdir(parents=True, exist_ok=True)
-    write_json(stored, result.as_json())
     return result
 
 
@@ -1256,14 +1374,13 @@ def _pls(
 ) -> EstimatorResult:
     """Fit one PLS node and measure it, per `metrics-and-validation.md` §4-§9.
 
-    **The model is fold zero's; the cross-validated numbers are every fold's.**
-    Those are not in tension. §13's reported quantities — weights, loadings,
-    coefficients, VIP — belong to one fitted model, and fold zero is the one
-    PCA already uses, so a regression and a decomposition below the same split
-    describe the same samples. RMSECV is not a property of a model at all but
-    of the split, which is exactly why §7 pools residuals across every fold
-    rather than averaging per-fold errors. Taking the curve from fold zero
-    alone would be a worse estimate calculated from the same work.
+    **The model is the one `matrix[rows]` gives; the cross-validated numbers
+    are every fold's.** Those are not in tension. §13's reported quantities —
+    weights, loadings, coefficients, VIP — belong to one fitted model, which
+    below a split `_estimator` asks for twice: on every sample, and on fold
+    zero's training rows for the held-out view (#330). RMSECV is not a property
+    of a model at all but of the split, which is exactly why §7 pools residuals
+    across every fold rather than averaging per-fold errors.
 
     **The response is centred here, not by a pipeline node.** `y` is not on the
     canvas, so no `MeanCentre` can reach it; PLS fits what it is given and
@@ -1605,7 +1722,7 @@ def _plsda_multiclass(
     """`pls-da.md` §3 to §7 for N > 2: PLS2 on the one-hot response, each
     prediction assigned to its largest column, tallied by `classification.md`.
 
-    The fitted model is fold zero's, as everywhere; the cross-validated
+    The fitted model is the one `matrix[rows]` gives, as everywhere; the cross-validated
     assignments and the dummy RMSECV curve are every fold's, each fold fitted
     on its own preprocessed array (#173).
     """
@@ -1708,7 +1825,7 @@ def _knn(
     fold: int | None,
     version: DatasetVersion,
 ) -> EstimatorResult:
-    """`knn.md`: PCA-kNN, tallied by `classification.md`, fold zero's model."""
+    """`knn.md`: PCA-kNN, tallied by `classification.md`."""
     classes, codes = _class_labels(version, node, spec.class_column, kind="knn")
     n_classes = len(classes)
 
@@ -1789,7 +1906,7 @@ def _lda(
     fold: int | None,
     version: DatasetVersion,
 ) -> EstimatorResult:
-    """`lda.md`: PCA-LDA, tallied by `classification.md`, fold zero's model."""
+    """`lda.md`: PCA-LDA, tallied by `classification.md`."""
     classes, codes = _class_labels(version, node, spec.class_column, kind="lda")
     n_classes = len(classes)
 
@@ -1874,7 +1991,7 @@ def _simca(
     fold: int | None,
     version: DatasetVersion,
 ) -> EstimatorResult:
-    """`simca.md`: one PCA per class, decisions per set, fold zero's models."""
+    """`simca.md`: one PCA per class, decisions per set."""
     classes, codes = _class_labels(version, node, spec.class_column, kind="simca")
     n_classes = len(classes)
 
@@ -2045,14 +2162,15 @@ def stored_display(
 def stored_fitted_matrix(
     directory: str | Path, pipeline: Pipeline, version: DatasetVersion, node_id: NodeId
 ) -> NDArray[np.float64] | None:
-    """The array an estimator was fitted from, read back: its input's fold-zero array.
+    """The array an estimator was fitted from, read back.
 
-    Every row of it, calibration and held-out alike, transformed with fold
-    zero's parameters - which is the matrix `_estimator` indexed with `rows`
-    and `held_out`. A contribution plot (#186) needs the sample's row from
-    *this* array, not from the display array a spectra plot draws, whose rows
-    below a split come from whichever fold held each one out. `None` when the
-    node is not an estimator or its input has not been run.
+    Above a split, its input's one array. Below one, its input's all-sample
+    array (#330): every row through parameters fitted on every row, which is
+    what `_estimator` fitted the final model on. A contribution plot (#186)
+    needs the sample's row from *this* array, not from the display array a
+    spectra plot draws, whose rows below a split come from whichever fold held
+    each one out. `None` when the node is not an estimator or its input has
+    not been run.
     """
     path = Path(directory)
     by_id = {node.id: node for node in pipeline.nodes}
@@ -2060,11 +2178,16 @@ def stored_fitted_matrix(
     if node is None or node.type != "estimator":
         return None
     parent = node.inputs[0]
-    paths = read_cache_index(path).get(node_keys(pipeline, version)[parent])
+    key = node_keys(pipeline, version)[parent]
+    index = read_cache_index(path)
+    folds = governing_folds(parent, by_id, version)
+    paths = index.get(f"{key}#all") if folds is not None else index.get(key)
     if not paths:
         return None
-    state = _from_cache(path, paths, governing_folds(parent, by_id, version))
-    return None if state is None else state.arrays[0]
+    try:
+        return read_array(path, paths[0])
+    except ProjectError:
+        return None
 
 
 def node_axis(pipeline: Pipeline, node_id: NodeId, version: DatasetVersion) -> NDArray[np.float64]:

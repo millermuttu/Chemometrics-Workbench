@@ -42,7 +42,7 @@ The largest discriminant wins, ties going to the first class, as `pls-da.md` §5
 
 ## 5. Reported quantities
 
-- **Classification:** the confusion matrices and metrics of `classification.md`, for calibration, fold zero's held-out rows and the cross-validated set.
+- **Classification:** the confusion matrices and metrics of `classification.md`, for calibration (the model refitted on every sample, `metrics-and-validation.md` §9), fold zero's held-out rows (fold zero's model) and the cross-validated set.
 - **Panels:** the scores, loadings, $T^2$, SPE and their limits shown beside the classification are the **PCA front end's**. They describe the space the discriminant works in, not the discriminant.
 - **Model:** $B$, $c$ and $\bar{x}$ are stored as the result's `coefficient_matrix`, `y_means` and `x_mean`.
 

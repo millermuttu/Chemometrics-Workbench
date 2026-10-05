@@ -132,10 +132,10 @@ def test_the_channels_a_range_selection_dropped_carry_no_weight(
     assert np.any(b[~outside] != 0.0)
 
 
-def test_below_a_split_it_folds_fold_zeros_parameters(
+def test_below_a_split_it_folds_the_all_sample_parameters(
     project: tuple[Path, DatasetVersion],
 ) -> None:
-    """The model is fold zero's, so the chain refitted here must be too."""
+    """The model is fitted on every sample (#330), so the chain refitted here is too."""
     directory, version = project
     pipeline, result = fit(
         directory,

@@ -134,16 +134,20 @@ def test_every_number_the_model_was_fitted_with_comes_back_out(
     np.testing.assert_array_equal(read.arrays["vip"], np.asarray(result.vip))
     np.testing.assert_array_equal(read.arrays["loadings"], np.asarray(result.loadings))
     np.testing.assert_array_equal(read.arrays["rotations"], np.asarray(result.rotations))
-    np.testing.assert_array_equal(read.arrays["train_indices"], np.asarray(result.rows))
-    np.testing.assert_array_equal(read.arrays["test_indices"], np.asarray(result.held_out))
     assert all(read.arrays[name].dtype == np.float64 for name in ("coefficients", "x_mean", "vip"))
-    assert read.arrays["train_indices"].dtype == np.int64
+    # Version 2 (#330): the model is fitted on every sample, so no index sets.
+    assert "train_indices" not in read.arrays and "test_indices" not in read.arrays
+    assert len(result.rows) == version.n_samples
 
     model = read.manifest["model"]
     assert model["y_mean"] == result.y_mean
     assert (model["target"], model["n_components"]) == ("fat", result.n_components)
     assert read.manifest["metrics"]["rmsecv"] == result.metrics["rmsecv"]
-    assert read.manifest["split"] == {"node_id": "split", "fold": 0, "n_folds": 10}
+    assert read.manifest["split"] == {
+        "node_id": "split",
+        "n_folds": 10,
+        "fitted_on": "all_samples",
+    }
     assert read.manifest["dataset"]["content_hash"] == version.content_hash
     assert read.manifest["dataset"]["derived_from"] is None
     assert read.manifest["dataset"]["excluded_samples"] == []
@@ -223,6 +227,38 @@ def test_a_decomposition_carries_what_it_has_and_not_what_it_does_not(
     assert read.manifest["split"] is None
     assert read.manifest["model"]["y_mean"] is None
     assert read.arrays["loadings"].shape == (3, version.n_variables)
+
+
+def test_an_artifact_written_before_the_final_model_still_loads(tmp_path: Path) -> None:
+    """§2: a version 1 file - fold zero's model, its index sets as arrays - reads."""
+    path = tmp_path / "v1.cwmodel"
+    coefficients = np.arange(4, dtype=np.float64)
+    train = np.arange(8, dtype=np.int64)
+    buffers = {}
+    for name, values in (("coefficients", coefficients), ("train_indices", train)):
+        handle = io.BytesIO()
+        np.save(handle, values)
+        buffers[name] = handle.getvalue()
+    manifest = {
+        "schema_version": 1,
+        "model": {"task": "regression"},
+        "pipeline": {},
+        "split": {"node_id": "split", "fold": 0, "n_folds": 10},
+        "arrays": {
+            name: {"file": f"arrays/{name}.npy", "dtype": "float64", "shape": [4]}
+            for name in buffers
+        },
+    }
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr(MANIFEST, json.dumps(manifest))
+        for name, data in buffers.items():
+            archive.writestr(f"arrays/{name}.npy", data)
+
+    read = read_artifact(path)
+    assert read.schema_version == 1 < SCHEMA_VERSION
+    assert read.manifest["split"]["fold"] == 0
+    np.testing.assert_array_equal(read.arrays["coefficients"], coefficients)
+    np.testing.assert_array_equal(read.arrays["train_indices"], train)
 
 
 def test_a_file_written_by_a_newer_application_is_refused_by_name(tmp_path: Path) -> None:

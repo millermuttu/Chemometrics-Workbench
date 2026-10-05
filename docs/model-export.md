@@ -28,6 +28,8 @@ Everything after the last unfoldable step folds; everything up to and including 
 
 **A baseline is refused by name.** AsLS is a penalised sparse solve per spectrum, rubberband is a convex hull; putting either inside a file whose whole point is that it can be pasted into an instrument PC would make it neither short nor checkable. An export asked for a chain containing one fails with a sentence naming the step — the pattern `coefficients_original_units` already sets, and the honest answer rather than an approximation. The native artifact still carries such a model, and the application still predicts with it.
 
+**Below a split, the exported model is the all-sample one** ([#330](https://github.com/millermuttu/Chemometrics-Workbench/issues/330)). The chain is refitted on the rows the model was fitted on, which below a split is every sample, so the residual steps' parameters and the folded coefficients are the all-sample model's (`metrics-and-validation.md` §9). The cross-validated metrics in `provenance.metrics` are the split's estimate of that model's error.
+
 ---
 
 ## 2. The JSON model

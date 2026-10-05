@@ -67,7 +67,6 @@ from chemometrics_workbench.decomposition import spe_contributions, t2_contribut
 from chemometrics_workbench.executor import (
     EstimatorResult,
     class_metrics,
-    governing_folds,
     governing_split,
     has_kernel,
     metrics_for,
@@ -934,12 +933,10 @@ def folded_coefficients(
     except ProjectError as error:
         raise _fail(500, "project_unavailable", str(error)) from error
 
-    # Fold zero's training rows below a split, every row above one - the rows
-    # `_pls` fitted the model on, so the parameters folded here are the
-    # parameters the coefficients were produced with.
-    by_id = {node.id: node for node in pipeline.nodes}
-    folds = governing_folds(NodeId(node_id), by_id, version)
-    rows = folds[0].train if folds else np.arange(version.n_samples, dtype=np.intp)
+    # The rows the model was fitted on - every row since #330, fold zero's
+    # training rows on a result stored before it - so the parameters folded
+    # here are the parameters the coefficients were produced with.
+    rows = np.asarray(result.rows, dtype=np.intp)
 
     axis = np.asarray(version.axis.values, dtype=np.float64)
     transformers: list[preprocessing.Transformer] = []

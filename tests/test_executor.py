@@ -926,21 +926,32 @@ def test_the_pca_branches_reproduce_the_fixtures_numbers(
         )
 
 
-def test_a_pca_below_a_split_is_fitted_on_fold_zeros_training_rows(
+def test_a_pca_below_a_split_is_fitted_on_every_sample_with_fold_zeros_held_out_view(
     project: tuple[Path, DatasetVersion],
 ) -> None:
+    """#330: the model is the all-sample one; fold zero's held-out rows stay as its view."""
     directory, version = project
     run = execute(directory, fixture_pipeline(version.version_id), version)
     result = run.results["pca_d"]
 
     folds = validation.k_fold(version.n_samples, 10, seed=42)
-    assert result.fold == 0
-    assert result.rows == folds[0].train.tolist()
+    assert result.all_samples and result.fold == 0
+    assert result.rows == list(range(240))
+    assert result.n_samples == len(result.scores) == 240
     assert result.held_out == folds[0].test.tolist()
-    assert result.n_samples == len(folds[0].train) == 216
-    assert len(result.scores) == 216
     assert len(result.held_out_scores) == len(folds[0].test) == 24
     assert len(result.held_out_hotelling_t2) == len(result.held_out_spe) == 24
+
+    # A fit on every row, through a centring fitted on every row.
+    savgol = run.displays["snv_savgol"]
+    centred = _as_stored(preprocessing.MeanCentreTransformer().fit_transform(savgol))
+    reference = PCA(5, data_eps=PCA.STORED_EPS).fit(centred)
+    np.testing.assert_allclose(
+        result.explained_variance_ratio, reference.explained_variance_ratio(), rtol=1e-9
+    )
+    np.testing.assert_allclose(
+        result.hotelling_t2_limit, reference.hotelling_t2_limit(executor_module.ALPHA), rtol=1e-12
+    )
 
 
 def test_pca_d_diverges_from_the_fixture_for_the_reason_centre_d_does(
@@ -971,12 +982,9 @@ def test_pca_d_diverges_from_the_fixture_for_the_reason_centre_d_does(
     ours = np.asarray(run.results["pca_d"].explained_variance_ratio)
     assert np.abs(ours - np.asarray(expected["explained_variance_ratio"])).max() > 1e-6
 
-    # The limits depend only on n and a, so they agree whatever the input was.
-    np.testing.assert_allclose(
-        run.results["pca_d"].hotelling_t2_limit,
-        expected["diagnostics"]["hotelling_t2_limit"],
-        rtol=1e-12,
-    )
+    # The fixture's model is fold zero's; ours is fitted on every sample (#330),
+    # so even the limits, which depend only on n and a, now differ.
+    assert run.results["pca_d"].n_samples == 240 != len(folds[0].train)
 
 
 def test_a_result_is_stored_keyed_the_way_its_node_is(
@@ -1191,10 +1199,11 @@ def test_the_executor_computes_nothing_the_kernels_do_not(
     assert result.metrics["sec"] == pytest.approx(sec(y, predicted, n_components=5))
 
 
-def test_below_a_split_the_curve_is_every_folds_and_the_model_is_fold_zeros(
-    project: tuple[Path, DatasetVersion],
+def test_below_a_split_the_curve_is_every_folds_and_the_model_is_every_samples(
+    project: tuple[Path, DatasetVersion], tecator: Any
 ) -> None:
-    """The one design call in #142, asserted rather than left in a docstring."""
+    """#142's design call, revised by #330: the curve is every fold's, and the
+    model is refitted on every sample through a centring fitted on every sample."""
     directory, version = project
     pipeline = _pipeline(
         version.version_id,
@@ -1207,11 +1216,38 @@ def test_below_a_split_the_curve_is_every_folds_and_the_model_is_fold_zeros(
     run = execute(directory, pipeline, version)
     result = run.results["pls"]
 
-    # The model is fold zero's: its rows are that fold's training rows.
-    assert result.fold == 0
+    assert result.all_samples and result.fold == 0
     folds = k_fold(version.n_samples, 5, seed=42)
-    assert result.rows == [int(row) for row in folds[0].train]
+    assert result.rows == list(range(version.n_samples))
     assert result.held_out == [int(row) for row in folds[0].test]
+
+    # The all-sample model equals a fit on all rows.
+    spectra = _as_stored(tecator.spectra)
+    centred = _as_stored(spectra - spectra.mean(axis=0))
+    y = np.asarray(tecator.targets["fat"], dtype=np.float64)
+    x_mean, y_mean = centred.mean(axis=0), float(y.mean())
+    reference = PLS(4).fit(centred - x_mean, y - y_mean)
+    assert reference.coefficients_ is not None
+    np.testing.assert_allclose(
+        np.asarray(result.coefficients), reference.coefficients_, rtol=1e-9, atol=1e-12
+    )
+    np.testing.assert_allclose(
+        result.predicted, reference.predict(centred - x_mean) + y_mean, rtol=1e-9
+    )
+
+    # The held-out view is fold zero's model's, which never saw those rows.
+    train = folds[0].train
+    view_x = _as_stored(spectra - spectra[train].mean(axis=0))
+    view_mean = view_x[train].mean(axis=0)
+    view = PLS(4).fit(view_x[train] - view_mean, y[train] - y[train].mean())
+    np.testing.assert_allclose(
+        result.held_out_predicted,
+        view.predict(view_x[folds[0].test] - view_mean) + y[train].mean(),
+        rtol=1e-9,
+    )
+    assert result.metrics["rmsep"] == pytest.approx(
+        rmse(y[folds[0].test], np.asarray(result.held_out_predicted))
+    )
 
     # The curve is every fold's, one entry per component count, and the
     # reported RMSECV is the curve's last point rather than its minimum.
@@ -1408,9 +1444,7 @@ def test_three_classes_are_pls2_on_a_one_hot_response_assigned_by_argmax(
     spectra = _as_stored(tecator.spectra)
     [resolved] = run.resolved_splits
     assigned = np.empty(version.n_samples, dtype=int)
-    for index, (train, test) in enumerate(
-        zip(resolved.train_indices, resolved.test_indices, strict=True)
-    ):
+    for train, test in zip(resolved.train_indices, resolved.test_indices, strict=True):
         mean = spectra[train].mean(axis=0)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", ConvergenceWarning)
@@ -1418,9 +1452,12 @@ def test_three_classes_are_pls2_on_a_one_hot_response_assigned_by_argmax(
                 spectra[train] - mean, onehot[train]
             )
         assigned[test] = reference.predict(spectra[test] - mean).argmax(axis=1)
-        if index == 0:
-            calibration = reference.predict(spectra[train] - mean).argmax(axis=1)
-            assert result.predicted_class == calibration.tolist()
+    # #330: the calibration assignments are the all-sample model's.
+    mean = spectra.mean(axis=0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ConvergenceWarning)
+        final = PLSRegression(6, scale=False, tol=0.0, max_iter=2000).fit(spectra - mean, onehot)
+    assert result.predicted_class == final.predict(spectra - mean).argmax(axis=1).tolist()
     expected = [[int(np.sum((codes == j) & (assigned == k))) for k in range(3)] for j in range(3)]
     assert result.confusion["cross_validation"] == expected
 

@@ -180,8 +180,8 @@ def cars(
         raise ValueError("CARS compares cross-validated errors, and needs at least two folds")
     matrices = _fold_matrices(X, folds)
     response = as_float64_vector(y, "y")
-    # The sampling fits use fold zero's matrix, every row of it: the matrix
-    # the estimator itself was fitted from.
+    # The sampling fits use fold zero's matrix, every row of it
+    # (`variable-selection.md` §6; #331 revisits it).
     values = matrices[0]
     n, p = values.shape
     if p < 3:

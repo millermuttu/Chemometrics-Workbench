@@ -267,6 +267,8 @@ Selection heuristics (first minimum, one-standard-error rule, Wold's R) are a wo
 
 Regression metrics (RMSEC, RMSECV, RMSEP, $R^2$, bias) are defined in `metrics-and-validation.md`, not here.
 
+Below a split every quantity in this table is the **all-sample model's**: the PLS refitted on every sample, through a chain refitted on every sample, once cross-validation has measured its error (`metrics-and-validation.md` §9, [#330](https://github.com/millermuttu/Chemometrics-Workbench/issues/330)).
+
 ---
 
 ## 14. Known divergences from other packages
