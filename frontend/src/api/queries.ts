@@ -616,6 +616,28 @@ export interface CarsPayload {
   selected: number[];
 }
 
+/** `variable-selection.md` section 8 (#331): a selection validated in an outer loop. */
+export interface NestedPayload {
+  method: "vip" | "b" | "ipls" | "cars";
+  outer_rmsecv: number;
+  inner_rmsecv: number;
+  n_outer_folds: number;
+  inner_splits: number;
+  selected: number;
+  selected_per_fold: number[];
+}
+
+/** Run only when asked: `query` is null until the user presses Validate. */
+export function useNested(nodeId: string, query: string | null) {
+  return useQuery({
+    queryKey: ["nested", nodeId, query],
+    queryFn: () => api<NestedPayload>(`/results/${nodeId}/nested?${query}`),
+    enabled: query !== null,
+    staleTime: Infinity,
+    retry: false,
+  });
+}
+
 /** Run only when asked: `runs` is null until the user presses Run. */
 export function useCars(nodeId: string, runs: number | null) {
   return useQuery({

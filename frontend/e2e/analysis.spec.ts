@@ -455,6 +455,30 @@ test("a VIP selection is applied as a step above a copy of the PLS, which runs",
   }
 });
 
+test("a VIP selection is validated in an outer loop, beside its optimistic error", async ({
+  page,
+}) => {
+  // #331. Read-only: nothing is applied, so nothing needs restoring.
+  test.setTimeout(120_000);
+  const auth = { Authorization: "Bearer e2e-token" };
+  await page.goto("/?token=e2e-token");
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /PLS 5 LV/ }).first().dblclick();
+  await page.getByLabel("Variable importance view").selectOption("selection");
+  await page.getByLabel("Select by").selectOption("vip");
+  await page.getByRole("button", { name: "Validate (nested)" }).click();
+
+  const served = await (
+    await page.request.get("/api/results/pls_d/nested?method=vip&cut=1", { headers: auth })
+  ).json();
+  const result = page.getByTestId("nested-result");
+  await expect(result).toContainText(`Nested RMSECV ${served.outer_rmsecv.toPrecision(4)}`, {
+    timeout: 60_000,
+  });
+  await expect(result).toContainText(`selected on every sample ${served.inner_rmsecv.toPrecision(4)}`);
+  await expect(result).toContainText("10 outer × 5 inner folds");
+});
+
 test("iPLS runs on the PLS's folds, draws its intervals, and its selection is applied", async ({
   page,
 }) => {

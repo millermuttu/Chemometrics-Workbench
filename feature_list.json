@@ -63,9 +63,9 @@
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-05, feature/331_nested-selection. uv run pytest: exit 0 (full suite). tests/test_selection.py: nested VIP (5 outer folds) and nested iPLS (4 outer, 5 intervals) agree with a scikit-learn PLSRegression rebuild on the served folds - identical selections per outer fold, predictions within rtol 1e-6; outer RMSECV >= inner on Tecator for iPLS and CARS; a grouped outer split stays grouped inside; an empty outer selection is refused by number. tests/test_server.py: GET /api/results/{id}/nested for vip, ipls and cars. Failing first: with src stashed, test_selection.py fails to collect (nested absent) and the endpoint test gets 404. uv run ruff check, ruff format --check, uv run mypy (86 files): clean. pnpm test 161 passed; pnpm exec playwright test: 91 passed (3.4m), including 'a VIP selection is validated in an outer loop'.",
+      "notes": "VIP is a filter that never reads a CV error, so its outer RMSECV can come out below the inner (it does on Tecator, 3.83 vs 3.84); variable-selection.md section 8 says so and only iPLS and CARS are asserted outer >= inner."
     },
     {
       "id": "selection-for-plsda",

@@ -51,7 +51,7 @@ import tempfile
 import threading
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import numpy as np
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
@@ -1762,6 +1762,72 @@ def get_cars(
         "best": found.best,
         "seed": seed,
         "selected": found.selected,
+    }
+
+
+@router.get("/results/{node_id}/nested")
+def get_nested(
+    node_id: str,
+    method: Literal["vip", "b", "ipls", "cars"] = "vip",
+    cut: float | None = None,
+    n_intervals: int = 20,
+    n_runs: int = 50,
+    seed: int = 0,
+    inner_splits: int = 5,
+) -> Any:
+    """`variable-selection.md` §8 (#331): a selection validated in an outer loop.
+
+    The selection is rerun inside each outer training fold, on an inner K-fold
+    of it, and the selected model scored on the outer held-out rows. Beside it,
+    the RMSECV of the same selection made on every sample - the optimistic one
+    the pipeline warns about.
+    """
+    result, matrices, folds, y, _ = _selection_inputs(node_id, "a nested validation")
+    a = result.n_components
+    if method == "vip":
+        threshold = 1.0 if cut is None else cut
+        chosen = [int(j) for j in np.flatnonzero(np.asarray(result.vip) >= threshold)]
+        select = selection.vip_selector(a, threshold)
+    elif method == "b":
+        if cut is None:
+            raise _fail(422, "invalid_nested", "a |b| selection needs its cut.", node_id=node_id)
+        b = np.abs(np.asarray(result.coefficients))
+        chosen = [int(j) for j in np.flatnonzero(b >= cut)]
+        select = selection.coefficient_selector(a, cut)
+    elif method == "ipls":
+        select = selection.ipls_selector(n_intervals, a)
+        chosen = []
+    else:
+        select = selection.cars_selector(a, n_runs=n_runs, seed=seed)
+        chosen = []
+
+    _, pipeline, version = _runnable()
+    by_id = {node.id: node for node in pipeline.nodes}
+    split = governing_split(NodeId(node_id), by_id)
+    group_by = getattr(getattr(split, "spec", None), "group_by", None)
+    groups = version.metadata_columns.get(group_by) if group_by else None
+    try:
+        # Chosen on every sample, with the outer folds, as Apply does.
+        if method == "ipls":
+            chosen = selection.ipls(matrices, y, folds, n_intervals, a).selected
+        elif method == "cars":
+            chosen = selection.cars(matrices, y, folds, a, n_runs=n_runs, seed=seed).selected
+        if not chosen:
+            raise ValueError("the selection made on every sample kept no variable")
+        inner = selection.selected_rmsecv(matrices, y, folds, chosen, a)
+        found = selection.nested(
+            matrices, y, folds, select, a, inner_splits=inner_splits, seed=seed, groups=groups
+        )
+    except ValueError as error:
+        raise _fail(422, "invalid_nested", str(error), node_id=node_id) from error
+    return {
+        "method": method,
+        "outer_rmsecv": found.outer_rmsecv,
+        "inner_rmsecv": inner,
+        "n_outer_folds": len(folds),
+        "inner_splits": inner_splits,
+        "selected": len(chosen),
+        "selected_per_fold": [len(one) for one in found.selected],
     }
 
 

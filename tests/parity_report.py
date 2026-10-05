@@ -143,6 +143,24 @@ COVERAGE: tuple[Coverage, ...] = (
         "tested in tests/test_selection.py (variable-selection.md section 6).",
     ),
     Coverage(
+        "Nested validation of a selection",
+        (
+            "nested",
+            "NestedResult",
+            "selected_rmsecv",
+            "Selector",
+            "vip_selector",
+            "coefficient_selector",
+            "ipls_selector",
+            "cars_selector",
+        ),
+        not_compared="No library offers nested selection as one call, so there is no fixture "
+        "value. tests/test_selection.py rebuilds the loop with scikit-learn's PLSRegression on "
+        "the served outer folds, for VIP and iPLS selection, and the outer predictions and "
+        "selections agree; the outer error is at least the inner on Tecator "
+        "(variable-selection.md section 8).",
+    ),
+    Coverage(
         "Leverage and studentised residuals",
         ("leverage", "leverage_limit", "studentised_residuals"),
         not_compared="No reference in this environment: the R mdatools comparison the plan "
