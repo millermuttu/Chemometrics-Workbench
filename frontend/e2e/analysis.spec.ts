@@ -337,3 +337,72 @@ test("a kNN tab reads as a classification, and exports its JSON model", async ({
     expect((await put(original)).status()).toBe(200);
   }
 });
+
+/** Hover a plot's point by its data coordinates, through Plotly's own axes. */
+async function hoverPoint(page: Page, testId: string, x: number, y: number) {
+  const plot = page.getByTestId(testId);
+  await plot.scrollIntoViewIfNeeded();
+  const box = (await plot.boundingBox())!;
+  const at = await plot.evaluate(
+    (element, point) => {
+      const layout = (
+        element as HTMLElement & {
+          _fullLayout: {
+            margin: { l: number; t: number };
+            xaxis: { l2p: (v: number) => number };
+            yaxis: { l2p: (v: number) => number };
+          };
+        }
+      )._fullLayout;
+      return {
+        x: layout.margin.l + layout.xaxis.l2p(point.x),
+        y: layout.margin.t + layout.yaxis.l2p(point.y),
+      };
+    },
+    { x, y },
+  );
+  await page.mouse.move(box.x + at.x, box.y + at.y);
+}
+
+test("an outlier row flags samples by rule, and hovering one names it", async ({ page }) => {
+  // #278, outliers.md section 5.
+  await page.goto("/?token=e2e-token");
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /PLS 5 LV/ }).first().dblclick();
+  const served = await (
+    await page.request.get("/api/results/pls_d", { headers: { Authorization: "Bearer e2e-token" } })
+  ).json();
+  const flags = served.outliers.flags as { index: number; rules: string[] }[];
+  expect(flags.length).toBeGreaterThan(0);
+
+  const row = page.getByTestId("outliers-row");
+  await row.scrollIntoViewIfNeeded();
+  for (const panel of ["Influence", "Leverage vs residual", "Flagged samples"]) {
+    await expect(row.getByRole("region", { name: panel })).toBeVisible();
+  }
+  await expect(page.getByTestId("flag-row")).toHaveCount(flags.length);
+  const first = served.samples[flags[0].index].sample_id as string;
+  await expect(page.getByTestId("flag-row").first()).toContainText(first);
+
+  // DESIGN_BRIEF section 7: a point on the plot is named on hover. The one
+  // furthest out, so no neighbour sits under the cursor.
+  const { hotelling_t2: t2, spe, hotelling_t2_limit: t2Limit, spe_limit: qLimit } =
+    served.diagnostics as { hotelling_t2: number[]; spe: number[]; hotelling_t2_limit: number; spe_limit: number };
+  const far = (i: number) => t2[i] / t2Limit + spe[i] / qLimit;
+  const index = flags.map((flag) => flag.index).reduce((a, b) => (far(b) > far(a) ? b : a));
+  await hoverPoint(page, "influence-plot", t2[index], spe[index]);
+  await expect(page.locator(".hovertext")).toContainText(served.samples[index].sample_id);
+
+  // A flag asks for a look: the row opens the sample's contributions.
+  await page.getByTestId("flag-row").first().click();
+  await expect(page.getByTestId("flag-row").first()).toHaveAttribute("aria-pressed", "true");
+});
+
+test("a PCA's outlier row has no residual plot", async ({ page }) => {
+  await openResults(page);
+  const row = page.getByTestId("outliers-row");
+  await row.scrollIntoViewIfNeeded();
+  await expect(row.getByRole("region", { name: "Influence" })).toBeVisible();
+  await expect(row.getByRole("region", { name: "Flagged samples" })).toBeVisible();
+  await expect(page.getByTestId("leverage-plot")).toHaveCount(0);
+});

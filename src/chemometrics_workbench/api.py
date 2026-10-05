@@ -44,11 +44,12 @@ stack trace.
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import tempfile
 import threading
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -58,7 +59,7 @@ from fastapi.responses import PlainTextResponse
 from numpy.typing import NDArray
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
-from chemometrics_workbench import __version__, preprocessing, readers
+from chemometrics_workbench import __version__, outliers, preprocessing, readers
 from chemometrics_workbench.artifact import ArtifactError, write_artifact
 from chemometrics_workbench.checks import PipelineWarning, check_pipeline
 from chemometrics_workbench.classification import simca_class_metrics
@@ -594,6 +595,10 @@ def results_payload(
             for key in (f"rmsecv_a{a}" for a in range(1, result.n_components + 1))
             if key in result.metrics
         ]
+    if result.task == "decomposition" or result.method in ("pls", "pcr"):
+        # outliers.md: PCA, PLS and PCR only (section 1), from the stored
+        # scores and fit, so an older result gets the same numbers.
+        payload["outliers"] = _outliers(result)
     if result.simca:
         # simca.md section 5: no single X model and no confusion matrix, so
         # its own block - the class models' sizes and limits and, per set, the
@@ -635,6 +640,81 @@ def results_payload(
             },
         }
     return payload
+
+
+def _outliers(result: EstimatorResult) -> dict[str, Any]:
+    """`outliers.md`'s three diagnostics on the calibration rows, and the
+    flags table (section 5) naming every rule each listed sample breaks.
+
+    A diagnostic that cannot be computed is `null` with the kernel's sentence
+    beside it, as a metric that cannot be is absent rather than zero.
+    """
+    scores = np.asarray(result.scores, dtype=np.float64)
+    n, a = result.n_samples, result.n_components
+    caveats: dict[str, str] = {}
+
+    def attempt(name: str, compute: Callable[[], NDArray[np.float64]]) -> list[float | None] | None:
+        try:
+            values = compute()
+        except ValueError as error:
+            caveats[name] = str(error)
+            return None
+        return [None if np.isnan(value) else float(value) for value in values]
+
+    hat = attempt("leverage", lambda: outliers.leverage(scores))
+    residuals = None
+    if result.task == "regression" and hat is not None:
+        residuals = attempt(
+            "residual",
+            lambda: outliers.studentised_residuals(
+                np.subtract(result.observed, result.predicted), np.asarray(hat, dtype=float), a
+            ),
+        )
+    robust = attempt(
+        "robust", lambda: _robust_distances(result.key, scores.tobytes(), scores.shape[1])
+    )
+
+    limits = {
+        "t2": result.hotelling_t2_limit,
+        "q": result.spe_limit,
+        "leverage": outliers.leverage_limit(n, a),
+        "residual": outliers.RESIDUAL_LIMIT,
+        "robust": outliers.robust_distance_limit(a),
+    }
+    columns: dict[str, list[float | None] | None] = {
+        "t2": list(result.hotelling_t2),
+        "q": list(result.spe),
+        "leverage": hat,
+        "residual": [None if v is None else abs(v) for v in residuals] if residuals else None,
+        "robust": robust,
+    }
+    flags = []
+    for index in range(n):
+        rules = [
+            rule
+            for rule, values in columns.items()
+            if values is not None and values[index] is not None and values[index] > limits[rule]  # type: ignore[operator]
+        ]
+        if rules:
+            flags.append({"index": index, "rules": rules})
+    return {
+        "leverage": hat,
+        "studentised_residuals": residuals,
+        "robust_distance": robust,
+        "limits": limits,
+        "caveats": caveats,
+        "flags": flags,
+    }
+
+
+@functools.lru_cache(maxsize=32)
+def _robust_distances(key: str, scores: bytes, n_components: int) -> NDArray[np.float64]:
+    """FastMCD costs about 0.3 s on Tecator's scores, and a result under one
+    key never changes, so the analysis screen's refetches reuse it. The scores'
+    bytes are in the key too, so a cache can never answer for other numbers."""
+    # ponytail: per-process memo; vectorise the 500 starts if a first view is too slow.
+    values = np.frombuffer(scores, dtype=np.float64).reshape(-1, n_components)
+    return outliers.min_cov_det(values).distances
 
 
 def _samples(rows: list[int], version: DatasetVersion) -> list[dict[str, Any]]:

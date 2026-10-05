@@ -417,7 +417,8 @@ def test_the_results_payload_is_the_shape_the_fixture_publishes(tmp_path: Path) 
     payload = results_payload(run.results["pca_a"], version)
     published = fixture("pca")["pca_a"]
 
-    assert set(payload) == set(published)
+    # Additive since the fixture: #278's outlier diagnostics.
+    assert set(payload) == set(published) | {"outliers"}
     assert set(payload["loadings"]) == set(published["loadings"])
     # Additive since the fixture: #71's caveat, `None` on Tecator, whose h0 is
     # positive. A screen that ignores the key renders what it rendered before.
@@ -441,7 +442,7 @@ def test_a_split_branch_adds_its_validation_rows_without_changing_the_rest(
     published = fixture("pca")["pca_d"]
 
     # The keys the 1.1 screen reads are unchanged, and so are their lengths.
-    assert set(payload) - set(published) == {"validation"}
+    assert set(payload) - set(published) == {"validation", "outliers"}
     assert len(payload["samples"]) == len(published["samples"]) == 216
     assert len(payload["diagnostics"]["hotelling_t2"]) == 216
 
@@ -467,6 +468,66 @@ def test_the_sample_ids_come_from_the_dataset_not_the_model(tmp_path: Path) -> N
 
     assert payload["samples"][0] == {"index": 0, "sample_id": "row 0"}
     assert results_payload(run.results["pca_a"], version)["samples"][0]["sample_id"] == "C001"
+
+
+def test_a_regression_payload_flags_its_outliers_by_rule(tmp_path: Path) -> None:
+    """#278, outliers.md section 5: every listed sample names each rule it
+    breaks, and a rule fires exactly when its column passes its limit."""
+    from chemometrics_workbench.models import EstimatorNode, PLSRegressionSpec
+
+    directory = tmp_path / "outliers"
+    _, version = executed(directory)
+    version = version.model_copy(
+        update={"targets": {"fat": [float(v) for v in load_tecator().targets["fat"]]}}
+    )
+    pipeline = fixture_pipeline(version.version_id)
+    pipeline = pipeline.model_copy(
+        update={
+            "nodes": [
+                *pipeline.nodes,
+                EstimatorNode(
+                    id="pls_a",
+                    inputs=("centre_a",),
+                    spec=PLSRegressionSpec(n_components=5, target="fat"),
+                ),
+            ]
+        }
+    )
+    run = execute(directory, pipeline, version)
+    block = results_payload(run.results["pls_a"], version)["outliers"]
+    diagnostics = results_payload(run.results["pls_a"], version)["diagnostics"]
+    limits = block["limits"]
+    n = run.results["pls_a"].n_samples
+    assert block["caveats"] == {}
+    assert len(block["leverage"]) == len(block["studentised_residuals"]) == n
+    assert len(block["robust_distance"]) == n
+
+    columns = {
+        "t2": diagnostics["hotelling_t2"],
+        "q": diagnostics["spe"],
+        "leverage": block["leverage"],
+        "residual": [abs(value) for value in block["studentised_residuals"]],
+        "robust": block["robust_distance"],
+    }
+    expected = [
+        {"index": i, "rules": [rule for rule, v in columns.items() if v[i] > limits[rule]]}
+        for i in range(n)
+    ]
+    assert block["flags"] == [row for row in expected if row["rules"]]
+    assert {rule for row in block["flags"] for rule in row["rules"]} == set(columns)
+
+
+def test_a_pca_has_no_residuals_and_a_classification_no_outlier_block(tmp_path: Path) -> None:
+    """Section 1: residuals need a response, and a class is not one."""
+    run, version = executed(tmp_path / "results")
+    block = results_payload(run.results["pca_a"], version)["outliers"]
+    assert block["studentised_residuals"] is None
+    assert all("residual" not in row["rules"] for row in block["flags"])
+
+    from dataclasses import replace
+
+    plsda = replace(run.results["pca_a"], task="classification", method="plsda")
+    assert "outliers" not in results_payload(plsda, version)
 
 
 # --------------------------------------------------------------------------

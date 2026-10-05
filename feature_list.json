@@ -272,9 +272,9 @@
         "uv run python -m tests.parity_report - docs/parity-report.md regenerated with the new rows, and test_parity_coverage green",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; hover shows sample identity"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-05: docs/algorithms/outliers.md written (leverage, studentised residuals, FastMCD robust distance, flags table, divergences, parity). uv run pytest - 1037 passed, 1 skipped: tests/test_outliers.py 11 passed (leverage = explicit hat diagonal, sums to A+1; PLS and PCR calibration fits = least squares on [1, T]; studentised residuals = textbook formula; MCD unmasks a planted cluster the classical distance misses; A=1 agrees with scikit-learn MinCovDet); test_parity.py::test_robust_distance_matches_mcd_at_its_minimum 3 passed against scikit-learn 1.9.0's select_candidates + MinCovDet correction and reweighting; tests/test_api.py outlier payload tests pass. uv run python -m tests.parity_report - 162 comparisons, 162 passed; robust_distance identical within float on corn, gasoline and tecator; leverage and residuals recorded not compared (no R, decision 2026-10-04); test_parity_coverage green. pnpm typecheck && pnpm lint && pnpm test (152 passed) && pnpm build && pnpm exec playwright test - 83 passed; the outlier e2e hovers the most extreme flagged point on the influence plot and reads its sample id.",
+      "notes": "Leverage and studentised residuals have no external reference: mdatools needs R. sklearn's MinCovDet(random_state).fit alone stops at a larger determinant than ours on all three datasets (on Tecator A=5 for all 300 seeds tried), so the reference is sklearn's own C-step machinery started from 2000 supplied (p+1)-subsets (outliers.md section 7). FastMCD costs about 0.3 s on Tecator's scores; api._robust_distances memoises it per result key. The analysis grid now scrolls, because the fourth row does not fit at the design height."
     },
     {
       "id": "exclude-flagged",

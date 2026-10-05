@@ -260,3 +260,80 @@ export function contributionTrace(
     hovertemplate: `${payload.sample.sample_id}<br>%{x:.1f} · %{y:.4g}<extra></extra>`,
   };
 }
+
+/** Calibration rows the server flagged under any rule (outliers.md section 5),
+ * by their position in `samples`. */
+function flagged(pca: PcaPayload): Set<number> {
+  return new Set((pca.outliers?.flags ?? []).map((flag) => flag.index));
+}
+
+/** A limit drawn as a dotted line across the plot, from the server's number. */
+function limitLine(x: number[], y: number[], theme: PlotTheme, name: string) {
+  return {
+    type: "scattergl",
+    mode: "lines",
+    x,
+    y,
+    line: { width: 1, color: theme.ink3, dash: "dot" },
+    hoverinfo: "skip",
+    name,
+    showlegend: false,
+  };
+}
+
+/** The influence plot: T² against Q, each sample named on hover, a flagged
+ * one in `stale`, and both limits as the lines it is judged against. */
+export function influenceTraces(pca: PcaPayload, theme: PlotTheme) {
+  const { hotelling_t2: t2, spe, hotelling_t2_limit: t2Limit, spe_limit: qLimit } = pca.diagnostics;
+  const marked = flagged(pca);
+  const xMax = Math.max(t2Limit, ...t2) * 1.05;
+  const yMax = Math.max(qLimit, ...spe) * 1.05;
+  return [
+    limitLine([t2Limit, t2Limit], [0, yMax], theme, "T² limit"),
+    limitLine([0, xMax], [qLimit, qLimit], theme, "Q limit"),
+    {
+      type: "scattergl",
+      mode: "markers",
+      x: t2,
+      y: spe,
+      text: pca.samples.map((sample) => sample.sample_id),
+      marker: {
+        size: 5,
+        color: t2.map((_, index) => (marked.has(index) ? theme.stale : theme.series[0])),
+      },
+      hovertemplate: "%{text}<br>T² %{x:.3f} · Q %{y:.3g}<extra></extra>",
+    },
+  ];
+}
+
+/** Leverage against studentised residual (outliers.md sections 2 and 3), for a
+ * regression: the limit on each, and every sample named on hover. */
+export function leverageTraces(pca: PcaPayload, theme: PlotTheme) {
+  const block = pca.outliers;
+  if (!block?.leverage || !block.studentised_residuals) return [];
+  const residuals = block.studentised_residuals;
+  const rows = block.leverage
+    .map((h, index) => ({ h, r: residuals[index], index }))
+    .filter((row): row is { h: number; r: number; index: number } => row.r !== null);
+  const marked = flagged(pca);
+  const hMax = Math.max(block.limits.leverage, ...block.leverage) * 1.05;
+  const rMax = Math.max(block.limits.residual, ...rows.map((row) => Math.abs(row.r))) * 1.05;
+  const r = block.limits.residual;
+  return [
+    limitLine([block.limits.leverage, block.limits.leverage], [-rMax, rMax], theme, "leverage limit"),
+    limitLine([0, hMax], [r, r], theme, "residual limit"),
+    limitLine([0, hMax], [-r, -r], theme, "residual limit"),
+    {
+      type: "scattergl",
+      mode: "markers",
+      x: rows.map((row) => row.h),
+      y: rows.map((row) => row.r),
+      text: rows.map((row) => pca.samples[row.index].sample_id),
+      marker: {
+        size: 5,
+        color: rows.map((row) => (marked.has(row.index) ? theme.stale : theme.series[0])),
+      },
+      hovertemplate: "%{text}<br>leverage %{x:.3f} · residual %{y:.2f}<extra></extra>",
+    },
+  ];
+}

@@ -151,6 +151,9 @@ export interface SpectraPayload {
   band: { n_spectra: number; y_lower: number[]; y_median: number[]; y_upper: number[] };
 }
 
+/** `outliers.md` section 5's rules, in the order the flags table names them. */
+export type OutlierRule = "t2" | "q" | "leverage" | "residual" | "robust";
+
 /** One estimator node's results. Every number is the kernel's: scores,
  * loadings, variances, T², SPE and both limits arrive as data. */
 export interface PcaPayload {
@@ -178,6 +181,19 @@ export interface PcaPayload {
      * domain (#71); `null` for every ordinary model and every regression. */
     spe_limit_caveat?: string | null;
     alpha: number;
+  };
+  /** `outliers.md` (#278): PCA, PLS and PCR only. Calibration rows, in the
+   * order of `samples`. A diagnostic that could not be computed is `null`,
+   * with the kernel's sentence in `caveats` under its rule's name. */
+  outliers?: {
+    leverage: number[] | null;
+    /** `null` for a PCA; an entry is `null` where the row is fitted exactly. */
+    studentised_residuals: (number | null)[] | null;
+    robust_distance: number[] | null;
+    limits: Record<OutlierRule, number>;
+    caveats: Partial<Record<OutlierRule, string>>;
+    /** Every calibration row that breaks a rule, naming each rule it breaks. */
+    flags: { index: number; rules: OutlierRule[] }[];
   };
   /** The held-out rows of the fitted fold, present only below a split. Its
    * `observed` and `predicted` are there only for a regression. */
