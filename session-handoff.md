@@ -111,7 +111,7 @@ https://github.com/millermuttu/Chemometrics-Workbench/actions/runs/35343976638/j
 opening the browser and printing `http://127.0.0.1:<port>/?token=<token>`. `--build` forces the
 rebuild a changed `frontend/src` needs.
 
-**Scripts worth knowing.** `uv run python -m tests.exit_run` and `tests.exit_run_phase3` each drive
+**Scripts worth knowing.** `uv run python -m tests.exit_run`, `tests.exit_run_phase3` and `tests.exit_run_phase5` each drive
 the served application end to end and rewrite their phase's `docs/phase-N/exit-run.md`.
 `uv run python -m tests.memory_probe 6000 1200` prints the peak resident memory of a ten-fold branch,
 which is the number #176 is judged by.
@@ -147,7 +147,8 @@ Merged through green pull requests on `dev`:
 | Galactic SPC reader | #285 | #321 |
 | Thermo OMNIC SPA reader (single file, or a zip of them) | #286 | #322 |
 | ASD FieldSpec reader (reflectance against the stored white reference) | #287 | #323 |
-| Phase 5 docs: classification example, outlier and selection how-tos | #288 | #324 (open) |
+| Phase 5 docs: classification example, outlier and selection how-tos | #288 | #324 |
+| Phase 5 exit run, met; version 1.1.0 | #289 | #325 (open) |
 
 ## What these left behind, worth knowing
 
@@ -189,6 +190,8 @@ Merged through green pull requests on `dev`:
 
 ## Next action
 
-#324 (docs) merges when CI is green. Then `phase-5-exit-run` (#289), the last feature: its
-verification is in `feature_list.json`, and decision 0006 says it runs on the Quadram meat set.
-After it, `dev` into `main` and the `v1.1.0` tag.
+**Phase 5's exit run is met** (`docs/phase-5/exit-run.md`; `--tighten 1e-9` shows it can fail).
+The version is 1.1.0. `phase-5-exit-run` stays `in_progress` only for its last verification step,
+the release: once #325 is merged into `dev`, open a pull request from `dev` into `main`, merge it,
+then `git tag -a v1.1.0 -m "notes"` and push the tag (release.yml builds and publishes). Then mark
+the feature `passing`, archive `feature_list.json` to `docs/phase-5/`, and open Phase 6.
