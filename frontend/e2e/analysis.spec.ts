@@ -401,6 +401,22 @@ test("an outlier row flags samples by rule, and hovering one names it", async ({
   await expect(page.getByTestId("flag-row").first()).toHaveAttribute("aria-pressed", "true");
 });
 
+test("a PLS-DA is diagnosed class by class, its flags most rules first", async ({ page }) => {
+  // #335, outliers.md section 8. Read-only.
+  const auth = { Authorization: "Bearer e2e-token" };
+  await page.goto("/?token=e2e-token");
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /PLS-DA 5 LV/ }).first().dblclick();
+  const row = page.getByTestId("outliers-row");
+  await expect(row.getByText("Influence, by class")).toBeVisible({ timeout: 60_000 });
+  const served = await (
+    await page.request.get("/api/results/plsda_d/outliers", { headers: auth })
+  ).json();
+  const expected = (served.flags as { n_rules: number }[]).map((flag) => String(flag.n_rules));
+  await expect(row.getByTestId("flag-count")).toHaveText(expected);
+  expect(expected.map(Number)).toEqual([...expected.map(Number)].sort((a, b) => b - a));
+});
+
 test("a PCA's outlier row has no residual plot", async ({ page }) => {
   await openResults(page);
   const row = page.getByTestId("outliers-row");

@@ -200,8 +200,21 @@ export interface PcaPayload {
     robust_distance: number[] | null;
     limits: Record<OutlierRule, number>;
     caveats: Partial<Record<OutlierRule, string>>;
-    /** Every calibration row that breaks a rule, naming each rule it breaks. */
-    flags: { index: number; rules: OutlierRule[] }[];
+    /** Every calibration row that breaks a rule, naming each rule it breaks
+     * and how many, most rules first (#335). */
+    flags: { index: number; rules: OutlierRule[]; n_rules: number }[];
+    /** A classifier's diagnostics, each sample against its own class's PCA
+     * (outliers.md section 8); its limits are per sample, its class's. */
+    classwise?: {
+      classes: string[];
+      class_of: number[];
+      n_components: number[];
+      t2: number[];
+      t2_limit: number[];
+      q: number[];
+      q_limit: number[];
+      leverage_limit: number[];
+    };
     /** The version these rows are rows of (#279): an exclusion from the flags
      * table is made against it, not against wherever the source is now. */
     dataset_id: string;

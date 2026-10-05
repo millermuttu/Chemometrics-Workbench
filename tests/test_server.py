@@ -1467,6 +1467,26 @@ def test_the_selections_run_from_a_pls_da_on_its_dummy_response(client: TestClie
         assert served.status_code == 200, (path, served.text)
     assert client.get("/api/results/plsda/ipls?n_intervals=5", headers=AUTH).json()["selected"]
 
+    # #335: a PLS-DA is diagnosed class by class, each sample against its own
+    # class's limits, and the flags come most rules first.
+    block = client.get("/api/results/plsda/outliers", headers=AUTH).json()
+    wise = block["classwise"]
+    assert wise["classes"] == ["high", "low"] and len(wise["t2"]) == 240
+    for flag in block["flags"]:
+        i = flag["index"]
+        broken = [
+            rule
+            for rule, value, limit in (
+                ("t2", wise["t2"][i], wise["t2_limit"][i]),
+                ("q", wise["q"][i], wise["q_limit"][i]),
+                ("leverage", block["leverage"][i], wise["leverage_limit"][i]),
+            )
+            if value > limit
+        ]
+        assert flag["rules"] == broken and flag["n_rules"] == len(broken)
+    counts = [flag["n_rules"] for flag in block["flags"]]
+    assert counts == sorted(counts, reverse=True) and block["flags"]
+
     # #333: the permutation test is a job, and its result is read once it is done.
     job = client.post("/api/results/plsda/permutation?n_permutations=5&seed=3", headers=AUTH)
     assert job.status_code == 200, job.text

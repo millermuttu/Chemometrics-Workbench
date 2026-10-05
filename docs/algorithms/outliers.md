@@ -20,7 +20,7 @@ It also adds a **flags table** (§5) that names, for each sample, every rule it 
 
 **Diagnostics flag; they never remove.** A flagged sample stays in the model until the user excludes it. Excluding it creates a derived dataset version (`PROPOSAL.md` §16, #279) and is never a pipeline step that drops rows on its own.
 
-A PLS-DA, an LDA and a kNN are not diagnosed. Their response is a class, so a studentised residual of a dummy variable is not a meaningful quantity. A SIMCA has one model per class, and its distances are its own decision (`simca.md` §3).
+A PLS-DA, an LDA and a kNN are diagnosed **class by class** (§8): each sample against a PCA of its own class, on the estimator's input. Their response is a class, so a studentised residual of a dummy variable is not a meaningful quantity, and a pooled model would flag a whole class for being unlike the others. A SIMCA has one model per class, and its distances are its own decision (`simca.md` §3).
 
 All three are computed from the stored result: its scores, observed values and predictions. A result fitted before this document existed therefore gets the same numbers as a fresh one. They are served at `/results/{node}/outliers` rather than inside the result payload (#314). The robust distance is a search that takes about a second at 3,000 samples, and nothing else on the analysis tab should wait for it.
 
@@ -87,7 +87,7 @@ Fewer than $A + 2$ rows, or scores of rank below $A$, cannot support the estimat
 
 ## 5. The flags table
 
-A sample is listed when it breaks at least one rule. For each listed sample, the table names every rule it breaks:
+A sample is listed when it breaks at least one rule. For each listed sample, the table names every rule it breaks and **how many**, and the table is **sorted by that count**, most first, then by row ([#335](https://github.com/millermuttu/Chemometrics-Workbench/issues/335)). A sample breaking four rules is a different finding from one breaking a single rule, and on clean data most flags are single ones:
 
 | Rule | Fires when |
 | --- | --- |
@@ -125,3 +125,22 @@ The table lists calibration rows only. Held-out rows are predictions, not part o
 
 - The leverage equals the diagonal of $Z (Z^\top Z)^{-1} Z^\top$, formed by an explicit inverse, and sums to $A + 1$.
 - For a PLS and a PCR, the calibration predictions equal the least-squares fit on $[\mathbf{1}, T]$. So §3's scaling is the exact one, and the studentised residuals equal the textbook formula recomputed from that fit.
+
+---
+
+## 8. Class-wise diagnostics
+
+[#335](https://github.com/millermuttu/Chemometrics-Workbench/issues/335). On a dataset whose samples belong to classes, a sample is an outlier when it is unlike **its own class**, not unlike the pooled data. On the meat set, a PCA of all three meats flags nearly every pork sample on $Q$, because pork genuinely differs from beef and lamb; that is the classes, not outliers.
+
+So a PLS-DA, an LDA and a kNN are diagnosed through their X model, one class at a time:
+
+1. **The matrix** is the estimator's input as its final model saw it: every row through parameters fitted on every row (`metrics-and-validation.md` §9). The classes are the estimator's class column.
+2. **Per class $c$** with $n_c$ samples: centre the class's rows on their own mean and fit a PCA (`pca.md`) with $A_c = \min(A, n_c - 1, p)$ components, $A$ being the estimator's own.
+3. **Per sample**, against its own class's PCA: $T^2$ and $Q$ (`pca.md` §7, §8) with that PCA's limits at the result's $\alpha$, and the leverage of §2 on that class's scores with the limit $3(A_c + 1)/n_c$.
+4. **The flags** are §5's, with the rules `t2`, `q` and `leverage`, each sample measured against the limit of its own class. There is no `residual` (a class is not a response) and no `robust` rule: the robust distance needs $A_c + 2$ rows and a non-singular score covariance, which small classes often do not have.
+
+A class with fewer than three samples cannot support a component and a residual, and the diagnostics are refused, naming the class.
+
+**The influence plot** draws each sample's $T^2$ and $Q$ as a ratio to its own class's limit, so one limit line at 1 serves every class.
+
+**Parity.** `tests/test_outliers.py` compares every class's $T^2$, $Q$ and leverage with scikit-learn's `PCA` fitted on that class's centred rows, $T^2$ as $\sum t^2/\lambda$ and $Q$ as the residual sum of squares, and the leverage with the hat diagonal formed by an explicit inverse.

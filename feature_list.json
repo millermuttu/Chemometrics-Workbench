@@ -131,9 +131,9 @@
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-05, feature/335_classwise-diagnostics. uv run pytest: exit 0 (full suite). tests/test_outliers.py: on Tecator fat terciles, every class's T2, Q and leverage equal scikit-learn PCA of that class's centred rows (rtol 1e-6) and the hat diagonal by explicit inverse (rtol 1e-8), limits at that class's n; a class of 2 is refused by code. tests/test_api.py: flags carry n_rules and are sorted most first, by row within a count; PLS-DA, LDA, kNN diagnosed, SIMCA not. tests/test_server.py: /results/plsda/outliers on the seeded Tecator - each flag's rules recomputed from the class-wise values and own-class limits. Failing first: with src stashed, 5 tests FAILED. ruff check, ruff format --check, mypy (87 files): clean after a test typing fix. pnpm test 164 passed; pnpm exec playwright test: 95 passed (3.5m), including 'a PLS-DA is diagnosed class by class, its flags most rules first'.",
+      "notes": "Class-wise rules are t2, q and leverage; no robust distance (small classes) and no residual (a class is not a response). outliers.md section 8."
     },
     {
       "id": "axis-correction",
@@ -295,6 +295,21 @@
       "status": "not_started",
       "evidence": "",
       "notes": "Seen once on #350 (job 111909342941); ubuntu, macOS and local runs passed."
+    },
+    {
+      "id": "macos-train-test-note-timeout",
+      "priority": 17,
+      "area": "frontend",
+      "issue": 354,
+      "title": "macOS e2e: the train/test run's results note is not found within 5 s",
+      "depends_on": [],
+      "user_visible_behavior": "None; runs.spec.ts's train/test test passes on a slow macOS runner.",
+      "verification": [
+        "Read the job log for a console error first; fix the cause or size the timeout with its reason; e2e (macos-latest) green"
+      ],
+      "status": "not_started",
+      "evidence": "",
+      "notes": "Seen once on #353 (job 111918116712), a 7.1-minute run under runner capacity constraints."
     }
   ]
 }

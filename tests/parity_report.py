@@ -308,6 +308,13 @@ COVERAGE: tuple[Coverage, ...] = (
         ("split.leave_one_group_out", "split.group_kfold"),
     ),
     Coverage(
+        "Class-wise outlier diagnostics",
+        ("class_diagnostics", "ClassDiagnostics"),
+        not_compared="Each class's T² and Q are a PCA's, already compared above; "
+        "tests/test_outliers.py checks every class against scikit-learn's PCA of that class's "
+        "centred rows, and the leverage against the hat diagonal (`outliers.md` section 8).",
+    ),
+    Coverage(
         "Bootstrap intervals",
         ("bootstrap", "BootstrapResult"),
         not_compared="A procedure over a fitted model rather than a value: tests/test_server.py "
