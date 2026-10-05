@@ -90,6 +90,7 @@ from chemometrics_workbench.models import (
     PreprocessStep,
     Project,
     RangeSelect,
+    SelectVariables,
     SourceNode,
     SplitSpec,
 )
@@ -856,7 +857,7 @@ def decimate(
 def node_axis(pipeline: Pipeline, node_id: NodeId, version: DatasetVersion) -> NDArray[np.float64]:
     """The axis a node's output is on, which is not always the dataset's.
 
-    `RangeSelect` is the one step that changes the variable count, so a node
+    `RangeSelect` and `SelectVariables` (#280) change the variable count, so a node
     under one is on a shorter axis than the `DatasetVersion` records and every
     payload that pairs the two has to know it. `executor.py` deliberately keeps
     no per-node axis — a second thing beside the cached arrays would have to
@@ -868,7 +869,7 @@ def node_axis(pipeline: Pipeline, node_id: NodeId, version: DatasetVersion) -> N
 
     Every non-source node holds exactly one input, so the ancestry is a chain
     rather than a tree and the selections apply in order down it. The mask is
-    taken from `RangeSelectTransformer` rather than restated here, so the
+    taken from the step's `Selection` transformer rather than restated here, so the
     interval's meaning — inclusive bounds, either axis direction, an empty
     selection refused — is stated once.
     """
@@ -884,10 +885,10 @@ def node_axis(pipeline: Pipeline, node_id: NodeId, version: DatasetVersion) -> N
 
     axis = np.asarray(version.axis.values, dtype=np.float64)
     for node in reversed(chain):
-        if node.type != "preprocess" or not isinstance(node.step, RangeSelect):
+        if node.type != "preprocess" or not isinstance(node.step, RangeSelect | SelectVariables):
             continue
         transformer = preprocessing.from_spec(node.step, axis=axis)
-        assert isinstance(transformer, preprocessing.RangeSelectTransformer)
+        assert isinstance(transformer, preprocessing.Selection)
         # Fitting a range selection needs the axis and the variable count, not
         # the data: `_fit` reads `X.shape[1]` and nothing else. One empty row
         # supplies the width without loading an array this function has no
@@ -966,7 +967,7 @@ def folded_coefficients(
         transformer = preprocessing.from_spec(node.step, axis=axis)
         transformer.fit(values[rows])
         values = transformer.transform(values)
-        if isinstance(transformer, preprocessing.RangeSelectTransformer):
+        if isinstance(transformer, preprocessing.Selection):
             axis = transformer.selected_axis()
         transformers.append(transformer)
 

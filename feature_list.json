@@ -308,9 +308,24 @@
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green"
       ],
+      "status": "passing",
+      "evidence": "2026-10-05: uv run pytest tests/test_select_variables.py - 7 passed: positions stored sorted and deduplicated and the step round-trips the PreprocessStep union; empty and negative selections refused; the transformer keeps exactly the named columns whatever it was fitted on (not fitted) and is FOLDABLE; a position past the input is refused naming the width; node_axis follows a selection below a range selection; a PLS under the step runs, exports a bare coefficient vector with zeros at every dropped variable, and the snippet reproduces its predictions within model-export.md's tolerance. With src/ stashed the file fails to import (no SelectVariables). uv run pytest - 1044 passed, 1 skipped; ruff, ruff format, mypy (75 files) clean; parity report regenerated with the not-compared coverage row, test_parity_coverage green. pnpm typecheck, lint, test (153 passed: nodeLabel 'Select 4 vars', parameterLine '4 variables kept'), build; pnpm exec playwright test - 84 passed. mkdocs build --strict clean.",
+      "notes": "RangeSelectTransformer and SelectVariablesTransformer share preprocessing.Selection, which the payload axis, the export and the fold now test for. Found on the way: a range selection below any selection fails in the executor (#312, executor-selection-axis); until then SelectVariablesTransformer uses positions as its axis when the one it is handed has the wrong width. Not in the add-step menu: only Apply (#281-#283) writes it."
+    },
+    {
+      "id": "executor-selection-axis",
+      "priority": 13,
+      "area": "backend",
+      "issue": 312,
+      "title": "A range selection below another selection fails in the executor",
+      "depends_on": [],
+      "user_visible_behavior": "A range selection placed below another range selection, or below an applied variable selection, runs instead of failing on an axis length mismatch.",
+      "verification": [
+        "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first"
+      ],
       "status": "not_started",
       "evidence": "",
-      "notes": ""
+      "notes": "Found during #280. The executor hands every step the dataset's axis; api.node_axis already derives the right one."
     },
     {
       "id": "vip-selection",

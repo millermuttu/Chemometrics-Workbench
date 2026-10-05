@@ -13,7 +13,7 @@ Status: **normative**. This document fixes what the two portable export forms co
 
 ## 1. What can be exported, and what cannot
 
-`pls-regression.md` §7 folds a preprocessing step into the coefficient vector when it is a fixed linear map on X whose parameters were fixed at calibration time: mean centring, autoscaling, range selection, Savitzky–Golay. SNV, MSC and the baselines are not — each depends on the sample being predicted, so each must be **re-executed** at prediction time.
+`pls-regression.md` §7 folds a preprocessing step into the coefficient vector when it is a fixed linear map on X whose parameters were fixed at calibration time: mean centring, autoscaling, range selection, an applied variable selection, Savitzky–Golay. SNV, MSC and the baselines are not — each depends on the sample being predicted, so each must be **re-executed** at prediction time.
 
 An export therefore **splits the chain at the last unfoldable step**:
 

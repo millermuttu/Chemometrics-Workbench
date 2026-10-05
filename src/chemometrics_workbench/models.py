@@ -295,6 +295,29 @@ class RangeSelect(Frozen):
         return self
 
 
+class SelectVariables(Frozen):
+    """Keep the variables at explicit column positions of this step's input (#280).
+
+    What "Apply selection" from a VIP threshold, iPLS or CARS writes into the
+    pipeline, so a selection is part of the recipe and of its lineage rather
+    than a property of one result. Not fitted, and foldable: it is a fixed
+    column subset. The positions are stored sorted and without repeats, so one
+    selection has one content hash however it was listed.
+    """
+
+    kind: Literal["select_variables"] = "select_variables"
+    indices: list[int] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _canonical(self) -> Self:
+        if min(self.indices) < 0:
+            raise ValueError("variable positions are counted from 0")
+        canonical = sorted(set(self.indices))
+        if canonical != self.indices:
+            object.__setattr__(self, "indices", canonical)
+        return self
+
+
 PreprocessStep = Annotated[
     SNV
     | MSC
@@ -307,7 +330,8 @@ PreprocessStep = Annotated[
     | Autoscale
     | Normalise
     | BaselineCorrect
-    | RangeSelect,
+    | RangeSelect
+    | SelectVariables,
     Field(discriminator="kind"),
 ]
 

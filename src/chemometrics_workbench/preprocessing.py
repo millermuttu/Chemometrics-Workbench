@@ -117,6 +117,7 @@ from chemometrics_workbench.models import (
     PreprocessStep,
     RangeSelect,
     SavitzkyGolay,
+    SelectVariables,
     WhittakerSmooth,
 )
 
@@ -132,6 +133,8 @@ __all__ = [
     "RangeSelectTransformer",
     "SNVTransformer",
     "SavitzkyGolayTransformer",
+    "SelectVariablesTransformer",
+    "Selection",
     "Transformer",
     "WhittakerTransformer",
     "from_spec",
@@ -442,7 +445,29 @@ class NormaliseTransformer(Transformer):
 # --------------------------------------------------------------------------
 
 
-class RangeSelectTransformer(Transformer):
+class Selection(Transformer):
+    """A step that keeps a subset of the variables, and so changes the axis.
+
+    Range selection and an explicit selection (#280) differ only in how the
+    subset is chosen. Everything downstream - the payload's axis, the export's,
+    the fold - needs only the mask and the axis it leaves, so they ask this.
+    """
+
+    mask_: NDArray[np.bool_] | None = None
+    axis: NDArray[np.float64]
+
+    def _transform(self, X: NDArray[np.float64]) -> NDArray[np.float64]:
+        assert self.mask_ is not None
+        return X[:, self.mask_]
+
+    def selected_axis(self) -> NDArray[np.float64]:
+        """The axis of the variables kept — the dataset's axis must follow the data."""
+        if self.mask_ is None:
+            raise RuntimeError(f"{type(self).__name__} has not been fitted")
+        return self.axis[self.mask_]
+
+
+class RangeSelectTransformer(Selection):
     """Keep the variables whose axis value falls in `[start, end]`.
 
     Needs the axis, because the bounds are in real units — nanometres, or
@@ -479,15 +504,45 @@ class RangeSelectTransformer(Transformer):
             )
         self.mask_ = mask
 
-    def _transform(self, X: NDArray[np.float64]) -> NDArray[np.float64]:
-        assert self.mask_ is not None
-        return X[:, self.mask_]
 
-    def selected_axis(self) -> NDArray[np.float64]:
-        """The axis of the variables kept — the dataset's axis must follow the data."""
-        if self.mask_ is None:
-            raise RuntimeError("RangeSelectTransformer has not been fitted")
-        return self.axis[self.mask_]
+class SelectVariablesTransformer(Selection):
+    """Keep the variables at explicit column positions (#280).
+
+    The positions are into this step's input, so they are checked against its
+    width at fit: a selection made on 700 variables applied to a 400-variable
+    input fails naming both, rather than indexing past the end.
+    """
+
+    def __init__(self, indices: object, axis: object | None = None) -> None:
+        positions = np.unique(np.asarray(indices, dtype=np.intp).ravel())
+        if positions.size == 0:
+            raise ValueError("a variable selection keeps at least one variable")
+        if positions[0] < 0:
+            raise ValueError("variable positions are counted from 0")
+        self.indices = positions
+        self._axis = None if axis is None else np.asarray(axis, dtype=np.float64).ravel()
+
+    def _fit(self, X: NDArray[np.float64]) -> None:
+        width = X.shape[1]
+        if self.indices[-1] >= width:
+            raise ValueError(
+                f"the selection keeps position {int(self.indices[-1])}, and this step's "
+                f"input has {width} variables (positions 0 to {width - 1})"
+            )
+        mask = np.zeros(width, dtype=bool)
+        mask[self.indices] = True
+        self.mask_ = mask
+        # The executor hands every step the dataset's axis, which is not this
+        # input's once a selection sits above it; only the payload and export
+        # read `selected_axis`, and they pass the axis they have narrowed. So
+        # an axis of the wrong width is not this input's, and positions stand
+        # in for it rather than a wrong axis being sliced.
+        given = self._axis
+        self.axis = (
+            given
+            if given is not None and given.size == width
+            else np.arange(width, dtype=np.float64)
+        )
 
 
 # --------------------------------------------------------------------------
@@ -551,6 +606,8 @@ def from_spec(
                     "variable axis; pass axis=."
                 )
             return RangeSelectTransformer(step.start, step.end, axis)
+        case SelectVariables():
+            return SelectVariablesTransformer(step.indices, axis)
         case _:
             raise NotImplementedError(f"no kernel for preprocessing step {step.kind!r} yet.")
 
