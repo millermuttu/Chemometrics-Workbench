@@ -6,12 +6,15 @@ import {
   useContributions,
   useResults,
   useSaveModel,
+  type OutlierRule,
   type PcaPayload,
 } from "@/api/queries";
 import {
   coefficientTrace,
   contributionTrace,
   ellipseTrace,
+  influenceTraces,
+  leverageTraces,
   loadingsTraces,
   outliers,
   predictedTraces,
@@ -453,6 +456,135 @@ function Contributions({ pca, sample }: { pca: PcaPayload; sample: number | null
  * `n - A - 1 <= 0`, so printing 0.0000 would assert something false. */
 function metric(value: number | undefined, digits = 4) {
   return value === undefined ? "—" : value.toFixed(digits);
+}
+
+/** One row of the panel grid. It keeps a plot's height once the grid has
+ * more rows than fit, and scrolls instead (#278). */
+const ROW = { display: "flex", gap: 12, flex: 1, minHeight: 240 } as const;
+
+/** outliers.md section 5's rules as the flags table prints them. */
+const RULE_LABELS: Record<OutlierRule, string> = {
+  t2: "T²",
+  q: "Q",
+  leverage: "leverage",
+  residual: "residual",
+  robust: "robust distance",
+};
+
+function Influence({ pca }: { pca: PcaPayload }) {
+  const host = usePlot(
+    (theme) => ({
+      data: influenceTraces(pca, theme),
+      layout: {
+        xaxis: axisLayout(theme, "Hotelling T²"),
+        yaxis: axisLayout(theme, "Q (SPE)"),
+        margin: { l: 52, r: 12, t: 8, b: 38 },
+      },
+    }),
+    [pca],
+  );
+  return (
+    <Panel title="Influence" note={`α = ${pca.diagnostics.alpha}`}>
+      <div ref={host} data-testid="influence-plot" style={{ flex: 1, minHeight: 0 }} />
+    </Panel>
+  );
+}
+
+function LeverageResidual({ pca }: { pca: PcaPayload }) {
+  const host = usePlot(
+    (theme) => ({
+      data: leverageTraces(pca, theme),
+      layout: {
+        xaxis: axisLayout(theme, "Leverage"),
+        yaxis: axisLayout(theme, "Studentised residual"),
+        margin: { l: 52, r: 12, t: 8, b: 38 },
+      },
+    }),
+    [pca],
+  );
+  const caveat = pca.outliers?.caveats.residual ?? pca.outliers?.caveats.leverage;
+  return (
+    <Panel title="Leverage vs residual" note={`limit ${pca.outliers?.limits.leverage.toFixed(3)}`}>
+      {caveat ? (
+        <div className="empty" style={{ padding: 12 }} role="note">
+          {caveat}
+        </div>
+      ) : (
+        <div ref={host} data-testid="leverage-plot" style={{ flex: 1, minHeight: 0 }} />
+      )}
+    </Panel>
+  );
+}
+
+/** The flags table (outliers.md section 5): every calibration row that breaks
+ * a rule, and which. A flag asks for a look, not a removal - so a row opens
+ * the sample's contributions, as the diagnostics table's do. */
+function Flags({
+  pca,
+  picked,
+  onPick,
+}: {
+  pca: PcaPayload;
+  picked: number | null;
+  onPick: (index: number) => void;
+}) {
+  const block = pca.outliers;
+  if (!block) return null;
+  const caveats = Object.entries(block.caveats) as [OutlierRule, string][];
+  return (
+    <Panel title="Flagged samples" note={`${block.flags.length} of ${pca.n_samples}`} width={300}>
+      {caveats.map(([rule, sentence]) => (
+        <p
+          key={rule}
+          role="note"
+          className="mono"
+          style={{ margin: "4px 12px", fontSize: 10, color: "var(--stale)", lineHeight: 1.35 }}
+        >
+          {RULE_LABELS[rule]}: {sentence}
+        </p>
+      ))}
+      <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+        <table>
+          <thead>
+            <tr>
+              <th style={{ width: 74 }}>Sample</th>
+              <th>Rules</th>
+            </tr>
+          </thead>
+          <tbody>
+            {block.flags.map((flag) => {
+              const sample = pca.samples[flag.index];
+              return (
+                <tr
+                  key={sample.index}
+                  data-testid="flag-row"
+                  data-index={sample.index}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={picked === sample.index}
+                  onClick={() => onPick(sample.index)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") onPick(sample.index);
+                  }}
+                  style={{
+                    cursor: "pointer",
+                    background: picked === sample.index ? "var(--sunken)" : undefined,
+                  }}
+                >
+                  <td className="mono" style={{ color: "var(--ink)" }}>
+                    {sample.sample_id}
+                  </td>
+                  <td className="mono" style={{ color: "var(--stale)" }}>
+                    {flag.rules.map((rule) => RULE_LABELS[rule]).join(" · ")}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
+  );
 }
 
 function PredictedVsMeasured({ pca }: { pca: PcaPayload }) {
@@ -1005,14 +1137,17 @@ export function AnalysisResults({ nodeId, title }: { nodeId: string; title: stri
           display: "flex",
           flexDirection: "column",
           gap: 12,
+          // #278's fourth row does not fit beside the other three at the
+          // design height, so the grid scrolls rather than squash a plot.
+          overflowY: "auto",
         }}
       >
-        <div style={{ display: "flex", gap: 12, flex: 1, minHeight: 0 }}>
+        <div style={ROW}>
           <Scores pca={pca} />
           <Loadings pca={pca} />
           {regression && <VariableImportance pca={pca} />}
         </div>
-        <div style={{ display: "flex", gap: 12, flex: 1, minHeight: 0 }}>
+        <div style={ROW}>
           <Variance pca={pca} />
           <Diagnostics pca={pca} picked={picked} onPick={setPicked} />
           <Contributions pca={pca} sample={picked} />
@@ -1022,10 +1157,21 @@ export function AnalysisResults({ nodeId, title }: { nodeId: string; title: stri
             layout was drawn for - and only for a regression, because these
             three have no counterpart on a decomposition. */}
         {regression && (
-          <div style={{ display: "flex", gap: 12, flex: 1, minHeight: 0 }}>
+          <div style={ROW}>
             {classification ? <ConfusionMatrix pca={pca} /> : <PredictedVsMeasured pca={pca} />}
             <RmsecvCurve pca={pca} />
             <RegressionMetrics pca={pca} />
+          </div>
+        )}
+        {/* #278: the outlier diagnostics, a row of their own, for a PCA, PLS
+            or PCR (outliers.md section 1). */}
+        {pca.outliers && (
+          <div data-testid="outliers-row" style={ROW}>
+            <Influence pca={pca} />
+            {pca.outliers.studentised_residuals !== null || pca.outliers.caveats.residual ? (
+              <LeverageResidual pca={pca} />
+            ) : null}
+            <Flags pca={pca} picked={picked} onPick={setPicked} />
           </div>
         )}
       </div>

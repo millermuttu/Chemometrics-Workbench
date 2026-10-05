@@ -16,6 +16,8 @@ import {
   coefficientTrace,
   contributionTrace,
   ellipseTrace,
+  influenceTraces,
+  leverageTraces,
   loadingsTraces,
   outliers,
   predictedTraces,
@@ -275,5 +277,52 @@ describe("contributions", () => {
     const spe = contributionTrace(payload, "spe", theme);
     expect(spe.y).toEqual([0.01, 0.04, 0.01]);
     expect(String(spe.hovertemplate)).toContain("C008");
+  });
+});
+
+describe("the outlier plots (#278)", () => {
+  // The contract fixture predates outliers.md, so the block is added here as
+  // the server serves it: two flagged rows, one fitted exactly.
+  const n = pca.samples.length;
+  const served: PcaPayload = {
+    ...pca,
+    outliers: {
+      leverage: Array.from({ length: n }, (_, i) => (i === 1 ? 0.5 : 0.01)),
+      studentised_residuals: Array.from({ length: n }, (_, i) => (i === 2 ? null : i === 3 ? 4 : 0.5)),
+      robust_distance: Array.from({ length: n }, () => 1),
+      limits: { t2: 10, q: 1, leverage: 0.1, residual: 3, robust: 12 },
+      caveats: {},
+      flags: [
+        { index: 1, rules: ["leverage"] },
+        { index: 3, rules: ["residual"] },
+      ],
+    },
+  };
+
+  it("draws T² against Q with both served limits and every sample named", () => {
+    const [t2Line, qLine, last] = influenceTraces(served, theme);
+    const points = last as { text: string[]; marker: { color: string[] } };
+    expect(t2Line.x).toEqual([pca.diagnostics.hotelling_t2_limit, pca.diagnostics.hotelling_t2_limit]);
+    expect(qLine.y).toEqual([pca.diagnostics.spe_limit, pca.diagnostics.spe_limit]);
+    expect(points.text).toEqual(pca.samples.map((sample) => sample.sample_id));
+    const colours = points.marker.color;
+    expect(colours[1]).toBe(theme.stale);
+    expect(colours[0]).toBe(theme.series[0]);
+  });
+
+  it("leaves out a row with no studentised residual and keeps the identity of the rest", () => {
+    const points = leverageTraces(served, theme).at(-1) as {
+      x: number[];
+      text: string[];
+      marker: { color: string[] };
+    };
+    expect(points.x.length).toBe(n - 1);
+    expect(points.text).not.toContain(pca.samples[2].sample_id);
+    expect(points.text[2]).toBe(pca.samples[3].sample_id);
+    expect(points.marker.color[2]).toBe(theme.stale);
+  });
+
+  it("draws nothing for a PCA, which has no residuals", () => {
+    expect(leverageTraces({ ...served, outliers: { ...served.outliers!, studentised_residuals: null } }, theme)).toEqual([]);
   });
 });

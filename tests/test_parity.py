@@ -1131,3 +1131,22 @@ def test_plsda_cross_validated_tally_matches_on_the_stored_folds(dataset: str) -
     assert parity.check(f"{dataset}.plsda.confusion_cv.sklearn", flat).passed
     (tn, _fp), (_fn, tp) = confusion
     assert parity.check(f"{dataset}.plsda.accuracy_cv.sklearn", (tp + tn) / y.size).passed
+
+
+# --------------------------------------------------------------------------
+# Robust distance (#278)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_robust_distance_matches_mcd_at_its_minimum(dataset: str) -> None:
+    """`outliers.md` section 7: scikit-learn's C-steps, correction and
+    reweighting from the minimum-determinant support. A distance does not
+    change when a component's sign does, so no alignment is needed."""
+    from chemometrics_workbench.outliers import min_cov_det
+
+    data = LOADERS[dataset]()
+    centred = data.spectra - data.spectra.mean(axis=0)
+    scores = PCA(N_COMPONENTS).fit(centred).scores_
+    result = parity.check(f"{dataset}.mcd.robust_distance.sklearn", min_cov_det(scores).distances)
+    assert result.passed

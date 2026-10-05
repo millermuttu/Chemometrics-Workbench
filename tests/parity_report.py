@@ -52,10 +52,11 @@ ALGORITHM_TITLES = {
     "pls2": "PLS2 (several responses)",
     "lda": "LDA (PCA-LDA)",
     "knn": "kNN (PCA-kNN)",
+    "mcd": "Robust distance (FastMCD)",
     "plsda": "PLS-DA (two-class)",
     "preprocess": "Preprocessing",
 }
-ALGORITHM_ORDER = ["preprocess", "pca", "pls", "pls2", "pcr", "plsda", "lda", "knn"]
+ALGORITHM_ORDER = ["preprocess", "pca", "pls", "pls2", "pcr", "plsda", "lda", "knn", "mcd"]
 DATASET_ORDER = ["corn", "gasoline", "tecator"]
 
 TIER_LABELS = {
@@ -108,6 +109,20 @@ COVERAGE: tuple[Coverage, ...] = (
     Coverage("PLS2", ("PLS2",), ("pls2.coefficients", "pls2.predictions", "pls2.scores")),
     Coverage("LDA", ("LDA",), ("lda.decision_function", "lda.predictions")),
     Coverage("kNN", ("KNN",), ("knn.predictions", "knn.votes")),
+    Coverage(
+        "Robust distance (FastMCD)",
+        ("min_cov_det", "RobustCovariance", "robust_distance_limit"),
+        ("mcd.robust_distance",),
+    ),
+    Coverage(
+        "Leverage and studentised residuals",
+        ("leverage", "leverage_limit", "studentised_residuals"),
+        not_compared="No reference in this environment: the R mdatools comparison the plan "
+        "named needs R, and scikit-learn has no influence measures. The leverage is checked "
+        "against the hat matrix formed by an explicit inverse, and the PLS and PCR calibration "
+        "fits against least squares on [1, T], which makes the studentisation exact, in "
+        "tests/test_outliers.py (outliers.md section 7).",
+    ),
     Coverage(
         "SIMCA",
         ("SIMCA", "acceptance_table", "simca_class_metrics", "simca_metrics"),
@@ -254,6 +269,10 @@ NOT_KERNELS: dict[str, str] = {
     "EXPORTABLE_RESIDUAL": "a constant: which steps an export carries",
     "SCHEMA_VERSION": "the export format's version",
     "THRESHOLD": "PLS-DA's class threshold, a constant of `pls-da.md`",
+    "LEVERAGE_FACTOR": "a constant of `outliers.md` section 2: the leverage flag's multiple",
+    "RESIDUAL_LIMIT": "a constant of `outliers.md` section 3: the residual flag",
+    "ROBUST_QUANTILE": "a constant of `outliers.md` section 4: the reweighting and flag quantile",
+    "MCD_SEED": "a constant of `outliers.md` section 4: FastMCD's seed",
     "ExportError": "the exception an export raises",
 }
 
@@ -265,6 +284,7 @@ KERNEL_MODULES = (
     "classification",
     "validation",
     "export",
+    "outliers",
 )
 
 
