@@ -17,13 +17,13 @@ point below the range with a zero; neither is in the file.
 
 Because a file is one spectrum, a dataset is a zip of them: every member an
 SPA file, on one axis and in one y unit, or refused naming the one that is
-not. `readers.reader_for` sends a zip here when its members are SPA files.
+not. `readers.reader_for` sends a zip here when its members are SPA files;
+`readers.spectrum_files` opens it.
 """
 
 from __future__ import annotations
 
 import struct
-import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -40,6 +40,7 @@ from chemometrics_workbench.readers import (
     ReaderError,
     index_axis,
     source_file,
+    spectrum_files,
 )
 
 NAME = "omnic_spa"
@@ -52,7 +53,6 @@ HEADER, INTENSITIES = 2, 3
 WAVENUMBERS = 1
 #: OMNIC's y unit codes, for the message that refuses a mix of them.
 Y_UNITS = {16: "%T", 17: "absorbance"}
-_MAX_MEMBER_BYTES = 64 << 20
 
 
 @dataclass(frozen=True)
@@ -106,50 +106,14 @@ def head(path: Path, detection: Detection) -> dict[str, Any]:
     }
 
 
-def is_spa_archive(path: Path) -> bool:
-    """Whether a zip holds SPA files, so `reader_for` sends it here."""
-    try:
-        with zipfile.ZipFile(path) as archive:
-            names = [info.filename for info in archive.infolist() if not info.is_dir()]
-    except (zipfile.BadZipFile, OSError):
-        return False
-    return bool(names) and all(Path(name).suffix.lower() == ".spa" for name in names)
-
-
 # --- the files ---------------------------------------------------------------------
 
 
 def _spectra(path: Path) -> list[_Spectrum]:
-    if path.suffix.lower() != ".zip":
-        try:
-            return [_spectrum(path.name, path.read_bytes(), where=path.name)]
-        except OSError as error:
-            raise ReaderError(f"cannot read {path.name}: {error.strerror}") from error
-    try:
-        with zipfile.ZipFile(path) as archive:
-            infos = sorted(
-                (info for info in archive.infolist() if not info.is_dir()),
-                key=lambda info: info.filename,
-            )
-            if not infos:
-                raise ReaderError(f"{path.name} is an empty archive.")
-            spectra = []
-            for info in infos:
-                name = Path(info.filename).name
-                if Path(name).suffix.lower() != ".spa":
-                    raise ReaderError(
-                        f"{name} in {path.name} is not an SPA file; a zip of SPA files holds "
-                        "nothing else."
-                    )
-                if info.file_size > _MAX_MEMBER_BYTES:
-                    raise ReaderError(
-                        f"{name} in {path.name} is {info.file_size} bytes, larger than one SPA "
-                        "file can be."
-                    )
-                spectra.append(_spectrum(name, archive.read(info), where=f"{name} in {path.name}"))
-            return spectra
-    except zipfile.BadZipFile as error:
-        raise ReaderError(f"{path.name} is not a zip archive: {error}") from error
+    return [
+        _spectrum(name, data, where=where)
+        for name, data, where in spectrum_files(path, SUFFIXES, "SPA")
+    ]
 
 
 def _spectrum(name: str, data: bytes, *, where: str) -> _Spectrum:
