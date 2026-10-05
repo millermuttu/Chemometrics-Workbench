@@ -337,3 +337,36 @@ export function leverageTraces(pca: PcaPayload, theme: PlotTheme) {
     },
   ];
 }
+
+/** The positions a threshold keeps (#281): VIP at or above it, or |b| at or
+ * above it. Positions on the estimator's own axis, which is what a
+ * `select_variables` step on its input selects from. */
+export function thresholdSelection(values: number[], threshold: number, absolute: boolean): number[] {
+  return values.flatMap((value, index) => ((absolute ? Math.abs(value) : value) >= threshold ? [index] : []));
+}
+
+/** The mean spectrum with the selected variables marked on it (#281). */
+export function selectionTraces(pca: PcaPayload, selected: number[], theme: PlotTheme) {
+  const axis = pca.loadings.axis.values;
+  const mean = pca.regression?.x_mean ?? [];
+  return [
+    {
+      type: "scattergl",
+      mode: "lines",
+      name: "mean spectrum",
+      x: axis,
+      y: mean,
+      line: { width: 1.1, color: theme.ink3 },
+      hovertemplate: "%{x:.1f} · %{y:.4g}<extra></extra>",
+    },
+    {
+      type: "scattergl",
+      mode: "markers",
+      name: "selected",
+      x: selected.map((index) => axis[index]),
+      y: selected.map((index) => mean[index]),
+      marker: { size: 5, color: theme.series[0] },
+      hovertemplate: "%{x:.1f} · selected<extra></extra>",
+    },
+  ];
+}

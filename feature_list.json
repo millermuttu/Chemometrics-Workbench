@@ -359,9 +359,9 @@
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; an e2e test applies a VIP selection and runs the copy"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-05: uv run ruff check, ruff format --check, mypy (75 files) clean; uv run pytest - 1045 passed, 1 skipped; tests/test_api.py asserts regression.x_mean (the mean spectrum the selection is drawn over) and fails with KeyError: 'x_mean' on dev. pnpm typecheck, lint, test - 158 passed (thresholdSelection for VIP and |b|; selectionTraces marks the kept variables at their own wavelengths on the mean; applySelection adds select_variables on the estimator's input and a copy below it, clamps n_components to the variables kept, numbers a second selection, refuses an empty one). pnpm build; pnpm exec playwright test - 85 passed. New e2e analysis.spec.ts 'a VIP selection is applied as a step above a copy of the PLS, which runs': VIP >= 1 counts k of 100, Apply selection, pls_d_selected runs with n_variables = k and pls_d_select holds k indices; with frontend/src stashed and rebuilt it fails at selectOption. walkthrough.spec.ts's PCR test updated: a PCR now offers 'Select variables' by |b|.",
+      "notes": "Offered on a regression (PLS by VIP or |b|, PCR by |b|), not on a classification's dummy response. The original estimator stays beside the copy so the two can be compared."
     },
     {
       "id": "ipls",

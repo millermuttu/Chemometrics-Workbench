@@ -225,6 +225,9 @@ export interface PcaPayload {
     observed: number[];
     predicted: number[];
     coefficients: number[];
+    /** The estimator's input mean on the node's own axis (#281): the spectrum
+     * a variable selection is marked over. Absent on a result served before. */
+    x_mean?: number[];
     vip: number[];
     y_loadings: number[];
     y_explained_variance_ratio: number[];

@@ -500,6 +500,9 @@ def test_a_regression_payload_flags_its_outliers_by_rule(tmp_path: Path) -> None
     limits = block["limits"]
     n = run.results["pls_a"].n_samples
     assert block["caveats"] == {}
+    # #281: the mean spectrum a variable selection is drawn over, on the node's axis.
+    regression = results_payload(run.results["pls_a"], version)["regression"]
+    assert len(regression["x_mean"]) == len(regression["vip"]) == run.results["pls_a"].n_variables
     # #279: an exclusion from the flags table names the version they are rows of.
     assert block["version_id"] == str(version.version_id)
     assert block["dataset_id"] == str(version.dataset_id)
