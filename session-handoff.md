@@ -2,7 +2,7 @@
 
 Compact state for the next session. **Overwrite this file at the end of every session** — it is a snapshot, not a log. Read it first, then `feature_list.json`, `git log` on `dev`, and the open issues.
 
-**Updated:** 2026-10-05 (after #344)
+**Updated:** 2026-10-06 (after #353)
 
 ---
 
@@ -11,30 +11,39 @@ Compact state for the next session. **Overwrite this file at the end of every se
 **`v1.1.0` is released** (2026-10-05), closing Phase 5; its list is archived at
 `docs/phase-5/feature_list.json` and its exit run at `docs/phase-5/exit-run.md`.
 
-**Phase 6, validation integrity, is open** (#342, merged 2026-10-05). `feature_list.json` is its list:
-14 entries, issues #329 to #341 plus #343, and a `decisions` block. In short:
-- **Grouped splits (#329) — passing, merged in #344.** `group_by` on K-fold, train/test and
-  leave-one-out (then leave-one-group-out); `validation.by_group` runs a splitter over the groups;
-  spec `metrics-and-validation.md` §8.8. Leave-one-group-out is identical to scikit-learn; grouped
-  K-fold is a recorded divergence from `GroupKFold`. Grouped and stratified together is refused.
-- The model saved and exported below a split is refitted on every sample (#330), decided by the
-  maintainer; fold zero's stays only as the held-out view.
-- Nested validation of variable selection (#331) and selection from PLS-DA (#332).
-- Permutation tests (#333) and bootstrap intervals (#334).
-- Class-wise outlier diagnostics (#335), a correctable axis unit (#336), a complete Step list (#337).
-- SVM (#338), hand-written SMO.
-- Signed packages (#339), `blocked` until the maintainer has an Apple Developer ID and a Windows
-  certificate.
-- Docs (#340), exit run (#341), one release `v1.2.0`.
-- **New, found during #329: #343.** A classifier below a split whose training fold holds one class
-  fails with "X and y have no covariance"; it should refuse naming the fold and class, once, in the
-  shared fit path. The e2e grouped test removes the seeded `plsda_d` for its duration because of it.
+**Phase 6, validation integrity, is open.** `feature_list.json` is its list. Merged on `dev`, each
+through a green pull request:
+
+| Feature | Issue | PR |
+| --- | --- | --- |
+| Grouped splits: `group_by`, leave-one-group-out (`metrics-and-validation.md` §8.8) | #329 | #344 |
+| The model below a split refitted on every sample; artifact schema 2 | #330 | #347 |
+| Nested validation of a variable selection (`variable-selection.md` §8) | #331 | #348 |
+| Variable selection from a PLS-DA, on its dummy response (§9) | #332 | #349 |
+| Seeded y-permutation test, run as a job (`metrics-and-validation.md` §14) | #333 | #350 |
+| Bootstrap intervals for PLS/PCR coefficients and VIP (`pls-regression.md` §16) | #334 | #352 |
+| Class-wise outlier diagnostics; flags sorted by rules broken (`outliers.md` §8) | #335 | #353 |
+
+Not started, in priority order: a correctable axis unit (#336), a complete Step list (#337), SVM
+(#338), docs (#340), exit run (#341). Signed packages (#339) are `blocked` on certificates. One
+release, `v1.2.0`, at the end.
+
+**Found during the phase, each with a `feature_list.json` entry:**
+- **#343** - a classifier whose training fold holds one class fails with "X and y have no
+  covariance"; it should refuse naming the fold and class, once, in the shared fit path.
+- **#346** - remove the Decisions section from the docs site (maintainer's request).
+- **#351** - Windows e2e once failed to find the PCA tab's scores plot (#350's first run).
+- **#354** - macOS e2e once timed out on the train/test results note (#353's first run, a 7-minute
+  run under runner capacity limits). Both passed on a re-run; neither log has been read yet.
 
 `PROPOSAL.md` §16 has the Phase 6 row.
 
 **GitHub attribution:** the maintainer said on 2026-10-05 not to put "Generated with Claude"
-footers, session links or Claude `Co-Authored-By` trailers anywhere on GitHub — PRs, issues,
+footers, session links or Claude `Co-Authored-By` trailers anywhere on GitHub - PRs, issues,
 comments or commits. Two earlier commits (`28cd7ec`, `51b8b7e`) carry them and were left as they are.
+
+**Handoffs go straight to `dev`**, no branch and no pull request (maintainer, 2026-10-05; also in
+CLAUDE.md).
 
 ## Development data
 
@@ -83,7 +92,11 @@ that moves a quoted number fails the suite until the page is updated.
 so a user's pan survives), React Flow's `Controls` give a fit-view button, and the add-step menu
 opens away from the nearer window edge. `docs-examples.spec.ts` no longer reloads or drops upward.
 
-**Merging:** the maintainer asked for #342 and #344 to be merged on 2026-10-05, after CI was green. No standing approval carries into a new session.
+**Merging:** on 2026-10-05 the maintainer set a goal of finishing five issues by the process, which
+covered merging #347-#353 once CI was green. No standing approval carries into a new session.
+
+**CI polling:** the unauthenticated `api.github.com` is rate-limited (60 requests an hour) and a
+30-second poll exhausts it; read check runs through `mcp__github__pull_request_read` instead.
 
 **#247, `ui-export-buttons`, is done.** `download()` in `api/client.ts` fetches with the token and
 saves through a blob URL; `screens/DownloadButton.tsx` shows the server's refusal beside the button.
@@ -164,6 +177,25 @@ Merged through green pull requests on `dev`:
 | dev into main, `v1.1.0` released | #289 | #326 |
 | Exit run: Tecator PCR and selected PLS, lineage (asked by #289, missed at first) | #289 | #328 |
 
+## What Phase 6 has left behind so far, worth knowing
+
+- **The all-sample model (#330).** Every node below a split carries `_State.full`, stored under
+  `<key>#all`; the estimator is fitted on it and `_with_held_out` merges fold zero's held-out view.
+  Estimator keys include `RESULT_FORMAT`, so a result stored before #330 is a cache miss. Exports and
+  folded coefficients refit the chain on `result.rows` (every row). Artifact schema is 2.
+- **A dummy response (#332).** `regression.rmsecv_curve`, `selection.ipls/cars/nested` and the VIP
+  selector take a 1-D response or a one-hot matrix (PLS2, pooled RMSE); `regression._response`
+  decides which. `api._selection_inputs` builds a PLS-DA's dummy from `result.classes`.
+- **Permutation jobs (#333)** use `JOBS.submit("permutation:<node>", ...)` so the canvas's running
+  check ignores them; the result is `GET /api/permutations/{job_id}`, in memory only.
+  `executor.permutation_test_for` reruns `_fitted` on stored fold matrices with a permuted version.
+- **Bootstrap (#334)** is synchronous (`GET /results/{id}/bootstrap`); `api._fit_chain` is shared with
+  `folded_coefficients`.
+- **Class-wise outliers (#335)**: `outliers.class_diagnostics`, `api.classwise_payload`; flags carry
+  `n_rules` and are sorted by it for every model, so a test reading the first flag gets the worst.
+- **New parity-style claims** that are tests rather than fixture entries have a `Coverage` row with
+  `not_compared` naming the test (nested selection, permutation, bootstrap, class-wise).
+
 ## What these left behind, worth knowing
 
 - **Exclusion materialises.** `derive_version` writes the kept rows as a new array; `excluded_samples`
@@ -204,5 +236,5 @@ Merged through green pull requests on `dev`:
 
 ## Next action
 
-Start `final-model` (#330): no dependencies, and the exit criterion needs an all-sample model that
-exports. Read the issue body as well as its entry. #343 is small and can follow it.
+Start `axis-correction` (#336): no dependencies. Read the issue body as well as its entry. #343 is
+small and worth taking early; #351 and #354 need their job logs read first.
