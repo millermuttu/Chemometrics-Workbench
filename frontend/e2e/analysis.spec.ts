@@ -506,6 +506,34 @@ test("an iPLS selection from a PLS-DA is applied above a copy of the PLS-DA, whi
   }
 });
 
+test("bootstrap bands are drawn under the PLS's VIP", async ({ page }) => {
+  // #334. Read-only. The seeded chain has an SNV, so the coefficients cannot be
+  // folded and only VIP gets a band.
+  test.setTimeout(120_000);
+  const auth = { Authorization: "Bearer e2e-token" };
+  await page.goto("/?token=e2e-token");
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /PLS 5 LV/ }).first().dblclick();
+  await page.getByRole("button", { name: "Bootstrap" }).click();
+  await expect(page.getByRole("button", { name: "95% bands · 200 resamples" })).toBeVisible({
+    timeout: 90_000,
+  });
+  const served = await (
+    await page.request.get("/api/results/pls_d/bootstrap?n_resamples=200", { headers: auth })
+  ).json();
+  expect(served.coefficients).toBeNull();
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const plot = document.querySelector("[data-testid=vip-plot]") as HTMLElement & {
+          data?: { y?: number[] }[];
+        };
+        return plot.data?.[1]?.y ?? [];
+      }),
+    )
+    .toEqual(served.vip.upper);
+});
+
 test("a permutation test runs as a job and places the PLS in its null", async ({ page }) => {
   // #333. Read-only. Tecator's fat is no accident, so no permutation should
   // match the real RMSECV and p is its floor, 1 / (N + 1).

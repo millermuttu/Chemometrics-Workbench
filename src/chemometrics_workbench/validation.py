@@ -43,9 +43,11 @@ from numpy.typing import NDArray
 from chemometrics_workbench.arrays import as_float64_vector
 
 __all__ = [
+    "BootstrapResult",
     "Fold",
     "PermutationResult",
     "bias",
+    "bootstrap",
     "by_group",
     "folds_from_indices",
     "k_fold",
@@ -398,6 +400,48 @@ def permutation_test(
     as_good = values >= observed if greater_is_better else values <= observed
     p_value = (int(as_good.sum()) + 1) / (n_permutations + 1)
     return PermutationResult(observed, null, p_value, seed, greater_is_better)
+
+
+@dataclass(frozen=True)
+class BootstrapResult:
+    """`pls-regression.md` §16: a percentile interval per element of a statistic."""
+
+    lower: NDArray[np.float64]
+    upper: NDArray[np.float64]
+    level: float
+    n_resamples: int
+    seed: int
+
+
+def bootstrap(
+    statistic: Callable[[NDArray[np.intp]], NDArray[np.float64]],
+    n_samples: int,
+    n_resamples: int,
+    *,
+    level: float = 0.95,
+    seed: int = 0,
+) -> BootstrapResult:
+    """Percentile intervals of `statistic` over `n_resamples` bootstrap resamples.
+
+    Each resample is `n_samples` row indices drawn with replacement by
+    `numpy.random.default_rng(seed).integers(0, n_samples, n_samples)`, one
+    generator for every resample in turn, so a seed always gives the same
+    intervals. `statistic(rows)` refits whatever it measures on those rows.
+    The interval is the `(1 - level) / 2` and `(1 + level) / 2` quantiles of
+    the resampled values, by NumPy's default linear interpolation.
+    """
+    if n_resamples < 2:
+        raise ValueError(f"a bootstrap needs at least two resamples, got {n_resamples}")
+    if not 0 < level < 1:
+        raise ValueError(f"the level must be between 0 and 1, got {level}")
+    rng = np.random.default_rng(seed)
+    values = np.asarray(
+        [statistic(rng.integers(0, n_samples, n_samples)) for _ in range(n_resamples)],
+        dtype=np.float64,
+    )
+    tail = (1 - level) / 2
+    lower, upper = np.quantile(values, [tail, 1 - tail], axis=0)
+    return BootstrapResult(lower, upper, level, n_resamples, seed)
 
 
 def folds_from_indices(

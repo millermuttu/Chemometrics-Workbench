@@ -293,5 +293,22 @@ Below a split every quantity in this table is the **all-sample model's**: the PL
 
 - RMSECV, fold assignment and metric definitions — `metrics-and-validation.md`.
 - Tolerances and claim tiers — the parity harness.
-- PLS-DA — a separate document when it lands; it is a classification wrapper around this algorithm, not a variant of it.
-- Variable selection built on VIP — post-1.0.
+- PLS-DA — `pls-da.md`; it is a classification wrapper around this algorithm, not a variant of it.
+- Variable selection built on VIP — `variable-selection.md`.
+
+---
+
+## 16. Bootstrap intervals
+
+[#334](https://github.com/millermuttu/Chemometrics-Workbench/issues/334). The coefficients and VIP of one fitted model say nothing about how much they would move with a different sample of the same population. A bootstrap estimates that, so a reader can see which wavelengths are stably important and which only happened to be.
+
+1. **Resamples.** $B$ resamples (200 unless set), each $n$ row indices drawn with replacement by `numpy.random.default_rng(seed).integers(0, n, n)`, one generator for every resample in turn, seed 0 unless set. A seed always gives the same intervals.
+2. **Refit on each.** Every preprocessing step from the source to the estimator is refitted on the resampled rows, as the all-sample model's chain is fitted on every row (`metrics-and-validation.md` §9), and then the estimator: centred on the resample, with the model's component count $A$. A split above the estimator plays no part; the resample replaces it.
+3. **Measure.** VIP (§8) on the estimator's own axis, and the coefficients folded to the dataset's axis (§7), exactly the vector the coefficient plot draws. When the chain cannot be folded (§7: an SNV, an MSC or a baseline), there is no coefficient interval and the response says so with `null`.
+4. **The interval** for each variable is the percentile interval at level $\ell$ (0.95 unless set): the $(1-\ell)/2$ and $(1+\ell)/2$ quantiles of its $B$ values, by NumPy's default linear interpolation.
+
+The percentile interval is the simplest bootstrap interval and makes no correction for bias or skew; with $B = 200$ its endpoints are read off ten or so values in each tail. It is meant for seeing which variables are stable, not for quoting a confidence bound to three figures.
+
+A component's sign is fixed by §6 on every resample, so the coefficients, which are sign-invariant (§5), need no alignment, and VIP is non-negative.
+
+**Parity.** `tests/test_server.py` rebuilds the intervals with scikit-learn's `PLSRegression`, VIP computed from its weights, on the same resampled rows drawn from the same stream, through a centring chain, and the intervals agree to `rtol` $10^{-6}$.

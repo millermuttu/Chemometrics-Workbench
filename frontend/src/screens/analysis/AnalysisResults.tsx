@@ -8,6 +8,7 @@ import {
   useIpls,
   useCars,
   useNested,
+  useBootstrap,
   useJob,
   usePermutation,
   useStartPermutation,
@@ -34,6 +35,7 @@ import {
   scoresTrace,
   selectionTraces,
   thresholdSelection,
+  bandTraces,
   permutationFigure,
   varianceFigure,
   vipFigure,
@@ -196,12 +198,19 @@ function VariableImportance({ pca, onRun }: { pca: PcaPayload; onRun?: () => voi
     (pca.regression?.x_mean?.length ?? 0) > 0;
   const coefficients = useCoefficients(pca.node_id);
   const folded = coefficients.data;
+  // #334: bootstrap bands, a PLS's or PCR's, computed when asked.
+  const bootstrappable = ["pls", "pcr"].includes(pca.regression?.method ?? "");
+  const [resamples, setResamples] = useState<number | null>(null);
+  const bands = useBootstrap(pca.node_id, bootstrappable ? resamples : null).data;
 
   const vipHost = usePlot(
     (theme) => {
       const figure = vipFigure(pca, theme);
       return {
-        data: figure.data,
+        data: [
+          ...(bands?.vip ? bandTraces(pca.loadings.axis.values, bands.vip, "VIP band", theme) : []),
+          ...figure.data,
+        ],
         layout: {
           shapes: figure.shapes,
           xaxis: axisLayout(theme, `${pca.loadings.axis.kind} (${pca.loadings.axis.unit ?? ""})`),
@@ -210,13 +219,17 @@ function VariableImportance({ pca, onRun }: { pca: PcaPayload; onRun?: () => voi
         },
       };
     },
-    [pca, view],
+    [pca, view, bands],
   );
   const coefficientHost = usePlot(
     (theme) => {
       const trace = folded ? coefficientTrace(folded, theme) : null;
+      const band =
+        folded?.axis && bands?.coefficients
+          ? bandTraces(folded.axis.values, bands.coefficients, "b band", theme)
+          : [];
       return {
-        data: trace ? [trace] : [],
+        data: trace ? [...band, trace] : [],
         layout: {
           xaxis: axisLayout(
             theme,
@@ -227,7 +240,7 @@ function VariableImportance({ pca, onRun }: { pca: PcaPayload; onRun?: () => voi
         },
       };
     },
-    [folded, view],
+    [folded, view, bands],
   );
 
   const choose = (
@@ -251,9 +264,25 @@ function VariableImportance({ pca, onRun }: { pca: PcaPayload; onRun?: () => voi
       {selectable ? <option value="selection">Select variables</option> : null}
     </select>
   );
+  const note = (
+    <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
+      {choose}
+      {bootstrappable && view !== "selection" ? (
+        <button
+          type="button"
+          className="btn"
+          style={{ fontSize: 9.5, height: 18 }}
+          onClick={() => setResamples(200)}
+          title="Seeded bootstrap percentile bands, 200 resamples, 95% (pls-regression.md section 16)"
+        >
+          {bands ? `95% bands · ${bands.n_resamples} resamples` : "Bootstrap"}
+        </button>
+      ) : null}
+    </span>
+  );
 
   return (
-    <Panel title="Variable importance" note={choose}>
+    <Panel title="Variable importance" note={note}>
       {view === "selection" && selectable ? (
         <SelectVariables pca={pca} hasVip={hasVip} onRun={onRun} />
       ) : view === "vip" && hasVip ? (

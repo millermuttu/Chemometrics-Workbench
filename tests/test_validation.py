@@ -455,3 +455,33 @@ def test_more_folds_than_groups_is_refused_naming_the_group_count() -> None:
         by_group(["a", "a", "b", "b", "c", "c"], lambda n: k_fold(n, 4))
     with pytest.raises(ValueError, match="over the 1 groups: leave-one-out needs at least 2"):
         by_group(["a", "a"], leave_one_out)
+
+
+# --- the bootstrap (#334) -------------------------------------------------
+
+
+def test_a_bootstrap_follows_from_its_seed_and_takes_the_percentiles() -> None:
+    from chemometrics_workbench.validation import bootstrap
+
+    values = np.arange(10, dtype=np.float64)
+
+    def mean(rows: np.ndarray) -> np.ndarray:
+        return np.array([values[rows].mean()])
+
+    first = bootstrap(mean, 10, 50, level=0.9, seed=4)
+    again = bootstrap(mean, 10, 50, level=0.9, seed=4)
+    assert (first.lower, first.upper) == (again.lower, again.upper)
+    assert bootstrap(mean, 10, 50, level=0.9, seed=5).lower != first.lower
+
+    rng = np.random.default_rng(4)
+    draws = [values[rng.integers(0, 10, 10)].mean() for _ in range(50)]
+    assert first.lower[0] == pytest.approx(np.quantile(draws, 0.05))
+    assert first.upper[0] == pytest.approx(np.quantile(draws, 0.95))
+
+
+@pytest.mark.parametrize(("resamples", "level"), [(1, 0.95), (10, 1.0), (10, 0.0)])
+def test_a_bootstrap_it_cannot_run_is_refused(resamples: int, level: float) -> None:
+    from chemometrics_workbench.validation import bootstrap
+
+    with pytest.raises(ValueError, match=r"at least two resamples|between 0 and 1"):
+        bootstrap(lambda rows: rows.astype(float), 5, resamples, level=level)

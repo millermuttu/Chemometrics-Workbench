@@ -479,3 +479,38 @@ export function permutationFigure(payload: PermutationPayload, theme: PlotTheme)
     ],
   };
 }
+
+/** A bootstrap percentile band (#334): the lower bound, then the upper filled
+ * down to it. Drawn beneath the line it belongs to, in the band colour, so a
+ * stable variable reads as a narrow ribbon and an unstable one as a wide one. */
+export function bandTraces(
+  x: number[],
+  band: { lower: number[]; upper: number[] },
+  label: string,
+  theme: PlotTheme,
+) {
+  return [
+    {
+      type: "scattergl",
+      mode: "lines",
+      name: `${label} lower`,
+      x,
+      y: band.lower,
+      line: { width: 0, color: theme.band },
+      hoverinfo: "skip",
+      showlegend: false,
+    },
+    {
+      type: "scattergl",
+      mode: "lines",
+      name: label,
+      x,
+      y: band.upper,
+      fill: "tonexty",
+      fillcolor: theme.band,
+      line: { width: 0, color: theme.band },
+      hoverinfo: "skip",
+      showlegend: false,
+    },
+  ];
+}

@@ -114,9 +114,9 @@
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-05, feature/334_bootstrap-intervals. uv run pytest: exit 0 (full suite). tests/test_server.py: GET /results/pls/bootstrap (25 resamples, level 0.9, seed 5) through split, mean centre and PLS on the seeded Tecator equals an independent rebuild - scikit-learn PLSRegression, VIP from its weights, on the same rows drawn from default_rng(5) - for VIP and the folded coefficients, rtol 1e-6; repeated calls are identical; a PCR gets coefficient bands and no VIP. tests/test_validation.py: the kernel follows from its seed, takes the stated percentiles, and refuses fewer than two resamples or a level outside (0, 1). Failing first: with src stashed, all 5 new tests FAILED. ruff check, ruff format --check, mypy (87 files): clean. pnpm test 163 passed; pnpm exec playwright test: 94 passed (3.6m), including 'bootstrap bands are drawn under the PLS's VIP'.",
+      "notes": "Synchronous endpoint (200 PLS fits on Tecator in about a second); an unfoldable chain (SNV) gets VIP bands only."
     },
     {
       "id": "classwise-diagnostics",
