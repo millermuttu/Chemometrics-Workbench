@@ -59,7 +59,10 @@ function withDatasetColumns(
           ? { ...field, kind: "enum", options: classColumns }
           : field.name === "stratify_by" && field.kind === "string" && strata.length > 0
             ? { ...field, kind: "enum", options: strata }
-            : field,
+            : // #329: a group needs no minimum size, only two of them to split.
+              field.name === "group_by" && field.kind === "string" && classColumns.length > 0
+              ? { ...field, kind: "enum", options: classColumns }
+              : field,
     ),
   };
 }

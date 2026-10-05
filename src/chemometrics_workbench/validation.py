@@ -34,7 +34,7 @@ these are arrays in, arrays out, as in `preprocessing.py` and
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -45,6 +45,7 @@ from chemometrics_workbench.arrays import as_float64_vector
 __all__ = [
     "Fold",
     "bias",
+    "by_group",
     "folds_from_indices",
     "k_fold",
     "leave_one_out",
@@ -324,6 +325,27 @@ def stratified_train_test(labels: Sequence[str], test_size: float, *, seed: int 
         held.append(members[:take])
     test = np.sort(np.concatenate(held))
     return [Fold(train=np.setdiff1d(np.arange(len(labels)), test), test=test)]
+
+
+def by_group(groups: Sequence[str], split: Callable[[int], list[Fold]]) -> list[Fold]:
+    """§8.8: run a splitter over the distinct groups, then expand each to its rows.
+
+    `split` is any of the splitters above, called with the number of groups
+    instead of the number of samples: the groups, in Unicode order, are what
+    it permutes, slices or leaves out one at a time. A group therefore lands
+    whole in one validation set, and every guarantee the splitter makes about
+    its items - a partition, the seed, the size rule - holds for the groups.
+    """
+    levels, codes = np.unique(np.asarray([str(group) for group in groups]), return_inverse=True)
+    try:
+        folds = split(levels.size)
+    except ValueError as error:
+        raise ValueError(f"over the {levels.size} groups: {error}") from error
+    every = np.arange(len(groups), dtype=np.intp)
+    return [
+        Fold(train=every[np.isin(codes, fold.train)], test=every[np.isin(codes, fold.test)])
+        for fold in folds
+    ]
 
 
 def folds_from_indices(

@@ -251,6 +251,9 @@ QUANTITY_CLASS: dict[str, str] = {
     # metric; the forward path is a list of interval indices, exact or wrong.
     "interval_rmsecv": "metrics",
     "forward_path": "metrics",
+    # Grouped splits (metrics-and-validation.md §8.8): a fold index per
+    # sample, exact or wrong.
+    "fold_of_sample": "metrics",
 }
 
 # Quantities whose sign is arbitrary per component and must be aligned before

@@ -197,6 +197,22 @@ Unshuffled example: labels `a, b, a, b` and $K = 2$. The groups are `a: 0, 2` an
 
 Continuous responses are not stratified. Binning a response to balance folds is a defensible technique with an arbitrary bin count that would have to be recorded, and it is out of scope for v1.
 
+### 8.8 Grouping
+
+`TrainTestSplit.group_by`, `KFoldSplit.group_by` and `LeaveOneOut.group_by` name a metadata column ([#329](https://github.com/millermuttu/Chemometrics-Workbench/issues/329)). Rows sharing its value are one group — typically the replicate scans of one physical sample — and **a group never straddles training and held-out rows**. Without it, a replicate in the training set leaks into its twin's held-out score, and the cross-validated error is optimistic in exactly the way §8.4 warns of for leave-one-out.
+
+The rule is the ungrouped splitter run over the groups instead of the rows. The $G$ distinct values are taken in Unicode order and numbered $0 \dots G-1$; the splitter of §8.3, §8.4 or §8.6 is applied with $n = G$, seed and shuffle unchanged; and each group in a fold's validation set brings all of its rows. So:
+
+- **K-fold** permutes the groups with `default_rng(seed)` and gives the first $G \bmod K$ folds one extra *group*. Fold sizes in rows are as uneven as the groups are. $K > G$ is an error naming $G$.
+- **Leave-one-out** becomes leave-one-group-out: $G$ folds, fold $g$ holding out group $g$. Deterministic, as §8.4.
+- **Train/test** holds out the first $\lceil \texttt{test\_size} \cdot G \rceil$ permuted groups.
+
+Every guarantee the splitter makes about its items then holds for the groups, and `validate_partition` (§7) holds for the rows. A column the dataset does not carry is refused as in §8.7. A split is grouped or stratified, never both: balancing a class while dealing whole groups is not specified, and the schema refuses the pair. The field is left out of the serialisation when unset, so a split recorded before it existed keeps its cache key.
+
+Example: groups `2, 10, 2, 1, 10, 1` are `1, 10, 2` in Unicode order, so leave-one-group-out holds out rows `3, 5`, then `1, 4`, then `0, 2`.
+
+This is not scikit-learn's `GroupKFold` default, which deals the largest groups first to the lightest fold and takes no seed (§12). Its `LeaveOneGroupOut` is the same split as ours.
+
 ---
 
 ## 9. What is refitted inside a fold
@@ -279,6 +295,7 @@ Recorded so the parity report can classify them as *differs by documented conven
 | **Leverage-corrected RMSE** | Not reported | Unscrambler and others offer a leverage-corrected error, $e_i/(1 - h_i)$, as a fast approximation to LOOCV |
 | Preprocessing inside CV | Refitted per fold, warned when upstream | Frequently fitted once on all data, which makes RMSECV optimistic |
 | Repeated K-fold | Mean of per-repeat RMSECVs | Pooling all repeats into one sum is also seen |
+| Grouped K-fold | Seeded permutation of the groups, sliced by §8.3 (§8.8) | `scikit-learn`'s `GroupKFold` deals the largest group first to the lightest fold, unseeded; with `shuffle=True` it follows our rule from a `RandomState` stream |
 
 **Leverage-corrected RMSE deserves the emphasis.** Where cross-validation refits the model $K$ times, the leverage correction inflates each calibration residual by $1/(1-h_i)$ to approximate what the residual would have been had that sample been held out — one fit instead of $n$. For a linear model with a fixed design it is exactly LOOCV; for PLS it is an approximation, because the latent variables themselves shift when a sample is removed. It is not reported here: it is cheap and it is *nearly* RMSECV, which is precisely what makes it dangerous to display beside a real RMSECV under a similar name. A user comparing our RMSECV against a leverage-corrected number from another package is comparing two different quantities, and this row is the answer to that report.
 

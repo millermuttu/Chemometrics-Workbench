@@ -350,21 +350,45 @@ PreprocessStep = Annotated[
 # --------------------------------------------------------------------------
 
 
-class TrainTestSplit(Frozen):
+def _unset(value: object) -> bool:
+    return value is None
+
+
+class _Grouped(Frozen):
+    """`group_by` names a metadata column whose rows always fall on one side
+    together (`metrics-and-validation.md` §8.8, #329). It is left out of the dump
+    when unset, so a split written before grouping existed serialises, and
+    therefore hashes into its cache key, as it did. Declared on each split rather
+    than here so it follows the split's own fields in the inspector.
+    """
+
+    @model_validator(mode="after")
+    def _not_grouped_and_stratified(self) -> Self:
+        if getattr(self, "group_by", None) is not None and getattr(self, "stratify_by", None):
+            raise ValueError(
+                "a split is either grouped or stratified, not both: dealing whole groups "
+                "into folds while balancing a class within each is not specified (§8.8)."
+            )
+        return self
+
+
+class TrainTestSplit(_Grouped):
     kind: Literal["train_test"] = "train_test"
     test_size: float = Field(gt=0, lt=1)
     seed: int = 42
     stratify_by: str | None = None
+    group_by: str | None = Field(default=None, exclude_if=_unset)
 
 
-class KFoldSplit(Frozen):
+class KFoldSplit(_Grouped):
     kind: Literal["kfold"] = "kfold"
     n_splits: int = Field(ge=2)
     shuffle: bool = True
     seed: int = 42
     # Left out of the dump when unset, so a K-fold written before stratification
     # existed (#268) serialises, and therefore hashes into its cache key, as it did.
-    stratify_by: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    stratify_by: str | None = Field(default=None, exclude_if=_unset)
+    group_by: str | None = Field(default=None, exclude_if=_unset)
 
 
 class RepeatedKFoldSplit(Frozen):
@@ -374,8 +398,11 @@ class RepeatedKFoldSplit(Frozen):
     seed: int = 42
 
 
-class LeaveOneOut(Frozen):
+class LeaveOneOut(_Grouped):
+    """Leave-one-out, or leave-one-group-out when `group_by` is set (§8.4, §8.8)."""
+
     kind: Literal["loo"] = "loo"
+    group_by: str | None = Field(default=None, exclude_if=_unset)
 
 
 class ExternalSet(Frozen):

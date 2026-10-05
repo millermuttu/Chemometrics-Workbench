@@ -54,10 +54,23 @@ ALGORITHM_TITLES = {
     "knn": "kNN (PCA-kNN)",
     "mcd": "Robust distance (FastMCD)",
     "ipls": "iPLS (interval PLS)",
+    "split": "Grouped splits",
     "plsda": "PLS-DA (two-class)",
     "preprocess": "Preprocessing",
 }
-ALGORITHM_ORDER = ["preprocess", "pca", "pls", "pls2", "pcr", "plsda", "lda", "knn", "mcd", "ipls"]
+ALGORITHM_ORDER = [
+    "preprocess",
+    "pca",
+    "pls",
+    "pls2",
+    "pcr",
+    "plsda",
+    "lda",
+    "knn",
+    "mcd",
+    "ipls",
+    "split",
+]
 DATASET_ORDER = ["corn", "gasoline", "tecator"]
 
 TIER_LABELS = {
@@ -270,6 +283,11 @@ COVERAGE: tuple[Coverage, ...] = (
         "to the reference instead. The fold structure is unit-tested in "
         "`tests/test_validation.py`. Stratified folds also deal each level into folds by "
         "§8.7's own rule, which is not scikit-learn's `StratifiedKFold` assignment either.",
+    ),
+    Coverage(
+        "Grouped splits",
+        ("by_group",),
+        ("split.leave_one_group_out", "split.group_kfold"),
     ),
     Coverage(
         "Model export: JSON model and prediction snippet",

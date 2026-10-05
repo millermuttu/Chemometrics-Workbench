@@ -235,6 +235,52 @@ test("a k-fold is stratified by a class column chosen from a dropdown", async ({
   await expect.poll(() => savedStratum(page), APPLIED).toBeUndefined();
 });
 
+test("a k-fold is grouped by a metadata column chosen from a dropdown, and runs", async ({
+  page,
+}) => {
+  // #329: `group_by` is optional too. The seeded Tecator has one metadata
+  // column, `fat_class`, with two values - two groups - so the fold count
+  // comes down to two. Each training fold then holds one class, which the
+  // seeded PLS-DA cannot fit, so it is taken out through the pipeline's PUT
+  // for the test and the seeded recipe put back after: this project outlives it.
+  test.setTimeout(180_000);
+  const auth = { Authorization: "Bearer e2e-token" };
+  const original = (await (await page.request.get("/api/pipelines/current", { headers: auth })).json())
+    .nodes as { id: string }[];
+  const put = (body: unknown[]) =>
+    page.request.put("/api/pipelines/current", {
+      headers: { ...auth, "Content-Type": "application/json" },
+      data: { nodes: body },
+    });
+  expect((await put(original.filter((node) => node.id !== "plsda_d"))).status()).toBe(200);
+  try {
+    const inspector = await selectNode(page, /K-fold 10/);
+    const groups = inspector.getByLabel("Group By");
+    await expect(groups).toHaveValue("");
+    await expect(groups.locator("option")).toHaveText(["none", "fat_class"]);
+
+    await inspector.getByLabel("N Splits").fill("2");
+    await groups.selectOption("fat_class");
+    await inspector.getByRole("button", { name: "Apply and re-run" }).click();
+    await expect.poll(() => savedGroup(page), APPLIED).toBe("fat_class");
+    // `complete` is read from the cache under the edited spec's key, so it
+    // cannot be the ungrouped run's result left over.
+    await expect.poll(() => splitState(page), { timeout: 120_000 }).toBe("complete");
+  } finally {
+    expect((await put(original)).status()).toBe(200);
+  }
+  await expect.poll(() => savedGroup(page), APPLIED).toBeUndefined();
+});
+
+/** The column the server holds `split_d` grouped by; unset is left out. */
+async function savedGroup(page: Page): Promise<string | undefined> {
+  const response = await page.request.get("/api/pipelines/current", {
+    headers: { Authorization: "Bearer e2e-token" },
+  });
+  const nodes = (await response.json()).nodes as { id: string; spec?: { group_by?: string } }[];
+  return nodes.find((node) => node.id === "split_d")?.spec?.group_by;
+}
+
 /** The column the server holds `split_d` stratified by; unset is left out. */
 async function savedStratum(page: Page): Promise<string | undefined> {
   const response = await page.request.get("/api/pipelines/current", {
