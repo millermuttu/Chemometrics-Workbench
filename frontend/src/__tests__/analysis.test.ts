@@ -23,6 +23,8 @@ import {
   predictedTraces,
   rmsecvTrace,
   scoresTrace,
+  selectionTraces,
+  thresholdSelection,
   varianceFigure,
   vipFigure,
 } from "@/plot/analysis";
@@ -326,5 +328,33 @@ describe("the outlier plots (#278)", () => {
 
   it("draws nothing for a PCA, which has no residuals", () => {
     expect(leverageTraces({ ...served, outliers: { ...served.outliers!, studentised_residuals: null } }, theme)).toEqual([]);
+  });
+});
+
+describe("a variable selection (#281)", () => {
+  it("keeps VIP at or above the cut, and |b| by magnitude", () => {
+    expect(thresholdSelection([0.4, 1, 1.7, 0.99], 1, false)).toEqual([1, 2]);
+    expect(thresholdSelection([-0.3, 0.1, 0.25, -0.05], 0.2, true)).toEqual([0, 2]);
+  });
+
+  it("marks the kept variables on the mean spectrum, at their own wavelengths", () => {
+    const mean = pca.loadings.axis.values.map((_, i) => i * 0.01);
+    const served: PcaPayload = {
+      ...pca,
+      regression: {
+        target: "fat",
+        observed: [],
+        predicted: [],
+        coefficients: [],
+        vip: [],
+        y_loadings: [],
+        y_explained_variance_ratio: [],
+        x_mean: mean,
+      },
+    };
+    const [line, marks] = selectionTraces(served, [2, 5], theme) as { x: number[]; y: number[] }[];
+    expect(line.y).toEqual(mean);
+    expect(marks.x).toEqual([pca.loadings.axis.values[2], pca.loadings.axis.values[5]]);
+    expect(marks.y).toEqual([mean[2], mean[5]]);
   });
 });

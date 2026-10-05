@@ -409,3 +409,48 @@ test("a PCA's outlier row has no residual plot", async ({ page }) => {
   await expect(row.getByRole("region", { name: "Flagged samples" })).toBeVisible();
   await expect(page.getByTestId("leverage-plot")).toHaveCount(0);
 });
+
+test("a VIP selection is applied as a step above a copy of the PLS, which runs", async ({ page }) => {
+  // #281. Restored afterwards, as the SIMCA, LDA and kNN tests restore theirs.
+  const auth = { Authorization: "Bearer e2e-token" };
+  await page.goto("/?token=e2e-token");
+  const original = (await (await page.request.get("/api/pipelines/current", { headers: auth })).json())
+    .nodes as unknown[];
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /PLS 5 LV/ }).first().dblclick();
+  await page.getByLabel("Variable importance view").selectOption("selection");
+  await expect(page.getByTestId("selection-plot")).toBeVisible();
+
+  // VIP ≥ 1 by default; what it keeps is counted against the variables there are.
+  const served = await (await page.request.get("/api/results/pls_d", { headers: auth })).json();
+  const kept = (served.regression.vip as number[]).filter((value) => value >= 1).length;
+  await expect(page.getByTestId("selection-count")).toHaveText(`${kept} of 100`);
+
+  try {
+    await page.getByRole("button", { name: "Apply selection" }).click();
+    // The copy runs on what was kept, and nothing else.
+    await expect
+      .poll(
+        async () => {
+          const response = await page.request.get("/api/results/pls_d_selected", { headers: auth });
+          return response.ok() ? (await response.json()).n_variables : 0;
+        },
+        { timeout: 120_000 },
+      )
+      .toBe(kept);
+    const nodes = (await (await page.request.get("/api/pipelines/current", { headers: auth })).json())
+      .nodes as { id: string; step?: { kind: string; indices?: number[] } }[];
+    const step = nodes.find((node) => node.id === "pls_d_select")!.step!;
+    expect(step.kind).toBe("select_variables");
+    expect(step.indices).toHaveLength(kept);
+  } finally {
+    expect(
+      (
+        await page.request.put("/api/pipelines/current", {
+          headers: { ...auth, "Content-Type": "application/json" },
+          data: { nodes: original },
+        })
+      ).status(),
+    ).toBe(200);
+  }
+});

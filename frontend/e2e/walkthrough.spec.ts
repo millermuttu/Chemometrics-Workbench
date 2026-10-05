@@ -291,8 +291,10 @@ test("a PCR runs on the dataset's target and reads as a regression without VIP",
   const outline = page.getByRole("complementary", { name: "Project outline" });
   await outline.getByRole("button", { name: /PCR 3 PC · moisture/ }).dblclick();
   await expect(page.getByTestId("analysis-header")).toContainText("PCR on moisture 3 components");
+  // No VIP for a PCR (pcr.md section 6); a selection by |b| is offered (#281).
   await expect(page.getByLabel("Variable importance view").locator("option")).toHaveText([
     "Coefficients, raw axis",
+    "Select variables",
   ]);
   await expect(page.getByRole("region", { name: "Predicted vs measured" })).toBeVisible();
 });

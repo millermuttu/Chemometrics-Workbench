@@ -583,6 +583,9 @@ def results_payload(
             # On the node's own axis, like `loadings` — #134. Folding the
             # preprocessing back out to the raw axis is #144.
             "coefficients": result.coefficients,
+            # #281: the estimator's input mean, on the node's own axis - the
+            # spectrum a variable selection is marked over.
+            "x_mean": result.x_mean,
             "vip": result.vip,
             "y_loadings": result.y_loadings,
             "y_explained_variance_ratio": result.y_explained_variance_ratio,

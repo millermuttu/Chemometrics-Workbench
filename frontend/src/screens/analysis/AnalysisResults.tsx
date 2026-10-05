@@ -5,6 +5,8 @@ import {
   useCoefficients,
   useContributions,
   useExcludeSamples,
+  usePipeline,
+  useSavePipeline,
   useOutliers,
   useResults,
   useSaveModel,
@@ -22,10 +24,13 @@ import {
   predictedTraces,
   rmsecvTrace,
   scoresTrace,
+  selectionTraces,
+  thresholdSelection,
   varianceFigure,
   vipFigure,
 } from "@/plot/analysis";
 import { PLOT_CONFIG, axisLayout, baseLayout, readTheme } from "@/plot/theme";
+import { applySelection } from "@/canvas/edits";
 import { Panel } from "@/screens/analysis/Panel";
 import { DownloadButton } from "@/screens/DownloadButton";
 import { CannotLoad } from "@/states/CannotLoad";
@@ -168,10 +173,16 @@ function Loadings({ pca }: { pca: PcaPayload }) {
  * VIP arrives in the result and the folded vector from its own endpoint,
  * which answers with a sentence when a step in the chain - SNV, MSC, a
  * baseline - is not a fixed linear map and cannot be folded. */
-function VariableImportance({ pca }: { pca: PcaPayload }) {
+type ImportanceView = "vip" | "coefficients" | "selection";
+
+function VariableImportance({ pca, onRun }: { pca: PcaPayload; onRun?: () => void }) {
   // A PCR has no VIP (pcr.md section 6), so its panel is the coefficients.
   const hasVip = (pca.regression?.vip.length ?? 0) > 0;
-  const [view, setView] = useState<"vip" | "coefficients">(hasVip ? "vip" : "coefficients");
+  const [view, setView] = useState<ImportanceView>(hasVip ? "vip" : "coefficients");
+  // #281: a selection is made on a regression's own axis, over the mean
+  // spectrum its estimator saw. A result served before x_mean was kept, and a
+  // classification's dummy response, are not offered one.
+  const selectable = pca.task === "regression" && (pca.regression?.x_mean?.length ?? 0) > 0;
   const coefficients = useCoefficients(pca.node_id);
   const folded = coefficients.data;
 
@@ -213,7 +224,7 @@ function VariableImportance({ pca }: { pca: PcaPayload }) {
       aria-label="Variable importance view"
       className="mono"
       value={view}
-      onChange={(event) => setView(event.target.value as "vip" | "coefficients")}
+      onChange={(event) => setView(event.target.value as ImportanceView)}
       style={{
         height: 18,
         borderRadius: 3,
@@ -226,12 +237,15 @@ function VariableImportance({ pca }: { pca: PcaPayload }) {
     >
       {hasVip ? <option value="vip">VIP</option> : null}
       <option value="coefficients">Coefficients, raw axis</option>
+      {selectable ? <option value="selection">Select variables</option> : null}
     </select>
   );
 
   return (
     <Panel title="Variable importance" note={choose}>
-      {view === "vip" && hasVip ? (
+      {view === "selection" && selectable ? (
+        <SelectVariables pca={pca} hasVip={hasVip} onRun={onRun} />
+      ) : view === "vip" && hasVip ? (
         <div ref={vipHost} data-testid="vip-plot" style={{ flex: 1, minHeight: 0 }} />
       ) : folded?.available ? (
         <div ref={coefficientHost} data-testid="coefficients-plot" style={{ flex: 1, minHeight: 0 }} />
@@ -248,6 +262,103 @@ function VariableImportance({ pca }: { pca: PcaPayload }) {
         </div>
       )}
     </Panel>
+  );
+}
+
+/** #281: threshold VIP or |b| on the estimator's own axis, see what it keeps
+ * over the mean spectrum, and Apply it as a `select_variables` step above a
+ * copy of the estimator - which is then run, so the two can be compared. */
+function SelectVariables({
+  pca,
+  hasVip,
+  onRun,
+}: {
+  pca: PcaPayload;
+  hasVip: boolean;
+  onRun?: () => void;
+}) {
+  const regression = pca.regression!;
+  const valuesOf = (by: "vip" | "b") => (by === "vip" ? regression.vip : regression.coefficients);
+  // VIP's conventional cut is 1 (pls-regression.md section 9); |b| has no
+  // such number, so it starts at the mean magnitude.
+  const cutFor = (by: "vip" | "b") => {
+    if (by === "vip") return "1";
+    const b = valuesOf("b");
+    return String(Number((b.reduce((sum, v) => sum + Math.abs(v), 0) / b.length).toPrecision(3)));
+  };
+  const [basis, setBasis] = useState<"vip" | "b">(hasVip ? "vip" : "b");
+  const [threshold, setThreshold] = useState<string>(() => cutFor(hasVip ? "vip" : "b"));
+  const values = valuesOf(basis);
+  // An empty or unreadable box selects nothing rather than everything.
+  const cut = threshold.trim() === "" ? Number.NaN : Number(threshold);
+  const selected = Number.isFinite(cut) ? thresholdSelection(values, cut, basis === "b") : [];
+  const pipeline = usePipeline();
+  const save = useSavePipeline();
+  const [error, setError] = useState<string | null>(null);
+  const host = usePlot(
+    (theme) => ({
+      data: selectionTraces(pca, selected, theme),
+      layout: {
+        xaxis: axisLayout(theme, `${pca.loadings.axis.kind} (${pca.loadings.axis.unit ?? ""})`),
+        yaxis: axisLayout(theme, "Mean"),
+        margin: { l: 48, r: 12, t: 8, b: 38 },
+      },
+    }),
+    [pca, selected.join(",")],
+  );
+  const apply = async () => {
+    setError(null);
+    try {
+      if (!pipeline.data) throw new Error("The pipeline has not loaded yet.");
+      await save.mutateAsync(applySelection(pipeline.data.nodes, pca.node_id, selected));
+      onRun?.();
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "The selection could not be applied.");
+    }
+  };
+  return (
+    <>
+      <div
+        className="mono"
+        style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", fontSize: 10 }}
+      >
+        <select
+          aria-label="Select by"
+          value={basis}
+          onChange={(event) => {
+            const next = event.target.value as "vip" | "b";
+            setBasis(next);
+            setThreshold(cutFor(next));
+          }}
+        >
+          {hasVip ? <option value="vip">VIP ≥</option> : null}
+          <option value="b">|b| ≥</option>
+        </select>
+        <input
+          aria-label="Threshold"
+          value={threshold}
+          onChange={(event) => setThreshold(event.target.value)}
+          style={{ width: 64 }}
+        />
+        <span data-testid="selection-count">
+          {selected.length} of {values.length}
+        </span>
+        <button
+          type="button"
+          className="btn"
+          disabled={selected.length === 0 || save.isPending}
+          onClick={() => void apply()}
+        >
+          Apply selection
+        </button>
+      </div>
+      {error ? (
+        <p role="alert" className="mono" style={{ margin: "2px 10px", fontSize: 10, color: "var(--fail)" }}>
+          {error}
+        </p>
+      ) : null}
+      <div ref={host} data-testid="selection-plot" style={{ flex: 1, minHeight: 0 }} />
+    </>
   );
 }
 
@@ -1252,7 +1363,7 @@ export function AnalysisResults({
         <div style={ROW}>
           <Scores pca={pca} />
           <Loadings pca={pca} />
-          {regression && <VariableImportance pca={pca} />}
+          {regression && <VariableImportance pca={pca} onRun={onRun} />}
         </div>
         <div style={ROW}>
           <Variance pca={pca} />
