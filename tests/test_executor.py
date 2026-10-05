@@ -39,9 +39,12 @@ from chemometrics_workbench.models import (
     DatasetVersion,
     EstimatorNode,
     KFoldSplit,
+    KNNSpec,
+    LDASpec,
     LeaveOneOut,
     MeanCentre,
     PCASpec,
+    PCRSpec,
     Pipeline,
     PLSDASpec,
     PLSRegressionSpec,
@@ -49,10 +52,12 @@ from chemometrics_workbench.models import (
     RangeSelect,
     RepeatedKFoldSplit,
     SavitzkyGolay,
+    SIMCASpec,
     SourceNode,
     SplitNode,
     TrainTestSplit,
 )
+from chemometrics_workbench.preprocessing import SNVTransformer
 from chemometrics_workbench.project import (
     create_project,
     read_array,
@@ -61,7 +66,15 @@ from chemometrics_workbench.project import (
     write_cache_index,
 )
 from chemometrics_workbench.regression import PLS
-from chemometrics_workbench.validation import bias, k_fold, r2, rmse, sec
+from chemometrics_workbench.validation import (
+    bias,
+    k_fold,
+    r2,
+    rmse,
+    sec,
+    stratified_k_fold,
+    stratified_train_test,
+)
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "contract"
 
@@ -607,25 +620,26 @@ def test_a_failure_below_a_split_says_which_training_fold_it_was_fitting(
         execute(directory, pipeline, version)
 
 
-def test_a_range_select_below_another_one_is_refused_by_the_axis_it_was_given(
+def test_a_range_select_below_another_one_reads_its_bounds_on_the_narrowed_axis(
     project: tuple[Path, DatasetVersion],
 ) -> None:
-    """A real limit of taking the axis from the dataset, surfaced rather than guessed.
-
-    `RangeSelect` drops variables, so a second one downstream is being asked to
-    read bounds against an axis that no longer describes its input. The kernel
-    refuses on the shape, and the node it happened at is named. Threading a
-    per-node axis through the walk would make the recipe's meaning depend on
-    where a node sits, which is a schema question and not one to settle here.
+    """#312. This used to be refused: the executor handed every step the
+    dataset's axis, and a second selection's axis no longer described its
+    input. A bound is a wavelength, and the wavelengths a first selection keeps
+    are the same wavelengths, so the second reads its bounds on what the first
+    left - the composition `api.node_axis` always drew, and
+    `test_node_axis.py::test_two_selections_compose_in_order` holds.
     """
     directory, version = project
+    axis = np.asarray(version.axis.values)
     pipeline = _pipeline(
         version.version_id,
         PreprocessNode(id="window", inputs=("source",), step=RangeSelect(start=850.0, end=852.1)),
         PreprocessNode(id="narrower", inputs=("window",), step=RangeSelect(start=850.0, end=851.0)),
     )
-    with pytest.raises(ExecutorError, match=r"node 'narrower' \(range_select\) failed"):
-        execute(directory, pipeline, version)
+    run = execute(directory, pipeline, version)
+    kept = (axis >= 850.0) & (axis <= 851.0)
+    assert run.outputs["narrower"].n_variables == int(kept.sum())
 
 
 def test_a_split_below_a_split_is_refused_by_name(
@@ -694,20 +708,77 @@ def test_a_train_test_split_holds_out_once_and_reports_p_metrics(
     assert abs(display[fold.test].mean()) > 1e-4
 
 
-def test_stratifying_a_train_test_split_is_refused_by_name(
+def _grades(version: DatasetVersion) -> DatasetVersion:
+    """Tecator with an unbalanced three-level column: 40 'a', 80 'b', 120 'c'."""
+    labels = ["a"] * 40 + ["b"] * 80 + ["c"] * 120
+    return version.model_copy(update={"metadata_columns": {"grade": labels}})
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        TrainTestSplit(test_size=0.25, stratify_by="grade"),
+        KFoldSplit(n_splits=4, stratify_by="grade"),
+    ],
+)
+def test_a_stratified_split_resolves_to_the_kernel_s_folds(
+    project: tuple[Path, DatasetVersion], spec: Any
+) -> None:
+    """§8.7: the run's folds are the stratified kernel's on the named column."""
+    directory, version = project
+    version = _grades(version)
+    pipeline = _pipeline(version.version_id, SplitNode(id="s", inputs=("source",), spec=spec))
+    run = execute(directory, pipeline, version)
+    [resolved] = run.resolved_splits
+    labels = version.metadata_columns["grade"]
+    expected = (
+        stratified_train_test(labels, 0.25)
+        if isinstance(spec, TrainTestSplit)
+        else stratified_k_fold(labels, 4)
+    )
+    assert resolved.test_indices == [fold.test.tolist() for fold in expected]
+    for test in resolved.test_indices:
+        held = [labels[i] for i in test]
+        share = len(test) / len(labels)
+        for level, count in (("a", 40), ("b", 80), ("c", 120)):
+            assert abs(held.count(level) - share * count) <= 1
+
+
+def test_stratifying_by_a_column_the_dataset_lacks_is_refused_by_name(
     project: tuple[Path, DatasetVersion],
 ) -> None:
     directory, version = project
     pipeline = _pipeline(
         version.version_id,
         SplitNode(
-            id="holdout",
-            inputs=("source",),
-            spec=TrainTestSplit(test_size=0.25, stratify_by="batch"),
+            id="holdout", inputs=("source",), spec=KFoldSplit(n_splits=5, stratify_by="batch")
         ),
     )
-    with pytest.raises(ExecutorError, match="stratify by 'batch', which is not implemented"):
+    with pytest.raises(ExecutorError, match="stratifies by 'batch', which this dataset does not"):
         execute(directory, pipeline, version)
+
+
+def test_a_level_too_small_to_stratify_is_refused_naming_the_split_and_the_level(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    directory, version = project
+    labels = ["rare"] + ["common"] * (version.n_samples - 1)
+    version = version.model_copy(update={"metadata_columns": {"grade": labels}})
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="s", inputs=("source",), spec=KFoldSplit(n_splits=5, stratify_by="grade")),
+    )
+    with pytest.raises(
+        ExecutorError, match=r"kfold stratified by 'grade'\) failed: the level 'rare'"
+    ):
+        execute(directory, pipeline, version)
+
+
+def test_an_unstratified_kfold_keeps_the_cache_key_it_had_before_stratification() -> None:
+    """#268: the field is left out of the dump when unset, so no stored run is orphaned."""
+    assert KFoldSplit(n_splits=10).model_dump_json() == (
+        '{"kind":"kfold","n_splits":10,"shuffle":true,"seed":42}'
+    )
 
 
 def test_leave_one_out_is_the_other_splitter_that_does_work(
@@ -1200,7 +1271,7 @@ def test_a_plsda_node_is_the_regression_on_a_dummy_response_and_tallies_it(
     assert "accuracy" not in run.results["pls"].metrics
 
 
-def test_a_class_column_the_dataset_does_not_carry_or_with_three_values_is_refused(
+def test_a_class_column_the_dataset_does_not_carry_or_with_one_value_is_refused(
     project: tuple[Path, DatasetVersion], tecator: Any
 ) -> None:
     directory, version = project
@@ -1215,18 +1286,79 @@ def test_a_class_column_the_dataset_does_not_carry_or_with_three_values_is_refus
     with pytest.raises(ExecutorError, match="'grade', which this dataset does not carry"):
         execute(directory, missing, two)
 
-    three = two.model_copy(
-        update={"metadata_columns": {"grade": ["a", "b", "c"] * (version.n_samples // 3)}}
-    )
+    one = two.model_copy(update={"metadata_columns": {"grade": ["a"] * version.n_samples}})
     pipeline = _pipeline(
-        three.version_id,
+        one.version_id,
         PreprocessNode(id="centre", inputs=("source",), step=MeanCentre()),
         EstimatorNode(
             id="plsda", inputs=("centre",), spec=PLSDASpec(n_components=3, class_column="grade")
         ),
     )
-    with pytest.raises(ExecutorError, match="has 3 distinct values"):
-        execute(directory, pipeline, three)
+    with pytest.raises(ExecutorError, match="has one value"):
+        execute(directory, pipeline, one)
+
+
+def _terciles(version: DatasetVersion, tecator: Any) -> DatasetVersion:
+    """Tecator with three classes, its fat in thirds: lean, mid, rich."""
+    fat = np.asarray(tecator.targets["fat"])
+    low, high = np.quantile(fat, [1 / 3, 2 / 3])
+    labels = ["lean" if f < low else "mid" if f < high else "rich" for f in fat]
+    return version.model_copy(update={"metadata_columns": {"grade": labels}})
+
+
+def test_three_classes_are_pls2_on_a_one_hot_response_assigned_by_argmax(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#274, pls-da.md sections 2, 3, 5 and 7. Every assignment is checked
+    against scikit-learn's PLSRegression fitted to the same one-hot matrix
+    to its fixed point, on the run's own folds, each preprocessed by its own
+    training rows."""
+    import warnings
+
+    from sklearn.cross_decomposition import PLSRegression
+    from sklearn.exceptions import ConvergenceWarning
+
+    directory, version = project
+    version = _terciles(version, tecator)
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=5, stratify_by="grade")),
+        PreprocessNode(id="centre", inputs=("split",), step=MeanCentre()),
+        EstimatorNode(
+            id="plsda", inputs=("centre",), spec=PLSDASpec(n_components=6, class_column="grade")
+        ),
+    )
+    run = execute(directory, pipeline, version)
+    result = run.results["plsda"]
+    assert result.task == "classification"
+    assert result.classes == ["lean", "mid", "rich"]
+    assert np.asarray(result.coefficient_matrix).shape == (version.n_variables, 3)
+    assert len(result.y_means) == 3 and result.coefficients == []
+    assert [len(row) for row in result.confusion["cross_validation"]] == [3, 3, 3]
+    assert sum(map(sum, result.confusion["cross_validation"])) == version.n_samples
+    assert "accuracy_cv" in result.metrics and "sensitivity" not in result.metrics
+
+    labels = version.metadata_columns["grade"]
+    codes = np.asarray([result.classes.index(label) for label in labels])
+    onehot = np.eye(3)[codes]
+    spectra = _as_stored(tecator.spectra)
+    [resolved] = run.resolved_splits
+    assigned = np.empty(version.n_samples, dtype=int)
+    for index, (train, test) in enumerate(
+        zip(resolved.train_indices, resolved.test_indices, strict=True)
+    ):
+        mean = spectra[train].mean(axis=0)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", ConvergenceWarning)
+            reference = PLSRegression(6, scale=False, tol=0.0, max_iter=2000).fit(
+                spectra[train] - mean, onehot[train]
+            )
+        assigned[test] = reference.predict(spectra[test] - mean).argmax(axis=1)
+        if index == 0:
+            calibration = reference.predict(spectra[train] - mean).argmax(axis=1)
+            assert result.predicted_class == calibration.tolist()
+    expected = [[int(np.sum((codes == j) & (assigned == k))) for k in range(3)] for j in range(3)]
+    assert result.confusion["cross_validation"] == expected
 
 
 def test_a_pls_node_above_a_split_reports_no_cross_validated_metric(
@@ -1337,3 +1469,198 @@ def test_each_fold_is_cross_validated_through_its_own_preprocessing(
 
     assert own != pytest.approx(leaked, abs=1e-6)
     assert metrics["rmsecv"] == pytest.approx(own, rel=1e-9)
+
+
+def test_a_stored_step_below_an_estimator_fails_the_run_by_name(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    """#296: a pipeline saved before the write refused it still loads, and the
+    run says what is wrong rather than raising a bare KeyError."""
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        EstimatorNode(id="pca", inputs=("source",), spec=PCASpec(n_components=2)),
+        PreprocessNode(id="snv", inputs=("pca",), step=SNV()),
+    )
+    with pytest.raises(ExecutorError, match="node 'snv' takes its input from the estimator 'pca'"):
+        execute(directory, pipeline, version)
+
+
+def test_a_pcr_node_fits_and_cross_validates_like_a_regression(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#272, `pcr.md`: a regression result with PCR's numbers and no VIP. The
+    RMSECV is checked against scikit-learn's PCA then least squares on the
+    run's own resolved folds, each fold preprocessed by its own training rows."""
+    from sklearn.decomposition import PCA as SkPCA
+    from sklearn.linear_model import LinearRegression
+
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=5, seed=42)),
+        PreprocessNode(id="centre", inputs=("split",), step=MeanCentre()),
+        EstimatorNode(id="pcr", inputs=("centre",), spec=PCRSpec(n_components=4, target="fat")),
+    )
+    run = execute(directory, pipeline, version)
+    result = run.results["pcr"]
+
+    assert result.task == "regression"
+    assert result.vip == []
+    assert len(result.coefficients) == version.n_variables
+    assert [f"rmsecv_a{a}" in result.metrics for a in range(1, 5)] == [True] * 4
+
+    spectra = _as_stored(tecator.spectra)
+    fat = np.asarray(tecator.targets["fat"])
+    [resolved] = run.resolved_splits
+    held = np.empty_like(fat)
+    for train, test in zip(resolved.train_indices, resolved.test_indices, strict=True):
+        mean = spectra[train].mean(axis=0)
+        pca = SkPCA(n_components=4, svd_solver="full").fit(spectra[train] - mean)
+        model = LinearRegression().fit(pca.transform(spectra[train] - mean), fat[train])
+        held[test] = model.predict(pca.transform(spectra[test] - mean))
+    assert result.metrics["rmsecv"] == pytest.approx(rmse(fat, held), rel=1e-6)
+
+
+def test_a_simca_node_decides_every_set_with_its_folds_own_models(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#275, simca.md sections 5 and 6: the cross-validated table pools every
+    fold's held-out decisions, each made by models fitted on that fold alone."""
+    from chemometrics_workbench.classification import SIMCA, acceptance_table
+
+    directory, version = project
+    version = _terciles(version, tecator)
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=4, stratify_by="grade")),
+        PreprocessNode(id="snv", inputs=("split",), step=SNV()),
+        EstimatorNode(
+            id="simca", inputs=("snv",), spec=SIMCASpec(n_components=3, class_column="grade")
+        ),
+    )
+    run = execute(directory, pipeline, version)
+    result = run.results["simca"]
+    assert result.task == "classification" and result.method == "simca"
+    assert result.classes == ["lean", "mid", "rich"]
+    assert set(result.simca["sets"]) == {"calibration", "held_out", "cross_validation"}
+    assert [model["class"] for model in result.simca["models"]] == result.classes
+
+    labels = version.metadata_columns["grade"]
+    codes = np.asarray([result.classes.index(label) for label in labels])
+    # Through the store twice, as the run does: the source, and the SNV output.
+    corrected = _as_stored(SNVTransformer().fit_transform(_as_stored(tecator.spectra)))
+    [resolved] = run.resolved_splits
+    distances = np.zeros((version.n_samples, 3))
+    for train, test in zip(resolved.train_indices, resolved.test_indices, strict=True):
+        model = SIMCA(3).fit(corrected[train], codes[train], 3)
+        distances[test] = model.distances(corrected[test])
+    cv = result.simca["sets"]["cross_validation"]
+    np.testing.assert_allclose(np.asarray(cv["distances"]), distances, rtol=1e-9)
+    table, none = acceptance_table(codes, distances <= 1.0)
+    assert (cv["table"], cv["none"]) == (table, none)
+    assert {"sensitivity_cv", "specificity_cv", "sensitivity_p"} <= set(result.metrics)
+
+
+def test_a_simca_class_too_small_is_refused_by_name(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    directory, version = project
+    labels = ["rare"] * 3 + ["common"] * (version.n_samples - 3)
+    version = version.model_copy(update={"metadata_columns": {"grade": labels}})
+    pipeline = _pipeline(
+        version.version_id,
+        EstimatorNode(
+            id="simca", inputs=("source",), spec=SIMCASpec(n_components=4, class_column="grade")
+        ),
+    )
+    with pytest.raises(ExecutorError, match="class 'rare' has 3 calibration samples"):
+        execute(directory, pipeline, version)
+
+
+def test_an_lda_node_classifies_by_its_folds_own_models(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#276, lda.md: every cross-validated assignment equals scikit-learn's
+    PCA then LinearDiscriminantAnalysis on the run's own resolved folds."""
+    from sklearn.decomposition import PCA as SkPCA
+    from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+
+    directory, version = project
+    version = _terciles(version, tecator)
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=5, stratify_by="grade")),
+        PreprocessNode(id="snv", inputs=("split",), step=SNV()),
+        EstimatorNode(
+            id="lda", inputs=("snv",), spec=LDASpec(n_components=6, class_column="grade")
+        ),
+    )
+    run = execute(directory, pipeline, version)
+    result = run.results["lda"]
+    assert (result.task, result.method) == ("classification", "lda")
+    assert np.asarray(result.coefficient_matrix).shape == (version.n_variables, 3)
+    assert len(result.scores[0]) == 6
+
+    codes = np.asarray([result.classes.index(label) for label in version.metadata_columns["grade"]])
+    corrected = _as_stored(SNVTransformer().fit_transform(_as_stored(tecator.spectra)))
+    [resolved] = run.resolved_splits
+    assigned = np.empty(version.n_samples, dtype=int)
+    for train, test in zip(resolved.train_indices, resolved.test_indices, strict=True):
+        mean = corrected[train].mean(axis=0)
+        pca = SkPCA(6, svd_solver="full").fit(corrected[train] - mean)
+        lda = LinearDiscriminantAnalysis().fit(pca.transform(corrected[train] - mean), codes[train])
+        assigned[test] = lda.predict(pca.transform(corrected[test] - mean))
+    expected = [[int(np.sum((codes == j) & (assigned == k))) for k in range(3)] for j in range(3)]
+    assert result.confusion["cross_validation"] == expected
+
+
+def test_a_knn_node_classifies_by_its_folds_own_neighbours(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#277, knn.md: every cross-validated assignment equals scikit-learn's
+    PCA then KNeighborsClassifier on the run's own resolved folds."""
+    from sklearn.decomposition import PCA as SkPCA
+    from sklearn.neighbors import KNeighborsClassifier
+
+    directory, version = project
+    version = _terciles(version, tecator)
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=5, stratify_by="grade")),
+        PreprocessNode(id="snv", inputs=("split",), step=SNV()),
+        EstimatorNode(
+            id="knn", inputs=("snv",), spec=KNNSpec(k=3, n_components=6, class_column="grade")
+        ),
+    )
+    run = execute(directory, pipeline, version)
+    result = run.results["knn"]
+    assert (result.task, result.method, result.k) == ("classification", "knn", 3)
+    assert len(result.training_classes) == len(result.rows)
+
+    codes = np.asarray([result.classes.index(label) for label in version.metadata_columns["grade"]])
+    corrected = _as_stored(SNVTransformer().fit_transform(_as_stored(tecator.spectra)))
+    [resolved] = run.resolved_splits
+    assigned = np.empty(version.n_samples, dtype=int)
+    for train, test in zip(resolved.train_indices, resolved.test_indices, strict=True):
+        mean = corrected[train].mean(axis=0)
+        pca = SkPCA(6, svd_solver="full").fit(corrected[train] - mean)
+        knn = KNeighborsClassifier(3).fit(pca.transform(corrected[train] - mean), codes[train])
+        assigned[test] = knn.predict(pca.transform(corrected[test] - mean))
+    expected = [[int(np.sum((codes == j) & (assigned == k))) for k in range(3)] for j in range(3)]
+    assert result.confusion["cross_validation"] == expected
+
+
+def test_a_knn_asked_for_more_neighbours_than_samples_is_refused(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    directory, version = project
+    version = _terciles(version, tecator)
+    pipeline = _pipeline(
+        version.version_id,
+        EstimatorNode(
+            id="knn", inputs=("source",), spec=KNNSpec(k=500, n_components=3, class_column="grade")
+        ),
+    )
+    with pytest.raises(ExecutorError, match="k = 500 neighbours were asked of 240"):
+        execute(directory, pipeline, version)

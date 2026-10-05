@@ -78,7 +78,10 @@ export function withDrafts(saved: PipelineNode[], drafts: DraftStep[]): Pipeline
   if (drafts.length === 0) return saved;
   const consumed = new Set(saved.flatMap((node) => node.inputs));
   const taken = new Set(saved.map((node) => node.id));
-  let parent = (saved.find((node) => !consumed.has(node.id)) ?? saved[saved.length - 1]).id;
+  const leaf = saved.find((node) => !consumed.has(node.id)) ?? saved[saved.length - 1];
+  // #296: an estimator produces a model, not spectra, so nothing follows it.
+  // A step added to a chain ending in one branches from the estimator's input.
+  let parent = leaf.type === "estimator" ? leaf.inputs[0] : leaf.id;
 
   const added = drafts.map((draft) => {
     // `numberedId` rather than a third copy of the same loop: `edits.ts`
@@ -87,7 +90,7 @@ export function withDrafts(saved: PipelineNode[], drafts: DraftStep[]): Pipeline
     taken.add(id);
 
     const node: PipelineNode = { id, type: draft.type, inputs: [parent], ...draft.payload };
-    parent = id;
+    if (draft.type !== "estimator") parent = id;
     return node;
   });
   return [...saved, ...added];
@@ -106,7 +109,7 @@ export function PipelineCanvas({
   /** The dataset's target columns, which decide whether PLS is on the menu
    * and what it models (#182). */
   targets?: string[];
-  /** Metadata columns with exactly two values, which is what a PLS-DA can
+  /** Metadata columns with two or more values, which is what a PLS-DA can
    * classify by (#185). */
   classColumns?: string[];
 }) {

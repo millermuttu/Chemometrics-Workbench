@@ -112,3 +112,10 @@ describe("two recipes compared", () => {
     expect(changedFields(snv, { ...snv })).toEqual([]);
   });
 });
+
+it("names a run on another dataset version as a change to the source (#270)", () => {
+  const derived: PipelineNode = { ...source, version_id: "5e6f7a8b-0000-4000-8000-000000000000" };
+  expect(changedFields(source, derived)).toEqual(["version_id"]);
+  const diff = diffPipelines([source, snv], [derived, snv]);
+  expect(diff.nodes.map((node) => node.change)).toEqual(["changed", "unchanged"]);
+});

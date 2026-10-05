@@ -44,11 +44,12 @@ stack trace.
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import tempfile
 import threading
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -58,20 +59,24 @@ from fastapi.responses import PlainTextResponse
 from numpy.typing import NDArray
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
-from chemometrics_workbench import __version__, preprocessing, readers
+from chemometrics_workbench import __version__, outliers, preprocessing, readers, selection
 from chemometrics_workbench.artifact import ArtifactError, write_artifact
 from chemometrics_workbench.checks import PipelineWarning, check_pipeline
+from chemometrics_workbench.classification import simca_class_metrics
 from chemometrics_workbench.decomposition import spe_contributions, t2_contributions
 from chemometrics_workbench.executor import (
     EstimatorResult,
+    class_metrics,
     governing_folds,
     governing_split,
     has_kernel,
     metrics_for,
+    node_axis,
     stored,
 )
 from chemometrics_workbench.executor import stored_display as _stored_display
 from chemometrics_workbench.executor import stored_fitted_matrix as _stored_fitted_matrix
+from chemometrics_workbench.executor import stored_fold_matrices as _stored_fold_matrices
 from chemometrics_workbench.executor import stored_result as _stored_result
 from chemometrics_workbench.export import ExportError, json_model, python_snippet
 from chemometrics_workbench.jobs import Job, Jobs, submit_run
@@ -86,7 +91,6 @@ from chemometrics_workbench.models import (
     PipelineNode,
     PreprocessStep,
     Project,
-    RangeSelect,
     SourceNode,
     SplitSpec,
 )
@@ -97,6 +101,7 @@ from chemometrics_workbench.project import (
     add_dataset,
     config_dir,
     create_project,
+    derive_version,
     is_project,
     open_project,
     read_array,
@@ -114,6 +119,7 @@ from chemometrics_workbench.project import (
 )
 from chemometrics_workbench.regression import coefficients_original_units
 from chemometrics_workbench.report import render_report, report_filename
+from chemometrics_workbench.validation import Fold
 
 __all__ = [
     "ESTIMATOR_NOT_FITTED",
@@ -267,11 +273,19 @@ def list_datasets(project_id: str) -> Any:
 
 
 @router.post("/import/preview")
-def import_preview(file: Annotated[UploadFile, File()]) -> Any:
-    """What the reader found, with alternatives. Nothing is committed."""
+def import_preview(
+    file: Annotated[UploadFile, File()], corrections: Annotated[str, Form()] = "{}"
+) -> Any:
+    """What the reader found, with alternatives. Nothing is committed.
+
+    With the user's corrections applied when there are any (#284): choosing
+    another matrix in a MAT-file, or another block in an OPUS file, is a
+    different table, and the preview shows the one that will be imported.
+    """
+    corrected = _corrections(corrections)
     with _uploaded(file) as path:
         try:
-            return readers.preview(path)
+            return readers.preview(path, corrected)
         except readers.ReaderError as error:
             raise _reader_failed(file, error) from error
 
@@ -327,6 +341,59 @@ def import_dataset(
             start_pipeline(directory, project, version)
     except ProjectError as error:
         raise _fail(500, "project_unavailable", str(error)) from error
+    return _entry_json(entry)
+
+
+class Exclusion(BaseModel):
+    """Which rows of which version to leave out (#270)."""
+
+    from_version_id: str
+    exclude: list[int]
+
+
+@router.post("/datasets/{dataset_id}/versions", status_code=201)
+def exclude_samples(dataset_id: str, body: Exclusion) -> Any:
+    """A new version without the rows named, and the pipeline moved onto it.
+
+    The pipeline follows only when its source is the version excluded from, so
+    an exclusion made while looking at another dataset does not swap the data
+    under the canvas. Undoing it is pointing the source back at the parent,
+    which the pipeline's own write already does.
+    """
+    directory, _ = _project()
+    parent = next(
+        (
+            version
+            for entry in read_datasets(directory)
+            if str(entry.dataset.dataset_id) == dataset_id
+            for version in entry.versions
+            if str(version.version_id) == body.from_version_id
+        ),
+        None,
+    )
+    if parent is None:
+        raise _fail(
+            404,
+            "not_found",
+            f"dataset {dataset_id} has no version {body.from_version_id}.",
+            dataset_id=dataset_id,
+        )
+    try:
+        version = derive_version(directory, parent, body.exclude)
+    except ProjectError as error:
+        raise _fail(422, "invalid_exclusion", str(error)) from error
+
+    pipeline = read_pipeline(directory)
+    if pipeline is not None:
+        nodes = [
+            node.model_copy(update={"version_id": version.version_id})
+            if isinstance(node, SourceNode) and node.version_id == parent.version_id
+            else node
+            for node in pipeline.nodes
+        ]
+        if nodes != pipeline.nodes:
+            write_pipeline(directory, pipeline.model_copy(update={"nodes": nodes}))
+    entry = next(e for e in read_datasets(directory) if e.dataset.dataset_id == parent.dataset_id)
     return _entry_json(entry)
 
 
@@ -518,12 +585,16 @@ def results_payload(
     # block and adds `classification` beside it.
     if result.task in ("regression", "classification"):
         payload["regression"] = {
+            "method": result.method or "pls",
             "target": result.target,
             "observed": result.observed,
             "predicted": result.predicted,
             # On the node's own axis, like `loadings` — #134. Folding the
             # preprocessing back out to the raw axis is #144.
             "coefficients": result.coefficients,
+            # #281: the estimator's input mean, on the node's own axis - the
+            # spectrum a variable selection is marked over.
+            "x_mean": result.x_mean,
             "vip": result.vip,
             "y_loadings": result.y_loadings,
             "y_explained_variance_ratio": result.y_explained_variance_ratio,
@@ -537,14 +608,144 @@ def results_payload(
             for key in (f"rmsecv_a{a}" for a in range(1, result.n_components + 1))
             if key in result.metrics
         ]
+    if result.simca:
+        # simca.md section 5: no single X model and no confusion matrix, so
+        # its own block - the class models' sizes and limits and, per set, the
+        # acceptance table, its per-class reading and the reduced distances.
+        payload["simca"] = {
+            "class_column": result.target,
+            "classes": result.classes,
+            "models": [
+                {
+                    name: model[name]
+                    for name in ("class", "n_samples", "t2_limit", "q_limit", "spe_limit_caveat")
+                }
+                for model in result.simca["models"]
+            ],
+            "sets": {
+                name: {
+                    "table": one["table"],
+                    "none": one["none"],
+                    "sizes": one["sizes"],
+                    "class_metrics": simca_class_metrics(one["table"], one["sizes"]),
+                    "samples": _samples(one["rows"], version),
+                    "distances": one["distances"],
+                }
+                for name, one in result.simca["sets"].items()
+            },
+        }
+        payload["metrics"] = dict(result.metrics)
+        return payload
     if result.task == "classification":
         payload["classification"] = {
             "class_column": result.target,
             "classes": result.classes,
             "predicted_class": result.predicted_class,
             "confusion": result.confusion,
+            # classification.md section 4: derived from each set's matrix, not
+            # stored, so the table cannot disagree with it.
+            "class_metrics": {
+                name: class_metrics(matrix) for name, matrix in result.confusion.items()
+            },
         }
     return payload
+
+
+def diagnosed(result: EstimatorResult) -> bool:
+    """`outliers.md` section 1: PCA, PLS and PCR only."""
+    return result.task == "decomposition" or result.method in ("pls", "pcr")
+
+
+def outliers_payload(result: EstimatorResult, version: DatasetVersion) -> dict[str, Any]:
+    """`outliers.md`'s diagnostics for one result, served on their own (#314).
+
+    Not part of `results_payload`: the robust distance is a FastMCD search,
+    about a second at 3,000 samples, and every tab that opens a result waited
+    on it. Only the outlier row asks for this, and the rest of the tab draws
+    without it.
+    """
+    block = _outliers(result)
+    # #279: the version these rows are rows of, so an exclusion from the
+    # flags table is made against exactly the version the table was drawn
+    # from - never against wherever the source has moved since.
+    block["dataset_id"] = str(version.dataset_id)
+    block["version_id"] = str(version.version_id)
+    return block
+
+
+def _outliers(result: EstimatorResult) -> dict[str, Any]:
+    """`outliers.md`'s three diagnostics on the calibration rows, and the
+    flags table (section 5) naming every rule each listed sample breaks.
+
+    A diagnostic that cannot be computed is `null` with the kernel's sentence
+    beside it, as a metric that cannot be is absent rather than zero.
+    """
+    scores = np.asarray(result.scores, dtype=np.float64)
+    n, a = result.n_samples, result.n_components
+    caveats: dict[str, str] = {}
+
+    def attempt(name: str, compute: Callable[[], NDArray[np.float64]]) -> list[float | None] | None:
+        try:
+            values = compute()
+        except ValueError as error:
+            caveats[name] = str(error)
+            return None
+        return [None if np.isnan(value) else float(value) for value in values]
+
+    hat = attempt("leverage", lambda: outliers.leverage(scores))
+    residuals = None
+    if result.task == "regression" and hat is not None:
+        residuals = attempt(
+            "residual",
+            lambda: outliers.studentised_residuals(
+                np.subtract(result.observed, result.predicted), np.asarray(hat, dtype=float), a
+            ),
+        )
+    robust = attempt(
+        "robust", lambda: _robust_distances(result.key, scores.tobytes(), scores.shape[1])
+    )
+
+    limits = {
+        "t2": result.hotelling_t2_limit,
+        "q": result.spe_limit,
+        "leverage": outliers.leverage_limit(n, a),
+        "residual": outliers.RESIDUAL_LIMIT,
+        "robust": outliers.robust_distance_limit(a),
+    }
+    columns: dict[str, list[float | None] | None] = {
+        "t2": list(result.hotelling_t2),
+        "q": list(result.spe),
+        "leverage": hat,
+        "residual": [None if v is None else abs(v) for v in residuals] if residuals else None,
+        "robust": robust,
+    }
+    flags = []
+    for index in range(n):
+        rules = [
+            rule
+            for rule, values in columns.items()
+            if values is not None and values[index] is not None and values[index] > limits[rule]  # type: ignore[operator]
+        ]
+        if rules:
+            flags.append({"index": index, "rules": rules})
+    return {
+        "leverage": hat,
+        "studentised_residuals": residuals,
+        "robust_distance": robust,
+        "limits": limits,
+        "caveats": caveats,
+        "flags": flags,
+    }
+
+
+@functools.lru_cache(maxsize=32)
+def _robust_distances(key: str, scores: bytes, n_components: int) -> NDArray[np.float64]:
+    """FastMCD costs about 0.3 s on Tecator's scores, and a result under one
+    key never changes, so the analysis screen's refetches reuse it. The scores'
+    bytes are in the key too, so a cache can never answer for other numbers."""
+    # ponytail: per-process memo; vectorise the 500 starts if a first view is too slow.
+    values = np.frombuffer(scores, dtype=np.float64).reshape(-1, n_components)
+    return outliers.min_cov_det(values).distances
 
 
 def _samples(rows: list[int], version: DatasetVersion) -> list[dict[str, Any]]:
@@ -678,50 +879,6 @@ def decimate(
     return kept, axis[kept]
 
 
-def node_axis(pipeline: Pipeline, node_id: NodeId, version: DatasetVersion) -> NDArray[np.float64]:
-    """The axis a node's output is on, which is not always the dataset's.
-
-    `RangeSelect` is the one step that changes the variable count, so a node
-    under one is on a shorter axis than the `DatasetVersion` records and every
-    payload that pairs the two has to know it. `executor.py` deliberately keeps
-    no per-node axis — a second thing beside the cached arrays would have to
-    stay consistent with them — so this derives it instead, from the recipe.
-
-    That derivation is free of the executor's guarantees precisely because it
-    is a pure function of the pipeline: it reads no array, writes nothing, and
-    cannot move a content hash or invalidate a cache entry.
-
-    Every non-source node holds exactly one input, so the ancestry is a chain
-    rather than a tree and the selections apply in order down it. The mask is
-    taken from `RangeSelectTransformer` rather than restated here, so the
-    interval's meaning — inclusive bounds, either axis direction, an empty
-    selection refused — is stated once.
-    """
-    by_id = {node.id: node for node in pipeline.nodes}
-    chain: list[PipelineNode] = []
-    current = node_id
-    while True:
-        node = by_id[current]
-        chain.append(node)
-        if not node.inputs:
-            break
-        current = node.inputs[0]
-
-    axis = np.asarray(version.axis.values, dtype=np.float64)
-    for node in reversed(chain):
-        if node.type != "preprocess" or not isinstance(node.step, RangeSelect):
-            continue
-        transformer = preprocessing.from_spec(node.step, axis=axis)
-        assert isinstance(transformer, preprocessing.RangeSelectTransformer)
-        # Fitting a range selection needs the axis and the variable count, not
-        # the data: `_fit` reads `X.shape[1]` and nothing else. One empty row
-        # supplies the width without loading an array this function has no
-        # reason to read.
-        transformer.fit(np.zeros((1, axis.size)))
-        axis = transformer.selected_axis()
-    return axis
-
-
 def _preprocess_chain(pipeline: Pipeline, node_id: NodeId) -> tuple[list[PipelineNode], NodeId]:
     """The preprocess nodes from the source down to `node_id`, and the source's id."""
     by_id = {node.id: node for node in pipeline.nodes}
@@ -781,7 +938,7 @@ def folded_coefficients(
     # `_pls` fitted the model on, so the parameters folded here are the
     # parameters the coefficients were produced with.
     by_id = {node.id: node for node in pipeline.nodes}
-    folds = governing_folds(NodeId(node_id), by_id, version.n_samples)
+    folds = governing_folds(NodeId(node_id), by_id, version)
     rows = folds[0].train if folds else np.arange(version.n_samples, dtype=np.intp)
 
     axis = np.asarray(version.axis.values, dtype=np.float64)
@@ -791,7 +948,7 @@ def folded_coefficients(
         transformer = preprocessing.from_spec(node.step, axis=axis)
         transformer.fit(values[rows])
         values = transformer.transform(values)
-        if isinstance(transformer, preprocessing.RangeSelectTransformer):
+        if isinstance(transformer, preprocessing.Selection):
             axis = transformer.selected_axis()
         transformers.append(transformer)
 
@@ -1183,7 +1340,7 @@ def _replaced(existing: Pipeline, body: PipelineWrite) -> Pipeline:
     no cycles - are on `Pipeline` itself, and a copy would skip them.
     """
     try:
-        return Pipeline(
+        replaced = Pipeline(
             pipeline_id=existing.pipeline_id,
             project_id=existing.project_id,
             name=body.name or existing.name,
@@ -1198,6 +1355,17 @@ def _replaced(existing: Pipeline, body: PipelineWrite) -> Pipeline:
             str(first.get("msg", "the pipeline is not valid")),
             field=".".join(str(part) for part in first["loc"]),
         ) from error
+    if below := replaced.estimator_inputs():
+        node_id, estimator = below[0]
+        raise _fail(
+            422,
+            "invalid_pipeline",
+            f"node {node_id!r} takes its input from {estimator!r}, which is an estimator: it "
+            "produces a model, not spectra, so nothing can follow it. Connect "
+            f"{node_id!r} to the step above {estimator!r} instead.",
+            node_id=node_id,
+        )
+    return replaced
 
 
 @router.post("/pipelines/{pipeline_id}/validate")
@@ -1483,6 +1651,121 @@ def get_results(node_id: str) -> Any:
             node_id=node_id,
         )
     return results_payload(result, version, axis=node_axis(pipeline, NodeId(node_id), version))
+
+
+@router.get("/results/{node_id}/outliers")
+def get_outliers(node_id: str) -> Any:
+    """`outliers.md`: leverage, residuals, robust distance and the flags table."""
+    directory, pipeline, version = _runnable()
+    result = _stored_result(directory, pipeline, version, node_id)
+    if result is None:
+        raise _fail(
+            404, "not_found", f"node {node_id!r} has no fitted result yet.", node_id=node_id
+        )
+    if not diagnosed(result):
+        raise _fail(
+            422,
+            "not_diagnosed",
+            f"node {node_id!r} is a {result.method or result.task}, which outliers.md does not "
+            "diagnose: only a PCA, a PLS or a PCR (section 1).",
+            node_id=node_id,
+        )
+    return outliers_payload(result, version)
+
+
+def _selection_inputs(
+    node_id: str, method: str
+) -> tuple[
+    EstimatorResult,
+    list[NDArray[np.float64]],
+    list[Fold],
+    NDArray[np.float64],
+    NDArray[np.float64],
+]:
+    """What iPLS and CARS run on (`variable-selection.md` §2, §6): a PLS node's
+    stored per-fold input, its folds, its response and its axis - or a refusal
+    naming what is missing."""
+    directory, pipeline, version = _runnable()
+    result = _stored_result(directory, pipeline, version, node_id)
+    if result is None:
+        raise _fail(
+            404, "not_found", f"node {node_id!r} has no fitted result yet.", node_id=node_id
+        )
+    if result.task != "regression" or result.method not in ("pls", ""):
+        raise _fail(
+            422,
+            "not_a_pls",
+            f"node {node_id!r} is a {result.method or result.task}; {method} fits PLS models, so "
+            "it is run from a PLS regression (variable-selection.md).",
+            node_id=node_id,
+        )
+    stored = _stored_fold_matrices(directory, pipeline, version, NodeId(node_id))
+    if stored is None or len(stored[1]) < 2:
+        raise _fail(
+            422,
+            "needs_cross_validation",
+            f"node {node_id!r} has no cross-validation split above it. {method} compares "
+            "cross-validated errors, so it needs a K-fold or leave-one-out split with at least "
+            "two folds (variable-selection.md).",
+            node_id=node_id,
+        )
+    y = np.asarray(version.targets[result.target or ""], dtype=np.float64)
+    return result, stored[0], stored[1], y, node_axis(pipeline, NodeId(node_id), version)
+
+
+@router.get("/results/{node_id}/ipls")
+def get_ipls(node_id: str, n_intervals: int = 20, max_components: int | None = None) -> Any:
+    """`variable-selection.md` §2-§4: interval PLS on a PLS node's input (#282)."""
+    result, matrices, folds, y, axis = _selection_inputs(node_id, "iPLS")
+    try:
+        found = selection.ipls(
+            matrices, y, folds, n_intervals, max_components or result.n_components
+        )
+    except ValueError as error:
+        raise _fail(422, "invalid_ipls", str(error), node_id=node_id) from error
+    return {
+        "intervals": [
+            {
+                "start": one.start,
+                "stop": one.stop,
+                "axis_start": float(axis[one.start]),
+                "axis_end": float(axis[one.stop - 1]),
+                "rmsecv": one.rmsecv,
+                "n_components": one.n_components,
+            }
+            for one in found.intervals
+        ],
+        "full": {"rmsecv": found.full_rmsecv, "n_components": found.full_components},
+        "steps": [{"interval": k, "rmsecv": rmsecv} for k, rmsecv in found.steps],
+        "selected": found.selected,
+    }
+
+
+@router.get("/results/{node_id}/cars")
+def get_cars(
+    node_id: str, n_runs: int = 50, seed: int = 0, max_components: int | None = None
+) -> Any:
+    """`variable-selection.md` §6: CARS on a PLS node's input (#283)."""
+    result, matrices, folds, y, _ = _selection_inputs(node_id, "CARS")
+    try:
+        found = selection.cars(
+            matrices, y, folds, max_components or result.n_components, n_runs=n_runs, seed=seed
+        )
+    except ValueError as error:
+        raise _fail(422, "invalid_cars", str(error), node_id=node_id) from error
+    return {
+        "runs": [
+            {
+                "n_variables": len(run.variables),
+                "rmsecv": run.rmsecv,
+                "n_components": run.n_components,
+            }
+            for run in found.runs
+        ],
+        "best": found.best,
+        "seed": seed,
+        "selected": found.selected,
+    }
 
 
 @router.get("/results/{node_id}/coefficients")

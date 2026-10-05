@@ -230,6 +230,24 @@ def _arrays(
         arrays["y_loadings"] = _float64(result.y_loadings)
         arrays["vip"] = _float64(result.vip)
         arrays["y_explained_variance_ratio"] = _float64(result.y_explained_variance_ratio)
+    if result.coefficient_matrix:
+        # #274: a PLS-DA of three or more classes, p x N with its column means.
+        arrays["coefficient_matrix"] = _float64(result.coefficient_matrix)
+        arrays["y_means"] = _float64(result.y_means)
+
+    if result.training_classes:
+        # #277, knn.md section 6: the neighbours themselves, in score space,
+        # and their classes.
+        arrays["knn_scores"] = _float64(result.scores)
+        arrays["knn_classes"] = np.asarray(result.training_classes, dtype=np.int64)
+        arrays["x_mean"] = _float64(result.x_mean)
+
+    for k, model in enumerate(result.simca.get("models", [])):
+        # #275, simca.md section 7: every class model, indexed by its class's
+        # position in `classes`.
+        arrays[f"simca_{k}_mean"] = _float64(model["mean"])
+        arrays[f"simca_{k}_loadings"] = _float64(model["loadings"])
+        arrays[f"simca_{k}_eigenvalues"] = _float64(model["eigenvalues"])
 
     if split is not None and result.fold is not None:
         arrays["train_indices"] = np.asarray(result.rows, dtype=np.int64)
@@ -263,6 +281,12 @@ def _manifest(
             "hotelling_t2_limit": result.hotelling_t2_limit,
             "spe_limit": result.spe_limit,
             "spe_limit_caveat": result.spe_limit_caveat,
+            "k": result.k,
+            "simca": [
+                {name: model[name] for name in ("class", "n_samples", "t2_limit", "q_limit")}
+                for model in result.simca.get("models", [])
+            ]
+            or None,
         },
         # By value, never a reference: a pipeline gets edited, and an artifact
         # whose recipe pointed at one would lose its meaning the moment it was
@@ -274,6 +298,9 @@ def _manifest(
             "n_samples": version.n_samples,
             "n_variables": version.n_variables,
             "axis": {"kind": version.axis.kind.value, "unit": version.axis.unit},
+            # #270: a version cut from another names it and the rows it left out.
+            "derived_from": str(version.derived_from) if version.derived_from else None,
+            "excluded_samples": list(version.excluded_samples),
         },
         "split": None
         if split is None or result.fold is None

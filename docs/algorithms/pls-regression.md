@@ -70,7 +70,7 @@ Deflating $y$ as well as $X$ is the classical NIPALS formulation and is what `sc
 
 - $\lVert w_a \rVert = 1$
 - $t_a^{\top} t_b = 0$ for $a \neq b$ — the X-scores are mutually orthogonal
-- $w_a^{\top} w_b = 0$ for $a \neq b$ **in PLS1**, which this document specifies. The weights of a single-response NIPALS fit are orthogonal as well as unit length, and both our kernel and `scikit-learn` produce them so to within a few ulp. This does **not** hold for PLS2 (§10), where the weights are not orthogonal and only the scores are — so a test written for PLS2 does not transfer, and one written here will fail when PLS2 lands.
+- $w_a^{\top} w_b = 0$ for $a \neq b$. The weights of a NIPALS fit are orthogonal as well as unit length, and both our kernel and `scikit-learn` produce them so to within a few ulp. This holds for PLS2 (§10) as well, because it follows from deflating $X$: $w_{a+1}$ lies in the row space of $E_a$, and $E_a w_a = 0$. An earlier version of this sentence said PLS2's weights were not orthogonal. #273 measured them at $3 \times 10^{-15}$ from orthogonal on Tecator's three responses, and `test_regression.py` now asserts it.
 
 **Stopping.** Iteration stops at $A$ components, or earlier if $\lVert E_{a}^{\top} f_{a} \rVert$ falls below $\varepsilon^{1/2} \cdot \lVert E_0^{\top} f_0 \rVert$, which means the response has been exhausted. Stopping early is reported, never silent.
 
@@ -121,6 +121,7 @@ $X_{\text{new}}$ must pass through the identical preprocessing chain with **para
 | Mean centring | shifts the intercept |
 | Autoscaling | $b_j \rightarrow b_j / s_j$ |
 | Range selection | drops coefficients |
+| Variable selection, explicit positions (`select_variables`, #280) | drops coefficients, as range selection does |
 | Savitzky–Golay, derivatives | linear convolution; folds as a banded matrix $C$, giving $b \rightarrow C^{\top} b$ |
 
 For centring by $\bar{x}$ and scaling by $s$, with $y$ centred by $\bar{y}$ and scaled by $s_y$:
@@ -195,15 +196,34 @@ where $m$ and $v$ are the sample mean and variance of $\mathrm{SPE}_i$ over the 
 
 ## 10. PLS1 and PLS2
 
-**v1 implements PLS1 only.** `PLSRegressionSpec` carries a single `target`, so one response is modelled at a time. Two responses mean two models, each with its own optimal component count — which is usually what an analyst wants anyway.
+**The application models one response at a time.** `PLSRegressionSpec` carries a single `target`, so a regression node is PLS1. Two responses mean two models, each with its own component count, which is usually what an analyst wants anyway.
 
-**PLS2** requires an inner iteration per component, since the weights and the y-loading are mutually dependent:
+**PLS2 is a kernel** (`regression.PLS2`, [#273](https://github.com/millermuttu/Chemometrics-Workbench/issues/273)). It is used where one model must serve several columns at once, which is multi-class PLS-DA's one-hot response (`pls-da.md`). It is not offered as a multi-target regression node.
 
-> initialise $u$ from a column of $F$; repeat $w = F^{\top}u / \lVert \cdot \rVert$, $t = Ew$, $q = F^{\top}t/(t^{\top}t)$, $u = Fq/(q^{\top}q)$ until $t$ converges.
+### 10.1 Algorithm
 
-That introduces a convergence tolerance, an iteration cap, and a dependence on which column seeds $u$ — three numerical settings that must be specified and matched for parity. **Deferred to post-1.0**, and when it lands it needs its own section here, not an extension of §4.
+For $Y$ an $n \times m$ centred response, $E_0 = X$, $F_0 = Y$, and for $a = 1 \dots A$:
 
-For a single response the two produce identical results, so nothing about the v1 numbers depends on this deferral.
+1. $w_a$ is the dominant left singular vector of $E_{a-1}^\top F_{a-1}$, with the sign of §6.
+2. $t_a = E_{a-1} w_a$.
+3. $p_a = E_{a-1}^\top t_a / t_a^\top t_a$ and $q_a = F_{a-1}^\top t_a / t_a^\top t_a$, which has length $m$.
+4. $E_a = E_{a-1} - t_a p_a^\top$ and $F_a = F_{a-1} - t_a q_a^\top$.
+
+Rotations are $R = W (P^\top W)^{-1}$ as in §5. The coefficients are the $p \times m$ matrix $B = R Q^\top$, and $\hat{Y} = X B$. Exhaustion stops early as in §4, with the test on $\lVert E^\top F \rVert$.
+
+### 10.2 Why an SVD and not the NIPALS inner loop
+
+The classic statement of PLS2 iterates per component: $w \propto E^\top u$, $t = Ew$, $q = F^\top t / t^\top t$, $u = Fq / q^\top q$, until $t$ stops moving. That is the power method on $E^\top F F^\top E$. Its fixed point is the dominant left singular vector of $E^\top F$, which step 1 computes directly. The power method brings a convergence tolerance, an iteration cap and a seed column, three settings that would have to be specified and matched for parity. The SVD has none of them and gives the vector the iteration is converging to.
+
+With $m = 1$, $E^\top f$ is a single column, its singular vector is $E^\top f / \lVert E^\top f \rVert$, and every quantity is PLS1's to rounding. That identity is a test.
+
+### 10.3 Reported quantities
+
+VIP (§8) is weighted by $SS_a = \lVert q_a \rVert^2 \, t_a^\top t_a$, the sum of squares of $Y$ component $a$ explains, summed over the response columns. The Y explained variance is the same sum over the total sum of squares of $Y$. Scores, loadings, $T^2$, SPE and their limits are §9's unchanged.
+
+### 10.4 Parity
+
+scikit-learn `PLSRegression(scale=False)` is NIPALS with the inner loop. It stops when the *squared* change in the weights falls below `tol`, so even a tiny `tol` leaves the weights about $\sqrt{\texttt{tol}}$ from the fixed point. It is therefore run with `tol=0` and a fixed 2,000 iterations, which takes its loop to machine precision. It is checked on corn's four responses, Tecator's three, and gasoline's one, where PLS2 is PLS1 (§10.2). $A = 5$ throughout. The quantities compared are the coefficient matrix, the predictions in original units, and the X scores, sign-aligned per component.
 
 ---
 

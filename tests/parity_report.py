@@ -48,10 +48,16 @@ REPORT = Path(__file__).parent.parent / "docs" / "parity-report.md"
 ALGORITHM_TITLES = {
     "pca": "Principal component analysis",
     "pls": "PLS regression",
+    "pcr": "Principal component regression",
+    "pls2": "PLS2 (several responses)",
+    "lda": "LDA (PCA-LDA)",
+    "knn": "kNN (PCA-kNN)",
+    "mcd": "Robust distance (FastMCD)",
+    "ipls": "iPLS (interval PLS)",
     "plsda": "PLS-DA (two-class)",
     "preprocess": "Preprocessing",
 }
-ALGORITHM_ORDER = ["preprocess", "pca", "pls", "plsda"]
+ALGORITHM_ORDER = ["preprocess", "pca", "pls", "pls2", "pcr", "plsda", "lda", "knn", "mcd", "ipls"]
 DATASET_ORDER = ["corn", "gasoline", "tecator"]
 
 TIER_LABELS = {
@@ -92,6 +98,55 @@ class Coverage:
 #: `test_parity_coverage.py`, and so does a fixture entry no row claims: the
 #: table cannot quietly fall behind the code or the fixture.
 COVERAGE: tuple[Coverage, ...] = (
+    Coverage(
+        "Moving average",
+        ("MovingAverageTransformer",),
+        ("preprocess.moving_average",),
+    ),
+    Coverage("Median filter", ("MedianFilterTransformer",), ("preprocess.median",)),
+    Coverage("Gaussian smoothing", ("GaussianTransformer",), ("preprocess.gaussian",)),
+    Coverage("Whittaker smoothing", ("WhittakerTransformer",), ("preprocess.whittaker",)),
+    Coverage("PCR", ("PCR",), ("pcr.coefficients", "pcr.predictions")),
+    Coverage("PLS2", ("PLS2",), ("pls2.coefficients", "pls2.predictions", "pls2.scores")),
+    Coverage("LDA", ("LDA",), ("lda.decision_function", "lda.predictions")),
+    Coverage("kNN", ("KNN",), ("knn.predictions", "knn.votes")),
+    Coverage(
+        "Robust distance (FastMCD)",
+        ("min_cov_det", "RobustCovariance", "robust_distance_limit"),
+        ("mcd.robust_distance",),
+    ),
+    Coverage(
+        "iPLS",
+        ("ipls", "interval_bounds", "Interval", "IPLSResult"),
+        ("ipls.interval_rmsecv", "ipls.forward_path"),
+    ),
+    Coverage(
+        "CARS",
+        ("cars", "CARSRun", "CARSResult"),
+        not_compared="No established reference: CARS is published as MATLAB code, its Python "
+        "ports are not versioned libraries, and its randomness makes a value-by-value comparison "
+        "meaningless unless both sides draw the same numbers. Determinism for a seed, the "
+        "shrinking schedule and recovery of the informative variables on a synthetic set are "
+        "tested in tests/test_selection.py (variable-selection.md section 6).",
+    ),
+    Coverage(
+        "Leverage and studentised residuals",
+        ("leverage", "leverage_limit", "studentised_residuals"),
+        not_compared="No reference in this environment: the R mdatools comparison the plan "
+        "named needs R, and scikit-learn has no influence measures. The leverage is checked "
+        "against the hat matrix formed by an explicit inverse, and the PLS and PCR calibration "
+        "fits against least squares on [1, T], which makes the studentisation exact, in "
+        "tests/test_outliers.py (outliers.md section 7).",
+    ),
+    Coverage(
+        "SIMCA",
+        ("SIMCA", "acceptance_table", "simca_class_metrics", "simca_metrics"),
+        not_compared="No reference in this environment: the R mdatools comparison the plan "
+        "named needs R, which the development environment does not carry, and scikit-learn has "
+        "no SIMCA. Every class model is checked equal to decomposition.PCA on its centred class, "
+        "which has its own parity claims, and every distance, decision and tally is recomputed "
+        "from it in tests/test_classification.py (simca.md section 9).",
+    ),
     Coverage("SNV", ("SNVTransformer",), ("preprocess.snv",)),
     Coverage("MSC", ("MSCTransformer",), ("preprocess.msc",)),
     Coverage("Mean centring", ("MeanCentreTransformer",), ("preprocess.mean_centred",)),
@@ -128,6 +183,13 @@ COVERAGE: tuple[Coverage, ...] = (
         not_compared="Selects columns and computes nothing, so there is no number to compare. "
         "Bounds, inclusivity and a descending axis are unit-tested in "
         "`tests/test_preprocessing.py`.",
+    ),
+    Coverage(
+        "Variable selection, explicit positions",
+        ("SelectVariablesTransformer", "Selection"),
+        not_compared="Keeps the columns it names and computes nothing, so there is no number "
+        "to compare. Canonical positions, the width check and the fold are tested in "
+        "`tests/test_select_variables.py`.",
     ),
     Coverage(
         "PCA: eigenvalues, explained variance, scores, loadings",
@@ -200,13 +262,14 @@ COVERAGE: tuple[Coverage, ...] = (
         ),
     ),
     Coverage(
-        "Fold assignment: k-fold, leave-one-out, train/test",
-        ("k_fold", "leave_one_out", "train_test"),
+        "Fold assignment: k-fold, leave-one-out, train/test, stratified",
+        ("k_fold", "leave_one_out", "train_test", "stratified_k_fold", "stratified_train_test"),
         not_compared="Differs by convention: folds are drawn with NumPy's `default_rng`, "
         "scikit-learn's with a legacy `RandomState`, so one seed gives different folds "
         "(`metrics-and-validation.md` §8). Cross-validated claims above pass our resolved folds "
         "to the reference instead. The fold structure is unit-tested in "
-        "`tests/test_validation.py`.",
+        "`tests/test_validation.py`. Stratified folds also deal each level into folds by "
+        "§8.7's own rule, which is not scikit-learn's `StratifiedKFold` assignment either.",
     ),
     Coverage(
         "Model export: JSON model and prediction snippet",
@@ -228,11 +291,24 @@ NOT_KERNELS: dict[str, str] = {
     "EXPORTABLE_RESIDUAL": "a constant: which steps an export carries",
     "SCHEMA_VERSION": "the export format's version",
     "THRESHOLD": "PLS-DA's class threshold, a constant of `pls-da.md`",
+    "LEVERAGE_FACTOR": "a constant of `outliers.md` section 2: the leverage flag's multiple",
+    "RESIDUAL_LIMIT": "a constant of `outliers.md` section 3: the residual flag",
+    "ROBUST_QUANTILE": "a constant of `outliers.md` section 4: the reweighting and flag quantile",
+    "MCD_SEED": "a constant of `outliers.md` section 4: FastMCD's seed",
     "ExportError": "the exception an export raises",
 }
 
 #: The modules whose public names `COVERAGE` must account for.
-KERNEL_MODULES = ("preprocessing", "decomposition", "regression", "validation", "export")
+KERNEL_MODULES = (
+    "preprocessing",
+    "decomposition",
+    "regression",
+    "classification",
+    "validation",
+    "export",
+    "outliers",
+    "selection",
+)
 
 
 def _coverage_table(results: dict[str, Any]) -> list[str]:

@@ -78,6 +78,7 @@ __all__ = [
     "add_dataset",
     "config_dir",
     "create_project",
+    "derive_version",
     "forget_project",
     "is_project",
     "known_projects",
@@ -539,6 +540,64 @@ def add_dataset(
     raise ProjectError(
         f"dataset {dataset.dataset_id} was not recorded in {db.database_path(path)}."
     )
+
+
+def derive_version(
+    directory: str | os.PathLike[str], parent: DatasetVersion, exclude: list[int]
+) -> DatasetVersion:
+    """A new version of `parent`'s dataset with the rows `exclude` names removed (#270).
+
+    The kept rows are written as a new array, so the version has its own
+    content hash and every run on it says, through that hash, that it ran on
+    different data. `excluded_samples` records which of the parent's rows were
+    left out and `derived_from` which parent, so the exclusion is lineage and
+    can be undone by pointing the pipeline back at the parent.
+    """
+    path = Path(directory)
+    dropped = sorted(set(exclude))
+    if not dropped:
+        raise ProjectError("an exclusion names no samples.")
+    outside = [row for row in dropped if not 0 <= row < parent.n_samples]
+    if outside:
+        raise ProjectError(
+            f"rows {outside} are outside version {parent.version}, which has "
+            f"{parent.n_samples} samples."
+        )
+    keep = [row for row in range(parent.n_samples) if row not in set(dropped)]
+    if len(keep) < 2:
+        raise ProjectError(
+            f"excluding {len(dropped)} of {parent.n_samples} samples leaves {len(keep)}; "
+            "a model needs at least 2."
+        )
+
+    values = read_array(path, parent.array_path)[keep]
+    array_path, content_hash = write_array(path, values)
+    entry = next(
+        (e for e in read_datasets(path) if e.dataset.dataset_id == parent.dataset_id), None
+    )
+    if entry is None:
+        raise ProjectError(f"dataset {parent.dataset_id} is not in this project.")
+
+    version = DatasetVersion(
+        dataset_id=parent.dataset_id,
+        version=max(v.version for v in entry.versions) + 1,
+        content_hash=content_hash,
+        n_samples=len(keep),
+        n_variables=parent.n_variables,
+        axis=parent.axis,
+        sample_ids=[parent.sample_ids[row] for row in keep] if parent.sample_ids else [],
+        targets={name: [column[row] for row in keep] for name, column in parent.targets.items()},
+        metadata_columns={
+            name: [column[row] for row in keep] for name, column in parent.metadata_columns.items()
+        },
+        excluded_samples=dropped,
+        excluded_variables=list(parent.excluded_variables),
+        source=parent.source,
+        derived_from=parent.version_id,
+        array_path=array_path,
+    )
+    add_dataset(path, entry.dataset, version)
+    return version
 
 
 # --- The pipeline store ---------------------------------------------------

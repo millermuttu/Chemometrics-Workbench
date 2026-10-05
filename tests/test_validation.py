@@ -24,6 +24,8 @@ from chemometrics_workbench.validation import (
     rmse,
     sec,
     sep,
+    stratified_k_fold,
+    stratified_train_test,
     train_test,
     validate_partition,
 )
@@ -336,3 +338,48 @@ def test_q2_is_negative_when_the_model_is_worse_than_the_mean_and_is_not_clipped
     useless = np.array([4.0, 3.0, 2.0, 1.0])
 
     assert q2(y, useless) < 0.0
+
+
+# --- stratification, §8.7 -------------------------------------------------
+
+LEVELS = ["b"] * 7 + ["a"] * 13 + ["c"] * 10
+
+
+@pytest.mark.parametrize("n_splits", [2, 3, 5])
+def test_a_stratified_k_fold_partitions_and_keeps_every_level_s_share(n_splits: int) -> None:
+    folds = stratified_k_fold(LEVELS, n_splits)
+    validate_partition(folds, len(LEVELS))
+    sizes = [fold.test.size for fold in folds]
+    assert max(sizes) - min(sizes) <= 1
+    for level in "abc":
+        counts = [sum(LEVELS[i] == level for i in fold.test) for fold in folds]
+        assert max(counts) - min(counts) <= 1
+
+
+def test_a_stratified_k_fold_follows_from_its_seed_and_shuffle() -> None:
+    once = [fold.test.tolist() for fold in stratified_k_fold(LEVELS, 3, seed=7)]
+    again = [fold.test.tolist() for fold in stratified_k_fold(LEVELS, 3, seed=7)]
+    other = [fold.test.tolist() for fold in stratified_k_fold(LEVELS, 3, seed=8)]
+    assert once == again != other
+    # Unshuffled, the levels in Unicode order are dealt round-robin: 'a' first.
+    plain = stratified_k_fold(["a", "b", "a", "b"], 2, shuffle=False)
+    assert [fold.test.tolist() for fold in plain] == [[0, 1], [2, 3]]
+
+
+def test_stratified_train_test_holds_out_the_ceiling_of_each_level() -> None:
+    [fold] = stratified_train_test(LEVELS, 0.25)
+    held = [LEVELS[i] for i in fold.test]
+    assert (held.count("a"), held.count("b"), held.count("c")) == (4, 2, 3)
+    assert np.array_equal(np.sort(np.concatenate([fold.train, fold.test])), np.arange(30))
+
+
+def test_a_level_with_one_member_is_refused_by_name() -> None:
+    with pytest.raises(ValueError, match="the level 'lone' has 1 sample"):
+        stratified_k_fold(["lone"] + ["x"] * 9, 2)
+    with pytest.raises(ValueError, match="the level 'lone' has 1 sample"):
+        stratified_train_test(["lone"] + ["x"] * 9, 0.2)
+
+
+def test_a_test_size_that_empties_a_level_is_refused_by_name() -> None:
+    with pytest.raises(ValueError, match="all 2 samples of the level 'small'"):
+        stratified_train_test(["small"] * 2 + ["big"] * 20, 0.6)

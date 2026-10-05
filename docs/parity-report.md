@@ -9,7 +9,7 @@ report green in CI against published reference values* — means in practice. Th
 committed copy is not byte-compared: the last bits of a difference depend on the
 machine's BLAS (#38), so the suite checks its coverage and its tolerances instead.
 
-Fixture schema 1, generated 2026-09-18.
+Fixture schema 1, generated 2026-10-05.
 
 ---
 
@@ -21,11 +21,11 @@ strong the agreement is** rather than a bare pass or fail:
 
 | Claim | Count | Meaning |
 | --- | --- | --- |
-| identical within floating point | 96 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
-| agrees within stated tolerance | 16 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
+| identical within floating point | 134 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
+| agrees within stated tolerance | 26 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
 | differs by documented convention | 8 | Not compared numerically at all. The two quantities are not the same thing, and the reason is given in full below. |
 
-**120 comparisons, 120 passed, 0 failed.**
+**168 comparisons, 168 passed, 0 failed.**
 
 Three things a reader should hold on to, because the agreement column cannot
 show them:
@@ -73,6 +73,19 @@ those listed under *Gaps* or *Documented divergences* below.
 
 | Kernel | Code | Compared |
 | --- | --- | --- |
+| Moving average | `MovingAverageTransformer` | 3 claims |
+| Median filter | `MedianFilterTransformer` | 3 claims |
+| Gaussian smoothing | `GaussianTransformer` | 3 claims |
+| Whittaker smoothing | `WhittakerTransformer` | 3 claims |
+| PCR | `PCR` | 6 claims |
+| PLS2 | `PLS2` | 9 claims |
+| LDA | `LDA` | 6 claims |
+| kNN | `KNN` | 6 claims |
+| Robust distance (FastMCD) | `min_cov_det`, `RobustCovariance`, `robust_distance_limit` | 3 claims |
+| iPLS | `ipls`, `interval_bounds`, `Interval`, `IPLSResult` | 6 claims |
+| CARS | `cars`, `CARSRun`, `CARSResult` | **not compared.** No established reference: CARS is published as MATLAB code, its Python ports are not versioned libraries, and its randomness makes a value-by-value comparison meaningless unless both sides draw the same numbers. Determinism for a seed, the shrinking schedule and recovery of the informative variables on a synthetic set are tested in tests/test_selection.py (variable-selection.md section 6). |
+| Leverage and studentised residuals | `leverage`, `leverage_limit`, `studentised_residuals` | **not compared.** No reference in this environment: the R mdatools comparison the plan named needs R, and scikit-learn has no influence measures. The leverage is checked against the hat matrix formed by an explicit inverse, and the PLS and PCR calibration fits against least squares on [1, T], which makes the studentisation exact, in tests/test_outliers.py (outliers.md section 7). |
+| SIMCA | `SIMCA`, `acceptance_table`, `simca_class_metrics`, `simca_metrics` | **not compared.** No reference in this environment: the R mdatools comparison the plan named needs R, which the development environment does not carry, and scikit-learn has no SIMCA. Every class model is checked equal to decomposition.PCA on its centred class, which has its own parity claims, and every distance, decision and tally is recomputed from it in tests/test_classification.py (simca.md section 9). |
 | SNV | `SNVTransformer` | 3 claims |
 | MSC | `MSCTransformer` | 3 claims |
 | Mean centring | `MeanCentreTransformer` | 3 claims |
@@ -82,6 +95,7 @@ those listed under *Gaps* or *Documented divergences* below.
 | Savitzky-Golay, derivatives 0 / 1 / 2 | `SavitzkyGolayTransformer` | 9 claims |
 | Baseline correction, AsLS / rubberband / polynomial | `BaselineCorrectTransformer` | 9 claims |
 | Range selection | `RangeSelectTransformer` | **not compared.** Selects columns and computes nothing, so there is no number to compare. Bounds, inclusivity and a descending axis are unit-tested in `tests/test_preprocessing.py`. |
+| Variable selection, explicit positions | `SelectVariablesTransformer`, `Selection` | **not compared.** Keeps the columns it names and computes nothing, so there is no number to compare. Canonical positions, the width check and the fold are tested in `tests/test_select_variables.py`. |
 | PCA: eigenvalues, explained variance, scores, loadings | `PCA` | 15 claims |
 | PCA: Hotelling's T² and SPE per sample | `PCA` | 6 claims |
 | Hotelling's T² limit | `hotelling_t2_limit`, `PCA` | 6 claims |
@@ -97,7 +111,7 @@ those listed under *Gaps* or *Documented divergences* below.
 | SEC and SEP | `sec`, `sep` | 1 claim |
 | Bias | `bias` | **not compared.** The mean signed residual; no reference reports it apart from RMSE. Unit-tested, and held by the identity RMSEP² = bias² + (n-1)/n SEP² in `tests/test_validation.py`. |
 | PLS-DA (two-class): dummy predictions, confusion, accuracy | `PLS` | 15 claims |
-| Fold assignment: k-fold, leave-one-out, train/test | `k_fold`, `leave_one_out`, `train_test` | **not compared.** Differs by convention: folds are drawn with NumPy's `default_rng`, scikit-learn's with a legacy `RandomState`, so one seed gives different folds (`metrics-and-validation.md` §8). Cross-validated claims above pass our resolved folds to the reference instead. The fold structure is unit-tested in `tests/test_validation.py`. |
+| Fold assignment: k-fold, leave-one-out, train/test, stratified | `k_fold`, `leave_one_out`, `train_test`, `stratified_k_fold`, `stratified_train_test` | **not compared.** Differs by convention: folds are drawn with NumPy's `default_rng`, scikit-learn's with a legacy `RandomState`, so one seed gives different folds (`metrics-and-validation.md` §8). Cross-validated claims above pass our resolved folds to the reference instead. The fold structure is unit-tested in `tests/test_validation.py`. Stratified folds also deal each level into folds by §8.7's own rule, which is not scikit-learn's `StratifiedKFold` assignment either. |
 | Model export: JSON model and prediction snippet | `json_model`, `python_snippet` | **not compared.** Not a computation with an outside reference: the export must reproduce this application's own predictions, within rtol 1e-4 (`model-export.md` §5), in a NumPy-only interpreter - `tests/test_export.py`. |
 
 ---
@@ -112,7 +126,10 @@ those listed under *Gaps* or *Documented divergences* below.
 | corn | `baseline_asls` | chemotools 0.4.3 | within rtol 1.000e-07 | 360 values, worst Δ < 1e-11 |
 | corn | `baseline_polynomial` | chemotools 0.4.3 | identical | 360 values, worst Δ < 1e-16 |
 | corn | `baseline_rubberband` | chemotools 0.4.3 | identical | 360 values, worst Δ 0, exactly |
+| corn | `gaussian_interior` | scipy 1.18.1 | identical | 324 values, worst Δ < 1e-16 |
 | corn | `mean_centred` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
+| corn | `median_interior` | chemotools 0.4.3 | identical | 348 values, worst Δ 0, exactly |
+| corn | `moving_average_interior` | chemotools 0.4.3 | identical | 348 values, worst Δ < 1e-16 |
 | corn | `msc_corrected` | chemotools 0.4.3 | within rtol 1.000e-07 | 40 values, worst Δ < 1e-12 |
 | corn | `normalised_l1` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
 | corn | `normalised_l2` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
@@ -121,11 +138,15 @@ those listed under *Gaps* or *Documented divergences* below.
 | corn | `savgol_deriv1` | SciPy 1.18.1 | identical | 40 values, worst Δ < 1e-16 |
 | corn | `savgol_deriv2` | SciPy 1.18.1 | identical | 40 values, worst Δ < 1e-16 |
 | corn | `snv_corrected` | chemotools 0.4.3 | identical | 40 values, worst Δ 0, exactly |
+| corn | `whittaker` | chemotools 0.4.3 | identical | 360 values, worst Δ < 1e-14 |
 | gasoline | `autoscaled` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
 | gasoline | `baseline_asls` | chemotools 0.4.3 | within rtol 1.000e-07 | 360 values, worst Δ < 1e-10 |
 | gasoline | `baseline_polynomial` | chemotools 0.4.3 | identical | 360 values, worst Δ < 1e-16 |
 | gasoline | `baseline_rubberband` | chemotools 0.4.3 | identical | 360 values, worst Δ 0, exactly |
+| gasoline | `gaussian_interior` | scipy 1.18.1 | identical | 324 values, worst Δ < 1e-16 |
 | gasoline | `mean_centred` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
+| gasoline | `median_interior` | chemotools 0.4.3 | identical | 348 values, worst Δ 0, exactly |
+| gasoline | `moving_average_interior` | chemotools 0.4.3 | identical | 348 values, worst Δ < 1e-16 |
 | gasoline | `msc_corrected` | chemotools 0.4.3 | identical | 40 values, worst Δ < 1e-16 |
 | gasoline | `normalised_l1` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
 | gasoline | `normalised_l2` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
@@ -134,11 +155,15 @@ those listed under *Gaps* or *Documented divergences* below.
 | gasoline | `savgol_deriv1` | SciPy 1.18.1 | identical | 40 values, worst Δ < 1e-16 |
 | gasoline | `savgol_deriv2` | SciPy 1.18.1 | identical | 40 values, worst Δ < 1e-16 |
 | gasoline | `snv_corrected` | chemotools 0.4.3 | identical | 40 values, worst Δ 0, exactly |
+| gasoline | `whittaker` | chemotools 0.4.3 | identical | 360 values, worst Δ < 1e-14 |
 | tecator | `autoscaled` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
 | tecator | `baseline_asls` | chemotools 0.4.3 | within rtol 1.000e-07 | 300 values, worst Δ < 1e-9 |
 | tecator | `baseline_polynomial` | chemotools 0.4.3 | identical | 300 values, worst Δ < 1e-14 |
 | tecator | `baseline_rubberband` | chemotools 0.4.3 | identical | 300 values, worst Δ 0, exactly |
+| tecator | `gaussian_interior` | scipy 1.18.1 | identical | 264 values, worst Δ < 1e-15 |
 | tecator | `mean_centred` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
+| tecator | `median_interior` | chemotools 0.4.3 | identical | 288 values, worst Δ 0, exactly |
+| tecator | `moving_average_interior` | chemotools 0.4.3 | identical | 288 values, worst Δ < 1e-14 |
 | tecator | `msc_corrected` | chemotools 0.4.3 | within rtol 1.000e-07 | 40 values, worst Δ < 1e-9 |
 | tecator | `normalised_l1` | scikit-learn 1.9.0 | identical | 40 values, worst Δ 0, exactly |
 | tecator | `normalised_l2` | scikit-learn 1.9.0 | identical | 40 values, worst Δ < 1e-16 |
@@ -147,6 +172,7 @@ those listed under *Gaps* or *Documented divergences* below.
 | tecator | `savgol_deriv1` | SciPy 1.18.1 | identical | 40 values, worst Δ < 1e-14 |
 | tecator | `savgol_deriv2` | SciPy 1.18.1 | identical | 40 values, worst Δ < 1e-14 |
 | tecator | `snv_corrected` | chemotools 0.4.3 | identical | 40 values, worst Δ 0, exactly |
+| tecator | `whittaker` | chemotools 0.4.3 | within rtol 1.000e-07 | 300 values, worst Δ < 1e-12 |
 
 ### Principal component analysis
 
@@ -224,6 +250,31 @@ those listed under *Gaps* or *Documented divergences* below.
 | tecator | `sep` | unstated | documented divergence | not compared — see below |
 | tecator | `vip` † | scikit-learn 1.9.0 | identical | 100 values, worst Δ < 1e-15 |
 
+### PLS2 (several responses)
+
+| Dataset | Quantity | Reference | Claim | Ours vs reference |
+| --- | --- | --- | --- | --- |
+| corn | `coefficients` | scikit-learn 1.9.0 | identical | 2800 values, worst Δ < 1e-13 |
+| corn | `predictions` | scikit-learn 1.9.0 | identical | 320 values, worst Δ < 1e-13 |
+| corn | `scores` ‡ | scikit-learn 1.9.0 | identical | 400 values, worst Δ < 1e-14 |
+| gasoline | `coefficients` | scikit-learn 1.9.0 | identical | 401 values, worst Δ < 1e-14 |
+| gasoline | `predictions` | scikit-learn 1.9.0 | identical | 60 values, worst Δ < 1e-13 |
+| gasoline | `scores` ‡ | scikit-learn 1.9.0 | identical | 300 values, worst Δ < 1e-14 |
+| tecator | `coefficients` | scikit-learn 1.9.0 | identical | 300 values, worst Δ < 1e-13 |
+| tecator | `predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 720 values, worst Δ < 1e-12 |
+| tecator | `scores` ‡ | scikit-learn 1.9.0 | identical | 1200 values, worst Δ < 1e-13 |
+
+### Principal component regression
+
+| Dataset | Quantity | Reference | Claim | Ours vs reference |
+| --- | --- | --- | --- | --- |
+| corn | `coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 700 values, worst Δ < 1e-13 |
+| corn | `predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 80 values, worst Δ < 1e-13 |
+| gasoline | `coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 401 values, worst Δ < 1e-13 |
+| gasoline | `predictions` | scikit-learn 1.9.0 | identical | 60 values, worst Δ < 1e-13 |
+| tecator | `coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 100 values, worst Δ < 1e-11 |
+| tecator | `predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 240 values, worst Δ < 1e-11 |
+
 ### PLS-DA (two-class)
 
 | Dataset | Quantity | Reference | Claim | Ours vs reference |
@@ -243,6 +294,47 @@ those listed under *Gaps* or *Documented divergences* below.
 | tecator | `confusion` | scikit-learn 1.9.0 | identical | 4 values, worst Δ 0, exactly |
 | tecator | `confusion_cv` | scikit-learn 1.9.0 | identical | 4 values, worst Δ 0, exactly |
 | tecator | `dummy_predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 240 values, worst Δ < 1e-13 |
+
+### LDA (PCA-LDA)
+
+| Dataset | Quantity | Reference | Claim | Ours vs reference |
+| --- | --- | --- | --- | --- |
+| corn | `assigned_class` | scikit-learn 1.9.0 | identical | 80 values, worst Δ 0, exactly |
+| corn | `decision_function` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 240 values, worst Δ < 1e-12 |
+| gasoline | `assigned_class` | scikit-learn 1.9.0 | identical | 60 values, worst Δ 0, exactly |
+| gasoline | `decision_function` | scikit-learn 1.9.0 | identical | 180 values, worst Δ < 1e-13 |
+| tecator | `assigned_class` | scikit-learn 1.9.0 | identical | 240 values, worst Δ 0, exactly |
+| tecator | `decision_function` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 720 values, worst Δ < 1e-12 |
+
+### kNN (PCA-kNN)
+
+| Dataset | Quantity | Reference | Claim | Ours vs reference |
+| --- | --- | --- | --- | --- |
+| corn | `assigned_class` | scikit-learn 1.9.0 | identical | 80 values, worst Δ 0, exactly |
+| corn | `class_votes` | scikit-learn 1.9.0 | identical | 240 values, worst Δ 0, exactly |
+| gasoline | `assigned_class` | scikit-learn 1.9.0 | identical | 60 values, worst Δ 0, exactly |
+| gasoline | `class_votes` | scikit-learn 1.9.0 | identical | 180 values, worst Δ 0, exactly |
+| tecator | `assigned_class` | scikit-learn 1.9.0 | identical | 240 values, worst Δ 0, exactly |
+| tecator | `class_votes` | scikit-learn 1.9.0 | identical | 720 values, worst Δ 0, exactly |
+
+### Robust distance (FastMCD)
+
+| Dataset | Quantity | Reference | Claim | Ours vs reference |
+| --- | --- | --- | --- | --- |
+| corn | `robust_distance` | scikit-learn 1.9.0 | identical | 80 values, worst Δ < 1e-12 |
+| gasoline | `robust_distance` | scikit-learn 1.9.0 | identical | 60 values, worst Δ < 1e-13 |
+| tecator | `robust_distance` | scikit-learn 1.9.0 | identical | 240 values, worst Δ < 1e-12 |
+
+### iPLS (interval PLS)
+
+| Dataset | Quantity | Reference | Claim | Ours vs reference |
+| --- | --- | --- | --- | --- |
+| corn | `forward_path` | scikit-learn 1.9.0 | identical | 3 values, worst Δ 0, exactly |
+| corn | `interval_rmsecv` | scikit-learn 1.9.0 | identical | 10 values, worst Δ < 1e-14 |
+| gasoline | `forward_path` | scikit-learn 1.9.0 | identical | 7 values, worst Δ 0, exactly |
+| gasoline | `interval_rmsecv` | scikit-learn 1.9.0 | identical | 10 values, worst Δ < 1e-14 |
+| tecator | `forward_path` | scikit-learn 1.9.0 | identical | 2 values, worst Δ 0, exactly |
+| tecator | `interval_rmsecv` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 10 values, worst Δ < 1e-11 |
 
 ---
 

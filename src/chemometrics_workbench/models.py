@@ -147,7 +147,14 @@ class DatasetVersion(Frozen):
         description="Reference values by property name, e.g. {'moisture': [...]}.",
     )
     metadata_columns: dict[str, list[str]] = Field(default_factory=dict)
-    excluded_samples: list[int] = Field(default_factory=list)
+    excluded_samples: list[int] = Field(
+        default_factory=list,
+        description=(
+            "Rows of the `derived_from` version this one leaves out, as positional indices "
+            "into that version (#270). The rows are gone from this version's array, ids, "
+            "targets and metadata, so everything downstream runs on what is left."
+        ),
+    )
     excluded_variables: list[int] = Field(default_factory=list)
     source: SourceFile | None = None
     derived_from: UUID | None = Field(
@@ -220,6 +227,36 @@ class SavitzkyGolay(Frozen):
         return self
 
 
+class _OddWindow(Frozen):
+    """A centred window of `window_length` variables (`smoothing-and-baselines.md` §10)."""
+
+    window_length: int = Field(gt=2, description="Variables in the window; odd.")
+
+    @model_validator(mode="after")
+    def _odd(self) -> Self:
+        if self.window_length % 2 == 0:
+            raise ValueError("window_length must be odd")
+        return self
+
+
+class MovingAverage(_OddWindow):
+    kind: Literal["moving_average"] = "moving_average"
+
+
+class MedianFilter(_OddWindow):
+    kind: Literal["median"] = "median"
+
+
+class GaussianSmooth(Frozen):
+    kind: Literal["gaussian"] = "gaussian"
+    sigma: float = Field(gt=0, description="Standard deviation of the kernel, in variables.")
+
+
+class WhittakerSmooth(Frozen):
+    kind: Literal["whittaker"] = "whittaker"
+    lam: float = Field(gt=0, description="Smoothness: the weight on the second differences.")
+
+
 class MeanCentre(Frozen):
     kind: Literal["mean_centre"] = "mean_centre"
 
@@ -258,8 +295,52 @@ class RangeSelect(Frozen):
         return self
 
 
+class SelectVariables(Frozen):
+    """Keep the variables at explicit column positions of this step's input (#280).
+
+    What "Apply selection" from a VIP threshold, iPLS or CARS writes into the
+    pipeline, so a selection is part of the recipe and of its lineage rather
+    than a property of one result. Not fitted, and foldable: it is a fixed
+    column subset. The positions are stored sorted and without repeats, so one
+    selection has one content hash however it was listed.
+    """
+
+    kind: Literal["select_variables"] = "select_variables"
+    indices: list[int] = Field(min_length=1)
+    chosen_by: Literal["vip", "coefficients", "ipls", "cars"] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description=(
+            "The method that chose the positions, if one did (#283). A selection chosen "
+            "from the data shares its samples with any validation below it, which "
+            "checks.py says."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _canonical(self) -> Self:
+        if min(self.indices) < 0:
+            raise ValueError("variable positions are counted from 0")
+        canonical = sorted(set(self.indices))
+        if canonical != self.indices:
+            object.__setattr__(self, "indices", canonical)
+        return self
+
+
 PreprocessStep = Annotated[
-    SNV | MSC | SavitzkyGolay | MeanCentre | Autoscale | Normalise | BaselineCorrect | RangeSelect,
+    SNV
+    | MSC
+    | SavitzkyGolay
+    | MovingAverage
+    | MedianFilter
+    | GaussianSmooth
+    | WhittakerSmooth
+    | MeanCentre
+    | Autoscale
+    | Normalise
+    | BaselineCorrect
+    | RangeSelect
+    | SelectVariables,
     Field(discriminator="kind"),
 ]
 
@@ -281,6 +362,9 @@ class KFoldSplit(Frozen):
     n_splits: int = Field(ge=2)
     shuffle: bool = True
     seed: int = 42
+    # Left out of the dump when unset, so a K-fold written before stratification
+    # existed (#268) serialises, and therefore hashes into its cache key, as it did.
+    stratify_by: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class RepeatedKFoldSplit(Frozen):
@@ -322,6 +406,31 @@ class PLSRegressionSpec(Frozen):
     target: str = Field(description="Which target column in the dataset is being modelled.")
 
 
+class PCRSpec(Frozen):
+    kind: Literal["pcr"] = "pcr"
+    n_components: int = Field(ge=1, description="Principal components regressed on.")
+    target: str = Field(description="Which target column in the dataset is being modelled.")
+
+
+class SIMCASpec(Frozen):
+    kind: Literal["simca"] = "simca"
+    n_components: int = Field(ge=1, description="Components in every class's PCA.")
+    class_column: str
+
+
+class LDASpec(Frozen):
+    kind: Literal["lda"] = "lda"
+    n_components: int = Field(ge=1, description="Principal components the discriminant uses.")
+    class_column: str
+
+
+class KNNSpec(Frozen):
+    kind: Literal["knn"] = "knn"
+    k: int = Field(ge=1, description="Neighbours that vote.")
+    n_components: int = Field(ge=1, description="Principal components distances are taken in.")
+    class_column: str
+
+
 class PLSDASpec(Frozen):
     kind: Literal["plsda"] = "plsda"
     n_components: int = Field(ge=1)
@@ -329,7 +438,10 @@ class PLSDASpec(Frozen):
     class_column: str
 
 
-EstimatorSpec = Annotated[PCASpec | PLSRegressionSpec | PLSDASpec, Field(discriminator="kind")]
+EstimatorSpec = Annotated[
+    PCASpec | PLSRegressionSpec | PCRSpec | PLSDASpec | SIMCASpec | LDASpec | KNNSpec,
+    Field(discriminator="kind"),
+]
 
 
 # --------------------------------------------------------------------------
@@ -413,6 +525,21 @@ class Pipeline(Frozen):
         for nid in ids:
             visit(nid)
         return self
+
+    def estimator_inputs(self) -> list[tuple[NodeId, NodeId]]:
+        """`(node, estimator)` for every node fed by an estimator (#296).
+
+        An estimator produces a model, not an array, so nothing can sit below
+        it. Not a validator: a pipeline saved before this was checked must
+        still load, so the write and the run refuse it instead.
+        """
+        estimators = {node.id for node in self.nodes if node.type == "estimator"}
+        return [
+            (node.id, parent)
+            for node in self.nodes
+            for parent in node.inputs
+            if parent in estimators
+        ]
 
     def content_hash(self) -> str:
         """Stable hash of the recipe, ignoring identity and timestamps.

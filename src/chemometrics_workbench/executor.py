@@ -5,7 +5,9 @@ functions over arrays with no knowledge of the application, and the executor
 holds the orchestration. So nothing here reaches into `preprocessing.py`, and
 nothing about caching, folds or jobs is added to it. `from_spec` is the seam,
 and after #82 it needs exactly one thing the recipe does not carry: the
-variable axis for `RangeSelect`, which belongs to the `DatasetVersion`.
+variable axis for `RangeSelect`, which belongs to the `DatasetVersion`. Each
+step is given the axis of its own input - the dataset's, narrowed by every
+selection above it (`node_axis`, #312).
 
 ## What a node's output is
 
@@ -123,6 +125,13 @@ import numpy as np
 from numpy.typing import NDArray
 
 from chemometrics_workbench import preprocessing, validation
+from chemometrics_workbench.classification import (
+    KNN,
+    LDA,
+    SIMCA,
+    acceptance_table,
+    simca_metrics,
+)
 from chemometrics_workbench.decomposition import PCA
 from chemometrics_workbench.models import (
     DatasetVersion,
@@ -131,15 +140,21 @@ from chemometrics_workbench.models import (
     Experiment,
     ExperimentStatus,
     KFoldSplit,
+    KNNSpec,
+    LDASpec,
     LeaveOneOut,
     Metrics,
     NodeId,
     PCASpec,
+    PCRSpec,
     Pipeline,
     PipelineNode,
     PLSDASpec,
     PLSRegressionSpec,
+    RangeSelect,
     ResolvedSplit,
+    SelectVariables,
+    SIMCASpec,
     TrainTestSplit,
 )
 from chemometrics_workbench.project import (
@@ -151,7 +166,9 @@ from chemometrics_workbench.project import (
     write_json,
 )
 from chemometrics_workbench.regression import (
+    PCR,
     PLS,
+    PLS2,
     cross_validated_predictions,
     rmsecv_curve,
 )
@@ -159,6 +176,8 @@ from chemometrics_workbench.validation import (
     Fold,
     k_fold,
     leave_one_out,
+    stratified_k_fold,
+    stratified_train_test,
     train_test,
     validate_partition,
 )
@@ -175,6 +194,7 @@ __all__ = [
     "StoredDisplays",
     "assign_classes",
     "capture_environment",
+    "class_metrics",
     "classification_metrics",
     "confusion_matrix",
     "execute",
@@ -207,7 +227,15 @@ def has_kernel(spec: EstimatorSpec) -> bool:
 #: What `_estimator` can fit. All three since #185; the tuple stays because
 #: `has_kernel` is the one place the answer lives, and the next estimator will
 #: not have a kernel on the day its spec lands either.
-_FITTED: tuple[type, ...] = (PCASpec, PLSRegressionSpec, PLSDASpec)
+_FITTED: tuple[type, ...] = (
+    PCASpec,
+    PLSRegressionSpec,
+    PCRSpec,
+    PLSDASpec,
+    SIMCASpec,
+    LDASpec,
+    KNNSpec,
+)
 
 
 RESULTS_DIR = "results"
@@ -343,6 +371,11 @@ class EstimatorResult:
     target: str | None = None
     """Which target column was modelled. `None` on a decomposition."""
 
+    method: str = ""
+    """The estimator kind the regression half came from - `pls`, `pcr` or
+    `plsda` (#272) - so a screen can name it. Empty on a decomposition and on
+    a result stored before it."""
+
     observed: list[float] = field(default_factory=list)
     """The reference values for `rows`, so a predicted-versus-actual plot needs
     this record alone and not the dataset beside it."""
@@ -407,6 +440,26 @@ class EstimatorResult:
     """Calibration assignments as indices into `classes` (§5)."""
 
     held_out_predicted_class: list[int] = field(default_factory=list)
+
+    coefficient_matrix: list[list[float]] = field(default_factory=list)
+    """`p x N`, one column per class, assigned by the largest: a PLS-DA of
+    three or more classes (#274) and every LDA (#276). Empty otherwise."""
+
+    y_means: list[float] = field(default_factory=list)
+    """Added to every row of `X @ coefficient_matrix`: the one-hot response's
+    column means for a PLS-DA, the discriminant intercepts for an LDA (#276)."""
+
+    training_classes: list[int] = field(default_factory=list)
+    """A kNN's calibration rows' classes, as indices into `classes`, beside
+    `scores`: the neighbours every later sample is measured against (#277)."""
+
+    k: int | None = None
+    """A kNN's neighbour count; `None` for every other estimator."""
+
+    simca: dict[str, Any] = field(default_factory=dict)
+    """A SIMCA's class models and its decisions per set (`simca.md` §5, #275).
+    Empty for every other estimator. A SIMCA has no single X model, so the
+    shared scores, loadings and limits above are empty and zero for it."""
 
     confusion: dict[str, list[list[int]]] = field(default_factory=dict)
     """`calibration`, and below a split `cross_validation` and `held_out`: rows
@@ -555,6 +608,15 @@ def execute(
             if consumers[parent] <= 0:
                 states.pop(parent, None)
 
+    if below := pipeline.estimator_inputs():
+        node_id, estimator = below[0]
+        # #296: a pipeline saved before the write refused this still loads,
+        # and would otherwise fail below with a bare KeyError.
+        raise ExecutorError(
+            f"node {node_id!r} takes its input from the estimator {estimator!r}, which "
+            "produces a model, not spectra. Connect it to the step above instead.",
+            node_id,
+        )
     ordered = _topological(pipeline)
     completed = 0
 
@@ -586,7 +648,7 @@ def execute(
 
         key = keys[node.id]
         parent = states[node.inputs[0]] if node.inputs else None
-        folds = _folds_for(node, parent, version.n_samples)
+        folds = _folds_for(node, parent, version)
 
         cached = _from_cache(path, index.get(key), folds) if use_cache else None
 
@@ -613,7 +675,12 @@ def execute(
             # array k times, and one file, and are read back once.
             arrays: list[NDArray[np.float64]] = []
             read_back: dict[str, NDArray[np.float64]] = {}
-            for values in _computed(node, parent, folds, path, version, axis):
+            # #312: the axis this step's input is on, which a selection above
+            # it has narrowed.
+            given = (
+                node_axis(pipeline, node.inputs[0], version) if node.type == "preprocess" else axis
+            )
+            for values in _computed(node, parent, folds, path, version, given):
                 array_path, content_hash = write_array(path, values)
                 del values
                 stored.append(array_path)
@@ -853,7 +920,9 @@ def _topological(pipeline: Pipeline) -> list[PipelineNode]:
     return ordered
 
 
-def _folds_for(node: PipelineNode, parent: _State | None, n_samples: int) -> list[Fold] | None:
+def _folds_for(
+    node: PipelineNode, parent: _State | None, version: DatasetVersion
+) -> list[Fold] | None:
     """The split governing a node: its own if it is one, else its input's."""
     if node.type != "split":
         return parent.folds if parent is not None else None
@@ -867,38 +936,53 @@ def _folds_for(node: PipelineNode, parent: _State | None, n_samples: int) -> lis
             node.id,
         )
 
+    n_samples = version.n_samples
     spec = node.spec
-    if isinstance(spec, TrainTestSplit):
-        if spec.stratify_by is not None:
-            raise ExecutorError(
-                f"node {node.id!r} asks to stratify by {spec.stratify_by!r}, which is not "
-                "implemented: metrics-and-validation.md section 8.7 defines it, and it arrives "
-                "with the class column PLS-DA needs (#185). Remove stratify_by to run this "
-                "split.",
-                node.id,
-            )
-        try:
+    stratify_by = spec.stratify_by if isinstance(spec, TrainTestSplit | KFoldSplit) else None
+    labels = None if stratify_by is None else _stratum_labels(version, node, stratify_by)
+    try:
+        if isinstance(spec, TrainTestSplit):
             # A hold-out, not a partition: `validate_partition` is §7's rule
             # for pooling residuals across folds and this has one.
+            if labels is not None:
+                return stratified_train_test(labels, spec.test_size, seed=spec.seed)
             return train_test(n_samples, spec.test_size, seed=spec.seed)
-        except ValueError as error:
-            raise ExecutorError(f"node {node.id!r} (train_test) failed: {error}", node.id) from (
-                error
+        if isinstance(spec, KFoldSplit):
+            folds = (
+                stratified_k_fold(labels, spec.n_splits, shuffle=spec.shuffle, seed=spec.seed)
+                if labels is not None
+                else k_fold(n_samples, spec.n_splits, shuffle=spec.shuffle, seed=spec.seed)
             )
-    if isinstance(spec, KFoldSplit):
-        folds = k_fold(n_samples, spec.n_splits, shuffle=spec.shuffle, seed=spec.seed)
-    elif isinstance(spec, LeaveOneOut):
-        folds = leave_one_out(n_samples)
-    else:
-        raise ExecutorError(
-            f"node {node.id!r} asks for the {spec.kind!r} split, which has no splitter "
-            "yet. K-fold, leave-one-out and train/test are implemented; repeated "
-            "K-fold and an external set are not.",
-            node.id,
+        elif isinstance(spec, LeaveOneOut):
+            folds = leave_one_out(n_samples)
+        else:
+            raise ExecutorError(
+                f"node {node.id!r} asks for the {spec.kind!r} split, which has no splitter "
+                "yet. K-fold, leave-one-out and train/test are implemented; repeated "
+                "K-fold and an external set are not.",
+                node.id,
+            )
+    except ValueError as error:
+        by = "" if stratify_by is None else f" stratified by {stratify_by!r}"
+        raise ExecutorError(f"node {node.id!r} ({spec.kind}{by}) failed: {error}", node.id) from (
+            error
         )
 
     validate_partition(folds, n_samples)
     return folds
+
+
+def _stratum_labels(version: DatasetVersion, node: PipelineNode, name: str) -> list[str]:
+    """The metadata column a split stratifies by, refused by name when absent (§8.7)."""
+    labels = version.metadata_columns.get(name)
+    if labels is None:
+        available = ", ".join(sorted(version.metadata_columns)) or "none"
+        raise ExecutorError(
+            f"node {node.id!r} stratifies by {name!r}, which this dataset does not carry as "
+            f"a metadata column. It has: {available}.",
+            node.id,
+        )
+    return labels
 
 
 def _computed(
@@ -1032,6 +1116,43 @@ def _estimator(
         write_json(stored, result.as_json())
         return result
 
+    if isinstance(node.spec, PCRSpec):
+        result = _fit_regression(
+            node,
+            "pcr",
+            node.spec.n_components,
+            node.spec.target,
+            _response(version, node, node.spec.target),
+            parent,
+            key,
+            matrix,
+            rows,
+            held_out,
+            fold,
+            estimator=PCR,
+        )
+        stored.parent.mkdir(parents=True, exist_ok=True)
+        write_json(stored, result.as_json())
+        return result
+
+    if isinstance(node.spec, KNNSpec):
+        result = _knn(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
+        stored.parent.mkdir(parents=True, exist_ok=True)
+        write_json(stored, result.as_json())
+        return result
+
+    if isinstance(node.spec, LDASpec):
+        result = _lda(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
+        stored.parent.mkdir(parents=True, exist_ok=True)
+        write_json(stored, result.as_json())
+        return result
+
+    if isinstance(node.spec, SIMCASpec):
+        result = _simca(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
+        stored.parent.mkdir(parents=True, exist_ok=True)
+        write_json(stored, result.as_json())
+        return result
+
     if isinstance(node.spec, PLSDASpec):
         result = _plsda(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
         stored.parent.mkdir(parents=True, exist_ok=True)
@@ -1136,7 +1257,7 @@ def _pls(
     `checks.py` warns separately when `X` has no centring above it.
     """
     response = _response(version, node, spec.target)
-    return _fit_pls1(
+    return _fit_regression(
         node,
         "pls",
         spec.n_components,
@@ -1151,7 +1272,7 @@ def _pls(
     )
 
 
-def _fit_pls1(
+def _fit_regression(
     node: PipelineNode,
     kind: str,
     n_components: int,
@@ -1163,11 +1284,13 @@ def _fit_pls1(
     rows: NDArray[np.intp],
     held_out: NDArray[np.intp],
     fold: int | None,
+    estimator: type[PLS] | type[PCR] = PLS,
 ) -> EstimatorResult:
-    """PLS1 on `response`, with every quantity `pls-regression.md` §13 names.
+    """PLS1 or PCR on `response`, with every quantity `pls-regression.md` §13 names.
 
-    Shared by a regression and a two-class PLS-DA, which is this on a dummy
-    response (`pls-da.md` §2). `kind` is only for the sentences.
+    Shared by a PLS regression, a two-class PLS-DA, which is this on a dummy
+    response (`pls-da.md` §2), and a PCR (`pcr.md`), which has the same
+    interface and no VIP. `kind` is only for the sentences.
     """
     if response.size != matrix.shape[0]:
         raise ExecutorError(
@@ -1182,7 +1305,7 @@ def _fit_pls1(
     y_mean = float(train_y.mean())
 
     try:
-        model = PLS(spec_components).fit(train_x - x_mean, train_y - y_mean)
+        model = estimator(spec_components).fit(train_x - x_mean, train_y - y_mean)
     except (ValueError, RuntimeError) as error:
         raise ExecutorError(f"node {node.id!r} ({kind}) failed: {error}", node.id) from error
 
@@ -1227,12 +1350,12 @@ def _fit_pls1(
     cross_validated = np.array([], dtype=np.float64)
     if parent.folds is not None and len(parent.folds) > 1:
         folds = parent.folds
-        curve = rmsecv_curve(parent.arrays, response, folds, a)
+        curve = rmsecv_curve(parent.arrays, response, folds, a, estimator)
         for index, value in enumerate(curve, start=1):
             metrics[f"rmsecv_a{index}"] = float(value)
         metrics["rmsecv"] = float(curve[-1])
 
-        cross_validated = cross_validated_predictions(parent.arrays, response, folds, a)
+        cross_validated = cross_validated_predictions(parent.arrays, response, folds, a, estimator)
         # §6: PRESS over the whole calibration set, against the full
         # calibration mean. Never a per-fold mean - packages differ on this and
         # it is what keeps Q2 and R2 on a common denominator.
@@ -1274,14 +1397,17 @@ def _fit_pls1(
         hotelling_t2_limit=float(model.hotelling_t2_limit(ALPHA)),
         spe=_values(model.spe(train_x - x_mean)),
         spe_limit=float(model.spe_limit(ALPHA)),
+        spe_limit_caveat=model.spe_limit_caveat() if isinstance(model, PCR) else None,
         target=target,
+        method=kind,
         observed=_values(train_y),
         predicted=_values(predicted),
         coefficients=_values(model.coefficients_),
         x_mean=_values(x_mean),
         y_mean=y_mean,
         y_loadings=_values(model.y_loadings_),
-        vip=_values(model.vip()),
+        # VIP is a PLS quantity: PCR's components are chosen without y (pcr.md §6).
+        vip=_values(model.vip()) if isinstance(model, PLS) else [],
         cross_validated_predicted=_values(cross_validated),
         metrics=metrics,
         held_out=[int(row) for row in held_out],
@@ -1295,37 +1421,31 @@ def _fit_pls1(
     )
 
 
-def _class_response(
-    version: DatasetVersion, node: PipelineNode, name: str
-) -> tuple[list[str], NDArray[np.float64]]:
-    """The two classes in Unicode order and the {0, 1} dummy response (`pls-da.md` §3).
+def _class_labels(
+    version: DatasetVersion, node: PipelineNode, name: str, kind: str = "plsda"
+) -> tuple[list[str], NDArray[np.intp]]:
+    """The classes in Unicode order and each sample's index into them (`pls-da.md` §3).
 
-    Refused here, by name, when the column is not in the dataset or does not
-    hold exactly two distinct values: three classes are PLS2, which
-    `pls-regression.md` §10 defers, and reducing them to two would be a model
-    nobody asked for.
+    Refused here, by name, when the column is not in the dataset or holds a
+    single value, which has nothing to separate.
     """
     labels = version.metadata_columns.get(name)
     if labels is None:
         available = ", ".join(sorted(version.metadata_columns)) or "none"
         raise ExecutorError(
-            f"node {node.id!r} (plsda) classifies by {name!r}, which this dataset does not "
+            f"node {node.id!r} ({kind}) classifies by {name!r}, which this dataset does not "
             f"carry as a metadata column. It has: {available}.",
             node.id,
         )
-    classes = sorted(set(labels))
-    if len(classes) != 2:
-        shown = ", ".join(repr(value) for value in classes[:6]) + (
-            ", …" if len(classes) > 6 else ""
-        )
+    classes = sorted({str(label) for label in labels})
+    if len(classes) < 2:
         raise ExecutorError(
-            f"node {node.id!r} (plsda) classifies by {name!r}, which has {len(classes)} distinct "
-            f"values ({shown}). Two-class PLS-DA needs exactly two (pls-da.md section 2); more "
-            "is PLS2, which is not in this build.",
+            f"node {node.id!r} ({kind}) classifies by {name!r}, which has one value "
+            f"({classes[0]!r} on every sample): there is nothing to separate.",
             node.id,
         )
-    response = np.asarray([1.0 if label == classes[1] else 0.0 for label in labels])
-    return classes, response
+    index = {label: position for position, label in enumerate(classes)}
+    return classes, np.asarray([index[str(label)] for label in labels], dtype=np.intp)
 
 
 def assign_classes(predicted: object) -> NDArray[np.intp]:
@@ -1333,29 +1453,58 @@ def assign_classes(predicted: object) -> NDArray[np.intp]:
     return (np.asarray(predicted, dtype=np.float64) >= 0.5).astype(np.intp)
 
 
-def confusion_matrix(observed: object, assigned: object) -> list[list[int]]:
-    """`pls-da.md` §6: rows observed, columns assigned, `[[TN, FP], [FN, TP]]`."""
+def confusion_matrix(observed: object, assigned: object, n_classes: int = 2) -> list[list[int]]:
+    """`classification.md` §2: rows observed, columns assigned, in `classes`
+    order. Two classes give `pls-da.md` §6's `[[TN, FP], [FN, TP]]`."""
     truth = np.asarray(observed, dtype=np.intp)
     guess = np.asarray(assigned, dtype=np.intp)
-
-    def count(o: int, g: int) -> int:
-        return int(np.count_nonzero((truth == o) & (guess == g)))
-
-    return [[count(0, 0), count(0, 1)], [count(1, 0), count(1, 1)]]
+    return [
+        [int(np.count_nonzero((truth == j) & (guess == k))) for k in range(n_classes)]
+        for j in range(n_classes)
+    ]
 
 
 def classification_metrics(confusion: list[list[int]], suffix: str = "") -> dict[str, float]:
-    """`pls-da.md` §6, with the "absent, never NaN" rule for an empty class."""
-    (tn, fp), (fn, tp) = confusion
-    total = tn + fp + fn + tp
+    """`classification.md` §3's flat metrics, absent rather than NaN.
+
+    Accuracy for any number of classes; two classes also keep `pls-da.md` §6's
+    sensitivity and specificity of the class coded 1.
+    """
+    matrix = np.asarray(confusion, dtype=np.int64)
     metrics: dict[str, float] = {}
-    if total:
-        metrics[f"accuracy{suffix}"] = (tp + tn) / total
-    if tp + fn:
-        metrics[f"sensitivity{suffix}"] = tp / (tp + fn)
-    if tn + fp:
-        metrics[f"specificity{suffix}"] = tn / (tn + fp)
+    if matrix.sum():
+        metrics[f"accuracy{suffix}"] = float(np.trace(matrix) / matrix.sum())
+    if matrix.shape == (2, 2):
+        (tn, fp), (fn, tp) = confusion
+        if tp + fn:
+            metrics[f"sensitivity{suffix}"] = tp / (tp + fn)
+        if tn + fp:
+            metrics[f"specificity{suffix}"] = tn / (tn + fp)
     return metrics
+
+
+def class_metrics(confusion: list[list[int]]) -> list[dict[str, float]]:
+    """`classification.md` §3's per-class table, one class against the rest.
+
+    A metric whose denominator is zero is left out of its class's entry.
+    """
+    matrix = np.asarray(confusion, dtype=np.int64)
+    total = int(matrix.sum())
+    table: list[dict[str, float]] = []
+    for j in range(matrix.shape[0]):
+        observed = int(matrix[j].sum())
+        assigned = int(matrix[:, j].sum())
+        others = total - observed
+        rejected = total - observed - assigned + int(matrix[j, j])
+        entry: dict[str, float] = {"n": float(observed)}
+        if observed:
+            entry["sensitivity"] = int(matrix[j, j]) / observed
+        if others:
+            entry["specificity"] = rejected / others
+        if assigned:
+            entry["precision"] = int(matrix[j, j]) / assigned
+        table.append(entry)
+    return table
 
 
 def _plsda(
@@ -1369,9 +1518,15 @@ def _plsda(
     fold: int | None,
     version: DatasetVersion,
 ) -> EstimatorResult:
-    """Two-class PLS-DA (#185): the regression fit on a dummy response, tallied."""
-    classes, response = _class_response(version, node, spec.class_column)
-    fitted = _fit_pls1(
+    """PLS-DA: two classes are PLS1 on a {0, 1} dummy (#185), three or more are
+    PLS2 on a one-hot response assigned by its largest column (#274)."""
+    classes, codes = _class_labels(version, node, spec.class_column)
+    if len(classes) > 2:
+        return _plsda_multiclass(
+            node, spec, parent, key, matrix, rows, held_out, fold, classes, codes
+        )
+    response = codes.astype(np.float64)
+    fitted = _fit_regression(
         node,
         "plsda",
         spec.n_components,
@@ -1412,6 +1567,388 @@ def _plsda(
         held_out_predicted_class=[int(value) for value in held_out_class],
         confusion=confusion,
         metrics=metrics,
+    )
+
+
+def _pooled_rmse(observed: NDArray[np.float64], predicted: NDArray[np.float64]) -> float:
+    """RMSE over every element of a one-hot response (`pls-da.md` §7)."""
+    return float(np.sqrt(np.mean((observed - predicted) ** 2)))
+
+
+def _plsda_multiclass(
+    node: PipelineNode,
+    spec: PLSDASpec,
+    parent: _State,
+    key: str,
+    matrix: NDArray[np.float64],
+    rows: NDArray[np.intp],
+    held_out: NDArray[np.intp],
+    fold: int | None,
+    classes: list[str],
+    codes: NDArray[np.intp],
+) -> EstimatorResult:
+    """`pls-da.md` §3 to §7 for N > 2: PLS2 on the one-hot response, each
+    prediction assigned to its largest column, tallied by `classification.md`.
+
+    The fitted model is fold zero's, as everywhere; the cross-validated
+    assignments and the dummy RMSECV curve are every fold's, each fold fitted
+    on its own preprocessed array (#173).
+    """
+    n_classes = len(classes)
+    response = np.eye(n_classes)[codes]
+    a = spec.n_components
+
+    def fit(values: NDArray[np.float64], train: NDArray[np.intp]) -> tuple[PLS2, Any, Any]:
+        x_mean = values[train].mean(axis=0)
+        y_mean = response[train].mean(axis=0)
+        try:
+            model = PLS2(a).fit(values[train] - x_mean, response[train] - y_mean)
+        except (ValueError, RuntimeError) as error:
+            raise ExecutorError(f"node {node.id!r} (plsda) failed: {error}", node.id) from error
+        return model, x_mean, y_mean
+
+    model, x_mean, y_mean = fit(matrix, rows)
+    fitted_a = model.n_components_ or a
+    centred = matrix[rows] - x_mean
+    predicted = model.predict(centred) + y_mean
+    assigned = predicted.argmax(axis=1)
+    confusion = {"calibration": confusion_matrix(codes[rows], assigned, n_classes)}
+    metrics = {**classification_metrics(confusion["calibration"])}
+    metrics["rmsec"] = _pooled_rmse(response[rows], predicted)
+
+    held_x = matrix[held_out] - x_mean
+    held_class = np.array([], dtype=np.intp)
+    if held_out.size:
+        held_predicted = model.predict(held_x) + y_mean
+        held_class = held_predicted.argmax(axis=1)
+        confusion["held_out"] = confusion_matrix(codes[held_out], held_class, n_classes)
+        metrics.update(classification_metrics(confusion["held_out"], "_p"))
+        metrics["rmsep"] = _pooled_rmse(response[held_out], held_predicted)
+
+    if parent.folds is not None and len(parent.folds) > 1:
+        # One fit per fold and A, as for PLS1 (#174): the first `k` components
+        # of an A-component NIPALS fit are the k-component fit.
+        curve = np.zeros((fitted_a, *response.shape))
+        for one, values in zip(parent.folds, parent.arrays, strict=True):
+            fold_model, fold_x, fold_y = fit(values, one.train)
+            scores = (values[one.test] - fold_x) @ fold_model._fitted("rotations_")
+            loadings = fold_model._fitted("y_loadings_")
+            for k in range(fitted_a):
+                width = min(k + 1, scores.shape[1])
+                curve[k][one.test] = scores[:, :width] @ loadings[:, :width].T + fold_y
+        for k in range(fitted_a):
+            metrics[f"rmsecv_a{k + 1}"] = _pooled_rmse(response, curve[k])
+        metrics["rmsecv"] = metrics[f"rmsecv_a{fitted_a}"]
+        confusion["cross_validation"] = confusion_matrix(codes, curve[-1].argmax(axis=1), n_classes)
+        metrics.update(classification_metrics(confusion["cross_validation"], "_cv"))
+
+    coefficients = model._fitted("coefficients_")
+    return EstimatorResult(
+        node_id=node.id,
+        key=key,
+        task="classification",
+        n_components=fitted_a,
+        n_samples=int(rows.size),
+        n_variables=int(matrix.shape[1]),
+        rank=fitted_a,
+        fold=fold,
+        rows=[int(row) for row in rows],
+        scores=_rows(model.x_scores_),
+        loadings=_rows(np.asarray(model.x_loadings_).T),
+        rotations=_rows(np.asarray(model.rotations_).T),
+        eigenvalues=_values(model.score_eigenvalues()),
+        explained_variance_ratio=_values(model.explained_variance_ratio("x")),
+        cumulative_explained_variance=_values(model.cumulative_explained_variance("x")),
+        y_explained_variance_ratio=_values(model.explained_variance_ratio("y")),
+        hotelling_t2=_values(model.hotelling_t2()),
+        hotelling_t2_limit=float(model.hotelling_t2_limit(ALPHA)),
+        spe=_values(model.spe(centred)),
+        spe_limit=float(model.spe_limit(ALPHA)),
+        target=spec.class_column,
+        method="plsda",
+        x_mean=_values(x_mean),
+        vip=_values(model.vip()),
+        coefficient_matrix=_rows(coefficients),
+        y_means=_values(y_mean),
+        classes=classes,
+        predicted_class=[int(value) for value in assigned],
+        held_out_predicted_class=[int(value) for value in held_class],
+        confusion=confusion,
+        metrics=metrics,
+        held_out=[int(row) for row in held_out],
+        held_out_scores=_rows(model.transform(held_x)) if held_out.size else [],
+        held_out_hotelling_t2=_values(model.hotelling_t2(held_x)) if held_out.size else [],
+        held_out_spe=_values(model.spe(held_x)) if held_out.size else [],
+    )
+
+
+def _knn(
+    node: PipelineNode,
+    spec: KNNSpec,
+    parent: _State,
+    key: str,
+    matrix: NDArray[np.float64],
+    rows: NDArray[np.intp],
+    held_out: NDArray[np.intp],
+    fold: int | None,
+    version: DatasetVersion,
+) -> EstimatorResult:
+    """`knn.md`: PCA-kNN, tallied by `classification.md`, fold zero's model."""
+    classes, codes = _class_labels(version, node, spec.class_column, kind="knn")
+    n_classes = len(classes)
+
+    def fit(values: NDArray[np.float64], train: NDArray[np.intp]) -> KNN:
+        try:
+            return KNN(spec.k, spec.n_components).fit(values[train], codes[train], n_classes)
+        except ValueError as error:
+            raise ExecutorError(f"node {node.id!r} (knn) failed: {error}", node.id) from error
+
+    model = fit(matrix, rows)
+    assigned = model.predict(matrix[rows])
+    confusion = {"calibration": confusion_matrix(codes[rows], assigned, n_classes)}
+    metrics = classification_metrics(confusion["calibration"])
+    held_class = np.array([], dtype=np.intp)
+    if held_out.size:
+        held_class = model.predict(matrix[held_out])
+        confusion["held_out"] = confusion_matrix(codes[held_out], held_class, n_classes)
+        metrics.update(classification_metrics(confusion["held_out"], "_p"))
+    if parent.folds is not None and len(parent.folds) > 1:
+        cv = np.empty(matrix.shape[0], dtype=np.intp)
+        for one, values in zip(parent.folds, parent.arrays, strict=True):
+            cv[one.test] = fit(values, one.train).predict(values[one.test])
+        confusion["cross_validation"] = confusion_matrix(codes, cv, n_classes)
+        metrics.update(classification_metrics(confusion["cross_validation"], "_cv"))
+
+    pca = model.pca_
+    x_mean = np.asarray(model.x_mean_)
+    centred = matrix[rows] - x_mean
+    held_x = matrix[held_out] - x_mean
+    return EstimatorResult(
+        node_id=node.id,
+        key=key,
+        task="classification",
+        n_components=spec.n_components,
+        n_samples=int(rows.size),
+        n_variables=int(matrix.shape[1]),
+        rank=spec.n_components,
+        fold=fold,
+        rows=[int(row) for row in rows],
+        # The PCA front's (knn.md section 4); the calibration scores are also
+        # the neighbours, with their classes in `training_classes`.
+        scores=_rows(pca.transform(centred)),
+        loadings=_rows(np.asarray(pca.loadings_).T),
+        rotations=_rows(np.asarray(pca.loadings_).T),
+        eigenvalues=_values(np.asarray(pca.eigenvalues_)[: spec.n_components]),
+        explained_variance_ratio=_values(pca.explained_variance_ratio()),
+        cumulative_explained_variance=_values(pca.cumulative_explained_variance()),
+        hotelling_t2=_values(pca.hotelling_t2(centred)),
+        hotelling_t2_limit=float(pca.hotelling_t2_limit(ALPHA)),
+        spe=_values(pca.spe(centred)),
+        spe_limit=float(pca.spe_limit(ALPHA)),
+        spe_limit_caveat=pca.spe_limit_caveat(),
+        target=spec.class_column,
+        method="knn",
+        x_mean=_values(x_mean),
+        classes=classes,
+        training_classes=[int(value) for value in codes[rows]],
+        k=spec.k,
+        predicted_class=[int(value) for value in assigned],
+        held_out_predicted_class=[int(value) for value in held_class],
+        confusion=confusion,
+        metrics=metrics,
+        held_out=[int(row) for row in held_out],
+        held_out_scores=_rows(pca.transform(held_x)) if held_out.size else [],
+        held_out_hotelling_t2=_values(pca.hotelling_t2(held_x)) if held_out.size else [],
+        held_out_spe=_values(pca.spe(held_x)) if held_out.size else [],
+    )
+
+
+def _lda(
+    node: PipelineNode,
+    spec: LDASpec,
+    parent: _State,
+    key: str,
+    matrix: NDArray[np.float64],
+    rows: NDArray[np.intp],
+    held_out: NDArray[np.intp],
+    fold: int | None,
+    version: DatasetVersion,
+) -> EstimatorResult:
+    """`lda.md`: PCA-LDA, tallied by `classification.md`, fold zero's model."""
+    classes, codes = _class_labels(version, node, spec.class_column, kind="lda")
+    n_classes = len(classes)
+
+    def fit(values: NDArray[np.float64], train: NDArray[np.intp]) -> LDA:
+        try:
+            return LDA(spec.n_components).fit(values[train], codes[train], n_classes)
+        except ValueError as error:
+            named = str(error)
+            for k, name in enumerate(classes):
+                named = named.replace(f"class {k} ", f"class {name!r} ")
+            raise ExecutorError(f"node {node.id!r} (lda) failed: {named}", node.id) from error
+
+    model = fit(matrix, rows)
+    assigned = model.predict(matrix[rows])
+    confusion = {"calibration": confusion_matrix(codes[rows], assigned, n_classes)}
+    metrics = classification_metrics(confusion["calibration"])
+    held_class = np.array([], dtype=np.intp)
+    if held_out.size:
+        held_class = model.predict(matrix[held_out])
+        confusion["held_out"] = confusion_matrix(codes[held_out], held_class, n_classes)
+        metrics.update(classification_metrics(confusion["held_out"], "_p"))
+    if parent.folds is not None and len(parent.folds) > 1:
+        cv = np.empty(matrix.shape[0], dtype=np.intp)
+        for one, values in zip(parent.folds, parent.arrays, strict=True):
+            cv[one.test] = fit(values, one.train).predict(values[one.test])
+        confusion["cross_validation"] = confusion_matrix(codes, cv, n_classes)
+        metrics.update(classification_metrics(confusion["cross_validation"], "_cv"))
+
+    pca = model.pca_
+    x_mean = np.asarray(model.x_mean_)
+    centred = matrix[rows] - x_mean
+    held_x = matrix[held_out] - x_mean
+    eigenvalues = np.asarray(pca.eigenvalues_)[: spec.n_components]
+    return EstimatorResult(
+        node_id=node.id,
+        key=key,
+        task="classification",
+        n_components=spec.n_components,
+        n_samples=int(rows.size),
+        n_variables=int(matrix.shape[1]),
+        rank=spec.n_components,
+        fold=fold,
+        rows=[int(row) for row in rows],
+        # The PCA front's (lda.md section 5): what the scores and diagnostics
+        # panels draw. The discriminant itself is the coefficient matrix.
+        scores=_rows(pca.transform(centred)),
+        loadings=_rows(np.asarray(pca.loadings_).T),
+        rotations=_rows(np.asarray(pca.loadings_).T),
+        eigenvalues=_values(eigenvalues),
+        explained_variance_ratio=_values(pca.explained_variance_ratio()),
+        cumulative_explained_variance=_values(pca.cumulative_explained_variance()),
+        hotelling_t2=_values(pca.hotelling_t2(centred)),
+        hotelling_t2_limit=float(pca.hotelling_t2_limit(ALPHA)),
+        spe=_values(pca.spe(centred)),
+        spe_limit=float(pca.spe_limit(ALPHA)),
+        spe_limit_caveat=pca.spe_limit_caveat(),
+        target=spec.class_column,
+        method="lda",
+        x_mean=_values(x_mean),
+        coefficient_matrix=_rows(np.asarray(model.coefficients_)),
+        y_means=_values(np.asarray(model.intercepts_)),
+        classes=classes,
+        predicted_class=[int(value) for value in assigned],
+        held_out_predicted_class=[int(value) for value in held_class],
+        confusion=confusion,
+        metrics=metrics,
+        held_out=[int(row) for row in held_out],
+        held_out_scores=_rows(pca.transform(held_x)) if held_out.size else [],
+        held_out_hotelling_t2=_values(pca.hotelling_t2(held_x)) if held_out.size else [],
+        held_out_spe=_values(pca.spe(held_x)) if held_out.size else [],
+    )
+
+
+def _simca(
+    node: PipelineNode,
+    spec: SIMCASpec,
+    parent: _State,
+    key: str,
+    matrix: NDArray[np.float64],
+    rows: NDArray[np.intp],
+    held_out: NDArray[np.intp],
+    fold: int | None,
+    version: DatasetVersion,
+) -> EstimatorResult:
+    """`simca.md`: one PCA per class, decisions per set, fold zero's models."""
+    classes, codes = _class_labels(version, node, spec.class_column, kind="simca")
+    n_classes = len(classes)
+
+    def fit(values: NDArray[np.float64], train: NDArray[np.intp]) -> SIMCA:
+        try:
+            return SIMCA(spec.n_components, ALPHA).fit(values[train], codes[train], n_classes)
+        except ValueError as error:
+            named = str(error)
+            for k, name in enumerate(classes):
+                named = named.replace(f"class {k} ", f"class {name!r} ")
+            raise ExecutorError(f"node {node.id!r} (simca) failed: {named}", node.id) from error
+
+    def decided(
+        model: SIMCA, values: NDArray[np.float64], picked: NDArray[np.intp]
+    ) -> dict[str, Any]:
+        distances = model.distances(values[picked])
+        table, none = acceptance_table(codes[picked], distances <= 1.0)
+        sizes = [int(np.count_nonzero(codes[picked] == k)) for k in range(n_classes)]
+        return {
+            "rows": [int(row) for row in picked],
+            "distances": _rows(distances),
+            "table": table,
+            "none": none,
+            "sizes": sizes,
+        }
+
+    model = fit(matrix, rows)
+    sets = {"calibration": decided(model, matrix, rows)}
+    metrics = simca_metrics(sets["calibration"]["table"], sets["calibration"]["sizes"])
+    if held_out.size:
+        sets["held_out"] = decided(model, matrix, held_out)
+        metrics.update(simca_metrics(sets["held_out"]["table"], sets["held_out"]["sizes"], "_p"))
+    if parent.folds is not None and len(parent.folds) > 1:
+        distances = np.zeros((matrix.shape[0], n_classes))
+        for one, values in zip(parent.folds, parent.arrays, strict=True):
+            distances[one.test] = fit(values, one.train).distances(values[one.test])
+        everyone = np.arange(matrix.shape[0], dtype=np.intp)
+        table, none = acceptance_table(codes, distances <= 1.0)
+        sizes = [int(np.count_nonzero(codes == k)) for k in range(n_classes)]
+        sets["cross_validation"] = {
+            "rows": [int(row) for row in everyone],
+            "distances": _rows(distances),
+            "table": table,
+            "none": none,
+            "sizes": sizes,
+        }
+        metrics.update(simca_metrics(table, sizes, "_cv"))
+
+    fitted = model.models_ or []
+    return EstimatorResult(
+        node_id=node.id,
+        key=key,
+        task="classification",
+        n_components=spec.n_components,
+        n_samples=int(rows.size),
+        n_variables=int(matrix.shape[1]),
+        rank=spec.n_components,
+        fold=fold,
+        rows=[int(row) for row in rows],
+        scores=[],
+        loadings=[],
+        eigenvalues=[],
+        explained_variance_ratio=[],
+        cumulative_explained_variance=[],
+        hotelling_t2=[],
+        hotelling_t2_limit=0.0,
+        spe=[],
+        spe_limit=0.0,
+        target=spec.class_column,
+        method="simca",
+        classes=classes,
+        held_out=[int(row) for row in held_out],
+        metrics=metrics,
+        simca={
+            "models": [
+                {
+                    "class": name,
+                    "n_samples": one.n_samples,
+                    "t2_limit": one.t2_limit,
+                    "q_limit": one.q_limit,
+                    "spe_limit_caveat": one.pca.spe_limit_caveat(),
+                    "mean": _values(one.mean),
+                    "loadings": _rows(np.asarray(one.pca.loadings_).T),
+                    "eigenvalues": _values(np.asarray(one.pca.eigenvalues_)[: spec.n_components]),
+                }
+                for name, one in zip(classes, fitted, strict=True)
+            ],
+            "sets": sets,
+        },
     )
 
 
@@ -1485,7 +2022,7 @@ def stored_display(
         except ProjectError:
             pass
     by_id = {node.id: node for node in pipeline.nodes}
-    folds = governing_folds(node_id, by_id, version.n_samples)
+    folds = governing_folds(node_id, by_id, version)
     state = _from_cache(path, paths, folds)
     return None if state is None else state.display
 
@@ -1511,8 +2048,77 @@ def stored_fitted_matrix(
     paths = read_cache_index(path).get(node_keys(pipeline, version)[parent])
     if not paths:
         return None
-    state = _from_cache(path, paths, governing_folds(parent, by_id, version.n_samples))
+    state = _from_cache(path, paths, governing_folds(parent, by_id, version))
     return None if state is None else state.arrays[0]
+
+
+def node_axis(pipeline: Pipeline, node_id: NodeId, version: DatasetVersion) -> NDArray[np.float64]:
+    """The axis a node's output is on, which is not always the dataset's.
+
+    `RangeSelect` and `SelectVariables` (#280) change the variable count, so a node
+    under one is on a shorter axis than the `DatasetVersion` records and every
+    payload that pairs the two has to know it, and so does the executor: each
+    step is built with its input's axis, not the dataset's (#312). No per-node
+    axis is stored - a second thing beside the cached arrays would have to
+    stay consistent with them - so this derives it instead, from the recipe.
+
+    That derivation is free of the executor's guarantees precisely because it
+    is a pure function of the pipeline: it reads no array, writes nothing, and
+    cannot move a content hash or invalidate a cache entry.
+
+    Every non-source node holds exactly one input, so the ancestry is a chain
+    rather than a tree and the selections apply in order down it. The mask is
+    taken from the step's `Selection` transformer rather than restated here, so the
+    interval's meaning — inclusive bounds, either axis direction, an empty
+    selection refused — is stated once.
+    """
+    by_id = {node.id: node for node in pipeline.nodes}
+    chain: list[PipelineNode] = []
+    current = node_id
+    while True:
+        node = by_id[current]
+        chain.append(node)
+        if not node.inputs:
+            break
+        current = node.inputs[0]
+
+    axis = np.asarray(version.axis.values, dtype=np.float64)
+    for node in reversed(chain):
+        if node.type != "preprocess" or not isinstance(node.step, RangeSelect | SelectVariables):
+            continue
+        transformer = preprocessing.from_spec(node.step, axis=axis)
+        assert isinstance(transformer, preprocessing.Selection)
+        # Fitting a range selection needs the axis and the variable count, not
+        # the data: `_fit` reads `X.shape[1]` and nothing else. One empty row
+        # supplies the width without loading an array this function has no
+        # reason to read.
+        transformer.fit(np.zeros((1, axis.size)))
+        axis = transformer.selected_axis()
+    return axis
+
+
+def stored_fold_matrices(
+    directory: str | Path, pipeline: Pipeline, version: DatasetVersion, node_id: NodeId
+) -> tuple[list[NDArray[np.float64]], list[Fold]] | None:
+    """An estimator's input as every fold saw it, and the folds (#282).
+
+    Below a split each preprocessing node is refitted per training fold, so a
+    method that cross-validates on the estimator's input - iPLS - needs fold
+    `i`'s own matrix for fold `i`. `None` when the node is not an estimator,
+    its input has not been run, or there is no split above it.
+    """
+    path = Path(directory)
+    by_id = {node.id: node for node in pipeline.nodes}
+    node = by_id.get(node_id)
+    if node is None or node.type != "estimator":
+        return None
+    parent = node.inputs[0]
+    folds = governing_folds(parent, by_id, version)
+    paths = read_cache_index(path).get(node_keys(pipeline, version)[parent])
+    if not paths or folds is None:
+        return None
+    state = _from_cache(path, paths, folds)
+    return None if state is None else (list(state.arrays), folds)
 
 
 def stored_result(
@@ -1543,16 +2149,17 @@ def governing_split(node_id: NodeId, by_id: dict[NodeId, PipelineNode]) -> Pipel
 
 
 def governing_folds(
-    node_id: NodeId, by_id: dict[NodeId, PipelineNode], n_samples: int
+    node_id: NodeId, by_id: dict[NodeId, PipelineNode], version: DatasetVersion
 ) -> list[Fold] | None:
     """The split above a node, resolved again from its spec.
 
-    Recomputed rather than stored: a `SplitSpec` and `n` determine the folds
-    entirely (`metrics-and-validation.md` §8), so deriving them is cheaper than
-    keeping a second copy that can disagree with the recipe.
+    Recomputed rather than stored: a `SplitSpec` and the dataset version - its
+    `n`, and the column a stratified split reads - determine the folds entirely
+    (`metrics-and-validation.md` §8), so deriving them is cheaper than keeping a
+    second copy that can disagree with the recipe.
     """
     split = governing_split(node_id, by_id)
-    return None if split is None else _folds_for(split, None, n_samples)
+    return None if split is None else _folds_for(split, None, version)
 
 
 # --- the cache index ------------------------------------------------------

@@ -52,6 +52,32 @@ export const STEPS: DraftableStep[] = [
       step: { kind: "savgol", window_length: 11, polyorder: 2, deriv: 1 },
     },
   },
+  // #271: smoothers without a derivative. The defaults are the parity
+  // fixture's (smoothing-and-baselines.md section 10.4).
+  {
+    kind: "Moving avg w5",
+    type: "preprocess",
+    parameters: "window 5",
+    payload: { step: { kind: "moving_average", window_length: 5 } },
+  },
+  {
+    kind: "Median w5",
+    type: "preprocess",
+    parameters: "window 5",
+    payload: { step: { kind: "median", window_length: 5 } },
+  },
+  {
+    kind: "Gaussian σ1.5",
+    type: "preprocess",
+    parameters: "sigma 1.5",
+    payload: { step: { kind: "gaussian", sigma: 1.5 } },
+  },
+  {
+    kind: "Whittaker λ100",
+    type: "preprocess",
+    parameters: "lambda 100",
+    payload: { step: { kind: "whittaker", lam: 100 } },
+  },
   {
     kind: "Mean centre",
     type: "preprocess",
@@ -100,10 +126,16 @@ export function stepMenu(targets: string[], classColumns: string[] = []): Catalo
             parameters: `5 components · ${target}`,
             payload: { spec: { kind: "pls", n_components: 5, algorithm: "nipals", target } },
           },
+          {
+            kind: "PCR 5 PC",
+            type: "estimator" as const,
+            parameters: `5 components · ${target}`,
+            payload: { spec: { kind: "pcr", n_components: 5, target } },
+          },
         ]
       : []),
-    // Two-class only (#185, pls-da.md section 2): offered when the dataset
-    // has a metadata column with exactly two values, and it models the first.
+    // Offered when the dataset has a metadata column with two or more values
+    // (#185, #274, pls-da.md section 2), and it models the first.
     ...(classColumn
       ? [
           {
@@ -113,6 +145,24 @@ export function stepMenu(targets: string[], classColumns: string[] = []): Catalo
             payload: {
               spec: { kind: "plsda", n_components: 5, algorithm: "nipals", class_column: classColumn },
             },
+          },
+          {
+            kind: "LDA 5 PC",
+            type: "estimator" as const,
+            parameters: `5 components · ${classColumn}`,
+            payload: { spec: { kind: "lda", n_components: 5, class_column: classColumn } },
+          },
+          {
+            kind: "kNN k5",
+            type: "estimator" as const,
+            parameters: `k 5 · 5 components · ${classColumn}`,
+            payload: { spec: { kind: "knn", k: 5, n_components: 5, class_column: classColumn } },
+          },
+          {
+            kind: "SIMCA 3 PC",
+            type: "estimator" as const,
+            parameters: `3 components · ${classColumn}`,
+            payload: { spec: { kind: "simca", n_components: 3, class_column: classColumn } },
           },
         ]
       : []),

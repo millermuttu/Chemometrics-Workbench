@@ -72,6 +72,8 @@ Every field is required unless it is marked optional. `null` means *this quantit
 | `target` | string or null | The response modelled, for a regression; the class column, for a classification |
 | `classes` | array of string or null | `pls-da.md` §3's `[C_0, C_1]`, for a classification |
 | `y_mean` | number or null | The response mean the estimator subtracted before fitting and adds back to every prediction (`pls-regression.md` §3). `null` for a decomposition |
+| `k` | int or null | A kNN's neighbour count; `null` otherwise |
+| `simca` | array or null | For a SIMCA, one `{class, n_samples, t2_limit, q_limit}` per class in `classes` order (`simca.md` §3); `null` otherwise |
 | `alpha` | number | The confidence level the limits are quoted at |
 | `hotelling_t2_limit` | number | |
 | `spe_limit` | number | |
@@ -85,6 +87,8 @@ Every field is required unless it is marked optional. `null` means *this quantit
 | `content_hash` | string | Its content hash. **A dataset identified by its contents, never its filename** (`PROPOSAL.md` §8) |
 | `n_samples`, `n_variables` | int | The dataset's own, before any range selection |
 | `axis` | object | `{kind, unit}` of the dataset's variable axis. The values are in `arrays/dataset_axis.npy` |
+| `derived_from` | string or null | The version this one was cut from by an exclusion (#270), else null. Absent from an artifact written before it |
+| `excluded_samples` | int list | That version's rows left out, as positional indices into it; empty when nothing was excluded |
 
 ### 6. `split`
 
@@ -115,7 +119,11 @@ Which arrays are present depends on the task. A reader must not assume any of th
 | `explained_variance_ratio` | `(A,)` | all | |
 | `rotations` | `(A, n_variables)` | all | `R`, what a row is multiplied by to get its scores. PCA's are its loadings |
 | `x_mean` | `(n_variables,)` | regression, classification | The column means the estimator subtracted before fitting (`pls-regression.md` §3). Not a pipeline node's centring — this is the estimator's own |
-| `coefficients` | `(n_variables,)` | regression, classification | `b = Rq` on the node's matrix |
+| `coefficients` | `(n_variables,)` | regression, two-class classification | `b = Rq` on the node's matrix |
+| `coefficient_matrix` | `(n_variables, N)` | classification of three or more classes | `B = RQ'`, one column per class (#274) |
+| `y_means` | `(N,)` | classification of three or more classes | The one-hot response's column means, added back to every prediction |
+| `knn_scores`, `knn_classes` | `(n, A)`, `(n,)` | kNN | The neighbours: the calibration rows' scores and their classes as indices into `classes` (#277, `knn.md` §6). With `x_mean` and `loadings` they are the whole model |
+| `simca_<k>_mean`, `simca_<k>_loadings`, `simca_<k>_eigenvalues` | `(p,)`, `(A, p)`, `(A,)` | SIMCA | Class `classes[k]`'s centre, PCA loadings and retained eigenvalues (#275, `simca.md` §7). Its limits are in `model.simca` |
 | `y_loadings` | `(A,)` | regression, classification | |
 | `vip` | `(n_variables,)` | regression, classification | `pls-regression.md` §8 |
 | `y_explained_variance_ratio` | `(A,)` | regression, classification | |
@@ -135,7 +143,7 @@ t     = (x - x_mean) @ rotations'
 y_hat = (x - x_mean) @ coefficients + y_mean
 ```
 
-and for a classification, `pls-da.md` §5 assigns `classes[1]` when `y_hat >= 0.5`.
+and for a two-class classification, `pls-da.md` §5 assigns `classes[1]` when `y_hat >= 0.5`. Three or more classes use `(x - x_mean) @ coefficient_matrix + y_means` and take the largest column.
 
 **The preprocessing is not folded into the coefficients here.** `pls-regression.md` §7 folds it where the chain is a fixed linear map and says by name where it is not; that transformation belongs to the export, which states which form it produced. The artifact carries `b` on the node's own matrix, which is the number the model was fitted with, and the pipeline beside it.
 

@@ -187,9 +187,13 @@ with the sample standard deviation across repeats as `rmsecv_std` in `extra`. Th
 
 ### 8.7 Stratification
 
-`TrainTestSplit.stratify_by` names a metadata column. The rows are grouped by its value, each group is permuted with the same seeded generator, and the test set takes $\lceil \texttt{test\_size} \cdot n_g \rceil$ from each group $g$ — so the test proportion is honoured within every level, up to rounding. A group with fewer than 2 members is an error naming the column and the level.
+`TrainTestSplit.stratify_by` and `KFoldSplit.stratify_by` name a metadata column. The rows are grouped by its value, the groups taken in Unicode order of the value, and each group's row indices (ascending) are permuted in turn by **one** generator, `numpy.random.default_rng(seed)`, so the whole assignment follows from the seed. With `shuffle=False` (K-fold only) the groups are left in row order. A group with fewer than 2 members is an error naming the column and the level: it cannot be both fitted on and held out. A column the dataset does not carry is an error naming the ones it does.
 
-**K-fold has no stratification in v1.** `KFoldSplit` and `RepeatedKFoldSplit` carry no `stratify_by` field, and inventing one in the executor would put behaviour in the run that is absent from the recipe. Adding it is a schema change and a new issue, not an implementation detail.
+**Train/test.** The test set takes the first $\lceil \texttt{test\_size} \cdot n_g \rceil$ of each permuted group $g$, so the test proportion is honoured within every level, up to rounding. A test size that would take every member of a group is an error naming the level.
+
+**K-fold** ([#268](https://github.com/millermuttu/Chemometrics-Workbench/issues/268)). The permuted groups are laid end to end, and position $i$ of that sequence goes to fold $i \bmod K$. Every fold then holds $n_g / K$ of each level, give or take one, and fold sizes differ by at most one, as in §8.3, though which folds take the extra member is set by this rule rather than §8.3's. A level with fewer than $K$ members is absent from some validation folds; that is allowed and is not an error. This is not scikit-learn's `StratifiedKFold` assignment, which the parity report states. The field is left out of a K-fold's serialisation when unset, so a K-fold recorded before it existed keeps its cache key. `RepeatedKFoldSplit` is not stratified.
+
+Unshuffled example: labels `a, b, a, b` and $K = 2$. The groups are `a: 0, 2` and `b: 1, 3`, the sequence is `0, 2, 1, 3`, and the folds hold out `0, 1` and `2, 3`.
 
 Continuous responses are not stratified. Binning a response to balance folds is a defensible technique with an arbitrary bin count that would have to be recorded, and it is out of scope for v1.
 
@@ -207,6 +211,7 @@ Continuous responses are not stratified. Binning a response to balance folds is 
 | --- | --- | --- |
 | `SavitzkyGolay`, `SNV`, `Normalise`, `BaselineCorrect` | legitimate | row-wise: each spectrum is transformed from itself alone |
 | `RangeSelect` | legitimate | selects columns by the axis, which is the dataset's, not the sample set's |
+| `SelectVariables` | legitimate as a step | keeps fixed column positions and fits nothing. The positions themselves may have been chosen by looking at every sample - a VIP threshold, iPLS or CARS run on the whole set - and that leak is in how they were chosen, not in the step, so it is warned about where the selection is made |
 | `MeanCentre`, `Autoscale` | **leak** | the column statistics are estimated across samples |
 | `MSC` | **leak** | the reference spectrum — the mean or the median across the fit set — is estimated across samples, and every sample is regressed against it |
 
@@ -285,5 +290,5 @@ Recorded so the parity report can classify them as *differs by documented conven
 - **Classification metrics** — accuracy, sensitivity, specificity, confusion matrices. They arrive with PLS-DA.
 - **Slope-and-bias correction and other model updating** — post-1.0.
 - **Automatic selection of $A$**, including the one-standard-error rule and Wold's R. A workflow question; see [`pls-regression.md` §11](pls-regression.md).
-- **Stratified K-fold and continuous-response binning** — a schema change first (§8.7).
+- **Continuous-response binning** for stratification, and stratified repeated K-fold (§8.7).
 - **Nested cross-validation** — needed only once something is tuned inside the loop, and nothing is in v1.

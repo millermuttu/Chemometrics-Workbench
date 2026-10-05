@@ -74,6 +74,22 @@ describe("nodes", () => {
     expect(parameterLine(normalise)).toBe("l2 norm per row");
   });
 
+  it("name an applied selection by how many variables it kept", () => {
+    // #280: the step VIP, iPLS and CARS write when a selection is applied.
+    const selected: PipelineNode = {
+      id: "select",
+      type: "preprocess",
+      inputs: ["source"],
+      step: { kind: "select_variables", indices: [3, 10, 11, 40] },
+    };
+    expect(nodeLabel(selected)).toBe("Select 4 vars");
+    expect(parameterLine(selected)).toBe("4 variables kept");
+    // #283: and by what chose them, when something did.
+    expect(
+      nodeLabel({ ...selected, step: { ...selected.step!, chosen_by: "cars" } }),
+    ).toBe("Select 4 vars · CARS");
+  });
+
   it("carry the reason and the failure as footers, because that is the useful part", () => {
     expect(nodeStateOf("savgol", state).footer).toBe("edited - downstream stale");
     expect(nodeStateOf("pca_d", state).footer).toContain("rank 4");
@@ -183,6 +199,24 @@ describe("withDrafts", () => {
     };
     const nodes = withDrafts([source, centre], [snv]);
     expect(nodes[2].inputs).toEqual(["centre"]);
+  });
+
+  it("never chains a step below an estimator, saved or drafted (#296)", () => {
+    const saved: PipelineNode[] = [
+      source,
+      { id: "snv", type: "preprocess", inputs: ["source"], step: { kind: "snv" } },
+      { id: "pca", type: "estimator", inputs: ["snv"], spec: { kind: "pca", n_components: 5 } },
+    ];
+    const below = withDrafts(saved, [snv]);
+    expect(below[3].inputs).toEqual(["snv"]);
+
+    const drafted = withDrafts([source], [snv, pca, snv]);
+    expect(drafted.map((node) => [node.id, node.inputs])).toEqual([
+      ["source", []],
+      ["snv", ["source"]],
+      ["pca", ["snv"]],
+      ["snv_2", ["snv"]],
+    ]);
   });
 
   it("does not collide ids when the same step is added twice", () => {

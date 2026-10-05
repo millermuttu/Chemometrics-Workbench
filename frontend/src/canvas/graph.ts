@@ -60,12 +60,21 @@ export function parameterLine(node: PipelineNode): string {
   switch (kind) {
     case "savgol":
       return `window ${step!.window_length} · poly ${step!.polyorder} · deriv ${step!.deriv}`;
+    case "moving_average":
+    case "median":
+      return `window ${step!.window_length}`;
+    case "gaussian":
+      return `sigma ${step!.sigma}`;
+    case "whittaker":
+      return `lambda ${step!.lam}`;
     case "msc":
       return `reference: ${step!.reference}`;
     case "autoscale":
       return `ddof ${step!.ddof}`;
     case "normalise":
       return `${step!.norm} norm per row`;
+    case "select_variables":
+      return `${(step!.indices as number[]).length} variables kept`;
     case "kfold":
       return `${spec!.n_splits} folds · ${spec!.shuffle ? "shuffle · " : ""}seed ${spec!.seed}`;
     case "train_test":
@@ -73,8 +82,13 @@ export function parameterLine(node: PipelineNode): string {
     case "pca":
       return `${spec!.n_components} components`;
     case "pls":
+    case "pcr":
       return `${spec!.n_components} components · ${spec!.target}`;
+    case "knn":
+      return `k ${spec!.k} · ${spec!.n_components} components · ${spec!.class_column}`;
     case "plsda":
+    case "simca":
+    case "lda":
       return `${spec!.n_components} components · ${spec!.class_column}`;
     case "snv":
       return "population statistics per row";

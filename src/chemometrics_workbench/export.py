@@ -42,6 +42,7 @@ from chemometrics_workbench.models import (
     SNV,
     BaselineCorrect,
     DatasetVersion,
+    MedianFilter,
     Normalise,
     Pipeline,
     PreprocessNode,
@@ -66,7 +67,10 @@ THRESHOLD = 0.5
 
 #: The unfoldable steps a snippet can re-execute: each is a few lines of NumPy
 #: on one row. A baseline is deliberately absent - §1.
-EXPORTABLE_RESIDUAL = (SNV, MSC, Normalise)
+EXPORTABLE_RESIDUAL = (SNV, MSC, Normalise, MedianFilter)
+
+#: What a SIMCA class model carries into the export (`simca.md` §3).
+_SIMCA_KEYS = ("class", "mean", "loadings", "eigenvalues", "t2_limit", "q_limit")
 
 
 class ExportError(Exception):
@@ -117,37 +121,23 @@ def json_model(
         steps.append(_step_payload(node, transformer))
         values = transformer.transform(values)
 
+    # The width the foldable tail is applied to, measured before it runs: a
+    # range selection in it narrows `values`.
+    n_variables = values.shape[1]
     fitted: list[preprocessing.Transformer] = []
     for node in foldable:
         transformer = preprocessing.from_spec(node.step, axis=axis)
         transformer.fit(values[rows])
         values = transformer.transform(values)
-        if isinstance(transformer, preprocessing.RangeSelectTransformer):
+        if isinstance(transformer, preprocessing.Selection):
             axis = transformer.selected_axis()
         fitted.append(transformer)
-
-    # The estimator's own centring folds in too: the model computes
-    # `(chain(X) - x̄)·b + ȳ`, and passing `ȳ - x̄·b` as the response mean puts
-    # that where the helper's intercept belongs.
-    coefficients = np.asarray(result.coefficients, dtype=np.float64)
-    x_mean = np.asarray(result.x_mean, dtype=np.float64)
-    y_mean = float(result.y_mean or 0.0)
-    try:
-        folded, intercept = coefficients_original_units(
-            coefficients,
-            fitted,
-            n_variables=values.shape[1] if residual else version.n_variables,
-            y_mean=y_mean - float(x_mean @ coefficients),
-        )
-    except ValueError as error:  # pragma: no cover - _split already refused these
-        raise ExportError(str(error)) from error
 
     # The axis the residual chain hands on, which is the dataset's unless a
     # range selection sits in the residual part - and one cannot, because a
     # range selection is foldable.
     residual_axis = np.asarray(version.axis.values, dtype=np.float64)
-
-    return {
+    payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "created_at": datetime.now(UTC).isoformat(),
         "application": {"name": "chemometrics-workbench", "version": __version__},
@@ -157,7 +147,6 @@ def json_model(
             "target": result.target,
             "classes": result.classes or None,
             "n_components": result.n_components,
-            "threshold": THRESHOLD if result.task == "classification" else None,
         },
         "axis": {
             "kind": version.axis.kind.value,
@@ -165,8 +154,6 @@ def json_model(
             "values": [float(value) for value in residual_axis],
         },
         "preprocessing": steps,
-        "coefficients": [float(value) for value in folded],
-        "intercept": float(intercept),
         "provenance": {
             "dataset_content_hash": version.content_hash,
             "pipeline_hash": pipeline.content_hash(),
@@ -174,6 +161,65 @@ def json_model(
             "metrics": dict(result.metrics),
         },
     }
+
+    if result.simca or result.training_classes:
+        # #306: a SIMCA or a kNN decides on the whole preprocessed spectrum, so
+        # the foldable tail travels as the affine map it is (§6).
+        payload["model"].update(threshold=None, assignment=result.method)
+        payload["affine"] = _affine(fitted, n_variables) if fitted else None
+        if result.simca:
+            payload["simca"] = {
+                "models": [
+                    {key: model[key] for key in _SIMCA_KEYS} for model in result.simca["models"]
+                ]
+            }
+        else:
+            payload["knn"] = {
+                "k": result.k,
+                "x_mean": list(result.x_mean),
+                "loadings": [list(row) for row in result.loadings],
+                "neighbours": [list(row) for row in result.scores],
+                "neighbour_classes": list(result.training_classes),
+            }
+        return payload
+
+    # The estimator's own centring folds in too: the model computes
+    # `(chain(X) - x̄)·b + ȳ`, and passing `ȳ - x̄·b` as the response mean puts
+    # that where the helper's intercept belongs.
+    x_mean = np.asarray(result.x_mean, dtype=np.float64)
+    # #274: three or more classes carry one coefficient column per class, and
+    # each folds on its own exactly as a single vector does.
+    if result.coefficient_matrix:
+        columns = np.asarray(result.coefficient_matrix, dtype=np.float64).T
+        means = list(result.y_means)
+    else:
+        columns = np.asarray([result.coefficients], dtype=np.float64)
+        means = [float(result.y_mean or 0.0)]
+    folded_columns: list[list[float]] = []
+    intercepts: list[float] = []
+    try:
+        for column, mean in zip(columns, means, strict=True):
+            folded_column, intercept = coefficients_original_units(
+                column, fitted, n_variables=n_variables, y_mean=mean - float(x_mean @ column)
+            )
+            folded_columns.append([float(value) for value in folded_column])
+            intercepts.append(float(intercept))
+    except ValueError as error:  # pragma: no cover - _split already refused these
+        raise ExportError(str(error)) from error
+    multiclass = bool(result.coefficient_matrix)
+    payload["model"].update(
+        # Two classes cut one prediction at 0.5; three or more take the
+        # largest of N (pls-da.md section 5).
+        threshold=THRESHOLD if result.task == "classification" and not multiclass else None,
+        assignment="argmax" if multiclass else None,
+    )
+    payload["coefficients"] = (
+        [list(row) for row in zip(*folded_columns, strict=True)]
+        if multiclass
+        else folded_columns[0]
+    )
+    payload["intercept"] = intercepts if multiclass else intercepts[0]
+    return payload
 
 
 def python_snippet(model: dict[str, Any]) -> str:
@@ -202,7 +248,15 @@ def python_snippet(model: dict[str, Any]) -> str:
         f"    Scored:   {metrics or 'no metrics recorded'}",
         "",
         "Needs nothing but NumPy. `predict` takes an n x p array of raw spectra on",
-        "AXIS and returns n predictions; one spectrum is `predict(x[None, :])[0]`.",
+        *(
+            [
+                "AXIS and returns an n x N array of booleans, column k True where",
+                "CLASSES[k] accepts the spectrum - none or several may. One spectrum",
+                "is `predict(x[None, :])[0]`.",
+            ]
+            if model["model"].get("assignment") == "simca"
+            else ["AXIS and returns n predictions; one spectrum is `predict(x[None, :])[0]`."]
+        ),
         '"""',
         "",
         "import numpy as np",
@@ -210,14 +264,46 @@ def python_snippet(model: dict[str, Any]) -> str:
         f"# {model['axis']['kind']}"
         + (f", {model['axis']['unit']}" if model["axis"]["unit"] else ""),
         f"AXIS = np.array({_literal(model['axis']['values'])})",
-        f"COEFFICIENTS = np.array({_literal(model['coefficients'])})",
-        f"INTERCEPT = {model['intercept']!r}",
     ]
-    if task == "classification":
+    assignment = model["model"].get("assignment")
+    argmax = assignment == "argmax"
+    affine = model.get("affine")
+    if affine:
         body += [
-            f"CLASSES = {classes!r}",
-            f"THRESHOLD = {model['model']['threshold']!r}",
+            f"AFFINE = np.array({_matrix_literal(affine['matrix'])})",
+            f"OFFSET = np.array({_literal(affine['offset'])})",
         ]
+    if assignment == "simca":
+        body += ["MODELS = ["]
+        for one in model["simca"]["models"]:
+            body += [
+                "    {",
+                f"        'mean': np.array({_literal(one['mean'])}),",
+                f"        'loadings': np.array({_matrix_literal(one['loadings'])}),",
+                f"        'eigenvalues': np.array({_literal(one['eigenvalues'])}),",
+                f"        't2_limit': {one['t2_limit']!r},",
+                f"        'q_limit': {one['q_limit']!r},",
+                "    },",
+            ]
+        body += ["]"]
+    elif assignment == "knn":
+        knn = model["knn"]
+        body += [
+            f"K = {knn['k']!r}",
+            f"X_MEAN = np.array({_literal(knn['x_mean'])})",
+            f"LOADINGS = np.array({_matrix_literal(knn['loadings'])})",
+            f"NEIGHBOURS = np.array({_matrix_literal(knn['neighbours'])})",
+            f"NEIGHBOUR_CLASSES = np.array({knn['neighbour_classes']!r})",
+        ]
+    else:
+        body += [
+            f"COEFFICIENTS = np.array({_matrix_literal(model['coefficients'])})",
+            f"INTERCEPT = np.array({model['intercept']!r})",
+        ]
+    if task == "classification":
+        body += [f"CLASSES = {classes!r}"]
+        if assignment is None:
+            body += [f"THRESHOLD = {model['model']['threshold']!r}"]
 
     for index, step in enumerate(model["preprocessing"]):
         body += ["", *_step_source(index, step)]
@@ -237,16 +323,49 @@ def python_snippet(model: dict[str, Any]) -> str:
     ]
     for index, _ in enumerate(model["preprocessing"]):
         body.append(f"    X = _step_{index}(X)")
-    body += [
-        "    y = X @ COEFFICIENTS + INTERCEPT",
-    ]
-    if task == "classification":
+    if affine:
+        body.append("    X = X @ AFFINE + OFFSET")
+    if assignment == "simca":
+        # simca.md sections 3 and 4, as classification.SIMCA computes them.
         body += [
-            "    above = y >= THRESHOLD",
+            "    accepted = []",
+            "    for m in MODELS:",
+            "        centred = X - m['mean']",
+            "        T = centred @ m['loadings'].T",
+            "        t2 = (T**2 / m['eigenvalues']).sum(axis=1)",
+            "        q = ((centred - T @ m['loadings']) ** 2).sum(axis=1)",
+            "        accepted.append(np.maximum(t2 / m['t2_limit'], q / m['q_limit']) <= 1.0)",
+            "    return np.column_stack(accepted)",
+        ]
+    elif assignment == "knn":
+        # knn.md section 3, as classification.KNN computes it: equal distances
+        # keep calibration order, and a tied vote goes to the first class.
+        body += [
+            "    T = (X - X_MEAN) @ LOADINGS.T",
+            "    squared = (",
+            "        (T**2).sum(axis=1)[:, None]",
+            "        - 2.0 * T @ NEIGHBOURS.T",
+            "        + (NEIGHBOURS**2).sum(axis=1)[None, :]",
+            "    )",
+            "    nearest = np.argsort(squared, axis=1, kind='stable')[:, :K]",
+            "    counts = np.stack([",
+            "        np.bincount(NEIGHBOUR_CLASSES[row], minlength=len(CLASSES))",
+            "        for row in nearest",
+            "    ])",
+            "    return np.array([CLASSES[i] for i in counts.argmax(axis=1)])",
+        ]
+    elif argmax:
+        body += [
+            "    y = X @ COEFFICIENTS + INTERCEPT",
+            "    return np.array([CLASSES[i] for i in y.argmax(axis=1)])",
+        ]
+    elif task == "classification":
+        body += [
+            "    above = X @ COEFFICIENTS + INTERCEPT >= THRESHOLD",
             "    return np.array([CLASSES[1] if hit else CLASSES[0] for hit in above])",
         ]
     else:
-        body += ["    return y"]
+        body += ["    return X @ COEFFICIENTS + INTERCEPT"]
     return "\n".join(body) + "\n"
 
 
@@ -301,12 +420,37 @@ def _step_payload(node: PreprocessNode, transformer: object) -> dict[str, Any]:
     return payload
 
 
+def _affine(fitted: list[preprocessing.Transformer], n_variables: int) -> dict[str, Any]:
+    """The foldable tail as `x -> x @ matrix + offset` (§6).
+
+    Every foldable step is a fixed linear map plus an offset, so the composite
+    is measured rather than derived: the offset is the chain applied to a zero
+    row, and row `j` of the matrix is the chain applied to the unit vector `e_j`
+    less that offset.
+    """
+    probe = np.vstack([np.zeros(n_variables), np.eye(n_variables)])
+    for transformer in fitted:
+        probe = transformer.transform(probe)
+    offset = probe[0]
+    return {
+        "matrix": [[float(value) for value in row] for row in probe[1:] - offset],
+        "offset": [float(value) for value in offset],
+    }
+
+
 # --- the snippet's bodies --------------------------------------------------
 
 
 def _literal(values: list[float]) -> str:
     """A NumPy-readable list at full precision: `repr` of a float round-trips."""
     return "[" + ", ".join(repr(float(value)) for value in values) + "]"
+
+
+def _matrix_literal(values: list[float] | list[list[float]]) -> str:
+    """A vector, or for N classes a p x N matrix, at full precision."""
+    if values and isinstance(values[0], list):
+        return "[" + ", ".join(_literal(row) for row in values) + "]"
+    return _literal(values)  # type: ignore[arg-type]
 
 
 def _step_source(index: int, step: dict[str, Any]) -> list[str]:
@@ -350,6 +494,18 @@ def _step_source(index: int, step: dict[str, Any]) -> list[str]:
             "    if not np.all(divisor != 0):",
             "        raise ValueError('a spectrum has a zero norm')",
             "    return X / divisor[:, None]",
+        ]
+    if kind == "median":
+        window = int(step["window_length"])
+        return [
+            f"def _step_{index}(X):",
+            '    """Median filter: each variable the median of its window, shrunk at the ends."""',
+            f"    half = {window // 2}",
+            "    return np.stack(",
+            "        [np.median(X[:, max(0, i - half) : i + half + 1], axis=1)",
+            "         for i in range(X.shape[1])],",
+            "        axis=1,",
+            "    )",
         ]
     raise ExportError(  # pragma: no cover - _split refuses these first
         f"{kind!r} has no snippet form."

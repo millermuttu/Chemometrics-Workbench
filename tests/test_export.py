@@ -35,17 +35,25 @@ from chemometrics_workbench.models import (
     BaselineCorrect,
     DatasetVersion,
     EstimatorNode,
+    GaussianSmooth,
     KFoldSplit,
+    KNNSpec,
+    LDASpec,
     MeanCentre,
+    MedianFilter,
+    MovingAverage,
     PCASpec,
+    PCRSpec,
     Pipeline,
     PLSDASpec,
     PLSRegressionSpec,
     PreprocessNode,
     RangeSelect,
     SavitzkyGolay,
+    SIMCASpec,
     SourceNode,
     SplitNode,
+    WhittakerSmooth,
 )
 from chemometrics_workbench.project import create_project, write_array
 
@@ -175,6 +183,204 @@ def test_an_unfoldable_chain_carries_its_residual_steps(
     )
 
 
+def test_linear_smoothers_fold_and_a_median_is_carried(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#271: moving average, Gaussian and Whittaker are fixed matrices and fold;
+    a median is not linear and is re-executed by the snippet."""
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(id="median", inputs=("source",), step=MedianFilter(window_length=5)),
+        PreprocessNode(id="mean", inputs=("median",), step=MovingAverage(window_length=5)),
+        PreprocessNode(id="gauss", inputs=("mean",), step=GaussianSmooth(sigma=1.5)),
+        PreprocessNode(id="whit", inputs=("gauss",), step=WhittakerSmooth(lam=10.0)),
+        PreprocessNode(id="centre", inputs=("whit",), step=MeanCentre()),
+        EstimatorNode(
+            id="pls", inputs=("centre",), spec=PLSRegressionSpec(n_components=5, target="fat")
+        ),
+    )
+    result = _run(directory, version, pipeline, "pls")
+    model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
+
+    assert [step["kind"] for step in model["preprocessing"]] == ["median"]
+    predicted = _predict(python_snippet(model), tecator.spectra)
+    np.testing.assert_allclose(
+        predicted[np.asarray(result.rows)], result.predicted, rtol=RTOL, atol=ATOL
+    )
+
+
+def test_a_pcr_exports_as_a_bare_coefficient_vector(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#272, `pcr.md` section 7: b is a fixed vector, so a PCR exports as a PLS does."""
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(id="centre", inputs=("source",), step=MeanCentre()),
+        EstimatorNode(id="pcr", inputs=("centre",), spec=PCRSpec(n_components=6, target="fat")),
+    )
+    result = _run(directory, version, pipeline, "pcr")
+    model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
+    assert model["preprocessing"] == []
+    predicted = _predict(python_snippet(model), tecator.spectra)
+    np.testing.assert_allclose(
+        predicted[np.asarray(result.rows)], result.predicted, rtol=RTOL, atol=ATOL
+    )
+
+
+def test_three_classes_export_a_matrix_and_assign_by_the_largest_column(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#274, model-export.md: one folded column per class, argmax in the snippet."""
+    directory, version = project
+    fat = np.asarray(tecator.targets["fat"])
+    low, high = np.quantile(fat, [1 / 3, 2 / 3])
+    labels = ["lean" if f < low else "mid" if f < high else "rich" for f in fat]
+    version = version.model_copy(update={"metadata_columns": {"grade": labels}})
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(
+            id="savgol", inputs=("source",), step=SavitzkyGolay(window_length=11, polyorder=2)
+        ),
+        PreprocessNode(id="centre", inputs=("savgol",), step=MeanCentre()),
+        EstimatorNode(
+            id="plsda", inputs=("centre",), spec=PLSDASpec(n_components=6, class_column="grade")
+        ),
+    )
+    result = _run(directory, version, pipeline, "plsda")
+    model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
+    assert model["model"]["assignment"] == "argmax" and model["model"]["threshold"] is None
+    assert np.asarray(model["coefficients"]).shape == (version.n_variables, 3)
+    assert len(model["intercept"]) == 3
+    predicted = _predict(python_snippet(model), tecator.spectra)
+    expected = [result.classes[k] for k in result.predicted_class]
+    assert predicted[np.asarray(result.rows)].tolist() == expected
+
+
+def _grades(version: DatasetVersion, tecator: Any) -> DatasetVersion:
+    """Tercile classes of fat, as `lda.md` section 7 draws them."""
+    fat = np.asarray(tecator.targets["fat"])
+    low, high = np.quantile(fat, [1 / 3, 2 / 3])
+    labels = ["lean" if f < low else "mid" if f < high else "rich" for f in fat]
+    return version.model_copy(update={"metadata_columns": {"grade": labels}})
+
+
+def test_a_simca_exports_its_class_models_behind_an_affine_map(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#306, model-export.md section 6: an SNV is carried, the Savitzky-Golay
+    and the centring travel as one affine map, and the snippet accepts exactly
+    what the application accepted."""
+    directory, version = project
+    version = _grades(version, tecator)
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(id="snv", inputs=("source",), step=SNV()),
+        PreprocessNode(
+            id="savgol", inputs=("snv",), step=SavitzkyGolay(window_length=11, polyorder=2)
+        ),
+        PreprocessNode(id="centre", inputs=("savgol",), step=MeanCentre()),
+        EstimatorNode(
+            id="simca", inputs=("centre",), spec=SIMCASpec(n_components=3, class_column="grade")
+        ),
+    )
+    result = _run(directory, version, pipeline, "simca")
+    model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
+
+    assert model["model"]["assignment"] == "simca" and "coefficients" not in model
+    assert [step["kind"] for step in model["preprocessing"]] == ["snv"]
+    p = version.n_variables
+    assert np.asarray(model["affine"]["matrix"]).shape == (p, p)
+    assert len(model["simca"]["models"]) == 3
+
+    accepted = _predict(python_snippet(model), tecator.spectra)
+    calibration = result.simca["sets"]["calibration"]
+    expected = np.asarray(calibration["distances"]) <= 1.0
+    assert accepted[np.asarray(calibration["rows"])].tolist() == expected.tolist()
+
+
+def test_a_knn_exports_its_neighbours_behind_an_affine_map(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#306, model-export.md section 6: a median is carried, a range selection
+    and a smoother fold into a p x p' map, and the snippet votes as the
+    application did."""
+    directory, version = project
+    version = _grades(version, tecator)
+    axis = np.asarray(version.axis.values)
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(id="median", inputs=("source",), step=MedianFilter(window_length=5)),
+        PreprocessNode(
+            id="range",
+            inputs=("median",),
+            step=RangeSelect(start=float(axis[10]), end=float(axis[60])),
+        ),
+        PreprocessNode(id="smooth", inputs=("range",), step=MovingAverage(window_length=5)),
+        EstimatorNode(
+            id="knn", inputs=("smooth",), spec=KNNSpec(k=5, n_components=5, class_column="grade")
+        ),
+    )
+    result = _run(directory, version, pipeline, "knn")
+    model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
+
+    assert model["model"]["assignment"] == "knn" and model["knn"]["k"] == 5
+    assert [step["kind"] for step in model["preprocessing"]] == ["median"]
+    assert np.asarray(model["affine"]["matrix"]).shape == (version.n_variables, 51)
+
+    predicted = _predict(python_snippet(model), tecator.spectra)
+    expected = [result.classes[k] for k in result.predicted_class]
+    assert predicted[np.asarray(result.rows)].tolist() == expected
+
+
+def test_a_knn_with_nothing_to_fold_carries_no_map(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """Section 6: the map is omitted, not an identity, when the tail is empty."""
+    directory, version = project
+    version = _grades(version, tecator)
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(id="snv", inputs=("source",), step=SNV()),
+        EstimatorNode(
+            id="knn", inputs=("snv",), spec=KNNSpec(k=3, n_components=4, class_column="grade")
+        ),
+    )
+    result = _run(directory, version, pipeline, "knn")
+    model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
+    assert model["affine"] is None
+    predicted = _predict(python_snippet(model), tecator.spectra)
+    expected = [result.classes[k] for k in result.predicted_class]
+    assert predicted[np.asarray(result.rows)].tolist() == expected
+
+
+def test_an_lda_exports_its_discriminant_and_assigns_by_argmax(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """lda.md section 6: exported as a multi-class PLS-DA is."""
+    directory, version = project
+    fat = np.asarray(tecator.targets["fat"])
+    low, high = np.quantile(fat, [1 / 3, 2 / 3])
+    labels = ["lean" if f < low else "mid" if f < high else "rich" for f in fat]
+    version = version.model_copy(update={"metadata_columns": {"grade": labels}})
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(
+            id="savgol", inputs=("source",), step=SavitzkyGolay(window_length=11, polyorder=2)
+        ),
+        EstimatorNode(
+            id="lda", inputs=("savgol",), spec=LDASpec(n_components=6, class_column="grade")
+        ),
+    )
+    result = _run(directory, version, pipeline, "lda")
+    model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
+    assert model["model"]["assignment"] == "argmax"
+    predicted = _predict(python_snippet(model), tecator.spectra)
+    expected = [result.classes[k] for k in result.predicted_class]
+    assert predicted[np.asarray(result.rows)].tolist() == expected
+
+
 def test_msc_carries_the_reference_it_was_fitted_with(
     project: tuple[Path, DatasetVersion], tecator: Any
 ) -> None:
@@ -230,6 +436,34 @@ def test_a_range_selection_folds_and_the_export_keeps_the_raw_axis(
     coefficients = np.asarray(model["coefficients"])
     assert np.all(coefficients[:10] == 0.0), "outside the selection, no weight"
 
+    predicted = _predict(python_snippet(model), tecator.spectra)
+    np.testing.assert_allclose(
+        predicted[np.asarray(result.rows)], result.predicted, rtol=RTOL, atol=ATOL
+    )
+
+
+def test_a_range_selection_after_a_carried_step_folds_from_the_full_width(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#306 found it: with an SNV carried, the fold was told the width after
+    the range selection rather than before it, and refused the chain."""
+    directory, version = project
+    axis = np.asarray(version.axis.values)
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(id="snv", inputs=("source",), step=SNV()),
+        PreprocessNode(
+            id="window",
+            inputs=("snv",),
+            step=RangeSelect(start=float(axis[10]), end=float(axis[60])),
+        ),
+        EstimatorNode(
+            id="pls", inputs=("window",), spec=PLSRegressionSpec(n_components=4, target="fat")
+        ),
+    )
+    result = _run(directory, version, pipeline, "pls")
+    model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
+    assert len(model["coefficients"]) == version.n_variables
     predicted = _predict(python_snippet(model), tecator.spectra)
     np.testing.assert_allclose(
         predicted[np.asarray(result.rows)], result.predicted, rtol=RTOL, atol=ATOL

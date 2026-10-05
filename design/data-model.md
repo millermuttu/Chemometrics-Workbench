@@ -118,6 +118,8 @@ erDiagram
     }
 ```
 
+**Excluding samples derives a version (#270).** It never edits one. The kept rows are written as a new array, so the new version has its own content hash, and `derived_from` names the parent. `excluded_samples` lists the parent's rows that were left out, as positional indices into the parent. The pipeline's source moves onto the new version, so runs, comparisons, reports and artifacts all name it. Undoing is pointing the source back at the parent.
+
 ## Node and parameter types
 
 Every node carries a typed spec, resolved by a discriminator field. This is what makes a pipeline safe to round-trip through JSON.

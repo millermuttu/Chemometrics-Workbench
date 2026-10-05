@@ -158,3 +158,198 @@ test("the whole path: empty project to a scores plot the kernel produced", async
  * cancel, and a real failure to read. Repeating them here would mean asserting
  * them on a project that has just been imported into, where a cached pipeline
  * gives a run no work to do. */
+
+test("two samples are excluded, the run uses what is left, and v1 comes back", async ({
+  page,
+}) => {
+  // #270. Runs after the walkthrough, on the project it imported into: the
+  // only server whose project a test is allowed to change.
+  await page.goto("/?token=e2e-token");
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /v1 · 30×24/ }).dblclick();
+
+  await page.getByLabel("Select row 2", { exact: true }).check();
+  await page.getByLabel("Select row 5", { exact: true }).check();
+  await page.getByRole("button", { name: "Exclude 2 selected" }).click();
+
+  // A second version, without them, and the pipeline moved onto it.
+  const derived = outline.getByRole("button", { name: /v2 · 28×24/ });
+  await expect(derived).toBeVisible();
+  await derived.dblclick();
+  await expect(page.getByTestId("excluded-pill")).toHaveText("2 excluded from v1");
+  await expect(page.getByTestId("excluded-ids")).toHaveText("Left out of v1: A002, A005");
+  await expect(page.getByRole("cell", { name: "A002", exact: true })).toHaveCount(0);
+
+  // The run is on the 28 that are left.
+  await page.getByRole("button", { name: "Run pipeline" }).click();
+  await expect(page.locator(".status")).toContainText("Done", { timeout: 60_000 });
+  await expect
+    .poll(async () => {
+      const response = await page.request.get("/api/results/pca", {
+        headers: { Authorization: "Bearer e2e-token" },
+      });
+      return response.ok() ? ((await response.json()).samples as unknown[]).length : 0;
+    })
+    .toBe(28);
+
+  // Undone by putting the source back on v1.
+  await page.getByRole("button", { name: "Restore v1" }).click();
+  await expect
+    .poll(async () => {
+      const response = await page.request.get("/api/pipelines/current", {
+        headers: { Authorization: "Bearer e2e-token" },
+      });
+      return (await response.json()).nodes[0].version_id as string;
+    })
+    .not.toBe(await sourceOfDerived(page));
+  await expect(page.getByRole("button", { name: "Restore v1" })).toHaveCount(0);
+});
+
+/** The version id the outline's v2 row stands for, read from the server. */
+async function sourceOfDerived(page: Page): Promise<string> {
+  const projects = await (
+    await page.request.get("/api/projects", { headers: { Authorization: "Bearer e2e-token" } })
+  ).json();
+  const datasets = await (
+    await page.request.get(`/api/projects/${projects[0].project_id}/datasets`, {
+      headers: { Authorization: "Bearer e2e-token" },
+    })
+  ).json();
+  return datasets[0].versions[1].version_id as string;
+}
+
+test("the new smoothers are added from the step list and run", async ({ page }) => {
+  // #271, on the walkthrough's project, whose chain ends in its PCA. Until
+  // #296 the side list appended below that estimator and the run failed with
+  // a KeyError; now it branches from the PCA's input.
+  await page.goto("/?token=e2e-token");
+  await page.getByRole("button", { name: "Pipeline", exact: true }).click();
+  const before = await page.locator(".react-flow__node").count();
+  for (const step of ["Median w5", "Whittaker λ100"]) {
+    await page.getByLabel("Step").selectOption(step);
+    await page.getByRole("button", { name: "Add", exact: true }).click();
+  }
+  await expect(page.locator(".react-flow__node")).toHaveCount(before + 2);
+  await expect(page.getByText("window 5", { exact: true })).toBeVisible();
+  await expect(page.getByText("lambda 100", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  // The drafts clear once the server holds them. Running before that ran the
+  // old recipe - #291, a race of its own and not what this test is about.
+  await expect(page.getByText(/^No steps yet/)).toBeVisible();
+  await page.getByRole("button", { name: "Run pipeline" }).click();
+  await expect(page.locator(".status")).toContainText("Done", { timeout: 60_000 });
+  await expect(page.getByTestId("node-complete")).toHaveCount(before + 2);
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await expect(outline.getByRole("button", { name: /Median w5/ })).toBeVisible();
+  await expect(outline.getByRole("button", { name: /Whittaker λ100/ })).toBeVisible();
+});
+
+test("a run started while a save is in flight runs what was saved", async ({ page }) => {
+  // #291. The save is held back a second, and Run is clicked straight after
+  // Save: before the fix the run executed the recipe as it was before the PUT
+  // landed, reported "Done", and the new node stayed not run.
+  await page.goto("/?token=e2e-token");
+  await page.route("**/api/pipelines/current", async (route) => {
+    if (route.request().method() === "PUT") await new Promise((resolve) => setTimeout(resolve, 1000));
+    await route.continue();
+  });
+  await page.getByRole("button", { name: "Pipeline", exact: true }).click();
+  const before = await page.locator(".react-flow__node").count();
+  await page.getByLabel("Step").selectOption("Autoscale");
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("button", { name: "Run pipeline" }).click();
+  await expect(page.locator(".status")).toContainText("Done", { timeout: 60_000 });
+  await expect(page.getByTestId("node-complete")).toHaveCount(before + 1);
+});
+
+test("a PCR runs on the dataset's target and reads as a regression without VIP", async ({
+  page,
+}) => {
+  // #272. Written through the pipeline's PUT beside the walkthrough's PCA,
+  // because the side list offers no estimator that needs a target.
+  await page.goto("/?token=e2e-token");
+  const auth = { Authorization: "Bearer e2e-token" };
+  const pipeline = await (await page.request.get("/api/pipelines/current", { headers: auth })).json();
+  const nodes = pipeline.nodes as { id: string; type: string; inputs: string[] }[];
+  const pca = nodes.find((node) => node.type === "estimator")!;
+  nodes.push({
+    id: "pcr",
+    type: "estimator",
+    inputs: pca.inputs,
+    spec: { kind: "pcr", n_components: 3, target: "moisture" },
+  } as (typeof nodes)[number]);
+  const saved = await page.request.put("/api/pipelines/current", {
+    headers: { ...auth, "Content-Type": "application/json" },
+    data: { nodes },
+  });
+  expect(saved.status()).toBe(200);
+
+  await page.reload();
+  await page.getByRole("button", { name: "Run pipeline" }).click();
+  await expect(page.locator(".status")).toContainText("Done", { timeout: 60_000 });
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /PCR 3 PC · moisture/ }).dblclick();
+  await expect(page.getByTestId("analysis-header")).toContainText("PCR on moisture 3 components");
+  // No VIP for a PCR (pcr.md section 6); a selection by |b| is offered (#281).
+  await expect(page.getByLabel("Variable importance view").locator("option")).toHaveText([
+    "Coefficients, raw axis",
+    "Select variables",
+  ]);
+  await expect(page.getByRole("region", { name: "Predicted vs measured" })).toBeVisible();
+});
+
+test("a flagged sample is excluded from the outlier table, rerun, and named in lineage", async ({
+  page,
+}) => {
+  // #279, on the PCR the test above added. Excluding writes a derived version
+  // (#270's endpoint), the run starts by itself, and the comparison of the two
+  // runs names the source as what changed.
+  const auth = { Authorization: "Bearer e2e-token" };
+  await page.goto("/?token=e2e-token");
+  const original = (await (await page.request.get("/api/pipelines/current", { headers: auth })).json())
+    .nodes as { id: string; type: string; version_id?: string }[];
+  const source = original.find((node) => node.type === "source")!;
+  const served = await (await page.request.get("/api/results/pcr", { headers: auth })).json();
+  const n = (served.samples as unknown[]).length;
+  const block = await (await page.request.get("/api/results/pcr/outliers", { headers: auth })).json();
+  const flags = block.flags as { index: number }[];
+  expect(flags.length, "a 30-sample calibration flags something").toBeGreaterThan(0);
+  const sample = served.samples[flags[0].index].sample_id as string;
+
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /PCR 3 PC · moisture/ }).dblclick();
+  const row = page.getByTestId("outliers-row");
+  await row.scrollIntoViewIfNeeded();
+  await row.getByLabel(`Exclude ${sample}`, { exact: true }).check();
+  await row.getByRole("button", { name: "Exclude 1 and rerun" }).click();
+
+  try {
+    // The rerun is on the version without it.
+    await expect
+      .poll(
+        async () => {
+          const response = await page.request.get("/api/results/pcr", { headers: auth });
+          return response.ok() ? ((await response.json()).samples as unknown[]).length : 0;
+        },
+        { timeout: 60_000 },
+      )
+      .toBe(n - 1);
+    await expect(page.locator(".status")).toContainText("Done", { timeout: 60_000 });
+
+    // And lineage says what changed between the two runs: the source's version.
+    await outline.getByRole("button", { name: /^Run \d+/ }).first().dblclick();
+    await expect(page.getByTestId("experiment-view")).toBeVisible();
+    await page.getByTestId("compare-with").selectOption({ index: 1 });
+    const changed = page.getByTestId("lineage-view").getByTestId("lineage-node-changed");
+    await expect(changed).toHaveCount(1);
+    await expect(changed).toHaveAttribute("data-node", source.id);
+    await expect(changed).toContainText("version_id");
+  } finally {
+    // Back onto the version the walkthrough imported.
+    await page.request.put("/api/pipelines/current", {
+      headers: { ...auth, "Content-Type": "application/json" },
+      data: { nodes: original },
+    });
+  }
+});

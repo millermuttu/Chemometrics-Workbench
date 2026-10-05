@@ -34,11 +34,14 @@ from chemometrics_workbench.models import (
     DatasetVersion,
     EstimatorNode,
     KFoldSplit,
+    KNNSpec,
     MeanCentre,
     PCASpec,
     Pipeline,
+    PLSDASpec,
     PLSRegressionSpec,
     PreprocessNode,
+    SIMCASpec,
     SourceNode,
     SplitNode,
 )
@@ -142,7 +145,30 @@ def test_every_number_the_model_was_fitted_with_comes_back_out(
     assert read.manifest["metrics"]["rmsecv"] == result.metrics["rmsecv"]
     assert read.manifest["split"] == {"node_id": "split", "fold": 0, "n_folds": 10}
     assert read.manifest["dataset"]["content_hash"] == version.content_hash
+    assert read.manifest["dataset"]["derived_from"] is None
+    assert read.manifest["dataset"]["excluded_samples"] == []
     assert read.manifest["environment"]["app_version"]
+
+
+def test_a_model_fitted_after_an_exclusion_names_what_was_left_out(
+    fitted: tuple[Path, DatasetVersion, Pipeline, object],
+) -> None:
+    """#270: the dataset block carries the parent and its excluded rows."""
+    directory, version, pipeline, run = fitted
+    parent = uuid4()
+    derived = version.model_copy(update={"derived_from": parent, "excluded_samples": [3, 17]})
+    path = directory / "derived.cwmodel"
+    write_artifact(
+        path,
+        run.results["pls"],  # type: ignore[attr-defined]
+        pipeline=pipeline,
+        version=derived,
+        node_axis=np.asarray(version.axis.values, dtype=np.float64),
+        split=run.resolved_splits[0],  # type: ignore[attr-defined]
+        environment=capture_environment(),
+    )
+    dataset = read_artifact(path).manifest["dataset"]
+    assert (dataset["derived_from"], dataset["excluded_samples"]) == (str(parent), [3, 17])
 
 
 def test_the_pipeline_travels_by_value_and_parses_back(
@@ -372,3 +398,99 @@ def test_the_archive_is_a_plain_zip_anyone_can_list(
                 values = np.load(io.BytesIO(handle.read()))
             assert list(values.shape) == entry["shape"], name
             assert str(values.dtype) == entry["dtype"], name
+
+
+def test_three_classes_carry_their_coefficient_matrix(
+    fitted: tuple[Path, DatasetVersion, Pipeline, object], tecator: object
+) -> None:
+    """#274, model-artifact.md section 7: `coefficient_matrix` and `y_means`."""
+    directory, version, _, _ = fitted
+    fat = np.asarray(tecator.targets["fat"])  # type: ignore[attr-defined]
+    low, high = np.quantile(fat, [1 / 3, 2 / 3])
+    labels = ["lean" if f < low else "mid" if f < high else "rich" for f in fat]
+    version = version.model_copy(update={"metadata_columns": {"grade": labels}})
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(id="centre", inputs=("source",), step=MeanCentre()),
+        EstimatorNode(
+            id="plsda", inputs=("centre",), spec=PLSDASpec(n_components=4, class_column="grade")
+        ),
+    )
+    result = execute(directory, pipeline, version).results["plsda"]
+    path = directory / "plsda.cwmodel"
+    write_artifact(
+        path,
+        result,
+        pipeline=pipeline,
+        version=version,
+        node_axis=np.asarray(version.axis.values, dtype=np.float64),
+        split=None,
+        environment=capture_environment(),
+    )
+    read = read_artifact(path)
+    assert read.arrays["coefficient_matrix"].shape == (version.n_variables, 3)
+    np.testing.assert_array_equal(read.arrays["y_means"], np.asarray(result.y_means))
+    assert read.manifest["model"]["classes"] == ["lean", "mid", "rich"]
+
+
+def test_a_simca_carries_every_class_model(
+    fitted: tuple[Path, DatasetVersion, Pipeline, object], tecator: object
+) -> None:
+    """#275, simca.md section 7: each class's mean, loadings, eigenvalues and limits."""
+    directory, version, _, _ = fitted
+    fat = np.asarray(tecator.targets["fat"])  # type: ignore[attr-defined]
+    labels = ["high" if value > np.median(fat) else "low" for value in fat]
+    version = version.model_copy(update={"metadata_columns": {"grade": labels}})
+    pipeline = _pipeline(
+        version.version_id,
+        EstimatorNode(
+            id="simca", inputs=("source",), spec=SIMCASpec(n_components=3, class_column="grade")
+        ),
+    )
+    result = execute(directory, pipeline, version).results["simca"]
+    path = directory / "simca.cwmodel"
+    write_artifact(
+        path,
+        result,
+        pipeline=pipeline,
+        version=version,
+        node_axis=np.asarray(version.axis.values, dtype=np.float64),
+        split=None,
+        environment=capture_environment(),
+    )
+    read = read_artifact(path)
+    for k, model in enumerate(result.simca["models"]):
+        np.testing.assert_array_equal(read.arrays[f"simca_{k}_mean"], np.asarray(model["mean"]))
+        assert read.arrays[f"simca_{k}_loadings"].shape == (3, version.n_variables)
+        assert read.manifest["model"]["simca"][k]["q_limit"] == model["q_limit"]
+
+
+def test_a_knn_carries_its_neighbours(
+    fitted: tuple[Path, DatasetVersion, Pipeline, object], tecator: object
+) -> None:
+    """#277, knn.md section 6: the neighbours' scores and classes, and k."""
+    directory, version, _, _ = fitted
+    fat = np.asarray(tecator.targets["fat"])  # type: ignore[attr-defined]
+    labels = ["high" if value > np.median(fat) else "low" for value in fat]
+    version = version.model_copy(update={"metadata_columns": {"grade": labels}})
+    pipeline = _pipeline(
+        version.version_id,
+        EstimatorNode(
+            id="knn", inputs=("source",), spec=KNNSpec(k=4, n_components=3, class_column="grade")
+        ),
+    )
+    result = execute(directory, pipeline, version).results["knn"]
+    path = directory / "knn.cwmodel"
+    write_artifact(
+        path,
+        result,
+        pipeline=pipeline,
+        version=version,
+        node_axis=np.asarray(version.axis.values, dtype=np.float64),
+        split=None,
+        environment=capture_environment(),
+    )
+    read = read_artifact(path)
+    np.testing.assert_array_equal(read.arrays["knn_scores"], np.asarray(result.scores))
+    np.testing.assert_array_equal(read.arrays["knn_classes"], np.asarray(result.training_classes))
+    assert read.manifest["model"]["k"] == 4

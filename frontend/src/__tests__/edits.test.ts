@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import type { PipelineNode } from "@/api/queries";
 import {
   add,
+  applySelection,
   connect,
   connectionRefusal,
   duplicate,
@@ -226,5 +227,59 @@ describe("adding a step", () => {
     );
     expect(split.at(-1)!.type).toBe("split");
     expect(split.at(-1)!.id).toBe("k_fold_10");
+  });
+});
+
+describe("applying a variable selection (#281)", () => {
+  const nodes: PipelineNode[] = [
+    { id: "source", type: "source", inputs: [] },
+    { id: "centre", type: "preprocess", inputs: ["source"], step: { kind: "mean_centre" } },
+    {
+      id: "pls",
+      type: "estimator",
+      inputs: ["centre"],
+      spec: { kind: "pls", n_components: 5, target: "fat" },
+    },
+  ];
+
+  it("adds the step on the estimator's input and a copy below it, keeping the original", () => {
+    const next = applySelection(nodes, "pls", [40, 3, 12]);
+    expect(next.slice(0, 3)).toEqual(nodes);
+    const [select, copy] = next.slice(3);
+    expect(select).toEqual({
+      id: "pls_select",
+      type: "preprocess",
+      inputs: ["centre"],
+      step: { kind: "select_variables", indices: [3, 12, 40] },
+    });
+    expect(copy.inputs).toEqual(["pls_select"]);
+    expect(copy.id).toBe("pls_selected");
+    // Five components cannot be fitted on three variables.
+    expect(copy.spec).toEqual({ kind: "pls", n_components: 3, target: "fat" });
+  });
+
+  it("numbers a second selection rather than overwriting the first", () => {
+    const twice = applySelection(applySelection(nodes, "pls", [1, 2, 3, 4, 5, 6]), "pls", [7, 8]);
+    expect(twice.map((node) => node.id)).toEqual([
+      "source",
+      "centre",
+      "pls",
+      "pls_select",
+      "pls_selected",
+      "pls_select_2",
+      "pls_selected_2",
+    ]);
+  });
+
+  it("records which method chose the positions, and nothing when none did", () => {
+    const [chosen] = applySelection(nodes, "pls", [1, 2], "cars").slice(3);
+    expect(chosen.step).toEqual({ kind: "select_variables", indices: [1, 2], chosen_by: "cars" });
+    const [plain] = applySelection(nodes, "pls", [1, 2]).slice(3);
+    expect(plain.step).not.toHaveProperty("chosen_by");
+  });
+
+  it("refuses an empty selection and anything that is not an estimator", () => {
+    expect(() => applySelection(nodes, "pls", [])).toThrow("keeps no variables");
+    expect(() => applySelection(nodes, "centre", [1])).toThrow("applied to an estimator");
   });
 });

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 
-import { useQueryClient } from "@tanstack/react-query";
+import { useIsMutating, useQueryClient } from "@tanstack/react-query";
 
 import type { DatasetEntry } from "@/api/queries";
 import {
@@ -12,6 +12,7 @@ import {
   usePipelineState,
   useProjects,
   useResults,
+  SAVE_PIPELINE,
   useRunExperiment,
   useSavePipeline,
 } from "@/api/queries";
@@ -33,7 +34,7 @@ import { TabStrip } from "@/shell/TabStrip";
 import { FlaskIcon, KIND_ICONS } from "@/shell/icons";
 import { nodeMetrics } from "@/shell/nodeMetrics";
 import { emptyTabs, tabsReducer, type Tab } from "@/shell/tabs";
-import { twoValuedColumns } from "@/shell/classColumns";
+import { classColumns as classColumnsOf } from "@/shell/classColumns";
 
 /** The frame every screen opens inside. The measurements are the artboard's -
  * see src/styles/shell.css, which is ported from design/canvas/_base.css. */
@@ -81,6 +82,7 @@ function Pane({
   onOpenNode,
   onCompare,
   onCompareRuns,
+  onRun,
 }: {
   tab: Tab | undefined;
   datasets: DatasetEntry[] | undefined;
@@ -89,6 +91,7 @@ function Pane({
   onOpenNode: (id: string, label: string) => void;
   onCompare: (left: string, right: string) => void;
   onCompareRuns: (left: string, right: string) => void;
+  onRun: () => void;
   onImported: (versionId: string, name: string) => void;
   onCloseImport: () => void;
 }) {
@@ -116,7 +119,7 @@ function Pane({
       />
     );
   }
-  if (tab?.kind === "results") return <AnalysisResults nodeId={tab.id} title={tab.title} />;
+  if (tab?.kind === "results") return <AnalysisResults nodeId={tab.id} title={tab.title} onRun={onRun} />;
   if (tab?.kind === "model") return <ModelView modelId={tab.id} title={tab.title} />;
   if (tab?.kind === "experiment")
     return (
@@ -240,15 +243,23 @@ export function Shell() {
     void queryClient.invalidateQueries({ queryKey: ["results"] });
     void queryClient.invalidateQueries({ queryKey: ["coefficients"] });
     void queryClient.invalidateQueries({ queryKey: ["contributions"] });
+    void queryClient.invalidateQueries({ queryKey: ["outliers"] });
     void queryClient.invalidateQueries({ queryKey: ["experiment"] });
     void queryClient.invalidateQueries({ queryKey: ["experiments"] });
   }, [settled, jobId, queryClient]);
 
+  const saving = useIsMutating({ mutationKey: SAVE_PIPELINE });
   const startRun = useCallback(async () => {
+    // #291: a click can land before the disabled state renders, so the run
+    // also waits for any save still in flight before it is posted.
+    // ponytail: a 50 ms poll; a save is one PUT, so this resolves within it.
+    while (queryClient.isMutating({ mutationKey: SAVE_PIPELINE }) > 0) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     const started = await run.mutateAsync();
     setJobId(started.job_id);
     setStartedAt(Date.now());
-  }, [run]);
+  }, [run, queryClient]);
 
   /** Run an action, and put the server's refusal on screen if it refuses. */
   const attempt = useCallback(async (action: () => Promise<void>) => {
@@ -259,6 +270,10 @@ export function Shell() {
       setActionError(error instanceof Error ? error.message : "The request failed.");
     }
   }, []);
+
+  /** A run the analysis tab asks for after an exclusion (#279), tracked in
+   * the status bar like any other. */
+  const rerun = useCallback(() => void attempt(startRun), [attempt, startRun]);
 
   const open = useCallback(
     (tab: Omit<Tab, "transient">, transient: boolean) =>
@@ -339,7 +354,7 @@ export function Shell() {
   /** What a PLS node can model: the columns of the version the recipe runs on. */
   const source = sourceVersionOf(pipeline.data, datasets.data);
   const targets = Object.keys(source?.targets ?? {});
-  const classColumns = twoValuedColumns(source?.metadata_columns);
+  const classColumns = classColumnsOf(source?.metadata_columns);
 
   /** The active estimator node's headline numbers, from its own result. The
    * full results table is #48; this is what fits in 292px. */
@@ -382,6 +397,9 @@ export function Shell() {
           </button>
           <button
             className="btn btn-p"
+            // #291: not while a save is in flight, or the run executes the
+            // recipe before the save and reports "Done" over a stale canvas.
+            disabled={saving > 0}
             onClick={() => {
               setDismissedFailure(false);
               void attempt(startRun);
@@ -491,11 +509,11 @@ export function Shell() {
             <EmptyProject onImport={openImport} />
           ) : state.splitId ? (
             <div className="split">
-              <Pane tab={activeTab} datasets={datasets.data} targets={targets} classColumns={classColumns} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} onCompareRuns={openLineage} />
-              <Pane tab={splitTab} datasets={datasets.data} targets={targets} classColumns={classColumns} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} onCompareRuns={openLineage} />
+              <Pane tab={activeTab} datasets={datasets.data} targets={targets} classColumns={classColumns} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} onCompareRuns={openLineage} onRun={rerun} />
+              <Pane tab={splitTab} datasets={datasets.data} targets={targets} classColumns={classColumns} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} onCompareRuns={openLineage} onRun={rerun} />
             </div>
           ) : (
-            <Pane tab={activeTab} datasets={datasets.data} targets={targets} classColumns={classColumns} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} onCompareRuns={openLineage} />
+            <Pane tab={activeTab} datasets={datasets.data} targets={targets} classColumns={classColumns} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} onCompareRuns={openLineage} onRun={rerun} />
           )}
         </main>
 

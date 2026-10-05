@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib
+import io
 import json
 import sqlite3
 import time
@@ -1335,3 +1336,139 @@ def test_a_model_needs_a_name(client: TestClient) -> None:
 
     assert refused.status_code == 422
     assert client.get("/api/models", headers=AUTH).json() == []
+
+
+def test_the_outlier_diagnostics_are_served_on_their_own(client: TestClient) -> None:
+    """#314: `outliers.md`'s block has its own URL, so the FastMCD search is
+    paid by the outlier row alone and never by the payload every tab waits for."""
+    imported(client)
+    source = client.get("/api/pipelines/current", headers=AUTH).json()["nodes"][0]
+    nodes = [
+        source,
+        {
+            "id": "centre",
+            "type": "preprocess",
+            "inputs": ["source"],
+            "step": {"kind": "mean_centre"},
+        },
+        {
+            "id": "pls",
+            "type": "estimator",
+            "inputs": ["centre"],
+            "spec": {"kind": "pls", "n_components": 3, "algorithm": "nipals", "target": "fat"},
+        },
+    ]
+    assert (
+        client.put("/api/pipelines/current", json={"nodes": nodes}, headers=AUTH).status_code == 200
+    )
+    job = client.post("/api/experiments/current/run", headers=AUTH).json()
+    assert wait_for(client, job["job_id"])["status"] == "succeeded"
+
+    assert "outliers" not in client.get("/api/results/pls", headers=AUTH).json()
+    served = client.get("/api/results/pls/outliers", headers=AUTH)
+    assert served.status_code == 200, served.text
+    block = served.json()
+    assert block["version_id"] == source["version_id"]
+    assert len(block["leverage"]) == len(block["studentised_residuals"])
+    assert client.get("/api/results/nope/outliers", headers=AUTH).status_code == 404
+
+
+def test_ipls_runs_on_a_pls_under_a_split_and_refuses_one_without(client: TestClient) -> None:
+    """#282, variable-selection.md section 2: cross-validated, or refused by name."""
+    imported(client)
+    source = client.get("/api/pipelines/current", headers=AUTH).json()["nodes"][0]
+    pls = {"kind": "pls", "n_components": 2, "algorithm": "nipals", "target": "fat"}
+    nodes = [
+        source,
+        {
+            "id": "split",
+            "type": "split",
+            "inputs": ["source"],
+            "spec": {"kind": "kfold", "n_splits": 4, "shuffle": False},
+        },
+        {"id": "pls", "type": "estimator", "inputs": ["split"], "spec": pls},
+        {"id": "flat", "type": "estimator", "inputs": ["source"], "spec": pls},
+    ]
+    assert (
+        client.put("/api/pipelines/current", json={"nodes": nodes}, headers=AUTH).status_code == 200
+    )
+    job = client.post("/api/experiments/current/run", headers=AUTH).json()
+    assert wait_for(client, job["job_id"])["status"] == "succeeded"
+
+    served = client.get("/api/results/pls/ipls?n_intervals=3", headers=AUTH)
+    assert served.status_code == 200, served.text
+    body = served.json()
+    assert len(body["intervals"]) == 3 and body["intervals"][0]["start"] == 0
+    assert body["steps"] and body["selected"]
+    # Contiguous intervals over the PLS's whole input.
+    bounds = [(one["start"], one["stop"]) for one in body["intervals"]]
+    assert all(bounds[k][1] == bounds[k + 1][0] for k in range(len(bounds) - 1))
+
+    refused = client.get("/api/results/flat/ipls", headers=AUTH)
+    assert refused.status_code == 422
+    assert refused.json()["error"]["code"] == "needs_cross_validation"
+
+    # #283: CARS on the same node, seeded, and refused the same way.
+    first = client.get("/api/results/pls/cars?n_runs=5&seed=3", headers=AUTH)
+    assert first.status_code == 200, first.text
+    runs = first.json()
+    assert len(runs["runs"]) == 5 and runs["seed"] == 3
+    assert runs["selected"] and runs["runs"][runs["best"]]["n_variables"] == len(runs["selected"])
+    assert client.get("/api/results/pls/cars?n_runs=5&seed=3", headers=AUTH).json() == runs
+    refused = client.get("/api/results/flat/cars", headers=AUTH)
+    assert refused.json()["error"]["code"] == "needs_cross_validation"
+
+
+def test_a_mat_file_previews_with_its_choices_and_imports(client: TestClient) -> None:
+    """#284: the preview takes corrections, so choosing the derivative matrix
+    shows the table that will be imported; the import reads it."""
+    files = upload("mat/mlnir_slice.mat")
+    detected = client.post("/api/import/preview", files=files, headers=AUTH).json()["detected"]
+    assert detected["matrix"]["value"] == "matrixXNirSpectrumData"
+    assert (detected["n_samples"], detected["n_variables"]) == (12, 53)
+
+    choice = json.dumps({"matrix": "matrixXNirSpectrumDerivative"})
+    corrected = client.post(
+        "/api/import/preview", files=files, data={"corrections": choice}, headers=AUTH
+    ).json()["detected"]
+    assert corrected["n_variables"] == 52
+    assert corrected["axis_variable"]["value"] == "matrixXNirSpectrumDerivativeAxis"
+
+    entry = client.post(
+        "/api/import", files=files, data={"corrections": choice}, headers=AUTH
+    ).json()
+    version = entry["versions"][0]
+    assert (version["n_samples"], version["n_variables"]) == (12, 52)
+    assert list(version["targets"]) == ["matrixYNirPropertyDensityNormalized"]
+
+
+def test_an_spc_multifile_imports_as_one_dataset(client: TestClient) -> None:
+    """#285: a multifile SPC is one dataset, one row per subfile."""
+    entry = client.post("/api/import", files=upload("spc/rohanisaac/nir.spc"), headers=AUTH)
+    assert entry.status_code == 200, entry.text
+    version = entry.json()["versions"][0]
+    assert (version["n_samples"], version["n_variables"]) == (20, 700)
+    assert version["axis"]["kind"] == "wavelength_nm"
+
+
+def test_a_zip_of_spa_files_imports_as_one_dataset(client: TestClient) -> None:
+    """#286: a zip whose members are all SPA files goes to the SPA reader, not OPUS."""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as bundle:
+        for file in sorted((READER_FILES / "spa" / "dust").glob("*.SPA")):
+            bundle.write(file, file.name)
+    files = {"file": ("dust.zip", buffer.getvalue())}
+    entry = client.post("/api/import", files=files, headers=AUTH)
+    assert entry.status_code == 200, entry.text
+    version = entry.json()["versions"][0]
+    assert (version["n_samples"], version["n_variables"]) == (3, 29868)
+    assert version["axis"]["kind"] == "wavenumber_cm-1"
+
+
+def test_an_asd_file_imports_as_reflectance(client: TestClient) -> None:
+    """#287: an ASD file with its white reference stored is one reflectance spectrum."""
+    entry = client.post("/api/import", files=upload("asd/SP_00019.asd"), headers=AUTH)
+    assert entry.status_code == 200, entry.text
+    version = entry.json()["versions"][0]
+    assert (version["n_samples"], version["n_variables"]) == (1, 2151)
+    assert version["axis"]["kind"] == "wavelength_nm"

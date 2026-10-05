@@ -31,6 +31,8 @@ from chemometrics_workbench.api import (
     MAX_TRACES,
     MAX_UPLOAD_BYTES,
     contributions_payload,
+    diagnosed,
+    outliers_payload,
     results_payload,
     router,
     spectra_payload,
@@ -469,6 +471,74 @@ def test_the_sample_ids_come_from_the_dataset_not_the_model(tmp_path: Path) -> N
     assert results_payload(run.results["pca_a"], version)["samples"][0]["sample_id"] == "C001"
 
 
+def test_a_regression_payload_flags_its_outliers_by_rule(tmp_path: Path) -> None:
+    """#278, outliers.md section 5: every listed sample names each rule it
+    breaks, and a rule fires exactly when its column passes its limit."""
+    from chemometrics_workbench.models import EstimatorNode, PLSRegressionSpec
+
+    directory = tmp_path / "outliers"
+    _, version = executed(directory)
+    version = version.model_copy(
+        update={"targets": {"fat": [float(v) for v in load_tecator().targets["fat"]]}}
+    )
+    pipeline = fixture_pipeline(version.version_id)
+    pipeline = pipeline.model_copy(
+        update={
+            "nodes": [
+                *pipeline.nodes,
+                EstimatorNode(
+                    id="pls_a",
+                    inputs=("centre_a",),
+                    spec=PLSRegressionSpec(n_components=5, target="fat"),
+                ),
+            ]
+        }
+    )
+    run = execute(directory, pipeline, version)
+    block = outliers_payload(run.results["pls_a"], version)
+    diagnostics = results_payload(run.results["pls_a"], version)["diagnostics"]
+    limits = block["limits"]
+    n = run.results["pls_a"].n_samples
+    assert block["caveats"] == {}
+    # #281: the mean spectrum a variable selection is drawn over, on the node's axis.
+    regression = results_payload(run.results["pls_a"], version)["regression"]
+    assert len(regression["x_mean"]) == len(regression["vip"]) == run.results["pls_a"].n_variables
+    # #279: an exclusion from the flags table names the version they are rows of.
+    assert block["version_id"] == str(version.version_id)
+    assert block["dataset_id"] == str(version.dataset_id)
+    assert len(block["leverage"]) == len(block["studentised_residuals"]) == n
+    assert len(block["robust_distance"]) == n
+
+    columns = {
+        "t2": diagnostics["hotelling_t2"],
+        "q": diagnostics["spe"],
+        "leverage": block["leverage"],
+        "residual": [abs(value) for value in block["studentised_residuals"]],
+        "robust": block["robust_distance"],
+    }
+    expected = [
+        {"index": i, "rules": [rule for rule, v in columns.items() if v[i] > limits[rule]]}
+        for i in range(n)
+    ]
+    assert block["flags"] == [row for row in expected if row["rules"]]
+    assert {rule for row in block["flags"] for rule in row["rules"]} == set(columns)
+
+
+def test_a_pca_has_no_residuals_and_a_classification_no_outlier_block(tmp_path: Path) -> None:
+    """Section 1: residuals need a response, and a class is not one."""
+    run, version = executed(tmp_path / "results")
+    block = outliers_payload(run.results["pca_a"], version)
+    assert block["studentised_residuals"] is None
+    assert all("residual" not in row["rules"] for row in block["flags"])
+
+    from dataclasses import replace
+
+    plsda = replace(run.results["pca_a"], task="classification", method="plsda")
+    assert not diagnosed(plsda) and diagnosed(run.results["pca_a"])
+    # #314: the search is not on the path every tab waits for.
+    assert "outliers" not in results_payload(run.results["pca_a"], version)
+
+
 # --------------------------------------------------------------------------
 # spectra (#86): decimation, the density band, and the budget
 # --------------------------------------------------------------------------
@@ -771,3 +841,100 @@ def test_a_result_stored_before_rotations_were_kept_asks_for_a_rerun(tmp_path: P
         )
     assert refused.value.status_code == 409
     assert "Run the pipeline again" in refused.value.detail["message"]  # type: ignore[index]
+
+
+# --------------------------------------------------------------------------
+# sample exclusion (#270): a derived version, and the pipeline moved onto it
+# --------------------------------------------------------------------------
+
+
+def test_excluding_samples_writes_a_derived_version_and_moves_the_pipeline(
+    client: TestClient, project: Path
+) -> None:
+    entry = client.post("/api/import", files=upload("tecator_subset.csv")).json()
+    parent = entry["versions"][0]
+    dataset_id = entry["dataset"]["dataset_id"]
+
+    response = client.post(
+        f"/api/datasets/{dataset_id}/versions",
+        json={"from_version_id": parent["version_id"], "exclude": [6, 1, 1]},
+    )
+    assert response.status_code == 201
+    child = response.json()["versions"][1]
+
+    assert child["version"] == 2
+    assert child["derived_from"] == parent["version_id"]
+    assert child["excluded_samples"] == [1, 6]
+    assert child["n_samples"] == 6
+    assert child["sample_ids"] == [
+        sample for row, sample in enumerate(parent["sample_ids"]) if row not in (1, 6)
+    ]
+    assert child["targets"]["fat"] == [
+        value for row, value in enumerate(parent["targets"]["fat"]) if row not in (1, 6)
+    ]
+    # Its own array, so its own hash: a run on it says it ran on other data.
+    assert child["content_hash"] != parent["content_hash"]
+    kept = read_array(project, parent["array_path"])[[0, 2, 3, 4, 5, 7]]
+    assert np.array_equal(read_array(project, child["array_path"]), kept)
+
+    source = client.get("/api/pipelines/current").json()["nodes"][0]
+    assert source["version_id"] == child["version_id"]
+
+
+def test_an_exclusion_is_undone_by_pointing_the_source_back_at_the_parent(
+    client: TestClient,
+) -> None:
+    entry = client.post("/api/import", files=upload("tecator_subset.csv")).json()
+    parent = entry["versions"][0]
+    client.post(
+        f"/api/datasets/{entry['dataset']['dataset_id']}/versions",
+        json={"from_version_id": parent["version_id"], "exclude": [0]},
+    )
+    pipeline = client.get("/api/pipelines/current").json()
+    pipeline["nodes"][0]["version_id"] = parent["version_id"]
+    restored = client.put("/api/pipelines/current", json={"nodes": pipeline["nodes"]})
+    assert restored.status_code == 200
+    assert restored.json()["nodes"][0]["version_id"] == parent["version_id"]
+
+
+@pytest.mark.parametrize(
+    ("exclude", "message"),
+    [
+        ([], "names no samples"),
+        ([8], "outside version 1, which has 8 samples"),
+        ([0, 1, 2, 3, 4, 5, 6], "leaves 1; a model needs at least 2"),
+    ],
+)
+def test_an_exclusion_that_cannot_be_made_is_refused_by_name(
+    client: TestClient, exclude: list[int], message: str
+) -> None:
+    entry = client.post("/api/import", files=upload("tecator_subset.csv")).json()
+    response = client.post(
+        f"/api/datasets/{entry['dataset']['dataset_id']}/versions",
+        json={"from_version_id": entry["versions"][0]["version_id"], "exclude": exclude},
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "invalid_exclusion"
+    assert message in response.json()["error"]["message"]
+
+
+def test_a_step_below_an_estimator_is_refused_where_it_is_written(client: TestClient) -> None:
+    """#296: an estimator produces a model, so nothing can follow it."""
+    client.post("/api/import", files=upload("tecator_subset.csv"))
+    nodes = client.get("/api/pipelines/current").json()["nodes"]
+    nodes += [
+        {
+            "id": "pca",
+            "type": "estimator",
+            "inputs": ["source"],
+            "spec": {"kind": "pca", "n_components": 2},
+        },
+        {"id": "snv", "type": "preprocess", "inputs": ["pca"], "step": {"kind": "snv"}},
+    ]
+    for path in ("/api/pipelines/current", "/api/pipelines/current/validate"):
+        method = client.put if path.endswith("current") else client.post
+        response = method(path, json={"nodes": nodes})
+        assert response.status_code == 422
+        error = response.json()["error"]
+        assert error["code"] == "invalid_pipeline"
+        assert "node 'snv' takes its input from 'pca', which is an estimator" in error["message"]

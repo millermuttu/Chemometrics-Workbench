@@ -19,6 +19,7 @@ from collections.abc import Sequence
 import numpy as np
 import pytest
 
+from chemometrics_workbench.datasets import load_tecator
 from chemometrics_workbench.models import ResolvedSplit
 from chemometrics_workbench.preprocessing import (
     AutoscaleTransformer,
@@ -32,6 +33,7 @@ from chemometrics_workbench.preprocessing import (
 )
 from chemometrics_workbench.regression import (
     PLS,
+    PLS2,
     coefficients_original_units,
     cross_validated_predictions,
     rmsecv_curve,
@@ -768,3 +770,60 @@ def test_an_empty_chain_is_the_identity_and_folds_to_itself() -> None:
     folded, intercept = coefficients_original_units(model.coefficients_, [], n_variables=X.shape[1])
     np.testing.assert_allclose(folded, np.asarray(model.coefficients_), atol=1e-12)
     assert intercept == pytest.approx(0.0)
+
+
+# --- PLS2, pls-regression.md section 10 (#273) --------------------------------
+
+
+def _pls2_data() -> tuple[np.ndarray, np.ndarray]:
+    tecator = load_tecator()
+    x = tecator.spectra - tecator.spectra.mean(axis=0)
+    y = np.column_stack([tecator.targets[name] for name in ("moisture", "fat", "protein")])
+    return x, y - y.mean(axis=0)
+
+
+def test_pls2_on_one_response_is_pls1() -> None:
+    """Section 10.2: with m = 1 the SVD's vector is E'f/||E'f||."""
+    x, y = _pls2_data()
+    one = PLS2(5).fit(x, y[:, [1]])
+    pls1 = PLS(5).fit(x, y[:, 1])
+    assert one.coefficients_ is not None and pls1.coefficients_ is not None
+    assert one.x_scores_ is not None and pls1.x_scores_ is not None
+    np.testing.assert_allclose(one.coefficients_[:, 0], pls1.coefficients_, rtol=1e-10, atol=1e-12)
+    np.testing.assert_allclose(one.x_scores_, pls1.x_scores_, rtol=1e-10, atol=1e-10)
+    np.testing.assert_allclose(one.vip(), pls1.vip(), rtol=1e-12)
+    np.testing.assert_allclose(
+        one.explained_variance_ratio("y"), pls1.explained_variance_ratio("y"), rtol=1e-10
+    )
+
+
+def test_pls2_weights_are_orthonormal_and_its_scores_orthogonal() -> None:
+    """Section 4's identity holds for PLS2 too: it follows from deflating X."""
+    x, y = _pls2_data()
+    model = PLS2(6).fit(x, y)
+    assert model.weights_ is not None and model.x_scores_ is not None
+    np.testing.assert_allclose(model.weights_.T @ model.weights_, np.eye(6), atol=1e-12)
+    gram = model.x_scores_.T @ model.x_scores_
+    np.testing.assert_allclose(gram - np.diag(np.diag(gram)), 0.0, atol=1e-8 * gram.max())
+
+
+def test_pls2_shapes_vip_and_explained_variance() -> None:
+    x, y = _pls2_data()
+    model = PLS2(5).fit(x, y)
+    assert model.coefficients_ is not None and model.y_loadings_ is not None
+    assert model.coefficients_.shape == (x.shape[1], 3)
+    assert model.y_loadings_.shape == (3, 5)
+    assert model.predict(x).shape == y.shape
+    np.testing.assert_allclose((model.vip() ** 2).sum(), x.shape[1], rtol=1e-12)
+    # The Y running total is the fraction of Y's sum of squares the fit explains.
+    residual = y - model.predict(x)
+    explained = 1.0 - float((residual**2).sum()) / float((y**2).sum())
+    np.testing.assert_allclose(model.cumulative_explained_variance("y")[-1], explained, rtol=1e-10)
+
+
+def test_pls2_refuses_mismatched_rows_and_too_many_components() -> None:
+    x, y = _pls2_data()
+    with pytest.raises(ValueError, match="X has 240 samples and Y has 239"):
+        PLS2(2).fit(x, y[1:])
+    with pytest.raises(ValueError, match="supports at most min"):
+        PLS2(500).fit(x, y)

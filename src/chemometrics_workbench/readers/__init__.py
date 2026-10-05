@@ -28,6 +28,7 @@ one interface and never learn which format they are holding.
 from __future__ import annotations
 
 import hashlib
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -50,6 +51,7 @@ __all__ = [
     "read",
     "reader_for",
     "source_file",
+    "spectrum_files",
 ]
 
 #: How many rows a preview shows. Six is what the import screen's table holds.
@@ -110,6 +112,10 @@ class Detection:
     #: a single channel - and the others every file in the upload holds (#187).
     #: `None` for every other format.
     block: Choice | None = None
+    #: Which array of a MAT-file holds the spectra (#284), and which vector is
+    #: their axis - `none` for an index. `None` for every other format.
+    matrix: Choice | None = None
+    axis_variable: Choice | None = None
     #: The fields this reader will accept a correction to. Per-reader because a
     #: delimiter means nothing to a spreadsheet and a sheet means nothing to a
     #: text file, and offering a correction that cannot be applied is the same
@@ -146,6 +152,10 @@ class Detection:
             payload["sheet"] = self.sheet.payload()
         if self.block is not None:
             payload["block"] = self.block.payload()
+        if self.matrix is not None:
+            payload["matrix"] = self.matrix.payload()
+        if self.axis_variable is not None:
+            payload["axis_variable"] = self.axis_variable.payload()
         return payload
 
 
@@ -191,10 +201,17 @@ def reader_for(path: str | Path) -> Any:
     suffix is a reader that will one day parse a spreadsheet as text and
     produce a diagnostic about line 1.
     """
-    from chemometrics_workbench.readers import delimited, jcamp, opus, xlsx
+    from chemometrics_workbench.readers import asd, delimited, jcamp, mat, opus, spa, spc, xlsx
 
-    modules = [delimited, jcamp, xlsx, opus]
+    modules = [delimited, jcamp, xlsx, opus, mat, spc, spa, asd]
     suffix = Path(path).suffix.lower()
+    # SPA (#286) and ASD (#287), like OPUS, hold one spectrum per file, and a
+    # dataset of them arrives as a zip. A zip is OPUS's unless every member
+    # carries one of the others' suffixes.
+    if suffix == ".zip":
+        for module in (spa, asd):
+            if _archive_of(Path(path), module.SUFFIXES):
+                return module
     for module in modules:
         if suffix in module.SUFFIXES:
             return module
@@ -207,6 +224,60 @@ def reader_for(path: str | Path) -> Any:
         f"there is no reader for {suffix or 'a file with no suffix'}. "
         f"This build reads {', '.join(known)}, and Bruker OPUS files by their numeric suffix."
     )
+
+
+#: No single-spectrum file comes near this; a member that does is not one.
+_MAX_MEMBER_BYTES = 64 << 20
+
+
+def _archive_of(path: Path, suffixes: tuple[str, ...]) -> bool:
+    try:
+        with zipfile.ZipFile(path) as archive:
+            names = [info.filename for info in archive.infolist() if not info.is_dir()]
+    except (zipfile.BadZipFile, OSError):
+        return False
+    return bool(names) and all(Path(name).suffix.lower() in suffixes for name in names)
+
+
+def spectrum_files(
+    path: Path, suffixes: tuple[str, ...], kind: str
+) -> list[tuple[str, bytes, str]]:
+    """The files of a one-spectrum-per-file format: `path` itself, or a zip's members.
+
+    Each is `(name, bytes, where)`, `where` naming it for a message. A zip's
+    members come in name order, and one with another suffix is refused naming
+    it: `kind` is the format's name in that message.
+    """
+    if path.suffix.lower() != ".zip":
+        try:
+            return [(path.name, path.read_bytes(), path.name)]
+        except OSError as error:
+            raise ReaderError(f"cannot read {path.name}: {error.strerror}") from error
+    try:
+        with zipfile.ZipFile(path) as archive:
+            infos = sorted(
+                (info for info in archive.infolist() if not info.is_dir()),
+                key=lambda info: info.filename,
+            )
+            if not infos:
+                raise ReaderError(f"{path.name} is an empty archive.")
+            files = []
+            for info in infos:
+                name = Path(info.filename).name
+                if Path(name).suffix.lower() not in suffixes:
+                    raise ReaderError(
+                        f"{name} in {path.name} is not an {kind} file; a zip of {kind} files "
+                        "holds nothing else."
+                    )
+                if info.file_size > _MAX_MEMBER_BYTES:
+                    raise ReaderError(
+                        f"{name} in {path.name} is {info.file_size} bytes, larger than one "
+                        f"{kind} file can be."
+                    )
+                files.append((name, archive.read(info), f"{name} in {path.name}"))
+            return files
+    except zipfile.BadZipFile as error:
+        raise ReaderError(f"{path.name} is not a zip archive: {error}") from error
 
 
 def apply_corrections(detection: Detection, corrections: dict[str, str]) -> Detection:

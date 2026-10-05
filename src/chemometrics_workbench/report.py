@@ -211,6 +211,16 @@ def _summary(experiment: Experiment, version: DatasetVersion) -> str:
         ("Content hash", version.content_hash),
         ("Pipeline hash", experiment.pipeline_hash),
     ]
+    if version.derived_from is not None:
+        # #270: the run is on what an exclusion left, and says what it left out.
+        dropped = version.excluded_samples
+        rows.append(
+            (
+                "Excluded samples",
+                f"{len(dropped)} row{'' if len(dropped) == 1 else 's'} of version "
+                f"{version.derived_from}: {', '.join(str(row) for row in dropped)}",
+            )
+        )
     for split in experiment.resolved_splits:
         held = sum(len(fold) for fold in split.test_indices)
         folds = len(split.test_indices)

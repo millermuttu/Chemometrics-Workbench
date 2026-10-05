@@ -19,6 +19,7 @@ from chemometrics_workbench.api import validation_payload
 from chemometrics_workbench.checks import (
     LEAK_BEFORE_SPLIT,
     PLS_WITHOUT_CENTRING,
+    SELECTION_SHARES_SAMPLES,
     check_pipeline,
 )
 from chemometrics_workbench.models import (
@@ -30,11 +31,13 @@ from chemometrics_workbench.models import (
     MeanCentre,
     Normalise,
     PCASpec,
+    PCRSpec,
     Pipeline,
     PLSDASpec,
     PLSRegressionSpec,
     PreprocessNode,
     SavitzkyGolay,
+    SelectVariables,
     SourceNode,
     SplitNode,
 )
@@ -293,6 +296,16 @@ def test_pls_da_is_the_same_model_and_gets_the_same_warning() -> None:
     assert [(w.code, w.node_id) for w in found] == [(PLS_WITHOUT_CENTRING, "plsda")]
 
 
+def test_pcr_without_centring_gets_the_same_warning() -> None:
+    """#272, pcr.md section 2: PCR centres nothing of its own either."""
+    found = check_pipeline(
+        pipeline(
+            EstimatorNode(id="pcr", inputs=("source",), spec=PCRSpec(n_components=3, target="fat")),
+        )
+    )
+    assert [(w.code, w.node_id) for w in found] == [(PLS_WITHOUT_CENTRING, "pcr")]
+
+
 @pytest.mark.parametrize("step", [MeanCentre(), Autoscale()])
 def test_either_kind_of_centring_above_a_pls_node_silences_it(step: Any) -> None:
     """`Autoscale` subtracts the column means before it divides, so it centres."""
@@ -461,3 +474,50 @@ def test_a_warning_does_not_stop_the_pipeline_running(tmp_path: Path) -> None:
     assert [warning.code for warning in check_pipeline(leaky)] == [LEAK_BEFORE_SPLIT]
     run = execute(directory, leaky, version)
     assert run.results["pca"].n_components == 3
+
+
+# --------------------------------------------------------------------------
+# a selection chosen from the data, validated on it (#283)
+# --------------------------------------------------------------------------
+
+
+def _selected(chosen_by: Any, *, split: bool) -> Pipeline:
+    above = (
+        [SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=5))] if split else []
+    )
+    parent = "split" if split else "source"
+    return pipeline(
+        *above,
+        PreprocessNode(id="centre", inputs=(parent,), step=MeanCentre()),
+        PreprocessNode(
+            id="pick",
+            inputs=("centre",),
+            step=SelectVariables(indices=[1, 2, 3], chosen_by=chosen_by),
+        ),
+        EstimatorNode(
+            id="pls", inputs=("pick",), spec=PLSRegressionSpec(n_components=2, target="fat")
+        ),
+    )
+
+
+def test_a_cars_selection_validated_on_its_own_samples_warns() -> None:
+    warnings = [w for w in check_pipeline(_selected("cars", split=True)) if w.node_id == "pick"]
+    assert [w.code for w in warnings] == [SELECTION_SHARES_SAMPLES]
+    assert warnings[0].related == ("pls",)
+    assert "chosen by CARS" in warnings[0].message and "optimistic" in warnings[0].message
+
+
+def test_a_selection_with_no_validation_below_it_is_silent() -> None:
+    assert not [w for w in check_pipeline(_selected("cars", split=False)) if w.node_id == "pick"]
+
+
+def test_a_selection_nobody_chose_from_the_data_is_silent() -> None:
+    assert not [w for w in check_pipeline(_selected(None, split=True)) if w.node_id == "pick"]
+
+
+def test_an_unset_chosen_by_leaves_the_step_and_its_hash_as_they_were() -> None:
+    """#280's steps, written before chosen_by existed, keep their content hash."""
+    assert SelectVariables(indices=[1, 2]).model_dump() == {
+        "kind": "select_variables",
+        "indices": [1, 2],
+    }

@@ -120,7 +120,7 @@ export default defineConfig({
   projects: [
     {
       name: "seeded",
-      testIgnore: /(empty|runs|walkthrough|docs-examples)\.spec\.ts/,
+      testIgnore: /(empty|runs|walkthrough|docs-examples|docs-classification)\.spec\.ts/,
       use: { baseURL: "http://127.0.0.1:8765" },
     },
     { name: "empty", testMatch: /empty\.spec\.ts/, use: { baseURL: "http://127.0.0.1:8766" } },
@@ -141,6 +141,13 @@ export default defineConfig({
       testMatch: /docs-examples\.spec\.ts/,
       use: { baseURL: "http://127.0.0.1:8769" },
     },
+    {
+      // The classification example's (#288), on a project of its own: the
+      // Tecator examples' project already holds a dataset and a pipeline.
+      name: "classification",
+      testMatch: /docs-classification\.spec\.ts/,
+      use: { baseURL: "http://127.0.0.1:8770" },
+    },
   ],
   webServer: [
     serve("seeded", "8765", ""),
@@ -148,5 +155,6 @@ export default defineConfig({
     serve("runs", "8767", "--unrun"),
     serve("walkthrough", "8768", "--empty"),
     serve("examples", "8769", "--empty"),
+    serve("classification", "8770", "--empty"),
   ],
 });

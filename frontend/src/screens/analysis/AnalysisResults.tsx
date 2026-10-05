@@ -4,23 +4,37 @@ import { useLayoutEffect, useRef, useState } from "react";
 import {
   useCoefficients,
   useContributions,
+  useExcludeSamples,
+  useIpls,
+  useCars,
+  usePipeline,
+  useSavePipeline,
+  useOutliers,
   useResults,
   useSaveModel,
+  type OutlierRule,
   type PcaPayload,
 } from "@/api/queries";
 import {
   coefficientTrace,
   contributionTrace,
   ellipseTrace,
+  carsTraces,
+  influenceTraces,
+  iplsFigure,
+  leverageTraces,
   loadingsTraces,
   outliers,
   predictedTraces,
   rmsecvTrace,
   scoresTrace,
+  selectionTraces,
+  thresholdSelection,
   varianceFigure,
   vipFigure,
 } from "@/plot/analysis";
 import { PLOT_CONFIG, axisLayout, baseLayout, readTheme } from "@/plot/theme";
+import { applySelection } from "@/canvas/edits";
 import { Panel } from "@/screens/analysis/Panel";
 import { DownloadButton } from "@/screens/DownloadButton";
 import { CannotLoad } from "@/states/CannotLoad";
@@ -163,8 +177,16 @@ function Loadings({ pca }: { pca: PcaPayload }) {
  * VIP arrives in the result and the folded vector from its own endpoint,
  * which answers with a sentence when a step in the chain - SNV, MSC, a
  * baseline - is not a fixed linear map and cannot be folded. */
-function VariableImportance({ pca }: { pca: PcaPayload }) {
-  const [view, setView] = useState<"vip" | "coefficients">("vip");
+type ImportanceView = "vip" | "coefficients" | "selection";
+
+function VariableImportance({ pca, onRun }: { pca: PcaPayload; onRun?: () => void }) {
+  // A PCR has no VIP (pcr.md section 6), so its panel is the coefficients.
+  const hasVip = (pca.regression?.vip.length ?? 0) > 0;
+  const [view, setView] = useState<ImportanceView>(hasVip ? "vip" : "coefficients");
+  // #281: a selection is made on a regression's own axis, over the mean
+  // spectrum its estimator saw. A result served before x_mean was kept, and a
+  // classification's dummy response, are not offered one.
+  const selectable = pca.task === "regression" && (pca.regression?.x_mean?.length ?? 0) > 0;
   const coefficients = useCoefficients(pca.node_id);
   const folded = coefficients.data;
 
@@ -206,7 +228,7 @@ function VariableImportance({ pca }: { pca: PcaPayload }) {
       aria-label="Variable importance view"
       className="mono"
       value={view}
-      onChange={(event) => setView(event.target.value as "vip" | "coefficients")}
+      onChange={(event) => setView(event.target.value as ImportanceView)}
       style={{
         height: 18,
         borderRadius: 3,
@@ -217,14 +239,17 @@ function VariableImportance({ pca }: { pca: PcaPayload }) {
         fontSize: 9.5,
       }}
     >
-      <option value="vip">VIP</option>
+      {hasVip ? <option value="vip">VIP</option> : null}
       <option value="coefficients">Coefficients, raw axis</option>
+      {selectable ? <option value="selection">Select variables</option> : null}
     </select>
   );
 
   return (
     <Panel title="Variable importance" note={choose}>
-      {view === "vip" ? (
+      {view === "selection" && selectable ? (
+        <SelectVariables pca={pca} hasVip={hasVip} onRun={onRun} />
+      ) : view === "vip" && hasVip ? (
         <div ref={vipHost} data-testid="vip-plot" style={{ flex: 1, minHeight: 0 }} />
       ) : folded?.available ? (
         <div ref={coefficientHost} data-testid="coefficients-plot" style={{ flex: 1, minHeight: 0 }} />
@@ -241,6 +266,200 @@ function VariableImportance({ pca }: { pca: PcaPayload }) {
         </div>
       )}
     </Panel>
+  );
+}
+
+/** #281: threshold VIP or |b| on the estimator's own axis, see what it keeps
+ * over the mean spectrum, and Apply it as a `select_variables` step above a
+ * copy of the estimator - which is then run, so the two can be compared.
+ *
+ * #282: or run iPLS on a PLS, see each interval's RMSECV over the spectrum
+ * against the full spectrum's, and Apply the intervals forward selection kept. */
+type SelectBy = "vip" | "b" | "ipls" | "cars";
+
+/** What `chosen_by` records for each method (#283). */
+const CHOSEN_BY = { vip: "vip", b: "coefficients", ipls: "ipls", cars: "cars" } as const;
+
+function SelectVariables({
+  pca,
+  hasVip,
+  onRun,
+}: {
+  pca: PcaPayload;
+  hasVip: boolean;
+  onRun?: () => void;
+}) {
+  const regression = pca.regression!;
+  const valuesOf = (by: "vip" | "b") => (by === "vip" ? regression.vip : regression.coefficients);
+  // VIP's conventional cut is 1 (pls-regression.md section 9); |b| has no
+  // such number, so it starts at the mean magnitude.
+  const cutFor = (by: SelectBy) => {
+    if (by === "vip") return "1";
+    if (by === "ipls" || by === "cars") return "";
+    const b = valuesOf("b");
+    return String(Number((b.reduce((sum, v) => sum + Math.abs(v), 0) / b.length).toPrecision(3)));
+  };
+  const [basis, setBasis] = useState<SelectBy>(hasVip ? "vip" : "b");
+  const [threshold, setThreshold] = useState<string>(() => cutFor(hasVip ? "vip" : "b"));
+  // iPLS is a computation, run when asked: the box is what will be asked for,
+  // `requested` what was.
+  const width = pca.n_variables;
+  const [intervals, setIntervals] = useState<string>(String(Math.min(20, width)));
+  const [requested, setRequested] = useState<number | null>(null);
+  const ipls = useIpls(pca.node_id, basis === "ipls" ? requested : null);
+  // CARS likewise: the run count asked for, and what was run.
+  const [runs, setRuns] = useState<string>("50");
+  const [carsRequested, setCarsRequested] = useState<number | null>(null);
+  const carsQuery = useCars(pca.node_id, basis === "cars" ? carsRequested : null);
+
+  // An empty or unreadable box selects nothing rather than everything.
+  const cut = threshold.trim() === "" ? Number.NaN : Number(threshold);
+  const selected =
+    basis === "ipls"
+      ? (ipls.data?.selected ?? [])
+      : basis === "cars"
+        ? (carsQuery.data?.selected ?? [])
+        : Number.isFinite(cut)
+        ? thresholdSelection(valuesOf(basis), cut, basis === "b")
+        : [];
+  const pipeline = usePipeline();
+  const save = useSavePipeline();
+  const [error, setError] = useState<string | null>(null);
+  const host = usePlot(
+    (theme) => {
+      const label = `${pca.loadings.axis.kind} (${pca.loadings.axis.unit ?? ""})`;
+      const margin = { l: 48, r: 12, t: 8, b: 38 };
+      if (basis === "cars" && carsQuery.data) {
+        return {
+          data: carsTraces(carsQuery.data, theme),
+          layout: {
+            xaxis: axisLayout(theme, "Sampling run"),
+            yaxis: axisLayout(theme, "RMSECV"),
+            margin,
+            showlegend: false,
+          },
+        };
+      }
+      if (basis === "ipls" && ipls.data) {
+        const figure = iplsFigure(ipls.data, theme);
+        return {
+          data: figure.data,
+          layout: {
+            shapes: figure.shapes,
+            xaxis: axisLayout(theme, label),
+            yaxis: { ...axisLayout(theme, "RMSECV"), rangemode: "tozero" },
+            margin,
+          },
+        };
+      }
+      return {
+        data: selectionTraces(pca, selected, theme),
+        layout: { xaxis: axisLayout(theme, label), yaxis: axisLayout(theme, "Mean"), margin },
+      };
+    },
+    [pca, basis, ipls.data, carsQuery.data, selected.join(",")],
+  );
+  const apply = async () => {
+    setError(null);
+    try {
+      if (!pipeline.data) throw new Error("The pipeline has not loaded yet.");
+      await save.mutateAsync(
+        applySelection(pipeline.data.nodes, pca.node_id, selected, CHOSEN_BY[basis]),
+      );
+      onRun?.();
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "The selection could not be applied.");
+    }
+  };
+  const problem =
+    error ??
+    (basis === "ipls" && ipls.isError
+      ? ipls.error.message
+      : basis === "cars" && carsQuery.isError
+        ? carsQuery.error.message
+        : null);
+  return (
+    <>
+      <div
+        className="mono"
+        style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", fontSize: 10 }}
+      >
+        <select
+          aria-label="Select by"
+          value={basis}
+          onChange={(event) => {
+            const next = event.target.value as SelectBy;
+            setBasis(next);
+            setThreshold(cutFor(next));
+          }}
+        >
+          {hasVip ? <option value="vip">VIP ≥</option> : null}
+          <option value="b">|b| ≥</option>
+          {/* iPLS fits PLS models (variable-selection.md section 2). */}
+          {hasVip ? <option value="ipls">iPLS</option> : null}
+          {hasVip ? <option value="cars">CARS</option> : null}
+        </select>
+        {basis === "cars" ? (
+          <>
+            <input
+              aria-label="Sampling runs"
+              value={runs}
+              onChange={(event) => setRuns(event.target.value)}
+              style={{ width: 40 }}
+            />
+            <button
+              type="button"
+              className="btn"
+              disabled={carsQuery.isFetching}
+              onClick={() => setCarsRequested(Number(runs))}
+            >
+              {carsQuery.isFetching ? "Running…" : "Run CARS"}
+            </button>
+          </>
+        ) : basis === "ipls" ? (
+          <>
+            <input
+              aria-label="Intervals"
+              value={intervals}
+              onChange={(event) => setIntervals(event.target.value)}
+              style={{ width: 40 }}
+            />
+            <button
+              type="button"
+              className="btn"
+              disabled={ipls.isFetching}
+              onClick={() => setRequested(Number(intervals))}
+            >
+              {ipls.isFetching ? "Running…" : "Run iPLS"}
+            </button>
+          </>
+        ) : (
+          <input
+            aria-label="Threshold"
+            value={threshold}
+            onChange={(event) => setThreshold(event.target.value)}
+            style={{ width: 64 }}
+          />
+        )}
+        <span data-testid="selection-count">
+          {selected.length} of {width}
+        </span>
+        <button
+          type="button"
+          className="btn"
+          disabled={selected.length === 0 || save.isPending}
+          onClick={() => void apply()}
+        >
+          Apply selection
+        </button>
+      </div>
+      {problem ? (
+        <p role="alert" className="mono" style={{ margin: "2px 10px", fontSize: 10, color: "var(--fail)" }}>
+          {problem}
+        </p>
+      ) : null}
+      <div ref={host} data-testid="selection-plot" style={{ flex: 1, minHeight: 0 }} />
+    </>
   );
 }
 
@@ -453,6 +672,231 @@ function metric(value: number | undefined, digits = 4) {
   return value === undefined ? "—" : value.toFixed(digits);
 }
 
+/** One row of the panel grid. It keeps a plot's height once the grid has
+ * more rows than fit, and scrolls instead (#278). */
+const ROW = { display: "flex", gap: 12, flex: 1, minHeight: 240 } as const;
+
+/** outliers.md section 5's rules as the flags table prints them. */
+const RULE_LABELS: Record<OutlierRule, string> = {
+  t2: "T²",
+  q: "Q",
+  leverage: "leverage",
+  residual: "residual",
+  robust: "robust distance",
+};
+
+function Influence({ pca }: { pca: PcaPayload }) {
+  const host = usePlot(
+    (theme) => ({
+      data: influenceTraces(pca, theme),
+      layout: {
+        xaxis: axisLayout(theme, "Hotelling T²"),
+        yaxis: axisLayout(theme, "Q (SPE)"),
+        margin: { l: 52, r: 12, t: 8, b: 38 },
+      },
+    }),
+    [pca],
+  );
+  return (
+    <Panel title="Influence" note={`α = ${pca.diagnostics.alpha}`}>
+      <div ref={host} data-testid="influence-plot" style={{ flex: 1, minHeight: 0 }} />
+    </Panel>
+  );
+}
+
+function LeverageResidual({ pca }: { pca: PcaPayload }) {
+  const host = usePlot(
+    (theme) => ({
+      data: leverageTraces(pca, theme),
+      layout: {
+        xaxis: axisLayout(theme, "Leverage"),
+        yaxis: axisLayout(theme, "Studentised residual"),
+        margin: { l: 52, r: 12, t: 8, b: 38 },
+      },
+    }),
+    [pca],
+  );
+  const caveat = pca.outliers?.caveats.residual ?? pca.outliers?.caveats.leverage;
+  return (
+    <Panel title="Leverage vs residual" note={`limit ${pca.outliers?.limits.leverage.toFixed(3)}`}>
+      {caveat ? (
+        <div className="empty" style={{ padding: 12 }} role="note">
+          {caveat}
+        </div>
+      ) : (
+        <div ref={host} data-testid="leverage-plot" style={{ flex: 1, minHeight: 0 }} />
+      )}
+    </Panel>
+  );
+}
+
+/** The flags table (outliers.md section 5): every calibration row that breaks
+ * a rule, and which. A flag asks for a look, not a removal - so a row opens
+ * the sample's contributions, as the diagnostics table's do. */
+function Flags({
+  pca,
+  picked,
+  onPick,
+  onExcluded,
+}: {
+  pca: PcaPayload;
+  picked: number | null;
+  onPick: (index: number) => void;
+  /** Called once the derived version exists, to run the pipeline on it (#279). */
+  onExcluded?: () => void;
+}) {
+  // Ticked rows, by dataset row: what an exclusion is made of (#279).
+  const [ticked, setTicked] = useState<Set<number>>(new Set());
+  const exclude = useExcludeSamples();
+  const block = pca.outliers;
+  if (!block) return null;
+  const caveats = Object.entries(block.caveats) as [OutlierRule, string][];
+  const toggle = (row: number) =>
+    setTicked((current) => {
+      const next = new Set(current);
+      if (next.has(row)) next.delete(row);
+      else next.add(row);
+      return next;
+    });
+  return (
+    <Panel title="Flagged samples" note={`${block.flags.length} of ${pca.n_samples}`} width={300}>
+      {/* Flagging is the diagnostics' job; leaving a sample out is the user's
+          (outliers.md section 1). It writes a derived version, as the dataset
+          table's exclusion does, and the pipeline reruns on it. */}
+      {ticked.size > 0 ? (
+        <div style={{ padding: "6px 12px", borderBottom: "1px solid var(--rule2)" }}>
+          <button
+            type="button"
+            className="btn"
+            disabled={exclude.isPending}
+            onClick={() =>
+              exclude.mutate(
+                {
+                  datasetId: block.dataset_id,
+                  fromVersionId: block.version_id,
+                  exclude: [...ticked],
+                },
+                {
+                  onSuccess: () => {
+                    setTicked(new Set());
+                    onExcluded?.();
+                  },
+                },
+              )
+            }
+          >
+            Exclude {ticked.size} and rerun
+          </button>
+        </div>
+      ) : null}
+      {exclude.error ? (
+        <p role="alert" className="mono" style={{ margin: "4px 12px", fontSize: 10, color: "var(--fail)" }}>
+          {exclude.error.message}
+        </p>
+      ) : null}
+      {caveats.map(([rule, sentence]) => (
+        <p
+          key={rule}
+          role="note"
+          className="mono"
+          style={{ margin: "4px 12px", fontSize: 10, color: "var(--stale)", lineHeight: 1.35 }}
+        >
+          {RULE_LABELS[rule]}: {sentence}
+        </p>
+      ))}
+      <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+        <table>
+          <thead>
+            <tr>
+              <th style={{ width: 26 }} aria-label="Exclude" />
+              <th style={{ width: 74 }}>Sample</th>
+              <th>Rules</th>
+            </tr>
+          </thead>
+          <tbody>
+            {block.flags.map((flag) => {
+              const sample = pca.samples[flag.index];
+              return (
+                <tr
+                  key={sample.index}
+                  data-testid="flag-row"
+                  data-index={sample.index}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={picked === sample.index}
+                  onClick={() => onPick(sample.index)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") onPick(sample.index);
+                  }}
+                  style={{
+                    cursor: "pointer",
+                    background: picked === sample.index ? "var(--sunken)" : undefined,
+                  }}
+                >
+                  {/* Its own control: ticking a row is not opening it. */}
+                  <td onClick={(event) => event.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      aria-label={`Exclude ${sample.sample_id}`}
+                      checked={ticked.has(sample.index)}
+                      onChange={() => toggle(sample.index)}
+                    />
+                  </td>
+                  <td className="mono" style={{ color: "var(--ink)" }}>
+                    {sample.sample_id}
+                  </td>
+                  <td className="mono" style={{ color: "var(--stale)" }}>
+                    {flag.rules.map((rule) => RULE_LABELS[rule]).join(" · ")}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
+  );
+}
+
+/** The outlier row (#278), fetched on its own (#314) so the panels above draw
+ * while the robust-distance search runs. */
+function OutlierRow({
+  pca,
+  nodeId,
+  picked,
+  onPick,
+  onRun,
+}: {
+  pca: PcaPayload;
+  nodeId: string;
+  picked: number | null;
+  onPick: (index: number) => void;
+  onRun?: () => void;
+}) {
+  const query = useOutliers(nodeId, true);
+  if (!query.data) {
+    return (
+      <div data-testid="outliers-row" style={ROW}>
+        <Panel title="Outliers">
+          <div className="empty" style={{ padding: 12 }} role={query.isError ? "alert" : undefined}>
+            {query.isError ? query.error.message : "Computing the outlier diagnostics…"}
+          </div>
+        </Panel>
+      </div>
+    );
+  }
+  const diagnosed = { ...pca, outliers: query.data };
+  return (
+    <div data-testid="outliers-row" style={ROW}>
+      <Influence pca={diagnosed} />
+      {query.data.studentised_residuals !== null || query.data.caveats.residual ? (
+        <LeverageResidual pca={diagnosed} />
+      ) : null}
+      <Flags pca={diagnosed} picked={picked} onPick={onPick} onExcluded={onRun} />
+    </div>
+  );
+}
+
 function PredictedVsMeasured({ pca }: { pca: PcaPayload }) {
   const host = usePlot(
     (theme) => ({
@@ -502,10 +946,11 @@ function RmsecvCurve({ pca }: { pca: PcaPayload }) {
   );
 }
 
-/** The confusion matrices a two-class PLS-DA reports (#185, `pls-da.md` §6):
+/** The confusion matrices a classification reports (`classification.md`):
  * rows observed, columns assigned, in the classes' order, for the calibration
- * set and - below a split - the cross-validated and held-out sets. Counts,
- * not a plot: four numbers per set are read, not drawn. Exported for its test. */
+ * set and - below a split - the cross-validated and held-out sets, each with
+ * its per-class table beneath. Counts, not a plot: N-by-N numbers are read,
+ * not drawn. Exported for its test. */
 export function ConfusionMatrix({ pca }: { pca: PcaPayload }) {
   const classification = pca.classification;
   if (!classification) return null;
@@ -514,9 +959,9 @@ export function ConfusionMatrix({ pca }: { pca: PcaPayload }) {
     ["cross_validation", "Cross-validated"],
     ["held_out", "Held out (fold 0)"],
   ];
-  const [c0, c1] = classification.classes;
+  const { classes } = classification;
   return (
-    <Panel title="Confusion" note={`${c0} · ${c1}`}>
+    <Panel title="Confusion" note={classes.join(" · ")}>
       <div
         data-testid="confusion-matrix"
         style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "6px 0" }}
@@ -524,29 +969,58 @@ export function ConfusionMatrix({ pca }: { pca: PcaPayload }) {
         {sets
           .filter(([key]) => classification.confusion[key])
           .map(([key, label]) => {
-            const [[tn, fp], [fn, tp]] = classification.confusion[key];
+            const table = classification.class_metrics?.[key];
             return (
-              <table key={key} data-testid={`confusion-${key}`} style={{ marginBottom: 8 }}>
-                <thead>
-                  <tr>
-                    <th style={{ width: 110 }}>{label}</th>
-                    <th className="n">→ {c0}</th>
-                    <th className="n">→ {c1}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td className="mono">{c0}</td>
-                    <td className="n">{tn}</td>
-                    <td className="n">{fp}</td>
-                  </tr>
-                  <tr>
-                    <td className="mono">{c1}</td>
-                    <td className="n">{fn}</td>
-                    <td className="n">{tp}</td>
-                  </tr>
-                </tbody>
-              </table>
+              <div key={key} style={{ marginBottom: 10 }}>
+                <table data-testid={`confusion-${key}`}>
+                  <thead>
+                    <tr>
+                      <th style={{ width: 110 }}>{label}</th>
+                      {classes.map((name) => (
+                        <th key={name} className="n">
+                          → {name}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {classification.confusion[key].map((row, j) => (
+                      <tr key={classes[j]}>
+                        <td className="mono">{classes[j]}</td>
+                        {row.map((count, k) => (
+                          <td key={classes[k]} className="n">
+                            {count}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {table ? (
+                  <table data-testid={`class-metrics-${key}`}>
+                    <thead>
+                      <tr>
+                        <th style={{ width: 110 }}>Class</th>
+                        <th className="n">n</th>
+                        <th className="n">Sens.</th>
+                        <th className="n">Spec.</th>
+                        <th className="n">Prec.</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {table.map((entry, j) => (
+                        <tr key={classes[j]}>
+                          <td className="mono">{classes[j]}</td>
+                          <td className="n">{entry.n}</td>
+                          <td className="n">{metric(entry.sensitivity, 3)}</td>
+                          <td className="n">{metric(entry.specificity, 3)}</td>
+                          <td className="n">{metric(entry.precision, 3)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : null}
+              </div>
             );
           })}
       </div>
@@ -643,7 +1117,216 @@ function SaveModel({ nodeId, title }: { nodeId: string; title: string }) {
   );
 }
 
-export function AnalysisResults({ nodeId, title }: { nodeId: string; title: string }) {
+const SIMCA_SETS: [string, string][] = [
+  ["cross_validation", "Cross-validated"],
+  ["held_out", "Held out (fold 0)"],
+  ["calibration", "Calibration"],
+];
+
+/** A SIMCA's acceptance tables (simca.md section 5): rows the observed
+ * class, columns the class model, a cell counting that class's samples the
+ * model accepted, and the samples no model accepted beside them. A row may
+ * add up to more or less than its class, because acceptance is per model.
+ * Exported for its test. */
+export function AcceptanceTable({ pca }: { pca: PcaPayload }) {
+  const simca = pca.simca;
+  if (!simca) return null;
+  const { classes } = simca;
+  return (
+    <Panel title="Acceptance" note={classes.join(" · ")}>
+      <div data-testid="acceptance" style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "6px 0" }}>
+        {SIMCA_SETS.filter(([key]) => simca.sets[key]).map(([key, label]) => {
+          const one = simca.sets[key];
+          return (
+            <div key={key} style={{ marginBottom: 10 }}>
+              <table data-testid={`acceptance-${key}`}>
+                <thead>
+                  <tr>
+                    <th style={{ width: 110 }}>{label}</th>
+                    {classes.map((name) => (
+                      <th key={name} className="n">
+                        ✓ {name}
+                      </th>
+                    ))}
+                    <th className="n">none</th>
+                    <th className="n">Sens.</th>
+                    <th className="n">Spec.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {one.table.map((row, j) => (
+                    <tr key={classes[j]}>
+                      <td className="mono">
+                        {classes[j]} ({one.sizes[j]})
+                      </td>
+                      {row.map((count, k) => (
+                        <td key={classes[k]} className="n">
+                          {count}
+                        </td>
+                      ))}
+                      <td className="n">{one.none[j]}</td>
+                      <td className="n">{metric(one.class_metrics[j].sensitivity, 3)}</td>
+                      <td className="n">{metric(one.class_metrics[j].specificity, 3)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        })}
+      </div>
+    </Panel>
+  );
+}
+
+/** Reduced distance to one class model against another's, with h = 1 drawn
+ * on both axes: the four quadrants are accepted by both, either, or neither
+ * (simca.md section 5). The set read is the cross-validated one when there is
+ * one, because a model's own calibration rows flatter it. */
+function Coomans({ pca }: { pca: PcaPayload }) {
+  const simca = pca.simca!;
+  const [a, setA] = useState(0);
+  const [b, setB] = useState(Math.min(1, simca.classes.length - 1));
+  const key = simca.sets.cross_validation ? "cross_validation" : "calibration";
+  const one = simca.sets[key];
+  const host = usePlot(
+    (theme) => {
+      const top = Math.max(1.5, ...one.distances.flatMap((row) => [row[a], row[b]]));
+      return {
+        data: [
+          {
+            type: "scattergl",
+            mode: "markers",
+            x: one.distances.map((row) => row[a]),
+            y: one.distances.map((row) => row[b]),
+            text: one.samples.map((sample) => sample.sample_id),
+            hovertemplate: "%{text}<br>h %{x:.3f} · %{y:.3f}<extra></extra>",
+            marker: { size: 6, color: theme.series[0], opacity: 0.8 },
+          },
+        ],
+        layout: {
+          shapes: [
+            { type: "line", x0: 1, x1: 1, y0: 0, y1: top, line: { color: theme.stale, dash: "dot", width: 1 } },
+            { type: "line", x0: 0, x1: top, y0: 1, y1: 1, line: { color: theme.stale, dash: "dot", width: 1 } },
+          ],
+          xaxis: { ...axisLayout(theme, `h to ${simca.classes[a]}`), rangemode: "tozero" },
+          yaxis: { ...axisLayout(theme, `h to ${simca.classes[b]}`), rangemode: "tozero" },
+          margin: { l: 48, r: 12, t: 8, b: 38 },
+        },
+      };
+    },
+    [pca, a, b],
+  );
+  const pick = (value: number, set: (n: number) => void, label: string) => (
+    <select
+      aria-label={label}
+      className="mono"
+      value={value}
+      onChange={(event) => set(Number(event.target.value))}
+      style={{ height: 18, fontSize: 9.5, border: "1px solid var(--rule)", background: "var(--surface)", color: "var(--ink2)" }}
+    >
+      {simca.classes.map((name, index) => (
+        <option key={name} value={index}>
+          {name}
+        </option>
+      ))}
+    </select>
+  );
+  return (
+    <Panel
+      title="Coomans"
+      note={
+        <span style={{ display: "flex", gap: 4 }}>
+          {pick(a, setA, "Coomans x class")}
+          {pick(b, setB, "Coomans y class")}
+        </span>
+      }
+    >
+      <div ref={host} data-testid="coomans-plot" style={{ flex: 1, minHeight: 0 }} />
+    </Panel>
+  );
+}
+
+function SimcaResults({ pca, nodeId, title }: { pca: PcaPayload; nodeId: string; title: string }) {
+  const simca = pca.simca!;
+  const m = pca.metrics ?? {};
+  return (
+    <div className="pane">
+      <div
+        data-testid="analysis-header"
+        style={{
+          height: 52,
+          flex: "none",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "0 14px",
+          borderBottom: "1px solid var(--rule2)",
+          whiteSpace: "nowrap",
+          gap: 12,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+          <span style={{ fontWeight: 600, fontSize: 13.5 }}>{title}</span>
+          <span className="mono" style={{ fontSize: 11, color: "var(--ink3)" }}>
+            SIMCA on {simca.class_column} {pca.n_components} components per class · {pca.n_samples} ×{" "}
+            {pca.n_variables}
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <div style={{ paddingRight: 11 }}>
+            <SaveModel nodeId={nodeId} title={title} />
+          </div>
+          {(
+            [
+              ["SENSITIVITY (CV)", metric(m.sensitivity_cv, 3)],
+              ["SPECIFICITY (CV)", metric(m.specificity_cv, 3)],
+            ] as [string, string][]
+          ).map(([label, value]) => (
+            <div
+              key={label}
+              style={{ display: "flex", flexDirection: "column", gap: 1, padding: "0 11px", borderLeft: "1px solid var(--rule2)" }}
+            >
+              <span className="ilabel" style={{ fontSize: 9 }}>
+                {label}
+              </span>
+              <span className="mono" style={{ fontSize: 14, fontWeight: 600, color: "var(--accentInk)" }}>
+                {value}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{ flex: 1, minHeight: 0, padding: "12px 14px", display: "flex", gap: 12 }}>
+        <AcceptanceTable pca={pca} />
+        <Coomans pca={pca} />
+        <Panel title="Class models" note={`α ${pca.diagnostics.alpha}`} width={260}>
+          <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "6px 0" }}>
+            {simca.models.map((model) => (
+              <div className="kv" key={model.class} title={model.spe_limit_caveat ?? undefined}>
+                <b>{model.class}</b>
+                <span className="mono">
+                  n {model.n_samples} · T² {model.t2_limit.toFixed(2)} · Q {model.q_limit.toPrecision(3)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
+export function AnalysisResults({
+  nodeId,
+  title,
+  onRun,
+}: {
+  nodeId: string;
+  title: string;
+  /** Starts a run the shell tracks, after an exclusion from the flags table. */
+  onRun?: () => void;
+}) {
   const results = useResults(nodeId);
   const [picked, setPicked] = useState<number | null>(null);
 
@@ -663,6 +1346,7 @@ export function AnalysisResults({ nodeId, title }: { nodeId: string; title: stri
   }
 
   const pca = results.data;
+  if (pca.simca) return <SimcaResults pca={pca} nodeId={nodeId} title={title} />;
   const classification = pca.task === "classification";
   // A classification is the regression on a dummy response (pls-da.md
   // section 2), so every regression panel applies; only what it is called and
@@ -693,9 +1377,9 @@ export function AnalysisResults({ nodeId, title }: { nodeId: string; title: stri
             style={{ fontSize: 11, color: "var(--ink3)", overflow: "hidden", textOverflow: "ellipsis" }}
           >
             {classification
-              ? `PLS-DA on ${pca.classification?.class_column ?? "?"}`
+              ? `${{ lda: "LDA", knn: "kNN" }[pca.regression?.method ?? ""] ?? "PLS-DA"} on ${pca.classification?.class_column ?? "?"}`
               : regression
-                ? `PLS on ${pca.regression?.target ?? "?"}`
+                ? `${pca.regression?.method === "pcr" ? "PCR" : "PLS"} on ${pca.regression?.target ?? "?"}`
                 : "PCA"}{" "}
             {pca.n_components}{" "}
             components · {pca.n_samples} × {pca.n_variables}
@@ -772,14 +1456,17 @@ export function AnalysisResults({ nodeId, title }: { nodeId: string; title: stri
           display: "flex",
           flexDirection: "column",
           gap: 12,
+          // #278's fourth row does not fit beside the other three at the
+          // design height, so the grid scrolls rather than squash a plot.
+          overflowY: "auto",
         }}
       >
-        <div style={{ display: "flex", gap: 12, flex: 1, minHeight: 0 }}>
+        <div style={ROW}>
           <Scores pca={pca} />
           <Loadings pca={pca} />
-          {regression && <VariableImportance pca={pca} />}
+          {regression && <VariableImportance pca={pca} onRun={onRun} />}
         </div>
-        <div style={{ display: "flex", gap: 12, flex: 1, minHeight: 0 }}>
+        <div style={ROW}>
           <Variance pca={pca} />
           <Diagnostics pca={pca} picked={picked} onPick={setPicked} />
           <Contributions pca={pca} sample={picked} />
@@ -789,12 +1476,23 @@ export function AnalysisResults({ nodeId, title }: { nodeId: string; title: stri
             layout was drawn for - and only for a regression, because these
             three have no counterpart on a decomposition. */}
         {regression && (
-          <div style={{ display: "flex", gap: 12, flex: 1, minHeight: 0 }}>
+          <div style={ROW}>
             {classification ? <ConfusionMatrix pca={pca} /> : <PredictedVsMeasured pca={pca} />}
             <RmsecvCurve pca={pca} />
             <RegressionMetrics pca={pca} />
           </div>
         )}
+        {/* #278: the outlier diagnostics, a row of their own, for a PCA, PLS
+            or PCR (outliers.md section 1). */}
+        {pca.task === "decomposition" || ["pls", "pcr"].includes(pca.regression?.method ?? "") ? (
+          <OutlierRow
+            pca={pca}
+            nodeId={nodeId}
+            picked={picked}
+            onPick={setPicked}
+            onRun={onRun}
+          />
+        ) : null}
       </div>
     </div>
   );

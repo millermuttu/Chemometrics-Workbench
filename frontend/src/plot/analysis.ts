@@ -1,4 +1,10 @@
-import type { CoefficientsPayload, ContributionsPayload, PcaPayload } from "@/api/queries";
+import type {
+  CoefficientsPayload,
+  CarsPayload,
+  ContributionsPayload,
+  IplsPayload,
+  PcaPayload,
+} from "@/api/queries";
 
 import type { PlotTheme } from "./theme";
 
@@ -259,4 +265,179 @@ export function contributionTrace(
     line: { width: 1.2, color: theme.series[which === "spe" ? 1 : 0] },
     hovertemplate: `${payload.sample.sample_id}<br>%{x:.1f} · %{y:.4g}<extra></extra>`,
   };
+}
+
+/** Calibration rows the server flagged under any rule (outliers.md section 5),
+ * by their position in `samples`. */
+function flagged(pca: PcaPayload): Set<number> {
+  return new Set((pca.outliers?.flags ?? []).map((flag) => flag.index));
+}
+
+/** A limit drawn as a dotted line across the plot, from the server's number. */
+function limitLine(x: number[], y: number[], theme: PlotTheme, name: string) {
+  return {
+    type: "scattergl",
+    mode: "lines",
+    x,
+    y,
+    line: { width: 1, color: theme.ink3, dash: "dot" },
+    hoverinfo: "skip",
+    name,
+    showlegend: false,
+  };
+}
+
+/** The influence plot: T² against Q, each sample named on hover, a flagged
+ * one in `stale`, and both limits as the lines it is judged against. */
+export function influenceTraces(pca: PcaPayload, theme: PlotTheme) {
+  const { hotelling_t2: t2, spe, hotelling_t2_limit: t2Limit, spe_limit: qLimit } = pca.diagnostics;
+  const marked = flagged(pca);
+  const xMax = Math.max(t2Limit, ...t2) * 1.05;
+  const yMax = Math.max(qLimit, ...spe) * 1.05;
+  return [
+    limitLine([t2Limit, t2Limit], [0, yMax], theme, "T² limit"),
+    limitLine([0, xMax], [qLimit, qLimit], theme, "Q limit"),
+    {
+      type: "scattergl",
+      mode: "markers",
+      x: t2,
+      y: spe,
+      text: pca.samples.map((sample) => sample.sample_id),
+      marker: {
+        size: 5,
+        color: t2.map((_, index) => (marked.has(index) ? theme.stale : theme.series[0])),
+      },
+      hovertemplate: "%{text}<br>T² %{x:.3f} · Q %{y:.3g}<extra></extra>",
+    },
+  ];
+}
+
+/** Leverage against studentised residual (outliers.md sections 2 and 3), for a
+ * regression: the limit on each, and every sample named on hover. */
+export function leverageTraces(pca: PcaPayload, theme: PlotTheme) {
+  const block = pca.outliers;
+  if (!block?.leverage || !block.studentised_residuals) return [];
+  const residuals = block.studentised_residuals;
+  const rows = block.leverage
+    .map((h, index) => ({ h, r: residuals[index], index }))
+    .filter((row): row is { h: number; r: number; index: number } => row.r !== null);
+  const marked = flagged(pca);
+  const hMax = Math.max(block.limits.leverage, ...block.leverage) * 1.05;
+  const rMax = Math.max(block.limits.residual, ...rows.map((row) => Math.abs(row.r))) * 1.05;
+  const r = block.limits.residual;
+  return [
+    limitLine([block.limits.leverage, block.limits.leverage], [-rMax, rMax], theme, "leverage limit"),
+    limitLine([0, hMax], [r, r], theme, "residual limit"),
+    limitLine([0, hMax], [-r, -r], theme, "residual limit"),
+    {
+      type: "scattergl",
+      mode: "markers",
+      x: rows.map((row) => row.h),
+      y: rows.map((row) => row.r),
+      text: rows.map((row) => pca.samples[row.index].sample_id),
+      marker: {
+        size: 5,
+        color: rows.map((row) => (marked.has(row.index) ? theme.stale : theme.series[0])),
+      },
+      hovertemplate: "%{text}<br>leverage %{x:.3f} · residual %{y:.2f}<extra></extra>",
+    },
+  ];
+}
+
+/** The positions a threshold keeps (#281): VIP at or above it, or |b| at or
+ * above it. Positions on the estimator's own axis, which is what a
+ * `select_variables` step on its input selects from. */
+export function thresholdSelection(values: number[], threshold: number, absolute: boolean): number[] {
+  return values.flatMap((value, index) => ((absolute ? Math.abs(value) : value) >= threshold ? [index] : []));
+}
+
+/** The mean spectrum with the selected variables marked on it (#281). */
+export function selectionTraces(pca: PcaPayload, selected: number[], theme: PlotTheme) {
+  const axis = pca.loadings.axis.values;
+  const mean = pca.regression?.x_mean ?? [];
+  return [
+    {
+      type: "scattergl",
+      mode: "lines",
+      name: "mean spectrum",
+      x: axis,
+      y: mean,
+      line: { width: 1.1, color: theme.ink3 },
+      hovertemplate: "%{x:.1f} · %{y:.4g}<extra></extra>",
+    },
+    {
+      type: "scattergl",
+      mode: "markers",
+      name: "selected",
+      x: selected.map((index) => axis[index]),
+      y: selected.map((index) => mean[index]),
+      marker: { size: 5, color: theme.series[0] },
+      hovertemplate: "%{x:.1f} · selected<extra></extra>",
+    },
+  ];
+}
+
+/** iPLS over the spectrum (#282): one bar per interval at its place on the
+ * axis, as tall as its RMSECV, the intervals forward selection kept in the
+ * series colour, and the full spectrum's RMSECV as the line they are read
+ * against. */
+export function iplsFigure(payload: IplsPayload, theme: PlotTheme) {
+  const kept = new Set(payload.steps.map((step) => step.interval));
+  const centre = (one: IplsPayload["intervals"][number]) => (one.axis_start + one.axis_end) / 2;
+  return {
+    data: [
+      {
+        type: "bar",
+        x: payload.intervals.map(centre),
+        y: payload.intervals.map((one) => one.rmsecv),
+        width: payload.intervals.map((one) => Math.abs(one.axis_end - one.axis_start) || 1),
+        marker: {
+          color: payload.intervals.map((_, k) => (kept.has(k) ? theme.series[0] : theme.band)),
+        },
+        text: payload.intervals.map((one) => `A ${one.n_components}`),
+        hovertemplate: "%{x:.1f} · RMSECV %{y:.4g} · %{text}<extra></extra>",
+        name: "interval",
+      },
+    ],
+    shapes: [
+      {
+        type: "line",
+        xref: "paper",
+        x0: 0,
+        x1: 1,
+        y0: payload.full.rmsecv,
+        y1: payload.full.rmsecv,
+        line: { width: 1, dash: "dot", color: theme.ink3 },
+      },
+    ],
+  };
+}
+
+/** CARS (#283): RMSECV per sampling run, the run kept marked on it. The x
+ * axis is the run, and each point names how many variables it kept. */
+export function carsTraces(payload: CarsPayload, theme: PlotTheme) {
+  const runs = payload.runs.map((_, i) => i + 1);
+  const best = payload.runs[payload.best];
+  return [
+    {
+      type: "scattergl",
+      mode: "lines+markers",
+      name: "RMSECV",
+      x: runs,
+      y: payload.runs.map((run) => run.rmsecv),
+      text: payload.runs.map((run) => `${run.n_variables} variables · A ${run.n_components}`),
+      line: { width: 1.2, color: theme.series[0] },
+      marker: { size: 3, color: theme.series[0] },
+      hovertemplate: "run %{x} · RMSECV %{y:.4g}<br>%{text}<extra></extra>",
+    },
+    {
+      type: "scattergl",
+      mode: "markers",
+      name: "kept",
+      x: [payload.best + 1],
+      y: [best.rmsecv],
+      marker: { size: 9, color: "transparent", line: { width: 1.5, color: theme.stale } },
+      hoverinfo: "skip",
+    },
+  ];
 }

@@ -5,7 +5,7 @@ import { sourceVersionOf, useStepSchema } from "@/api/queries";
 import { ParameterForm } from "@/inspector/ParameterForm";
 import { Provenance } from "@/inspector/Provenance";
 import { specFor, type StepSpec } from "@/inspector/schema";
-import { twoValuedColumns } from "@/shell/classColumns";
+import { stratifiableColumns, classColumns } from "@/shell/classColumns";
 import type { Tab } from "@/shell/tabs";
 
 /** The right sidebar, and the only place a parameter is edited.
@@ -44,7 +44,12 @@ function short(hash: string): string {
  * form offers the columns, because a name that is not one is refused at run
  * time anyway - and a dataset with no targets leaves it a text field, which
  * is at least honest about why the node cannot run. */
-function withDatasetColumns(spec: StepSpec, targets: string[], classColumns: string[]): StepSpec {
+function withDatasetColumns(
+  spec: StepSpec,
+  targets: string[],
+  classColumns: string[],
+  strata: string[],
+): StepSpec {
   return {
     ...spec,
     fields: spec.fields.map((field) =>
@@ -52,7 +57,9 @@ function withDatasetColumns(spec: StepSpec, targets: string[], classColumns: str
         ? { ...field, kind: "enum", options: targets }
         : field.name === "class_column" && field.kind === "string" && classColumns.length > 0
           ? { ...field, kind: "enum", options: classColumns }
-          : field,
+          : field.name === "stratify_by" && field.kind === "string" && strata.length > 0
+            ? { ...field, kind: "enum", options: strata }
+            : field,
     ),
   };
 }
@@ -119,7 +126,8 @@ export function Inspector({
     withDatasetColumns(
       found,
       Object.keys(source?.targets ?? {}),
-      twoValuedColumns(source?.metadata_columns),
+      classColumns(source?.metadata_columns),
+      stratifiableColumns(source?.metadata_columns),
     );
 
   return (

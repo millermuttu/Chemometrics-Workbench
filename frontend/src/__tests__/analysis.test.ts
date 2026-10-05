@@ -16,11 +16,17 @@ import {
   coefficientTrace,
   contributionTrace,
   ellipseTrace,
+  carsTraces,
+  influenceTraces,
+  iplsFigure,
+  leverageTraces,
   loadingsTraces,
   outliers,
   predictedTraces,
   rmsecvTrace,
   scoresTrace,
+  selectionTraces,
+  thresholdSelection,
   varianceFigure,
   vipFigure,
 } from "@/plot/analysis";
@@ -275,5 +281,127 @@ describe("contributions", () => {
     const spe = contributionTrace(payload, "spe", theme);
     expect(spe.y).toEqual([0.01, 0.04, 0.01]);
     expect(String(spe.hovertemplate)).toContain("C008");
+  });
+});
+
+describe("the outlier plots (#278)", () => {
+  // The contract fixture predates outliers.md, so the block is added here as
+  // the server serves it: two flagged rows, one fitted exactly.
+  const n = pca.samples.length;
+  const served: PcaPayload = {
+    ...pca,
+    outliers: {
+      leverage: Array.from({ length: n }, (_, i) => (i === 1 ? 0.5 : 0.01)),
+      studentised_residuals: Array.from({ length: n }, (_, i) => (i === 2 ? null : i === 3 ? 4 : 0.5)),
+      robust_distance: Array.from({ length: n }, () => 1),
+      limits: { t2: 10, q: 1, leverage: 0.1, residual: 3, robust: 12 },
+      caveats: {},
+      dataset_id: "d",
+      version_id: "v",
+      flags: [
+        { index: 1, rules: ["leverage"] },
+        { index: 3, rules: ["residual"] },
+      ],
+    },
+  };
+
+  it("draws T² against Q with both served limits and every sample named", () => {
+    const [t2Line, qLine, last] = influenceTraces(served, theme);
+    const points = last as { text: string[]; marker: { color: string[] } };
+    expect(t2Line.x).toEqual([pca.diagnostics.hotelling_t2_limit, pca.diagnostics.hotelling_t2_limit]);
+    expect(qLine.y).toEqual([pca.diagnostics.spe_limit, pca.diagnostics.spe_limit]);
+    expect(points.text).toEqual(pca.samples.map((sample) => sample.sample_id));
+    const colours = points.marker.color;
+    expect(colours[1]).toBe(theme.stale);
+    expect(colours[0]).toBe(theme.series[0]);
+  });
+
+  it("leaves out a row with no studentised residual and keeps the identity of the rest", () => {
+    const points = leverageTraces(served, theme).at(-1) as {
+      x: number[];
+      text: string[];
+      marker: { color: string[] };
+    };
+    expect(points.x.length).toBe(n - 1);
+    expect(points.text).not.toContain(pca.samples[2].sample_id);
+    expect(points.text[2]).toBe(pca.samples[3].sample_id);
+    expect(points.marker.color[2]).toBe(theme.stale);
+  });
+
+  it("draws nothing for a PCA, which has no residuals", () => {
+    expect(leverageTraces({ ...served, outliers: { ...served.outliers!, studentised_residuals: null } }, theme)).toEqual([]);
+  });
+});
+
+describe("a variable selection (#281)", () => {
+  it("keeps VIP at or above the cut, and |b| by magnitude", () => {
+    expect(thresholdSelection([0.4, 1, 1.7, 0.99], 1, false)).toEqual([1, 2]);
+    expect(thresholdSelection([-0.3, 0.1, 0.25, -0.05], 0.2, true)).toEqual([0, 2]);
+  });
+
+  it("marks the kept variables on the mean spectrum, at their own wavelengths", () => {
+    const mean = pca.loadings.axis.values.map((_, i) => i * 0.01);
+    const served: PcaPayload = {
+      ...pca,
+      regression: {
+        target: "fat",
+        observed: [],
+        predicted: [],
+        coefficients: [],
+        vip: [],
+        y_loadings: [],
+        y_explained_variance_ratio: [],
+        x_mean: mean,
+      },
+    };
+    const [line, marks] = selectionTraces(served, [2, 5], theme) as { x: number[]; y: number[] }[];
+    expect(line.y).toEqual(mean);
+    expect(marks.x).toEqual([pca.loadings.axis.values[2], pca.loadings.axis.values[5]]);
+    expect(marks.y).toEqual([mean[2], mean[5]]);
+  });
+});
+
+describe("the iPLS figure (#282)", () => {
+  const payload = {
+    intervals: [
+      { start: 0, stop: 5, axis_start: 850, axis_end: 858, rmsecv: 2.1, n_components: 3 },
+      { start: 5, stop: 10, axis_start: 860, axis_end: 868, rmsecv: 1.4, n_components: 4 },
+      { start: 10, stop: 15, axis_start: 870, axis_end: 878, rmsecv: 3.0, n_components: 2 },
+    ],
+    full: { rmsecv: 1.8, n_components: 5 },
+    steps: [{ interval: 1, rmsecv: 1.4 }],
+    selected: [5, 6, 7, 8, 9],
+  };
+
+  it("puts each interval's bar at its place on the axis, the kept one in the series colour", () => {
+    const { data, shapes } = iplsFigure(payload, theme);
+    const bars = data[0] as { x: number[]; y: number[]; width: number[]; marker: { color: string[] } };
+    expect(bars.x).toEqual([854, 864, 874]);
+    expect(bars.y).toEqual([2.1, 1.4, 3.0]);
+    expect(bars.width).toEqual([8, 8, 8]);
+    expect(bars.marker.color).toEqual([theme.band, theme.series[0], theme.band]);
+    // The full spectrum's RMSECV is the line they are read against.
+    expect(shapes[0].y0).toBe(1.8);
+  });
+});
+
+describe("the CARS plot (#283)", () => {
+  it("draws RMSECV per run and rings the run that was kept", () => {
+    const payload = {
+      runs: [
+        { n_variables: 100, rmsecv: 3.1, n_components: 5 },
+        { n_variables: 40, rmsecv: 2.2, n_components: 5 },
+        { n_variables: 9, rmsecv: 2.6, n_components: 4 },
+      ],
+      best: 1,
+      seed: 0,
+      selected: [1, 2],
+    };
+    const [line, kept] = carsTraces(payload, theme) as { x: number[]; y: number[]; text?: string[] }[];
+    expect(line.x).toEqual([1, 2, 3]);
+    expect(line.y).toEqual([3.1, 2.2, 2.6]);
+    expect(line.text![2]).toBe("9 variables · A 4");
+    expect(kept.x).toEqual([2]);
+    expect(kept.y).toEqual([2.2]);
   });
 });

@@ -31,14 +31,20 @@ from chemometrics_workbench.executor import assign_classes, confusion_matrix
 from chemometrics_workbench.preprocessing import (
     AutoscaleTransformer,
     BaselineCorrectTransformer,
+    GaussianTransformer,
     MeanCentreTransformer,
+    MedianFilterTransformer,
+    MovingAverageTransformer,
     MSCTransformer,
     NormaliseTransformer,
     SavitzkyGolayTransformer,
     SNVTransformer,
+    WhittakerTransformer,
 )
 from chemometrics_workbench.regression import (
+    PCR,
     PLS,
+    PLS2,
     coefficients_original_units,
     cross_validated_predictions,
     rmsecv_curve,
@@ -290,6 +296,134 @@ def test_polynomial_baseline_matches_the_reference(dataset: str) -> None:
         _baseline_block(dataset)
     )
     assert parity.check(f"{dataset}.preprocess.baseline_polynomial.chemotools", ours).passed
+
+
+# --------------------------------------------------------------------------
+# moving average, median, Gaussian and Whittaker (#271)
+# --------------------------------------------------------------------------
+#
+# smoothing-and-baselines.md section 10. Repeated from the generator, for the
+# reason the blocks are: a mismatch would compare two different filters and pass.
+SMOOTH_WINDOW = 5
+GAUSSIAN_SIGMA = 1.5
+WHITTAKER_LAM = 100.0
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_window_smoothers_match_their_references_away_from_the_ends(dataset: str) -> None:
+    """The interior only: the references pad at the ends and ours shrinks the
+    window (section 10.1). The ends are tested by their own property in
+    test_preprocessing.py."""
+    block = _baseline_block(dataset)
+    half = SMOOTH_WINDOW // 2
+    radius = int(4.0 * GAUSSIAN_SIGMA + 0.5)
+    mean = MovingAverageTransformer(SMOOTH_WINDOW).fit_transform(block)[:, half:-half]
+    median = MedianFilterTransformer(SMOOTH_WINDOW).fit_transform(block)[:, half:-half]
+    gaussian = GaussianTransformer(GAUSSIAN_SIGMA).fit_transform(block)[:, radius:-radius]
+    assert parity.check(f"{dataset}.preprocess.moving_average.chemotools", mean).passed
+    result = parity.check(f"{dataset}.preprocess.median.chemotools", median)
+    assert result.passed and result.tier is parity.Tier.IDENTICAL
+    assert parity.check(f"{dataset}.preprocess.gaussian.scipy", gaussian).passed
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_whittaker_matches_the_reference_everywhere(dataset: str) -> None:
+    """A dense inverse against a banded solve, the same penalised system."""
+    ours = WhittakerTransformer(WHITTAKER_LAM).fit_transform(_baseline_block(dataset))
+    assert parity.check(f"{dataset}.preprocess.whittaker.chemotools", ours).passed
+
+
+# --------------------------------------------------------------------------
+# kNN (#277)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_knn_matches_pca_then_k_neighbours(dataset: str) -> None:
+    """`knn.md` section 7: assignments and vote fractions, both exact."""
+    from chemometrics_workbench.classification import KNN
+
+    data = LOADERS[dataset]()
+    target = np.asarray(data.targets[parity.load_fixture()["targets"][dataset]])
+    low, high = np.quantile(target, [1 / 3, 2 / 3])
+    labels = np.where(target < low, "low", np.where(target < high, "mid", "high"))
+    classes = sorted(set(labels.tolist()))
+    codes = np.asarray([classes.index(label) for label in labels])
+    model = KNN(5, N_COMPONENTS).fit(data.spectra, codes, 3)
+    assigned = parity.check(
+        f"{dataset}.knn.predictions.sklearn", model.predict(data.spectra).astype(float)
+    )
+    votes = parity.check(f"{dataset}.knn.votes.sklearn", model.votes(data.spectra))
+    assert assigned.passed and assigned.max_abs_diff == 0.0
+    assert votes.passed and votes.max_abs_diff == 0.0
+
+
+# --------------------------------------------------------------------------
+# LDA (#276)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_lda_matches_pca_then_linear_discriminant_analysis(dataset: str) -> None:
+    """`lda.md` section 7: the decision function and the assignments."""
+    from chemometrics_workbench.classification import LDA
+
+    data = LOADERS[dataset]()
+    target = np.asarray(data.targets[parity.load_fixture()["targets"][dataset]])
+    low, high = np.quantile(target, [1 / 3, 2 / 3])
+    labels = np.where(target < low, "low", np.where(target < high, "mid", "high"))
+    classes = sorted(set(labels.tolist()))
+    codes = np.asarray([classes.index(label) for label in labels])
+    model = LDA(N_COMPONENTS).fit(data.spectra, codes, 3)
+    decision = parity.check(
+        f"{dataset}.lda.decision_function.sklearn", model.decision_function(data.spectra)
+    )
+    assigned = parity.check(
+        f"{dataset}.lda.predictions.sklearn", model.predict(data.spectra).astype(float)
+    )
+    assert decision.passed and not decision.sign_aligned
+    assert assigned.passed and assigned.max_abs_diff == 0.0
+
+
+# --------------------------------------------------------------------------
+# PLS2 (#273)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_pls2_matches_nipals_at_its_fixed_point(dataset: str) -> None:
+    """`pls-regression.md` section 10.4: every response the dataset has, one model."""
+    data = LOADERS[dataset]()
+    centred = data.spectra - data.spectra.mean(axis=0)
+    response = np.column_stack([data.targets[column] for column in data.targets])
+    model = PLS2(N_COMPONENTS).fit(centred, response - response.mean(axis=0))
+    coefficients = parity.check(f"{dataset}.pls2.coefficients.sklearn", model.coefficients_)
+    predictions = parity.check(
+        f"{dataset}.pls2.predictions.sklearn", model.predict(centred) + response.mean(axis=0)
+    )
+    scores = parity.check(f"{dataset}.pls2.scores.sklearn", model.x_scores_)
+    assert coefficients.passed and not coefficients.sign_aligned
+    assert predictions.passed and scores.passed
+
+
+# --------------------------------------------------------------------------
+# PCR (#272)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_pcr_matches_pca_then_least_squares(dataset: str) -> None:
+    """`pcr.md` section 8: coefficients and predictions, sign-invariant."""
+    data = LOADERS[dataset]()
+    centred = data.spectra - data.spectra.mean(axis=0)
+    y = np.asarray(data.targets[parity.load_fixture()["targets"][dataset]])
+    model = PCR(N_COMPONENTS).fit(centred, y - y.mean())
+    coefficients = parity.check(f"{dataset}.pcr.coefficients.sklearn", model.coefficients_)
+    predictions = parity.check(
+        f"{dataset}.pcr.predictions.sklearn", model.predict(centred) + y.mean()
+    )
+    assert coefficients.passed and not coefficients.sign_aligned
+    assert predictions.passed
 
 
 # --------------------------------------------------------------------------
@@ -997,3 +1131,43 @@ def test_plsda_cross_validated_tally_matches_on_the_stored_folds(dataset: str) -
     assert parity.check(f"{dataset}.plsda.confusion_cv.sklearn", flat).passed
     (tn, _fp), (_fn, tp) = confusion
     assert parity.check(f"{dataset}.plsda.accuracy_cv.sklearn", (tp + tn) / y.size).passed
+
+
+# --------------------------------------------------------------------------
+# Robust distance (#278)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_robust_distance_matches_mcd_at_its_minimum(dataset: str) -> None:
+    """`outliers.md` section 7: scikit-learn's C-steps, correction and
+    reweighting from the minimum-determinant support. A distance does not
+    change when a component's sign does, so no alignment is needed."""
+    from chemometrics_workbench.outliers import min_cov_det
+
+    data = LOADERS[dataset]()
+    centred = data.spectra - data.spectra.mean(axis=0)
+    scores = PCA(N_COMPONENTS).fit(centred).scores_
+    result = parity.check(f"{dataset}.mcd.robust_distance.sklearn", min_cov_det(scores).distances)
+    assert result.passed
+
+
+# --------------------------------------------------------------------------
+# iPLS (#282)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_ipls_matches_interval_models_fitted_by_scikit_learn(dataset: str) -> None:
+    """`variable-selection.md` section 5: every interval's best RMSECV, and the
+    intervals forward selection adds, in order, on the PLS entries' folds."""
+    from chemometrics_workbench.selection import ipls
+
+    entry = parity.entries_by_id()[f"{dataset}.ipls.interval_rmsecv.sklearn"]
+    result = ipls(LOADERS[dataset]().spectra, _target(dataset), _folds_from_entry(entry), 10, 5)
+    per_interval = parity.check(
+        f"{dataset}.ipls.interval_rmsecv.sklearn", [i.rmsecv for i in result.intervals]
+    )
+    path = parity.check(f"{dataset}.ipls.forward_path.sklearn", [float(k) for k, _ in result.steps])
+    assert per_interval.passed
+    assert path.passed and path.max_abs_diff == 0.0

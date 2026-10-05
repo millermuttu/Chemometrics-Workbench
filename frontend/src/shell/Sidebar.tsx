@@ -84,6 +84,28 @@ export function nodeLabel(node: PipelineNode): string {
       return `Normalise · ${step?.norm}`;
     case "savgol":
       return `SG d${step?.deriv} w${step?.window_length}`;
+    case "moving_average":
+      return `Moving avg w${step?.window_length}`;
+    case "median":
+      return `Median w${step?.window_length}`;
+    case "gaussian":
+      return `Gaussian σ${step?.sigma}`;
+    case "whittaker":
+      return `Whittaker λ${step?.lam}`;
+    case "select_variables":
+      // #280: what an applied selection writes. How many it kept is what
+      // tells two of them apart in the outline.
+    {
+      const chosen = node.step as unknown as { indices: number[]; chosen_by?: string };
+      const methods: Record<string, string> = {
+        vip: "VIP",
+        coefficients: "|b|",
+        ipls: "iPLS",
+        cars: "CARS",
+      };
+      const by = methods[chosen.chosen_by ?? ""];
+      return `Select ${chosen.indices.length} vars${by ? ` · ${by}` : ""}`;
+    }
     case "kfold":
       return `K-fold ${spec?.n_splits} · seed ${spec?.seed}`;
     case "train_test":
@@ -95,6 +117,14 @@ export function nodeLabel(node: PipelineNode): string {
       // nodes on one branch differ by what they model rather than by their
       // component count.
       return `PLS ${spec?.n_components} LV · ${spec?.target}`;
+    case "pcr":
+      return `PCR ${spec?.n_components} PC · ${spec?.target}`;
+    case "knn":
+      return `kNN k${spec?.k} · ${spec?.class_column}`;
+    case "lda":
+      return `LDA ${spec?.n_components} PC · ${spec?.class_column}`;
+    case "simca":
+      return `SIMCA ${spec?.n_components} PC · ${spec?.class_column}`;
     case "plsda":
       return `PLS-DA ${spec?.n_components} LV · ${spec?.class_column}`;
     case "source":

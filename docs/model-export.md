@@ -13,7 +13,7 @@ Status: **normative**. This document fixes what the two portable export forms co
 
 ## 1. What can be exported, and what cannot
 
-`pls-regression.md` §7 folds a preprocessing step into the coefficient vector when it is a fixed linear map on X whose parameters were fixed at calibration time: mean centring, autoscaling, range selection, Savitzky–Golay. SNV, MSC and the baselines are not — each depends on the sample being predicted, so each must be **re-executed** at prediction time.
+`pls-regression.md` §7 folds a preprocessing step into the coefficient vector when it is a fixed linear map on X whose parameters were fixed at calibration time: mean centring, autoscaling, range selection, an applied variable selection, Savitzky–Golay. SNV, MSC and the baselines are not — each depends on the sample being predicted, so each must be **re-executed** at prediction time.
 
 An export therefore **splits the chain at the last unfoldable step**:
 
@@ -62,12 +62,13 @@ Everything after the last unfoldable step folds; everything up to and including 
 | --- | --- |
 | `schema_version` | Integer, currently **1**. A reader refuses a higher one by name, as [`model-artifact.md`](model-artifact.md) §2 has it |
 | `model.task` | `regression` or `classification`. **A decomposition has no prediction to export** and is refused: PCA produces scores, not a response |
-| `model.threshold` | `0.5` for a classification, `null` otherwise — `pls-da.md` §5's fixed cut, stated rather than assumed by the reader |
-| `model.classes` | `[C_0, C_1]` for a classification; the prediction is `classes[1]` at or above the threshold |
+| `model.threshold` | `0.5` for a two-class classification, `null` otherwise — `pls-da.md` §5's fixed cut, stated rather than assumed by the reader |
+| `model.assignment` | `"argmax"` for a classification of three or more classes (#274), `"simca"` or `"knn"` for those (§6), `null` otherwise |
+| `model.classes` | The classes in Unicode order. With two, the prediction is `classes[1]` at or above the threshold; with more, it is `classes[k]` for the largest of the N predictions |
 | `axis.values` | The **raw** variable axis the model expects its input on, with as many entries as `coefficients` has when the residual chain preserves the variable count. It is the axis of the matrix the residual chain is applied to |
 | `preprocessing` | The residual chain, in the order it is applied, each step as `models.py` serialises it plus whatever fitted parameters it needs (§4) |
-| `coefficients` | `b` such that `y = x_after_chain · b + intercept` |
-| `intercept` | The scalar the fold produced, carrying the estimator's own `y` centring and every folded step's offset |
+| `coefficients` | `b` such that `y = x_after_chain · b + intercept`. For three or more classes, a `p × N` matrix with one column per class |
+| `intercept` | The scalar the fold produced, carrying the estimator's own `y` centring and every folded step's offset. For three or more classes, a list of N, one per column |
 | `provenance` | What this model came from. `metrics` is the estimator's own table |
 
 **The JSON model is self-contained and lossy on purpose.** It holds what predicting needs. Scores, loadings, VIP and the diagnostics are in the artifact; a JSON model is what you send to whoever has to run the calibration, not the record of how it was built.
@@ -94,7 +95,7 @@ For a row `x` of the raw matrix, the residual chain applies in order, then:
 
 $$\hat{y} = x_{\text{after chain}} \cdot b + \text{intercept}$$
 
-and a classification assigns `classes[1]` when `ŷ ≥ threshold` (`pls-da.md` §5).
+A two-class classification assigns `classes[1]` when `ŷ ≥ threshold`. With three or more classes, `ŷ` has one entry per class, and the class with the largest entry is assigned, ties going to the first (`pls-da.md` §5).
 
 The residual steps, exactly as `preprocessing.py` computes them:
 
@@ -136,7 +137,37 @@ The export tolerance is therefore set an order of magnitude above the largest di
 
 ---
 
-## 6. Deliberately not specified here
+## 6. SIMCA and kNN: the affine map
+
+A SIMCA (`simca.md`) and a kNN (`knn.md`) do not decide by a dot product with one coefficient vector. Each needs the whole preprocessed spectrum: SIMCA measures its distance to every class model, kNN its distance to every calibration sample. So the foldable tail cannot be folded into `b`, and is carried instead as the **affine map** it is:
+
+$$x_{\text{model}} = x_{\text{after residual chain}} \cdot M + c$$
+
+Every foldable step is a fixed linear map plus an offset, so their composite is one too. It is measured rather than derived: `c` is the tail applied to a zero row, and row `j` of `M` is the tail applied to the unit vector $e_j$, less `c`.
+
+The JSON model of either carries, beside the fields of §2 that every model has:
+
+| Field | Meaning |
+| --- | --- |
+| `model.assignment` | `"simca"` or `"knn"`; `model.threshold` is `null` and there is no `coefficients` or `intercept` |
+| `affine` | `{"matrix": p × p', "offset": p'}`, or **`null`** when the tail is empty — an identity is not written out |
+| `simca.models` | One entry per class, in the order of `classes`: `mean` (p'), `loadings` (A × p', one row per component), `eigenvalues` (A), `t2_limit`, `q_limit` |
+| `knn` | `k`, `x_mean` (p'), `loadings` (A × p'), `neighbours` (the n calibration scores, n × A) and `neighbour_classes` (n indices into `classes`) |
+
+`p` is the width the residual chain hands on, which is the raw width; `p'` the width after the tail, smaller than `p` when a range selection is in it.
+
+**The arithmetic**, after the residual chain and the map:
+
+- **SIMCA**, for each class model, `simca.md` §3 and §4: $t = (x - \bar{x}_k) P_k^\top$, $T^2 = \sum_a t_a^2 / \lambda_a$, $Q = \lVert (x - \bar{x}_k) - t P_k \rVert^2$, and the class accepts the sample when $\max(T^2 / T^2_{\text{lim}},\; Q / Q_{\text{lim}}) \le 1$. The snippet's `predict` returns an `n × N` array of booleans, column `k` for `classes[k]`: a sample may be accepted by none of the classes or by several, and that is the answer, not an error.
+- **kNN**, `knn.md` §3: $t = (x - \bar{x}) P^\top$, squared Euclidean distances to every neighbour, the `k` nearest by a stable sort so equal distances keep calibration order, an unweighted vote, a tied vote to the first class. `predict` returns `n` class labels.
+
+**The size.** `M` is `p × p'` floats. Tecator's 100 variables give 10,000; a 1,000-variable NIR spectrum gives a million, which is about 20 MB of JSON and of snippet, each float written at full precision. That is the price of carrying a Whittaker smoother or a Savitzky–Golay derivative exactly, and it is paid only when the tail is not empty: a chain that ends in its last carried step writes `"affine": null`. A kNN also carries its `n × A` neighbours, which is small beside `M`.
+
+**Not folded further.** kNN's projection could be folded into the map, giving a `p × A` matrix rather than `p × p'`; SIMCA's `Q` cannot, because the residual needs the whole spectrum. One form for both was preferred to the smaller file for one.
+
+---
+
+## 7. Deliberately not specified here
 
 - **ONNX.** §9 calls it a post-1.0 consideration; the JSON-plus-snippet route covers the realistic deployment targets with far less machinery.
 - **Prediction on new data inside the application.** A screen that takes a new file and applies a saved model is a separate feature.

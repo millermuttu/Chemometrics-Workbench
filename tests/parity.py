@@ -213,6 +213,10 @@ QUANTITY_CLASS: dict[str, str] = {
     "baseline_asls": "second_implementation",
     "baseline_rubberband": "smoothing",
     "baseline_polynomial": "smoothing",
+    "moving_average_interior": "smoothing",
+    "median_interior": "smoothing",
+    "gaussian_interior": "smoothing",
+    "whittaker": "second_implementation",
     "coefficients": "coefficients",
     "vip": "coefficients",
     "predictions": "predictions",
@@ -234,6 +238,19 @@ QUANTITY_CLASS: dict[str, str] = {
     "confusion": "metrics",
     "accuracy_cv": "metrics",
     "confusion_cv": "metrics",
+    # LDA (lda.md section 7): the discriminant is a prediction; the assigned
+    # class index is a count-like integer, exact or wrong.
+    "decision_function": "predictions",
+    "assigned_class": "metrics",
+    # kNN (knn.md section 7): vote fractions are counts over k, exact or wrong.
+    "class_votes": "metrics",
+    # Outliers (outliers.md section 7): once both searches reach the same
+    # support, a distance is a covariance inverse applied to scores.
+    "robust_distance": "decomposition",
+    # iPLS (variable-selection.md section 5): an RMSECV per interval is a
+    # metric; the forward path is a list of interval indices, exact or wrong.
+    "interval_rmsecv": "metrics",
+    "forward_path": "metrics",
 }
 
 # Quantities whose sign is arbitrary per component and must be aligned before

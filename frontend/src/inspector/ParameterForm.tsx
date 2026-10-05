@@ -54,6 +54,9 @@ function Field({
               fontSize: 11.5,
             }}
           >
+            {/* An optional field can be unset: an empty value is left out of
+                the payload, so the schema's default (null) applies. */}
+            {field.optional ? <option value="">none</option> : null}
             {field.options?.map((option) => (
               <option key={option} value={option}>
                 {option}

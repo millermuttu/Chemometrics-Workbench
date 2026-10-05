@@ -77,6 +77,10 @@ export interface ImportPreview {
     /** Which spectrum block an OPUS file is read from (#187); absent for
      * every other format. */
     block?: Detected<string>;
+    /** Which array of a MAT-file is the spectra, and which vector its axis
+     * (#284); absent for every other format. */
+    matrix?: Detected<string>;
+    axis_variable?: Detected<string>;
   };
   head: { sample_ids: string[]; rows: number[][] };
 }
@@ -151,6 +155,9 @@ export interface SpectraPayload {
   band: { n_spectra: number; y_lower: number[]; y_median: number[]; y_upper: number[] };
 }
 
+/** `outliers.md` section 5's rules, in the order the flags table names them. */
+export type OutlierRule = "t2" | "q" | "leverage" | "residual" | "robust";
+
 /** One estimator node's results. Every number is the kernel's: scores,
  * loadings, variances, T², SPE and both limits arrive as data. */
 export interface PcaPayload {
@@ -179,6 +186,27 @@ export interface PcaPayload {
     spe_limit_caveat?: string | null;
     alpha: number;
   };
+  /** `outliers.md` (#278): PCA, PLS and PCR only. Calibration rows, in the
+   * order of `samples`. A diagnostic that could not be computed is `null`,
+   * with the kernel's sentence in `caveats` under its rule's name.
+   *
+   * Not in `/results/{node}` (#314): the robust distance is a search the rest
+   * of the tab should not wait for. The outlier row fetches it from
+   * `/results/{node}/outliers` and attaches it here for the panels. */
+  outliers?: {
+    leverage: number[] | null;
+    /** `null` for a PCA; an entry is `null` where the row is fitted exactly. */
+    studentised_residuals: (number | null)[] | null;
+    robust_distance: number[] | null;
+    limits: Record<OutlierRule, number>;
+    caveats: Partial<Record<OutlierRule, string>>;
+    /** Every calibration row that breaks a rule, naming each rule it breaks. */
+    flags: { index: number; rules: OutlierRule[] }[];
+    /** The version these rows are rows of (#279): an exclusion from the flags
+     * table is made against it, not against wherever the source is now. */
+    dataset_id: string;
+    version_id: string;
+  };
   /** The held-out rows of the fitted fold, present only below a split. Its
    * `observed` and `predicted` are there only for a regression. */
   validation?: {
@@ -195,10 +223,15 @@ export interface PcaPayload {
   /** Present only when `task === "regression"`. The half of a PLS result that
    * has no counterpart on a decomposition; everything above is shared. */
   regression?: {
+    /** `pls` or `pcr` (#272); a result stored before it is served as `pls`. */
+    method?: string;
     target: string | null;
     observed: number[];
     predicted: number[];
     coefficients: number[];
+    /** The estimator's input mean on the node's own axis (#281): the spectrum
+     * a variable selection is marked over. Absent on a result served before. */
+    x_mean?: number[];
     vip: number[];
     y_loadings: number[];
     y_explained_variance_ratio: number[];
@@ -206,6 +239,30 @@ export interface PcaPayload {
   /** Present only when `task === "classification"` (#185, `pls-da.md`). The
    * model is the regression block above on a {0, 1} dummy response; this is
    * the coding, the assignments and the confusion matrices. */
+  /** A SIMCA's own block (#275, simca.md section 5); the shared scores,
+   * loadings and limits are empty for it. */
+  simca?: {
+    class_column: string;
+    classes: string[];
+    models: {
+      class: string;
+      n_samples: number;
+      t2_limit: number;
+      q_limit: number;
+      spe_limit_caveat: string | null;
+    }[];
+    sets: Record<
+      string,
+      {
+        table: number[][];
+        none: number[];
+        sizes: number[];
+        class_metrics: { n: number; sensitivity?: number; specificity?: number }[];
+        samples: { index: number; sample_id: string }[];
+        distances: number[][];
+      }
+    >;
+  };
   classification?: {
     class_column: string | null;
     classes: string[];
@@ -213,6 +270,13 @@ export interface PcaPayload {
     /** `calibration`, and below a split `cross_validation` and `held_out`:
      * rows observed, columns assigned, in `classes` order. */
     confusion: Record<string, number[][]>;
+    /** `classification.md` section 3, per set and per class in `classes`
+     * order; a metric whose denominator is zero is absent. Served since #269,
+     * so a cached response from before it may lack it. */
+    class_metrics?: Record<
+      string,
+      { n: number; sensitivity?: number; specificity?: number; precision?: number }[]
+    >;
   };
   /** `metrics-and-validation.md` section 11's table, flat. **A metric that
    * could not be computed is absent** - never zero, never NaN - so a reader
@@ -297,11 +361,14 @@ export function useDatasets(projectId: string | undefined) {
  * fields. Phase 1.1 sent neither — the screen's file input discarded what was
  * picked and posted an empty body, which the stub answered from a fixture
  * whatever it was sent (#99). The URL is the one it always was. */
+/** The import preview, with the user's corrections applied when there are
+ * any (#284): another matrix of a MAT-file is another table. */
 export function useImportPreview() {
   return useMutation({
-    mutationFn: (file: File) => {
+    mutationFn: ({ file, corrections }: { file: File; corrections?: Record<string, string> }) => {
       const body = new FormData();
       body.append("file", file);
+      if (corrections) body.append("corrections", JSON.stringify(corrections));
       return api<ImportPreview>("/import/preview", { method: "POST", body });
     },
   });
@@ -326,6 +393,34 @@ export function useImportDataset() {
 
 /** A project holds one pipeline and serves it, and its latest experiment, as
  * `current`. */
+/** Leave rows of a version out (#270): the server writes a new version
+ * without them and moves the pipeline's source onto it, so the datasets, the
+ * recipe and its state all change. */
+export function useExcludeSamples() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      datasetId,
+      fromVersionId,
+      exclude,
+    }: {
+      datasetId: string;
+      fromVersionId: string;
+      exclude: number[];
+    }) =>
+      api<DatasetEntry>(`/datasets/${datasetId}/versions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from_version_id: fromVersionId, exclude }),
+      }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["datasets"] });
+      void client.invalidateQueries({ queryKey: ["pipeline"] });
+      void client.invalidateQueries({ queryKey: ["pipeline-state"] });
+    },
+  });
+}
+
 export function usePipeline() {
   return useQuery({ queryKey: ["pipeline"], queryFn: () => api<Pipeline>("/pipelines/current") });
 }
@@ -372,9 +467,15 @@ export function useSaveLayout() {
   });
 }
 
+/** Shared by every `useSavePipeline`, so the Run button can see a save in
+ * flight from any screen (#291): a run started before the PUT lands executes
+ * the recipe as it was. */
+export const SAVE_PIPELINE = ["save-pipeline"] as const;
+
 export function useSavePipeline() {
   const client = useQueryClient();
   return useMutation({
+    mutationKey: SAVE_PIPELINE,
     mutationFn: (nodes: PipelineNode[]) =>
       api<Pipeline>("/pipelines/current", {
         method: "PUT",
@@ -479,6 +580,61 @@ export function useCoefficients(nodeId: string | undefined) {
     queryFn: () => api<CoefficientsPayload>(`/results/${nodeId}/coefficients`),
     enabled: Boolean(nodeId),
     staleTime: Infinity,
+  });
+}
+
+export function useOutliers(nodeId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["outliers", nodeId],
+    queryFn: () => api<NonNullable<PcaPayload["outliers"]>>(`/results/${nodeId}/outliers`),
+    enabled,
+    staleTime: Infinity,
+  });
+}
+
+/** `variable-selection.md` section 4 (#282). */
+export interface IplsPayload {
+  intervals: {
+    start: number;
+    stop: number;
+    axis_start: number;
+    axis_end: number;
+    rmsecv: number;
+    n_components: number;
+  }[];
+  full: { rmsecv: number; n_components: number };
+  steps: { interval: number; rmsecv: number }[];
+  /** The column positions Apply writes: every interval on the forward path. */
+  selected: number[];
+}
+
+/** `variable-selection.md` section 6 (#283). */
+export interface CarsPayload {
+  runs: { n_variables: number; rmsecv: number; n_components: number }[];
+  best: number;
+  seed: number;
+  selected: number[];
+}
+
+/** Run only when asked: `runs` is null until the user presses Run. */
+export function useCars(nodeId: string, runs: number | null) {
+  return useQuery({
+    queryKey: ["cars", nodeId, runs],
+    queryFn: () => api<CarsPayload>(`/results/${nodeId}/cars?n_runs=${runs}`),
+    enabled: runs !== null,
+    staleTime: Infinity,
+    retry: false,
+  });
+}
+
+/** Run only when asked: `intervals` is null until the user presses Run. */
+export function useIpls(nodeId: string, intervals: number | null) {
+  return useQuery({
+    queryKey: ["ipls", nodeId, intervals],
+    queryFn: () => api<IplsPayload>(`/results/${nodeId}/ipls?n_intervals=${intervals}`),
+    enabled: intervals !== null,
+    staleTime: Infinity,
+    retry: false,
   });
 }
 

@@ -215,3 +215,56 @@ export function terminals(nodes: PipelineNode[]): PipelineNode[] {
   const consumed = new Set(nodes.flatMap((node) => node.inputs));
   return nodes.filter((node) => !consumed.has(node.id));
 }
+
+/** Apply a variable selection made on an estimator's own axis (#281): a
+ * `select_variables` step on the estimator's input, and a copy of the
+ * estimator below it. The original stays, so the two can be compared.
+ *
+ * `indices` are positions in the estimator's input - the axis its VIP and
+ * coefficients are on - which is exactly what the step selects from. The
+ * copy keeps every setting but its component count, which cannot exceed the
+ * variables it is left with.
+ */
+export function applySelection(
+  nodes: PipelineNode[],
+  estimatorId: string,
+  indices: number[],
+  /** The method that chose the positions, recorded so the pipeline can warn
+   * when the same samples then validate the copy (#283). */
+  chosenBy?: "vip" | "coefficients" | "ipls" | "cars",
+): PipelineNode[] {
+  const estimator = nodes.find((node) => node.id === estimatorId);
+  if (!estimator || estimator.type !== "estimator") {
+    throw new Error("A selection is applied to an estimator.");
+  }
+  if (indices.length === 0) throw new Error("The selection keeps no variables.");
+  const taken = new Set(nodes.map((node) => node.id));
+  const select = numberedId(taken, `${estimatorId}_select`);
+  taken.add(select);
+  const copy = numberedId(taken, `${estimatorId}_selected`);
+  const spec = estimator.spec as { n_components?: number };
+  return [
+    ...nodes,
+    {
+      id: select,
+      type: "preprocess",
+      inputs: estimator.inputs,
+      step: {
+        kind: "select_variables",
+        indices: [...indices].sort((a, b) => a - b),
+        ...(chosenBy ? { chosen_by: chosenBy } : {}),
+      },
+    } as PipelineNode,
+    {
+      ...estimator,
+      id: copy,
+      inputs: [select],
+      spec: {
+        ...spec,
+        ...(spec.n_components === undefined
+          ? {}
+          : { n_components: Math.min(spec.n_components, indices.length) }),
+      },
+    } as PipelineNode,
+  ];
+}

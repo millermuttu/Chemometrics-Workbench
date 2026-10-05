@@ -36,15 +36,18 @@ from chemometrics_workbench.models import (
     Autoscale,
     MeanCentre,
     NodeId,
+    PCRSpec,
     Pipeline,
     PipelineNode,
     PLSDASpec,
     PLSRegressionSpec,
+    SelectVariables,
 )
 
 __all__ = [
     "LEAK_BEFORE_SPLIT",
     "PLS_WITHOUT_CENTRING",
+    "SELECTION_SHARES_SAMPLES",
     "PipelineWarning",
     "check_pipeline",
 ]
@@ -60,6 +63,7 @@ __all__ = [
 #: name says `fitted` rather than `centring` because MSC is not centring (#103).
 LEAK_BEFORE_SPLIT = "fitted_upstream_of_split"
 PLS_WITHOUT_CENTRING = "pls_without_centring"
+SELECTION_SHARES_SAMPLES = "selection_shares_samples"
 
 #: What `pls-regression.md` §3 means by centring. `Autoscale` counts because it
 #: subtracts the column means before it divides. **MSC is deliberately not
@@ -74,7 +78,7 @@ _CENTRING = (MeanCentre, Autoscale)
 #:
 #: Everything else in the schema is row-wise or column-selecting and is
 #: legitimate above a split: SNV, Normalise, SavitzkyGolay, BaselineCorrect,
-#: RangeSelect. `test_a_step_that_estimates_nothing_may_sit_above_a_split`
+#: RangeSelect, SelectVariables. `test_a_step_that_estimates_nothing_may_sit_above_a_split`
 #: asserts that silence.
 _FITTED_ACROSS_SAMPLES = (MeanCentre, Autoscale, MSC)
 
@@ -108,6 +112,7 @@ def check_pipeline(pipeline: Pipeline) -> list[PipelineWarning]:
     for node in pipeline.nodes:
         found.extend(_leak_before_split(node, by_id))
         found.extend(_pls_without_centring(node, by_id))
+        found.extend(_selection_shares_samples(node, by_id))
     return found
 
 
@@ -173,7 +178,9 @@ def _pls_without_centring(
     PLS fits the matrices it is given and centres nothing of its own, so
     centring is a node in the recipe or it has not happened.
     """
-    if node.type != "estimator" or not isinstance(node.spec, PLSRegressionSpec | PLSDASpec):
+    if node.type != "estimator" or not isinstance(
+        node.spec, PLSRegressionSpec | PCRSpec | PLSDASpec
+    ):
         return []
 
     upstream = (by_id[other] for other in _ancestors(node.id, by_id))
@@ -189,6 +196,50 @@ def _pls_without_centring(
                 "the matrix it is given and centres nothing of its own, so the first "
                 "component spends itself on the offset and the model carries no intercept to "
                 "absorb it. Add a mean centre or an autoscale above this node."
+            ),
+        )
+    ]
+
+
+def _selection_shares_samples(
+    node: PipelineNode, by_id: dict[NodeId, PipelineNode]
+) -> list[PipelineWarning]:
+    """`variable-selection.md` §0: a selection chosen from the data, validated
+    on the same samples, reports an optimistic error.
+
+    VIP, |b|, iPLS and CARS all chose their positions by looking at every
+    calibration sample, and any split below or above the estimator it feeds
+    validates on those samples again. The step itself is legitimate above a
+    split (it fits nothing); the leak is in how its positions were chosen,
+    which is why only a step that records `chosen_by` is warned about.
+    """
+    if node.type != "preprocess" or not isinstance(node.step, SelectVariables):
+        return []
+    if node.step.chosen_by is None:
+        return []
+    validated = sorted(
+        other
+        for other in _descendants(node.id, by_id)
+        if by_id[other].type == "estimator"
+        and any(by_id[a].type == "split" for a in _ancestors(other, by_id))
+    )
+    if not validated:
+        return []
+    named = ", ".join(repr(estimator) for estimator in validated)
+    method = {"vip": "VIP", "coefficients": "|b|", "ipls": "iPLS", "cars": "CARS"}[
+        node.step.chosen_by
+    ]
+    return [
+        PipelineWarning(
+            code=SELECTION_SHARES_SAMPLES,
+            node_id=node.id,
+            related=tuple(validated),
+            message=(
+                f"The variables at {node.id!r} were chosen by {method} on these samples, and "
+                f"{named} is validated on the same samples. Its cross-validated error is "
+                "optimistic: the folds that score it also chose its variables. An honest "
+                "estimate needs samples the selection never saw, such as a held-out set kept "
+                "out of the selection."
             ),
         )
     ]
