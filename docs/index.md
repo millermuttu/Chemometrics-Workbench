@@ -13,7 +13,11 @@ screens in your browser. Nothing leaves the computer.
 - **[The screens](screens.md)**: what each part of the window does.
 - **[Model export](export.md)** and **[the HTML report](report.md)**: taking results elsewhere.
 - **Worked examples** on the Tecator meat spectra: **[exploring a dataset with PCA](examples/pca.md)**
-  and **[a calibration with PLS](examples/pls.md)**, with the data to download.
+  and **[a calibration with PLS](examples/pls.md)**, with the data to download. A third,
+  **[classifying meat](examples/classification.md)**, compares PLS-DA, LDA, kNN and SIMCA on
+  mid-infrared spectra.
+- **How-to**: **[find and exclude outliers](how-to/outliers.md)** and
+  **[select variables](how-to/variable-selection.md)** for a PLS model.
 
 Every number the workbench reports is compared against an independent implementation or a
 published value, and the **[parity report](parity-report.md)** lists each comparison and how

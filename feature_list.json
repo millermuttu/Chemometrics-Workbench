@@ -492,9 +492,9 @@
         "uv run pytest tests/test_examples.py - every number the new example quotes recomputed",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; docs-examples spec walks the new page"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-05: docs/examples/classification.md (Quadram meat set: stratified K-fold 10, PLS-DA, LDA, kNN, SIMCA), docs/how-to/outliers.md and docs/how-to/variable-selection.md (both continuing the Tecator PLS example), docs/examples/meat.csv with docs/examples/meat-source.md (CC0, citation, the four changes: duplicates averaged, samples in rows on a descending axis, label columns, pork D1's mislabelled run paired by position); nav and index.md link them. The algorithm pages already existed. uv run pytest tests/test_examples.py - 7 passed: test_every_number_the_classification_example_quotes (60 x 448, 1868 to 1005 cm-1, lowest at A = 5, CV diagonal 20/20/20, accuracy CV PLS-DA 1.000, LDA 0.967, kNN 0.983, SIMCA sensitivity 0.750 specificity 0.983, 15 of 60 accepted by none), test_every_number_the_outliers_how_to_quotes (67 of 216, 55 robust-only, C018, C022, E1007 with their rules, 237 samples, RMSECV 2.46 to 2.38), test_every_number_the_selection_how_to_quotes (VIP 22 of 100 RMSECV 2.56; iPLS 901 to 909 nm, 5 of 100, 2.51; CARS 7 of 100, 2.28), and the meat.csv shape test; changing one number in each page fails its test. uv run mkdocs build --strict - exit 0. uv run pytest - 1114 passed, 1 skipped; ruff, mypy clean. pnpm typecheck && pnpm lint && pnpm test (161 passed) && pnpm build && pnpm exec playwright test - 89 passed, including e2e/docs-classification.spec.ts on a new 'classification' server (8770), which walks the page and takes ex-meat-import, ex-meat-pipeline, ex-plsda, ex-simca; the CI docs job runs it.",
+      "notes": "Each meat sample was measured twice; meat.csv averages the pair because the workbench has no grouped cross-validation, and splitting a pair across folds would leak. The step list offers no splits or classifiers, so the page builds the chain by dragging from Source. The docs specs share e2e/docs-helpers.ts. The how-tos have no screenshots of their own."
     },
     {
       "id": "phase-5-exit-run",
