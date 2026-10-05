@@ -295,6 +295,21 @@
       "status": "not_started",
       "evidence": "",
       "notes": "Seen once on #350 (job 111909342941); ubuntu, macOS and local runs passed."
+    },
+    {
+      "id": "macos-train-test-note-timeout",
+      "priority": 17,
+      "area": "frontend",
+      "issue": 354,
+      "title": "macOS e2e: the train/test run's results note is not found within 5 s",
+      "depends_on": [],
+      "user_visible_behavior": "None; runs.spec.ts's train/test test passes on a slow macOS runner.",
+      "verification": [
+        "Read the job log for a console error first; fix the cause or size the timeout with its reason; e2e (macos-latest) green"
+      ],
+      "status": "not_started",
+      "evidence": "",
+      "notes": "Seen once on #353 (job 111918116712), a 7.1-minute run under runner capacity constraints."
     }
   ]
 }
