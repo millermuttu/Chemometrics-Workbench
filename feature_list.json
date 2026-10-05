@@ -29,9 +29,9 @@
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; an e2e test sets group_by and runs"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-05, feature/329_grouped-splits. uv run pytest: all green after the parity report regenerated (174 claims, 174 passed; tecator/corn/gasoline .split.leave_one_group_out.sklearn IDENTICAL, .split.group_kfold.sklearn DOCUMENTED_DIVERGENCE via record_divergence). Property tests in tests/test_validation.py (20 seeds: no group split, validate_partition holds; 5 seeds: deterministic from the seed). Failing first: with src stashed, tests/test_validation.py, test_executor.py and test_parity.py fail at import (by_group absent); with only models.py and executor.py stashed, KFoldSplit(group_by=...) is refused as an extra field; with only executor.py stashed, 4 grouped executor tests FAILED. uv run ruff check, uv run mypy src tests: clean (86 files). pnpm typecheck, lint, test (161 passed), build: green. pnpm exec playwright test: 90 passed (4.2m), including inspector.spec.ts 'a k-fold is grouped by a metadata column chosen from a dropdown, and runs'.",
+      "notes": "Grouped by fat_class, the seeded PLS-DA cannot fit a one-class training fold; that error message is #343. The e2e test removes plsda_d for its duration."
     },
     {
       "id": "final-model",
@@ -246,6 +246,24 @@
       "status": "not_started",
       "evidence": "",
       "notes": "Signed packages are not in the criterion: they depend on certificates."
+    },
+    {
+      "id": "one-class-training-fold",
+      "priority": 14,
+      "area": "backend",
+      "issue": 343,
+      "title": "A classifier refuses a training fold holding one class, by name",
+      "depends_on": [
+        "grouped-splits"
+      ],
+      "user_visible_behavior": "A PLS-DA, SIMCA, LDA or kNN below a split whose training fold holds a single class fails naming the fold, the class column and the class present, instead of 'X and y have no covariance'.",
+      "verification": [
+        "uv run pytest - a grouped split by the class column refuses with the fold and class named, for every classifier; failing on the unfixed code first",
+        "uv run pytest, uv run ruff check, uv run mypy - green"
+      ],
+      "status": "not_started",
+      "evidence": "",
+      "notes": "Found during #329."
     }
   ]
 }

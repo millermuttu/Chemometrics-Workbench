@@ -21,11 +21,11 @@ strong the agreement is** rather than a bare pass or fail:
 
 | Claim | Count | Meaning |
 | --- | --- | --- |
-| identical within floating point | 134 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
+| identical within floating point | 137 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
 | agrees within stated tolerance | 26 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
-| differs by documented convention | 8 | Not compared numerically at all. The two quantities are not the same thing, and the reason is given in full below. |
+| differs by documented convention | 11 | Not compared numerically at all. The two quantities are not the same thing, and the reason is given in full below. |
 
-**168 comparisons, 168 passed, 0 failed.**
+**174 comparisons, 174 passed, 0 failed.**
 
 Three things a reader should hold on to, because the agreement column cannot
 show them:
@@ -112,6 +112,7 @@ those listed under *Gaps* or *Documented divergences* below.
 | Bias | `bias` | **not compared.** The mean signed residual; no reference reports it apart from RMSE. Unit-tested, and held by the identity RMSEP² = bias² + (n-1)/n SEP² in `tests/test_validation.py`. |
 | PLS-DA (two-class): dummy predictions, confusion, accuracy | `PLS` | 15 claims |
 | Fold assignment: k-fold, leave-one-out, train/test, stratified | `k_fold`, `leave_one_out`, `train_test`, `stratified_k_fold`, `stratified_train_test` | **not compared.** Differs by convention: folds are drawn with NumPy's `default_rng`, scikit-learn's with a legacy `RandomState`, so one seed gives different folds (`metrics-and-validation.md` §8). Cross-validated claims above pass our resolved folds to the reference instead. The fold structure is unit-tested in `tests/test_validation.py`. Stratified folds also deal each level into folds by §8.7's own rule, which is not scikit-learn's `StratifiedKFold` assignment either. |
+| Grouped splits | `by_group` | 6 claims |
 | Model export: JSON model and prediction snippet | `json_model`, `python_snippet` | **not compared.** Not a computation with an outside reference: the export must reproduce this application's own predictions, within rtol 1e-4 (`model-export.md` §5), in a NumPy-only interpreter - `tests/test_export.py`. |
 
 ---
@@ -336,6 +337,17 @@ those listed under *Gaps* or *Documented divergences* below.
 | tecator | `forward_path` | scikit-learn 1.9.0 | identical | 2 values, worst Δ 0, exactly |
 | tecator | `interval_rmsecv` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 10 values, worst Δ < 1e-11 |
 
+### Grouped splits
+
+| Dataset | Quantity | Reference | Claim | Ours vs reference |
+| --- | --- | --- | --- | --- |
+| corn | `fold_of_sample` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| corn | `fold_of_sample` | scikit-learn 1.9.0 | identical | 80 values, worst Δ 0, exactly |
+| gasoline | `fold_of_sample` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| gasoline | `fold_of_sample` | scikit-learn 1.9.0 | identical | 60 values, worst Δ 0, exactly |
+| tecator | `fold_of_sample` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| tecator | `fold_of_sample` | scikit-learn 1.9.0 | identical | 240 values, worst Δ 0, exactly |
+
 ---
 
 ## Documented divergences
@@ -376,6 +388,18 @@ mdatools computes the classic Hotelling limit a(n-1)/(n-a) F(a, n-a); pca.md §7
 **`tecator.pls.sep.thodberg`** — unstated
 
 Not reproducible from what we model. The reference is a linear model on ten of the 22 principal components supplied inside tecator.txt, computed by the original authors in 1992 on subset C; load_tecator() discards that block because it is preprocessing rather than data. The file also never states its SEP denominator. Recorded for context, not as a target.
+
+**`corn.split.group_kfold.sklearn`** — scikit-learn 1.9.0
+
+Both keep every group in one fold. GroupKFold's default deals groups without a seed, largest first, each to the fold with the fewest samples so far. metrics-and-validation.md §8.8 permutes the groups with the split's seed and slices them by the K-fold size rule (§8.3) - which is GroupKFold(shuffle=True)'s rule, but drawn from NumPy's default_rng rather than a legacy RandomState, so the folds differ either way. A cross-validated claim passes our resolved folds to the reference instead (§8.2).
+
+**`gasoline.split.group_kfold.sklearn`** — scikit-learn 1.9.0
+
+Both keep every group in one fold. GroupKFold's default deals groups without a seed, largest first, each to the fold with the fewest samples so far. metrics-and-validation.md §8.8 permutes the groups with the split's seed and slices them by the K-fold size rule (§8.3) - which is GroupKFold(shuffle=True)'s rule, but drawn from NumPy's default_rng rather than a legacy RandomState, so the folds differ either way. A cross-validated claim passes our resolved folds to the reference instead (§8.2).
+
+**`tecator.split.group_kfold.sklearn`** — scikit-learn 1.9.0
+
+Both keep every group in one fold. GroupKFold's default deals groups without a seed, largest first, each to the fold with the fewest samples so far. metrics-and-validation.md §8.8 permutes the groups with the split's seed and slices them by the K-fold size rule (§8.3) - which is GroupKFold(shuffle=True)'s rule, but drawn from NumPy's default_rng rather than a legacy RandomState, so the folds differ either way. A cross-validated claim passes our resolved folds to the reference instead (§8.2).
 
 ---
 

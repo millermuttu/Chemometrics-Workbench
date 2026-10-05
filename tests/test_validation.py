@@ -16,6 +16,7 @@ import pytest
 from chemometrics_workbench.validation import (
     Fold,
     bias,
+    by_group,
     folds_from_indices,
     k_fold,
     leave_one_out,
@@ -383,3 +384,74 @@ def test_a_level_with_one_member_is_refused_by_name() -> None:
 def test_a_test_size_that_empties_a_level_is_refused_by_name() -> None:
     with pytest.raises(ValueError, match="all 2 samples of the level 'small'"):
         stratified_train_test(["small"] * 2 + ["big"] * 20, 0.6)
+
+
+# --- grouping, §8.8 -------------------------------------------------------
+
+
+def _random_groups(seed: int) -> list[str]:
+    """Uneven groups, labels that sort differently as text than as numbers."""
+    rng = np.random.default_rng(seed)
+    sizes = rng.integers(1, 5, size=int(rng.integers(6, 30)))
+    labels = np.repeat([str(g) for g in range(sizes.size)], sizes)
+    return [str(label) for label in labels[rng.permutation(labels.size)]]
+
+
+def _splitters(n_groups: int) -> list[tuple[str, object]]:
+    return [
+        ("kfold", lambda n: k_fold(n, min(5, n_groups))),
+        ("kfold unshuffled", lambda n: k_fold(n, min(3, n_groups), shuffle=False)),
+        ("loo", leave_one_out),
+    ]
+
+
+@pytest.mark.parametrize("seed", range(20))
+def test_a_grouped_split_never_splits_a_group_and_still_partitions(seed: int) -> None:
+    """The property #329 exists for: a replicate never validates its twin's model."""
+    groups = _random_groups(seed)
+    n_groups = len(set(groups))
+    for name, splitter in _splitters(n_groups):
+        folds = by_group(groups, splitter)  # type: ignore[arg-type]
+        validate_partition(folds, len(groups))
+        for fold in folds:
+            assert not {groups[i] for i in fold.train} & {groups[i] for i in fold.test}, name
+    [held] = by_group(groups, lambda n: train_test(n, 0.3, seed=seed))
+    assert not {groups[i] for i in held.train} & {groups[i] for i in held.test}
+    assert np.array_equal(np.sort(np.concatenate([held.train, held.test])), np.arange(len(groups)))
+
+
+@pytest.mark.parametrize("seed", range(5))
+def test_a_grouped_split_follows_from_its_seed(seed: int) -> None:
+    groups = _random_groups(seed)
+
+    def tests(split_seed: int) -> list[list[int]]:
+        return [f.test.tolist() for f in by_group(groups, lambda n: k_fold(n, 3, seed=split_seed))]
+
+    assert tests(seed) == tests(seed) != tests(seed + 100)
+
+
+def test_groups_are_the_splitter_s_items_in_unicode_order() -> None:
+    """§8.8's worked example: '10' sorts before '2', and LOGO follows that order."""
+    groups = ["2", "10", "2", "1", "10", "1"]
+    folds = by_group(groups, leave_one_out)
+    assert [f.test.tolist() for f in folds] == [[3, 5], [1, 4], [0, 2]]
+    assert folds[0].train.tolist() == [0, 1, 2, 4]
+
+
+def test_a_grouped_k_fold_slices_the_permuted_groups_by_the_k_fold_size_rule() -> None:
+    """§8.8: K-fold over the groups is §8.3 over group indices, expanded to rows."""
+    groups = [f"g{i // 2}" for i in range(20)]  # ten pairs, g0..g9 in order
+    folds = by_group(groups, lambda n: k_fold(n, 3, seed=42))
+    # §8.3's worked example: groups 0,5,6,7 | 2,3,4 | 1,8,9.
+    assert [sorted({groups[i] for i in f.test}) for f in folds] == [
+        ["g0", "g5", "g6", "g7"],
+        ["g2", "g3", "g4"],
+        ["g1", "g8", "g9"],
+    ]
+
+
+def test_more_folds_than_groups_is_refused_naming_the_group_count() -> None:
+    with pytest.raises(ValueError, match="over the 3 groups: 4 folds were asked of 3"):
+        by_group(["a", "a", "b", "b", "c", "c"], lambda n: k_fold(n, 4))
+    with pytest.raises(ValueError, match="over the 1 groups: leave-one-out needs at least 2"):
+        by_group(["a", "a"], leave_one_out)

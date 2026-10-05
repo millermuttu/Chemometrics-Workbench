@@ -51,6 +51,7 @@ from chemometrics_workbench.regression import (
 )
 from chemometrics_workbench.validation import (
     Fold,
+    by_group,
     folds_from_indices,
     k_fold,
     leave_one_out,
@@ -1171,3 +1172,60 @@ def test_ipls_matches_interval_models_fitted_by_scikit_learn(dataset: str) -> No
     path = parity.check(f"{dataset}.ipls.forward_path.sklearn", [float(k) for k, _ in result.steps])
     assert per_interval.passed
     assert path.passed and path.max_abs_diff == 0.0
+
+
+# --------------------------------------------------------------------------
+# grouped splits, metrics-and-validation.md §8.8 (#329)
+# --------------------------------------------------------------------------
+
+
+def _grouped_fold_of_sample(folds: list[Fold], n: int) -> np.ndarray:
+    fold = np.full(n, -1.0)
+    for k, each in enumerate(folds):
+        fold[each.test] = k
+    return fold
+
+
+def _triplets(n: int) -> list[str]:
+    """The fixture's groups: repeated from the generator, as the blocks above are."""
+    return [str(i // 3) for i in range(n)]
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_leave_one_group_out_matches_scikit_learn(dataset: str) -> None:
+    """Deterministic and in the same group order, so it is the same split exactly."""
+    n = LOADERS[dataset]().spectra.shape[0]
+    ours = _grouped_fold_of_sample(by_group(_triplets(n), leave_one_out), n)
+    result = parity.check(f"{dataset}.split.leave_one_group_out.sklearn", ours)
+    assert result.tier is parity.Tier.IDENTICAL
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_a_grouped_k_fold_keeps_groups_whole_but_deals_them_unlike_group_kfold(
+    dataset: str, fixture_entries: dict[str, dict[str, object]]
+) -> None:
+    entry_id = f"{dataset}.split.group_kfold.sklearn"
+    n = LOADERS[dataset]().spectra.shape[0]
+    groups = np.asarray(_triplets(n))
+    ours = _grouped_fold_of_sample(by_group(list(groups), lambda m: k_fold(m, 5)), n)
+    theirs = parity.as_array(fixture_entries[entry_id]["value"])
+
+    # Both are grouped splits - every group lies in one fold on either side -
+    # and they disagree only on which fold that is.
+    for assignment in (ours, theirs):
+        assert all(np.unique(assignment[groups == g]).size == 1 for g in np.unique(groups))
+    assert not np.array_equal(ours, theirs)
+
+    result = parity.record_divergence(
+        entry_id,
+        reason=(
+            "Both keep every group in one fold. GroupKFold's default deals groups without "
+            "a seed, largest first, each to the fold with the fewest samples so far. "
+            "metrics-and-validation.md §8.8 permutes the groups with the split's seed and "
+            "slices them by the K-fold size rule (§8.3) - which is GroupKFold(shuffle=True)'s "
+            "rule, but drawn from NumPy's default_rng rather than a legacy RandomState, so "
+            "the folds differ either way. A cross-validated claim passes our resolved folds "
+            "to the reference instead (§8.2)."
+        ),
+    )
+    assert result.tier is parity.Tier.DOCUMENTED_DIVERGENCE

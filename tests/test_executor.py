@@ -68,12 +68,15 @@ from chemometrics_workbench.project import (
 from chemometrics_workbench.regression import PLS
 from chemometrics_workbench.validation import (
     bias,
+    by_group,
     k_fold,
+    leave_one_out,
     r2,
     rmse,
     sec,
     stratified_k_fold,
     stratified_train_test,
+    train_test,
 )
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "contract"
@@ -754,7 +757,7 @@ def test_stratifying_by_a_column_the_dataset_lacks_is_refused_by_name(
             id="holdout", inputs=("source",), spec=KFoldSplit(n_splits=5, stratify_by="batch")
         ),
     )
-    with pytest.raises(ExecutorError, match="stratifies by 'batch', which this dataset does not"):
+    with pytest.raises(ExecutorError, match="splits by 'batch', which this dataset does not"):
         execute(directory, pipeline, version)
 
 
@@ -779,6 +782,67 @@ def test_an_unstratified_kfold_keeps_the_cache_key_it_had_before_stratification(
     assert KFoldSplit(n_splits=10).model_dump_json() == (
         '{"kind":"kfold","n_splits":10,"shuffle":true,"seed":42}'
     )
+
+
+def _pairs(version: DatasetVersion) -> DatasetVersion:
+    """Tecator as if every sample had been scanned twice: rows 2i and 2i+1 are one sample."""
+    return version.model_copy(
+        update={"metadata_columns": {"sample": [f"s{i // 2}" for i in range(version.n_samples)]}}
+    )
+
+
+@pytest.mark.parametrize(
+    ("spec", "expected"),
+    [
+        (KFoldSplit(n_splits=5, group_by="sample"), lambda n: k_fold(n, 5)),
+        (TrainTestSplit(test_size=0.25, group_by="sample"), lambda n: train_test(n, 0.25)),
+        (LeaveOneOut(group_by="sample"), leave_one_out),
+    ],
+)
+def test_a_grouped_split_resolves_to_the_kernel_s_folds_and_keeps_pairs_together(
+    project: tuple[Path, DatasetVersion], spec: Any, expected: Any
+) -> None:
+    """§8.8 (#329): replicates never straddle training and held-out rows."""
+    directory, version = project
+    version = _pairs(version)
+    pipeline = _pipeline(version.version_id, SplitNode(id="s", inputs=("source",), spec=spec))
+    run = execute(directory, pipeline, version)
+    [resolved] = run.resolved_splits
+    groups = version.metadata_columns["sample"]
+    assert resolved.test_indices == [f.test.tolist() for f in by_group(groups, expected)]
+    for train, test in zip(resolved.train_indices, resolved.test_indices, strict=True):
+        assert not {groups[i] for i in train} & {groups[i] for i in test}
+        assert all(i ^ 1 in test for i in test)
+
+
+def test_too_few_groups_is_refused_naming_the_split_and_the_column(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    directory, version = project
+    version = version.model_copy(
+        update={"metadata_columns": {"batch": ["x", "y"] * (version.n_samples // 2)}}
+    )
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="s", inputs=("source",), spec=KFoldSplit(n_splits=5, group_by="batch")),
+    )
+    with pytest.raises(
+        ExecutorError, match=r"kfold grouped by 'batch'\) failed: over the 2 groups: 5 folds"
+    ):
+        execute(directory, pipeline, version)
+
+
+def test_an_ungrouped_split_keeps_the_cache_key_it_had_before_grouping() -> None:
+    """#329: `group_by` is left out of the dump when unset, so no stored run is orphaned."""
+    assert LeaveOneOut().model_dump_json() == '{"kind":"loo"}'
+    assert TrainTestSplit(test_size=0.2).model_dump_json() == (
+        '{"kind":"train_test","test_size":0.2,"seed":42,"stratify_by":null}'
+    )
+
+
+def test_a_split_cannot_be_both_grouped_and_stratified() -> None:
+    with pytest.raises(ValueError, match="either grouped or stratified, not both"):
+        KFoldSplit(n_splits=5, group_by="sample", stratify_by="grade")
 
 
 def test_leave_one_out_is_the_other_splitter_that_does_work(

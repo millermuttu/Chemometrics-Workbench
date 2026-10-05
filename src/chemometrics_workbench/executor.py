@@ -174,6 +174,7 @@ from chemometrics_workbench.regression import (
 )
 from chemometrics_workbench.validation import (
     Fold,
+    by_group,
     k_fold,
     leave_one_out,
     stratified_k_fold,
@@ -939,22 +940,30 @@ def _folds_for(
     n_samples = version.n_samples
     spec = node.spec
     stratify_by = spec.stratify_by if isinstance(spec, TrainTestSplit | KFoldSplit) else None
-    labels = None if stratify_by is None else _stratum_labels(version, node, stratify_by)
+    group_by: str | None = getattr(spec, "group_by", None)
+    labels = None if stratify_by is None else _metadata_column(version, node, stratify_by)
+    groups = None if group_by is None else _metadata_column(version, node, group_by)
+
+    def grouped(split: Callable[[int], list[Fold]]) -> list[Fold]:
+        # §8.8: the splitter runs over the groups, not the rows.
+        return split(n_samples) if groups is None else by_group(groups, split)
+
     try:
         if isinstance(spec, TrainTestSplit):
             # A hold-out, not a partition: `validate_partition` is §7's rule
             # for pooling residuals across folds and this has one.
             if labels is not None:
                 return stratified_train_test(labels, spec.test_size, seed=spec.seed)
-            return train_test(n_samples, spec.test_size, seed=spec.seed)
+            return grouped(lambda n: train_test(n, spec.test_size, seed=spec.seed))
         if isinstance(spec, KFoldSplit):
+            shuffle, seed = spec.shuffle, spec.seed
             folds = (
-                stratified_k_fold(labels, spec.n_splits, shuffle=spec.shuffle, seed=spec.seed)
+                stratified_k_fold(labels, spec.n_splits, shuffle=shuffle, seed=seed)
                 if labels is not None
-                else k_fold(n_samples, spec.n_splits, shuffle=spec.shuffle, seed=spec.seed)
+                else grouped(lambda n: k_fold(n, spec.n_splits, shuffle=shuffle, seed=seed))
             )
         elif isinstance(spec, LeaveOneOut):
-            folds = leave_one_out(n_samples)
+            folds = grouped(leave_one_out)
         else:
             raise ExecutorError(
                 f"node {node.id!r} asks for the {spec.kind!r} split, which has no splitter "
@@ -963,7 +972,13 @@ def _folds_for(
                 node.id,
             )
     except ValueError as error:
-        by = "" if stratify_by is None else f" stratified by {stratify_by!r}"
+        by = (
+            f" stratified by {stratify_by!r}"
+            if stratify_by is not None
+            else f" grouped by {group_by!r}"
+            if group_by is not None
+            else ""
+        )
         raise ExecutorError(f"node {node.id!r} ({spec.kind}{by}) failed: {error}", node.id) from (
             error
         )
@@ -972,13 +987,13 @@ def _folds_for(
     return folds
 
 
-def _stratum_labels(version: DatasetVersion, node: PipelineNode, name: str) -> list[str]:
-    """The metadata column a split stratifies by, refused by name when absent (§8.7)."""
+def _metadata_column(version: DatasetVersion, node: PipelineNode, name: str) -> list[str]:
+    """The column a split stratifies or groups by, refused by name when absent (§8.7, §8.8)."""
     labels = version.metadata_columns.get(name)
     if labels is None:
         available = ", ".join(sorted(version.metadata_columns)) or "none"
         raise ExecutorError(
-            f"node {node.id!r} stratifies by {name!r}, which this dataset does not carry as "
+            f"node {node.id!r} splits by {name!r}, which this dataset does not carry as "
             f"a metadata column. It has: {available}.",
             node.id,
         )
