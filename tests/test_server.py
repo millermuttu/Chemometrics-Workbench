@@ -1418,6 +1418,18 @@ def test_ipls_runs_on_a_pls_under_a_split_and_refuses_one_without(client: TestCl
     refused = client.get("/api/results/flat/cars", headers=AUTH)
     assert refused.json()["error"]["code"] == "needs_cross_validation"
 
+    # #331: the same selections, validated in an outer loop.
+    for query in ("method=vip", "method=ipls&n_intervals=3", "method=cars&n_runs=5&seed=3"):
+        nested = client.get(f"/api/results/pls/nested?{query}&inner_splits=3", headers=AUTH)
+        assert nested.status_code == 200, nested.text
+        body = nested.json()
+        assert body["n_outer_folds"] == 4 and len(body["selected_per_fold"]) == 4
+        assert body["outer_rmsecv"] > 0 and body["inner_rmsecv"] > 0
+    missing = client.get("/api/results/pls/nested?method=b", headers=AUTH)
+    assert missing.status_code == 422 and "needs its cut" in missing.text
+    refused = client.get("/api/results/flat/nested", headers=AUTH)
+    assert refused.json()["error"]["code"] == "needs_cross_validation"
+
 
 def test_a_mat_file_previews_with_its_choices_and_imports(client: TestClient) -> None:
     """#284: the preview takes corrections, so choosing the derivative matrix

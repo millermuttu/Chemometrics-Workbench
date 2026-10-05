@@ -7,6 +7,7 @@ import {
   useExcludeSamples,
   useIpls,
   useCars,
+  useNested,
   usePipeline,
   useSavePipeline,
   useOutliers,
@@ -311,6 +312,16 @@ function SelectVariables({
   const [runs, setRuns] = useState<string>("50");
   const [carsRequested, setCarsRequested] = useState<number | null>(null);
   const carsQuery = useCars(pca.node_id, basis === "cars" ? carsRequested : null);
+  // #331: the same selection, rerun inside each outer fold. The query string
+  // is what the current settings ask for; `validated` is what was asked.
+  const nestedQuery =
+    basis === "vip" || basis === "b"
+      ? `method=${basis}&cut=${encodeURIComponent(threshold)}`
+      : basis === "ipls"
+        ? `method=ipls&n_intervals=${encodeURIComponent(intervals)}`
+        : `method=cars&n_runs=${encodeURIComponent(runs)}`;
+  const [validated, setValidated] = useState<string | null>(null);
+  const nested = useNested(pca.node_id, validated === nestedQuery ? validated : null);
 
   // An empty or unreadable box selects nothing rather than everything.
   const cut = threshold.trim() === "" ? Number.NaN : Number(threshold);
@@ -377,7 +388,9 @@ function SelectVariables({
       ? ipls.error.message
       : basis === "cars" && carsQuery.isError
         ? carsQuery.error.message
-        : null);
+        : nested.isError
+          ? nested.error.message
+          : null);
   return (
     <>
       <div
@@ -452,7 +465,22 @@ function SelectVariables({
         >
           Apply selection
         </button>
+        <button
+          type="button"
+          className="btn"
+          disabled={nested.isFetching}
+          onClick={() => setValidated(nestedQuery)}
+        >
+          {nested.isFetching ? "Validating…" : "Validate (nested)"}
+        </button>
       </div>
+      {nested.data ? (
+        <p data-testid="nested-result" className="mono" style={{ margin: "2px 10px", fontSize: 10 }}>
+          Nested RMSECV {nested.data.outer_rmsecv.toPrecision(4)} · selected on every sample{" "}
+          {nested.data.inner_rmsecv.toPrecision(4)} · {nested.data.n_outer_folds} outer ×{" "}
+          {nested.data.inner_splits} inner folds
+        </p>
+      ) : null}
       {problem ? (
         <p role="alert" className="mono" style={{ margin: "2px 10px", fontSize: 10, color: "var(--fail)" }}>
           {problem}
