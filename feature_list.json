@@ -448,9 +448,9 @@
         "uv run pytest tests/test_readers_spa.py - real fixtures with licence",
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": "Source: 10.5281/zenodo.17691644 (CC-BY-4.0, with CSV exports to cross-check) and 10.5281/zenodo.21396092 (CC-BY-4.0); local copies in dataset/spa/."
+      "status": "passing",
+      "evidence": "2026-10-05: uv run pytest tests/test_readers_spa.py - 7 passed on real CC-BY-4.0 fixtures (tests/fixtures/readers/spa/LICENSE.md): ecoflex-1.SPA reads as 1 x 7468, 4000.19 to 400.16 cm-1, and matches OMNIC's own CSV export reversed (values rtol 1e-6, axis 1e-3; the export's extra zero point below 400 is not in the file); a zip of three dust SPA files is one 3 x 29868 dataset whose first row equals the single file; a zip mixing %T and absorbance, a non-SPA file and a truncated one are refused by name; a zip of non-SPA members still goes to OPUS. tests/test_server.py::test_a_zip_of_spa_files_imports_as_one_dataset imports the dust zip over HTTP as 3 x 29868 wavenumber_cm-1. With spa.py removed and src/ stashed, 7 of the 8 fail (the OPUS-routing guard passes, as it should). uv run pytest - 1100 passed, 1 skipped; ruff check, ruff format --check, mypy clean; docs/first-pca.md lists .spa.",
+      "notes": "Settled against the files: title at 30, a 16-byte directory from 304, key 2 header (points, x and y unit, first and last x as float32), key 3 float32 intensities; the axis is even, in the file's descending order. A zip goes to SPA only when every member is .spa; otherwise OPUS. Source: 10.5281/zenodo.17691644 (CC-BY-4.0, with CSV exports to cross-check) and 10.5281/zenodo.21396092 (CC-BY-4.0); local copies in dataset/spa/."
     },
     {
       "id": "reader-asd",
