@@ -60,7 +60,7 @@ after a remount; it now waits for the port to stop moving.
 **#239's protocol is written** (`docs/phase-4/exit-run.md`): observer's sheet, pass rule, a session
 block to copy. The maintainer said on 2026-09-30 not to merge to main yet.
 
-**The worked examples are tested three ways.** `tests/test_examples.py` recomputes every number
+**The worked examples are tested three ways** (and since #288 there are three of them, plus two how-tos). `tests/test_examples.py` recomputes every number
 `docs/examples/*.md` quotes, over HTTP on `docs/examples/tecator.csv`, and asserts the page prints
 it; `frontend/e2e/docs-examples.spec.ts` walks both pages through the screens on a fifth Playwright
 server (8769, `examples`) and takes their screenshots; the CSV is asserted byte-equal to
@@ -147,6 +147,7 @@ Merged through green pull requests on `dev`:
 | Galactic SPC reader | #285 | #321 |
 | Thermo OMNIC SPA reader (single file, or a zip of them) | #286 | #322 |
 | ASD FieldSpec reader (reflectance against the stored white reference) | #287 | #323 |
+| Phase 5 docs: classification example, outlier and selection how-tos | #288 | #324 (open) |
 
 ## What these left behind, worth knowing
 
@@ -178,9 +179,16 @@ Merged through green pull requests on `dev`:
   Eaton Fire record's published values also carry a panel calibration curve and a VNIR splice; the
   test factors both out. A splice-correction step would be a preprocessing feature, not a reader one.
 
+- **The classification example** runs on `docs/examples/meat.csv` (Quadram, CC0), which averages each
+  sample's two runs: the workbench has no grouped CV. Its walk is `e2e/docs-classification.spec.ts`
+  on a sixth Playwright server (8770, `classification`); the docs specs share `e2e/docs-helpers.ts`.
+  The outlier and selection how-tos (`docs/how-to/`) continue the Tecator PLS example and quote
+  numbers `tests/test_examples.py` recomputes.
+- **The Step list offers only preprocessing and PCA.** Splits and estimators come from dragging off
+  a node's port. A page that tells a reader otherwise is wrong.
+
 ## Next action
 
-Every Phase 5 method and reader is passing; #323 (ASD) merges when CI is green. What is left:
-`docs-phase-5` (#288: algorithm pages, a worked classification example on the Quadram meat set
-recomputed by `tests/test_examples.py` and walked by `docs-examples.spec.ts`, outlier and selection
-how-tos), then `phase-5-exit-run` (#289), then `dev` into `main` and the `v1.1.0` tag.
+#324 (docs) merges when CI is green. Then `phase-5-exit-run` (#289), the last feature: its
+verification is in `feature_list.json`, and decision 0006 says it runs on the Quadram meat set.
+After it, `dev` into `main` and the `v1.1.0` tag.

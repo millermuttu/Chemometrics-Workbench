@@ -51,6 +51,10 @@ nav:
   - Worked examples:
       - Exploring a dataset with PCA: examples/pca.md
       - A calibration with PLS: examples/pls.md
+      - Classifying meat: examples/classification.md
+  - How-to:
+      - Find and exclude outliers: how-to/outliers.md
+      - Select variables: how-to/variable-selection.md
   - Contributing:
       - How to add an algorithm: adding-a-step.md
       - CONTRIBUTING.md: https://github.com/millermuttu/Chemometrics-Workbench/blob/dev/CONTRIBUTING.md
