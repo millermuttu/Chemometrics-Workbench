@@ -84,6 +84,10 @@ describe("nodes", () => {
     };
     expect(nodeLabel(selected)).toBe("Select 4 vars");
     expect(parameterLine(selected)).toBe("4 variables kept");
+    // #283: and by what chose them, when something did.
+    expect(
+      nodeLabel({ ...selected, step: { ...selected.step!, chosen_by: "cars" } }),
+    ).toBe("Select 4 vars · CARS");
   });
 
   it("carry the reason and the failure as footers, because that is the useful part", () => {

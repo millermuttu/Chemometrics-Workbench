@@ -509,3 +509,68 @@ test("iPLS runs on the PLS's folds, draws its intervals, and its selection is ap
     ).toBe(200);
   }
 });
+
+test("CARS runs seeded on the PLS's folds, is applied, and the pipeline warns of the leak", async ({
+  page,
+}) => {
+  // #283. Restored afterwards, as the iPLS test restores its pipeline.
+  const auth = { Authorization: "Bearer e2e-token" };
+  await page.goto("/?token=e2e-token");
+  const original = (await (await page.request.get("/api/pipelines/current", { headers: auth })).json())
+    .nodes as unknown[];
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /PLS 5 LV/ }).first().dblclick();
+  await page.getByLabel("Variable importance view").selectOption("selection");
+  await page.getByLabel("Select by").selectOption("cars");
+  await page.getByLabel("Sampling runs").fill("20");
+  await page.getByRole("button", { name: "Run CARS" }).click();
+
+  // Seeded, so what the screen ran is what this request runs.
+  const served = await (
+    await page.request.get("/api/results/pls_d/cars?n_runs=20", { headers: auth })
+  ).json();
+  const kept = (served.selected as number[]).length;
+  await expect(page.getByTestId("selection-count")).toHaveText(`${kept} of 100`);
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const plot = document.querySelector("[data-testid=selection-plot]") as HTMLElement & {
+          data?: { x?: number[] }[];
+        };
+        return plot.data?.[0]?.x?.length ?? 0;
+      }),
+    )
+    .toBe(20);
+
+  try {
+    await page.getByRole("button", { name: "Apply selection" }).click();
+    await expect
+      .poll(
+        async () => {
+          const response = await page.request.get("/api/results/pls_d_selected", { headers: auth });
+          return response.ok() ? (await response.json()).n_variables : 0;
+        },
+        { timeout: 120_000 },
+      )
+      .toBe(kept);
+    // The copy is validated on the samples that chose its variables.
+    const checked = await (
+      await page.request.post("/api/pipelines/current/validate", { headers: auth })
+    ).json();
+    const leak = (checked.warnings as { code: string; node_id: string; related: string[] }[]).find(
+      (warning) => warning.code === "selection_shares_samples",
+    );
+    expect(leak?.node_id).toBe("pls_d_select");
+    expect(leak?.related).toEqual(["pls_d_selected"]);
+    await expect(outline.getByRole("button", { name: /Select \d+ vars · CARS/ })).toBeVisible();
+  } finally {
+    expect(
+      (
+        await page.request.put("/api/pipelines/current", {
+          headers: { ...auth, "Content-Type": "application/json" },
+          data: { nodes: original },
+        })
+      ).status(),
+    ).toBe(200);
+  }
+});

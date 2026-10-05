@@ -1406,3 +1406,13 @@ def test_ipls_runs_on_a_pls_under_a_split_and_refuses_one_without(client: TestCl
     refused = client.get("/api/results/flat/ipls", headers=AUTH)
     assert refused.status_code == 422
     assert refused.json()["error"]["code"] == "needs_cross_validation"
+
+    # #283: CARS on the same node, seeded, and refused the same way.
+    first = client.get("/api/results/pls/cars?n_runs=5&seed=3", headers=AUTH)
+    assert first.status_code == 200, first.text
+    runs = first.json()
+    assert len(runs["runs"]) == 5 and runs["seed"] == 3
+    assert runs["selected"] and runs["runs"][runs["best"]]["n_variables"] == len(runs["selected"])
+    assert client.get("/api/results/pls/cars?n_runs=5&seed=3", headers=AUTH).json() == runs
+    refused = client.get("/api/results/flat/cars", headers=AUTH)
+    assert refused.json()["error"]["code"] == "needs_cross_validation"

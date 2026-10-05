@@ -1,5 +1,6 @@
 import type {
   CoefficientsPayload,
+  CarsPayload,
   ContributionsPayload,
   IplsPayload,
   PcaPayload,
@@ -410,4 +411,33 @@ export function iplsFigure(payload: IplsPayload, theme: PlotTheme) {
       },
     ],
   };
+}
+
+/** CARS (#283): RMSECV per sampling run, the run kept marked on it. The x
+ * axis is the run, and each point names how many variables it kept. */
+export function carsTraces(payload: CarsPayload, theme: PlotTheme) {
+  const runs = payload.runs.map((_, i) => i + 1);
+  const best = payload.runs[payload.best];
+  return [
+    {
+      type: "scattergl",
+      mode: "lines+markers",
+      name: "RMSECV",
+      x: runs,
+      y: payload.runs.map((run) => run.rmsecv),
+      text: payload.runs.map((run) => `${run.n_variables} variables · A ${run.n_components}`),
+      line: { width: 1.2, color: theme.series[0] },
+      marker: { size: 3, color: theme.series[0] },
+      hovertemplate: "run %{x} · RMSECV %{y:.4g}<br>%{text}<extra></extra>",
+    },
+    {
+      type: "scattergl",
+      mode: "markers",
+      name: "kept",
+      x: [payload.best + 1],
+      y: [best.rmsecv],
+      marker: { size: 9, color: "transparent", line: { width: 1.5, color: theme.stale } },
+      hoverinfo: "skip",
+    },
+  ];
 }

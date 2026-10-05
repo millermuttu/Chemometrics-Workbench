@@ -229,6 +229,9 @@ export function applySelection(
   nodes: PipelineNode[],
   estimatorId: string,
   indices: number[],
+  /** The method that chose the positions, recorded so the pipeline can warn
+   * when the same samples then validate the copy (#283). */
+  chosenBy?: "vip" | "coefficients" | "ipls" | "cars",
 ): PipelineNode[] {
   const estimator = nodes.find((node) => node.id === estimatorId);
   if (!estimator || estimator.type !== "estimator") {
@@ -246,7 +249,11 @@ export function applySelection(
       id: select,
       type: "preprocess",
       inputs: estimator.inputs,
-      step: { kind: "select_variables", indices: [...indices].sort((a, b) => a - b) },
+      step: {
+        kind: "select_variables",
+        indices: [...indices].sort((a, b) => a - b),
+        ...(chosenBy ? { chosen_by: chosenBy } : {}),
+      },
     } as PipelineNode,
     {
       ...estimator,

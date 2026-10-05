@@ -95,7 +95,17 @@ export function nodeLabel(node: PipelineNode): string {
     case "select_variables":
       // #280: what an applied selection writes. How many it kept is what
       // tells two of them apart in the outline.
-      return `Select ${(node.step as unknown as { indices: number[] }).indices.length} vars`;
+    {
+      const chosen = node.step as unknown as { indices: number[]; chosen_by?: string };
+      const methods: Record<string, string> = {
+        vip: "VIP",
+        coefficients: "|b|",
+        ipls: "iPLS",
+        cars: "CARS",
+      };
+      const by = methods[chosen.chosen_by ?? ""];
+      return `Select ${chosen.indices.length} vars${by ? ` · ${by}` : ""}`;
+    }
     case "kfold":
       return `K-fold ${spec?.n_splits} · seed ${spec?.seed}`;
     case "train_test":
