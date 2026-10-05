@@ -71,6 +71,7 @@ from chemometrics_workbench.preprocessing import (
     MovingAverageTransformer,
     RangeSelectTransformer,
     SavitzkyGolayTransformer,
+    SelectVariablesTransformer,
     Transformer,
     WhittakerTransformer,
 )
@@ -103,6 +104,7 @@ FOLDABLE = (
     MeanCentreTransformer,
     AutoscaleTransformer,
     RangeSelectTransformer,
+    SelectVariablesTransformer,
     SavitzkyGolayTransformer,
     MovingAverageTransformer,
     GaussianTransformer,

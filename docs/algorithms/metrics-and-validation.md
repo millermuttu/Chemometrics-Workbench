@@ -211,6 +211,7 @@ Continuous responses are not stratified. Binning a response to balance folds is 
 | --- | --- | --- |
 | `SavitzkyGolay`, `SNV`, `Normalise`, `BaselineCorrect` | legitimate | row-wise: each spectrum is transformed from itself alone |
 | `RangeSelect` | legitimate | selects columns by the axis, which is the dataset's, not the sample set's |
+| `SelectVariables` | legitimate as a step | keeps fixed column positions and fits nothing. The positions themselves may have been chosen by looking at every sample - a VIP threshold, iPLS or CARS run on the whole set - and that leak is in how they were chosen, not in the step, so it is warned about where the selection is made |
 | `MeanCentre`, `Autoscale` | **leak** | the column statistics are estimated across samples |
 | `MSC` | **leak** | the reference spectrum — the mean or the median across the fit set — is estimated across samples, and every sample is regressed against it |
 

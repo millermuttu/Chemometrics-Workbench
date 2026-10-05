@@ -121,6 +121,7 @@ $X_{\text{new}}$ must pass through the identical preprocessing chain with **para
 | Mean centring | shifts the intercept |
 | Autoscaling | $b_j \rightarrow b_j / s_j$ |
 | Range selection | drops coefficients |
+| Variable selection, explicit positions (`select_variables`, #280) | drops coefficients, as range selection does |
 | Savitzky–Golay, derivatives | linear convolution; folds as a banded matrix $C$, giving $b \rightarrow C^{\top} b$ |
 
 For centring by $\bar{x}$ and scaling by $s$, with $y$ centred by $\bar{y}$ and scaled by $s_y$:

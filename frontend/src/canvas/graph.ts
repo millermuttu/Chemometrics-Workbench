@@ -73,6 +73,8 @@ export function parameterLine(node: PipelineNode): string {
       return `ddof ${step!.ddof}`;
     case "normalise":
       return `${step!.norm} norm per row`;
+    case "select_variables":
+      return `${(step!.indices as number[]).length} variables kept`;
     case "kfold":
       return `${spec!.n_splits} folds · ${spec!.shuffle ? "shuffle · " : ""}seed ${spec!.seed}`;
     case "train_test":

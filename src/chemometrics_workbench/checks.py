@@ -75,7 +75,7 @@ _CENTRING = (MeanCentre, Autoscale)
 #:
 #: Everything else in the schema is row-wise or column-selecting and is
 #: legitimate above a split: SNV, Normalise, SavitzkyGolay, BaselineCorrect,
-#: RangeSelect. `test_a_step_that_estimates_nothing_may_sit_above_a_split`
+#: RangeSelect, SelectVariables. `test_a_step_that_estimates_nothing_may_sit_above_a_split`
 #: asserts that silence.
 _FITTED_ACROSS_SAMPLES = (MeanCentre, Autoscale, MSC)
 

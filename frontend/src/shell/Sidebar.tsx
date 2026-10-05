@@ -92,6 +92,10 @@ export function nodeLabel(node: PipelineNode): string {
       return `Gaussian σ${step?.sigma}`;
     case "whittaker":
       return `Whittaker λ${step?.lam}`;
+    case "select_variables":
+      // #280: what an applied selection writes. How many it kept is what
+      // tells two of them apart in the outline.
+      return `Select ${(node.step as unknown as { indices: number[] }).indices.length} vars`;
     case "kfold":
       return `K-fold ${spec?.n_splits} · seed ${spec?.seed}`;
     case "train_test":

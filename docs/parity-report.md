@@ -93,6 +93,7 @@ those listed under *Gaps* or *Documented divergences* below.
 | Savitzky-Golay, derivatives 0 / 1 / 2 | `SavitzkyGolayTransformer` | 9 claims |
 | Baseline correction, AsLS / rubberband / polynomial | `BaselineCorrectTransformer` | 9 claims |
 | Range selection | `RangeSelectTransformer` | **not compared.** Selects columns and computes nothing, so there is no number to compare. Bounds, inclusivity and a descending axis are unit-tested in `tests/test_preprocessing.py`. |
+| Variable selection, explicit positions | `SelectVariablesTransformer`, `Selection` | **not compared.** Keeps the columns it names and computes nothing, so there is no number to compare. Canonical positions, the width check and the fold are tested in `tests/test_select_variables.py`. |
 | PCA: eigenvalues, explained variance, scores, loadings | `PCA` | 15 claims |
 | PCA: Hotelling's T² and SPE per sample | `PCA` | 6 claims |
 | Hotelling's T² limit | `hotelling_t2_limit`, `PCA` | 6 claims |

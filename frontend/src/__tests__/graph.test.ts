@@ -74,6 +74,18 @@ describe("nodes", () => {
     expect(parameterLine(normalise)).toBe("l2 norm per row");
   });
 
+  it("name an applied selection by how many variables it kept", () => {
+    // #280: the step VIP, iPLS and CARS write when a selection is applied.
+    const selected: PipelineNode = {
+      id: "select",
+      type: "preprocess",
+      inputs: ["source"],
+      step: { kind: "select_variables", indices: [3, 10, 11, 40] },
+    };
+    expect(nodeLabel(selected)).toBe("Select 4 vars");
+    expect(parameterLine(selected)).toBe("4 variables kept");
+  });
+
   it("carry the reason and the failure as footers, because that is the useful part", () => {
     expect(nodeStateOf("savgol", state).footer).toBe("edited - downstream stale");
     expect(nodeStateOf("pca_d", state).footer).toContain("rank 4");

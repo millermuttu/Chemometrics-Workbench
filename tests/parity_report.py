@@ -170,6 +170,13 @@ COVERAGE: tuple[Coverage, ...] = (
         "`tests/test_preprocessing.py`.",
     ),
     Coverage(
+        "Variable selection, explicit positions",
+        ("SelectVariablesTransformer", "Selection"),
+        not_compared="Keeps the columns it names and computes nothing, so there is no number "
+        "to compare. Canonical positions, the width check and the fold are tested in "
+        "`tests/test_select_variables.py`.",
+    ),
+    Coverage(
         "PCA: eigenvalues, explained variance, scores, loadings",
         ("PCA",),
         (

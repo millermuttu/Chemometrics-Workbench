@@ -129,7 +129,7 @@ def json_model(
         transformer = preprocessing.from_spec(node.step, axis=axis)
         transformer.fit(values[rows])
         values = transformer.transform(values)
-        if isinstance(transformer, preprocessing.RangeSelectTransformer):
+        if isinstance(transformer, preprocessing.Selection):
             axis = transformer.selected_axis()
         fitted.append(transformer)
 
