@@ -1463,3 +1463,12 @@ def test_a_zip_of_spa_files_imports_as_one_dataset(client: TestClient) -> None:
     version = entry.json()["versions"][0]
     assert (version["n_samples"], version["n_variables"]) == (3, 29868)
     assert version["axis"]["kind"] == "wavenumber_cm-1"
+
+
+def test_an_asd_file_imports_as_reflectance(client: TestClient) -> None:
+    """#287: an ASD file with its white reference stored is one reflectance spectrum."""
+    entry = client.post("/api/import", files=upload("asd/SP_00019.asd"), headers=AUTH)
+    assert entry.status_code == 200, entry.text
+    version = entry.json()["versions"][0]
+    assert (version["n_samples"], version["n_variables"]) == (1, 2151)
+    assert version["axis"]["kind"] == "wavelength_nm"

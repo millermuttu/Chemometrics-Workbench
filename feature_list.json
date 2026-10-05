@@ -464,9 +464,9 @@
         "uv run pytest tests/test_readers_asd.py - real fixtures with licence; reflectance checked against the vendor's own export where available",
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": "Source: Eaton Fire ash field spectroscopy, 10.5281/zenodo.16538735 (CC-BY-4.0), with a measurements CSV to cross-check; local copy in dataset/asd/."
+      "status": "passing",
+      "evidence": "2026-10-05: uv run pytest tests/test_readers_asd.py - 9 passed on four real CC-BY-4.0 files (tests/fixtures/readers/asd/LICENSE.md), FieldSpec 4, as7, 2151 channels 350 to 2500 nm, reflectance computed as target over the stored white reference. The record's published reflectance (Terraspec) divided by the reader's is one curve, identical for all four samples over 1001 to 2500 nm (rtol 1e-8; the white panel's calibration, 0.94 to 0.99), and that curve times one constant per sample over 350 to 1000 nm (rtol 1e-8; the VNIR splice). Before fixtures were chosen this held over all 82 mapped samples (spread 1e-9 SWIR, 4e-9 VNIR). A zip of the four is one 4 x 2151 dataset; a zip mixing data types, a non-ASD file and files cut in the header, the spectrum and the white reference are refused by name; a raw file is read as stored. tests/test_server.py imports SP_00019.asd over HTTP as 1 x 2151 wavelength_nm. With asd.py removed and src/ stashed all 10 ASD tests fail. uv run pytest - 1110 passed, 1 skipped; ruff check, ruff format --check, mypy clean; mkdocs build --strict clean; docs/first-pca.md lists .asd.",
+      "notes": "No splice correction and no panel calibration: neither is in the file, and ViewSpec shows the plain ratio. Other data types (raw, radiance...) are read as stored. Only version 7 is verified on a real file; version 1 (no reference block) and 2 to 8 follow the published layout. The zip loop SPA had is now readers.spectrum_files, shared by both. Source: Eaton Fire ash field spectroscopy, 10.5281/zenodo.16538735 (CC-BY-4.0), with a measurements CSV to cross-check; local copy in dataset/asd/."
     },
     {
       "id": "docs-phase-5",
