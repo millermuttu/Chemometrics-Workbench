@@ -1416,3 +1416,26 @@ def test_ipls_runs_on_a_pls_under_a_split_and_refuses_one_without(client: TestCl
     assert client.get("/api/results/pls/cars?n_runs=5&seed=3", headers=AUTH).json() == runs
     refused = client.get("/api/results/flat/cars", headers=AUTH)
     assert refused.json()["error"]["code"] == "needs_cross_validation"
+
+
+def test_a_mat_file_previews_with_its_choices_and_imports(client: TestClient) -> None:
+    """#284: the preview takes corrections, so choosing the derivative matrix
+    shows the table that will be imported; the import reads it."""
+    files = upload("mat/mlnir_slice.mat")
+    detected = client.post("/api/import/preview", files=files, headers=AUTH).json()["detected"]
+    assert detected["matrix"]["value"] == "matrixXNirSpectrumData"
+    assert (detected["n_samples"], detected["n_variables"]) == (12, 53)
+
+    choice = json.dumps({"matrix": "matrixXNirSpectrumDerivative"})
+    corrected = client.post(
+        "/api/import/preview", files=files, data={"corrections": choice}, headers=AUTH
+    ).json()["detected"]
+    assert corrected["n_variables"] == 52
+    assert corrected["axis_variable"]["value"] == "matrixXNirSpectrumDerivativeAxis"
+
+    entry = client.post(
+        "/api/import", files=files, data={"corrections": choice}, headers=AUTH
+    ).json()
+    version = entry["versions"][0]
+    assert (version["n_samples"], version["n_variables"]) == (12, 52)
+    assert list(version["targets"]) == ["matrixYNirPropertyDensityNormalized"]

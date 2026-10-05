@@ -77,6 +77,10 @@ export interface ImportPreview {
     /** Which spectrum block an OPUS file is read from (#187); absent for
      * every other format. */
     block?: Detected<string>;
+    /** Which array of a MAT-file is the spectra, and which vector its axis
+     * (#284); absent for every other format. */
+    matrix?: Detected<string>;
+    axis_variable?: Detected<string>;
   };
   head: { sample_ids: string[]; rows: number[][] };
 }
@@ -357,11 +361,14 @@ export function useDatasets(projectId: string | undefined) {
  * fields. Phase 1.1 sent neither — the screen's file input discarded what was
  * picked and posted an empty body, which the stub answered from a fixture
  * whatever it was sent (#99). The URL is the one it always was. */
+/** The import preview, with the user's corrections applied when there are
+ * any (#284): another matrix of a MAT-file is another table. */
 export function useImportPreview() {
   return useMutation({
-    mutationFn: (file: File) => {
+    mutationFn: ({ file, corrections }: { file: File; corrections?: Record<string, string> }) => {
       const body = new FormData();
       body.append("file", file);
+      if (corrections) body.append("corrections", JSON.stringify(corrections));
       return api<ImportPreview>("/import/preview", { method: "POST", body });
     },
   });

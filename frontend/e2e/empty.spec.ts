@@ -159,6 +159,31 @@ test("a zip of OPUS files previews as one dataset with a block to choose", async
   await page.getByRole("button", { name: "Cancel" }).click();
 });
 
+test("a MAT-file previews its matrix, turned the right way, and another can be chosen", async ({
+  page,
+}) => {
+  // #284. A slice of MLNIRdata (CC-BY-4.0), stored as MATLAB stores it -
+  // variables down the rows. The preview turns it, finds the axis vector and
+  // the density, and asks again when another matrix is chosen. Nothing is
+  // committed.
+  await page.goto("/?token=e2e-token");
+  await page.getByRole("button", { name: "Import…" }).click();
+  await page.getByLabel("Choose file").setInputFiles(
+    path.resolve(import.meta.dirname, "../../tests/fixtures/readers/mat/mlnir_slice.mat"),
+  );
+  await expect(page.getByText("mlnir_slice.mat")).toBeVisible();
+  await expect(page.getByLabel("Matrix")).toHaveValue("matrixXNirSpectrumData");
+  await expect(page.getByLabel("Orientation")).toHaveValue("samples_in_columns");
+  await expect(page.getByLabel("Axis from")).toHaveValue("matrixXNirSpectrumDataAxis");
+  await expect(page.getByText("matrixYNirPropertyDensityNormalized")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Import 12 × 53" })).toBeVisible();
+
+  await page.getByLabel("Matrix").selectOption("matrixXNirSpectrumDerivative");
+  await expect(page.getByRole("button", { name: "Import 12 × 52" })).toBeVisible();
+  await expect(page.getByLabel("Axis from")).toHaveValue("matrixXNirSpectrumDerivativeAxis");
+  await page.getByRole("button", { name: "Cancel" }).click();
+});
+
 /** #258. The canvas fitted the graph only when it mounted, so steps added to a
  * fresh pipeline walked off the right-hand edge. Nothing here is saved. */
 test("steps added to a fresh pipeline stay inside the canvas", async ({ page }) => {

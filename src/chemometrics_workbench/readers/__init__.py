@@ -110,6 +110,10 @@ class Detection:
     #: a single channel - and the others every file in the upload holds (#187).
     #: `None` for every other format.
     block: Choice | None = None
+    #: Which array of a MAT-file holds the spectra (#284), and which vector is
+    #: their axis - `none` for an index. `None` for every other format.
+    matrix: Choice | None = None
+    axis_variable: Choice | None = None
     #: The fields this reader will accept a correction to. Per-reader because a
     #: delimiter means nothing to a spreadsheet and a sheet means nothing to a
     #: text file, and offering a correction that cannot be applied is the same
@@ -146,6 +150,10 @@ class Detection:
             payload["sheet"] = self.sheet.payload()
         if self.block is not None:
             payload["block"] = self.block.payload()
+        if self.matrix is not None:
+            payload["matrix"] = self.matrix.payload()
+        if self.axis_variable is not None:
+            payload["axis_variable"] = self.axis_variable.payload()
         return payload
 
 
@@ -191,9 +199,9 @@ def reader_for(path: str | Path) -> Any:
     suffix is a reader that will one day parse a spreadsheet as text and
     produce a diagnostic about line 1.
     """
-    from chemometrics_workbench.readers import delimited, jcamp, opus, xlsx
+    from chemometrics_workbench.readers import delimited, jcamp, mat, opus, xlsx
 
-    modules = [delimited, jcamp, xlsx, opus]
+    modules = [delimited, jcamp, xlsx, opus, mat]
     suffix = Path(path).suffix.lower()
     for module in modules:
         if suffix in module.SUFFIXES:

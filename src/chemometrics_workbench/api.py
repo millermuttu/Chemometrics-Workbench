@@ -273,11 +273,19 @@ def list_datasets(project_id: str) -> Any:
 
 
 @router.post("/import/preview")
-def import_preview(file: Annotated[UploadFile, File()]) -> Any:
-    """What the reader found, with alternatives. Nothing is committed."""
+def import_preview(
+    file: Annotated[UploadFile, File()], corrections: Annotated[str, Form()] = "{}"
+) -> Any:
+    """What the reader found, with alternatives. Nothing is committed.
+
+    With the user's corrections applied when there are any (#284): choosing
+    another matrix in a MAT-file, or another block in an OPUS file, is a
+    different table, and the preview shows the one that will be imported.
+    """
+    corrected = _corrections(corrections)
     with _uploaded(file) as path:
         try:
-            return readers.preview(path)
+            return readers.preview(path, corrected)
         except readers.ReaderError as error:
             raise _reader_failed(file, error) from error
 
