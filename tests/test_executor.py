@@ -620,25 +620,26 @@ def test_a_failure_below_a_split_says_which_training_fold_it_was_fitting(
         execute(directory, pipeline, version)
 
 
-def test_a_range_select_below_another_one_is_refused_by_the_axis_it_was_given(
+def test_a_range_select_below_another_one_reads_its_bounds_on_the_narrowed_axis(
     project: tuple[Path, DatasetVersion],
 ) -> None:
-    """A real limit of taking the axis from the dataset, surfaced rather than guessed.
-
-    `RangeSelect` drops variables, so a second one downstream is being asked to
-    read bounds against an axis that no longer describes its input. The kernel
-    refuses on the shape, and the node it happened at is named. Threading a
-    per-node axis through the walk would make the recipe's meaning depend on
-    where a node sits, which is a schema question and not one to settle here.
+    """#312. This used to be refused: the executor handed every step the
+    dataset's axis, and a second selection's axis no longer described its
+    input. A bound is a wavelength, and the wavelengths a first selection keeps
+    are the same wavelengths, so the second reads its bounds on what the first
+    left - the composition `api.node_axis` always drew, and
+    `test_node_axis.py::test_two_selections_compose_in_order` holds.
     """
     directory, version = project
+    axis = np.asarray(version.axis.values)
     pipeline = _pipeline(
         version.version_id,
         PreprocessNode(id="window", inputs=("source",), step=RangeSelect(start=850.0, end=852.1)),
         PreprocessNode(id="narrower", inputs=("window",), step=RangeSelect(start=850.0, end=851.0)),
     )
-    with pytest.raises(ExecutorError, match=r"node 'narrower' \(range_select\) failed"):
-        execute(directory, pipeline, version)
+    run = execute(directory, pipeline, version)
+    kept = (axis >= 850.0) & (axis <= 851.0)
+    assert run.outputs["narrower"].n_variables == int(kept.sum())
 
 
 def test_a_split_below_a_split_is_refused_by_name(
