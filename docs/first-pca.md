@@ -9,7 +9,9 @@ variables, usually the wavelengths. The workbench reads:
 - delimited text: `.csv`, `.txt`, `.tsv`, `.dat`;
 - Excel: `.xlsx`, `.xlsm`;
 - JCAMP-DX: `.jdx`, `.dx`, `.jcm`;
-- Bruker OPUS files.
+- Bruker OPUS files;
+- MATLAB `.mat` (versions 4 to 7.2). The preview asks which matrix holds the spectra, which way
+  round it is stored, and which vector is its axis. A v7.3 file is refused with how to re-save it.
 
 To follow along with real data, use the Tecator meat NIR set: 240 samples by 100 channels, with
 `fat`, `moisture` and `protein` columns.

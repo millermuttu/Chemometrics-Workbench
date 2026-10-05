@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { ApiError } from "@/api/client";
 import { useImportDataset, useImportPreview, type ImportPreview } from "@/api/queries";
@@ -33,6 +33,7 @@ const LABELS: Record<string, string> = {
   Refl: "Refl · reflectance",
   ScSm: "ScSm · sample single channel",
   ScRf: "ScRf · reference single channel",
+  none: "none · numbered",
 };
 
 const label = (value: string) => LABELS[value] ?? value;
@@ -128,19 +129,49 @@ function Preview({
   onImported,
   onCancel,
 }: Props & { preview: ImportPreview; file: File }) {
-  const { source, detected, head } = preview;
   const [corrections, setCorrections] = useState<Record<string, string>>({});
   const commit = useImportDataset();
+  // #284: a correction can change which table is read - another matrix of a
+  // MAT-file, another block of an OPUS file - so the preview is asked again
+  // with it, and the counts, axis, targets and rows shown are the server's.
+  //
+  // Only for those: a delimiter or a text file's orientation re-reads the same
+  // table, its reader does not recount, and the counts are turned here.
+  // A MAT-file's reader does recount on an orientation (its axis and targets
+  // follow), so there that one is asked again too.
+  const first = preview.detected;
+  const rereads = ["matrix", "axis_variable", "block", ...(first.matrix ? ["orientation"] : [])];
+  const refresh = useImportPreview();
+  const asked = JSON.stringify(
+    Object.fromEntries(Object.entries(corrections).filter(([key]) => rereads.includes(key))),
+  );
+  useEffect(() => {
+    if (asked === "{}") refresh.reset();
+    else refresh.mutate({ file, corrections: JSON.parse(asked) as Record<string, string> });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [asked, file]);
+  const current = asked !== "{}" && refresh.data ? refresh.data : preview;
+  const { source } = preview;
+  const { detected, head } = current;
+  // The choices compare against what was first detected, so a correction
+  // still reads as one after the preview has been asked again.
 
-  const value = (key: "delimiter" | "decimal" | "orientation" | "block") =>
-    corrections[key] ?? detected[key]?.value ?? "";
+  const value = (
+    key: "delimiter" | "decimal" | "orientation" | "block" | "matrix" | "axis_variable",
+  ) => corrections[key] ?? detected[key]?.value ?? "";
 
   // Reading a file the other way round is the common wrong guess, and it
-  // swaps what the counts mean. Say so before the import, not after.
+  // swaps what the counts mean. Say so before the import, not after. Once the
+  // server has read it the other way round, its counts already say so.
   const flipped = value("orientation") !== detected.orientation.value;
   const samples = flipped ? detected.n_variables : detected.n_samples;
   const variables = flipped ? detected.n_samples : detected.n_variables;
-  const error = commit.error instanceof ApiError ? commit.error : null;
+  const error =
+    commit.error instanceof ApiError
+      ? commit.error
+      : refresh.error instanceof ApiError
+        ? refresh.error
+        : null;
 
   return (
     <div className="pane" style={{ overflowY: "auto" }}>
@@ -189,28 +220,51 @@ function Preview({
           </div>
           <Choice
             name="Delimiter"
-            detected={detected.delimiter}
+            detected={first.delimiter}
             value={value("delimiter")}
             onChange={(next) => setCorrections({ ...corrections, delimiter: next })}
           />
           <Choice
             name="Decimal"
-            detected={detected.decimal}
+            detected={first.decimal}
             value={value("decimal")}
             onChange={(next) => setCorrections({ ...corrections, decimal: next })}
           />
           <Choice
             name="Orientation"
-            detected={detected.orientation}
+            detected={first.orientation}
             value={value("orientation")}
             onChange={(next) => setCorrections({ ...corrections, orientation: next })}
           />
-          {detected.block ? (
+          {first.matrix ? (
+            // A MAT-file is a bag of named arrays (#284): which is the
+            // spectra, and which vector is their axis, are the user's to say.
+            <Choice
+              name="Matrix"
+              detected={first.matrix}
+              value={value("matrix")}
+              onChange={(next) => {
+                // Another matrix has its own axis candidates.
+                const rest: Record<string, string> = { ...corrections, matrix: next };
+                delete rest.axis_variable;
+                setCorrections(rest);
+              }}
+            />
+          ) : null}
+          {detected.axis_variable ? (
+            <Choice
+              name="Axis from"
+              detected={detected.axis_variable}
+              value={value("axis_variable")}
+              onChange={(next) => setCorrections({ ...corrections, axis_variable: next })}
+            />
+          ) : null}
+          {first.block ? (
             // An OPUS file holds several spectra of one measurement (#187);
             // which one becomes the dataset is the user's to say.
             <Choice
               name="Block"
-              detected={detected.block}
+              detected={first.block}
               value={value("block")}
               onChange={(next) => setCorrections({ ...corrections, block: next })}
             />
@@ -348,7 +402,7 @@ export function Import({ onImported, onCancel }: Props) {
                 const chosen = event.target.files?.[0];
                 if (!chosen) return;
                 setFile(chosen);
-                preview.mutate(chosen);
+                preview.mutate({ file: chosen });
               }}
             />
           </label>

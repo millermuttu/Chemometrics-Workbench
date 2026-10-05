@@ -416,9 +416,9 @@
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; import preview covers .mat"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": "Source: MLNIRdata, 10.5281/zenodo.16781223 (CC-BY-4.0), MAT 5.0 plus CSV twins; local copy in dataset/mat/."
+      "status": "passing",
+      "evidence": "2026-10-05: MLNIRdata downloaded into dataset/mat/ from 10.5281/zenodo.16781223 (CC-BY-4.0). uv run pytest tests/test_readers_mat.py - 8 passed: a committed slice (tests/fixtures/readers/mat/, LICENSE.md naming source, licence, authors and the change) reads as 12 x 53, turned from MATLAB's variables-down-rows, and matches the publisher's CSV twin of the same slice to rtol 1e-12; the preview offers matrix, orientation and axis_variable with alternatives; the derivative matrix takes its own axis; no axis gives an index; a samples-in-rows file reads unturned with a nm axis; a v7.3 (HDF5) file is refused by name with how to re-save it; a file with no matrix is refused; the full 208 x 2635 MAT-file matches its CSV export. tests/test_server.py: /import/preview now takes corrections, choosing the derivative previews 12 x 52 and imports it with the density target. With src/ stashed, 9 of these fail. uv run pytest - 1080 passed, 1 skipped; ruff, mypy clean. pnpm typecheck, lint, test (161), build; pnpm exec playwright test - 88 passed. New e2e empty.spec.ts: the MAT preview shows Matrix, samples_in_columns, Axis from and the density, 'Import 12 x 53', and choosing the derivative re-previews to 'Import 12 x 52' with its axis; it fails with frontend/src stashed. docs/first-pca.md lists .mat; mkdocs --strict clean.",
+      "notes": "Detection has two new optional choices, matrix and axis_variable. The import preview endpoint accepts corrections, and the screen asks again only for corrections that change which table is read (matrix, axis, an OPUS block, and a MAT-file's orientation); a text file's orientation is still turned on the client, because its reader does not recount."
     },
     {
       "id": "reader-spc",
