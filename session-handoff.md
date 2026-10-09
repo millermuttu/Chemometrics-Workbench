@@ -2,7 +2,7 @@
 
 Compact state for the next session. **Overwrite this file at the end of every session** — it is a snapshot, not a log. Read it first, then `feature_list.json`, `git log` on `dev`, and the open issues.
 
-**Updated:** 2026-10-09 (after #358)
+**Updated:** 2026-10-10 (after #359)
 
 ---
 
@@ -26,6 +26,7 @@ through a green pull request:
 | The axis kind a correctable choice in the import preview; corrections in provenance | #336 | #356 |
 | The spectra view draws a set of 60 or fewer (no band) instead of going blank | #355 | #357 |
 | A classifier refuses a one-class training fold, naming fold, column and class | #343 | #358 |
+| A GET that fails at the network is tried again (Windows `ERR_NO_BUFFER_SPACE`) | #351 | #359 |
 
 Not started, in priority order: a complete Step list (#337), SVM
 (#338), docs (#340), exit run (#341). Signed packages (#339) are `blocked` on certificates. One
@@ -33,9 +34,10 @@ release, `v1.2.0`, at the end.
 
 **Found during the phase, each with a `feature_list.json` entry:**
 - **#346** - remove the Decisions section from the docs site (maintainer's request).
-- **#351** - Windows e2e once failed to find the PCA tab's scores plot (#350's first run).
 - **#354** - macOS e2e once timed out on the train/test results note (#353's first run, a 7-minute
-  run under runner capacity limits). Both passed on a re-run; neither log has been read yet.
+  run under runner capacity limits). Passed on a re-run; its log has not been read yet. Job logs
+  and artifacts need auth: ask the maintainer to download the `playwright-report-<os>` artifact
+  (kept 7 days) and read `test-results/*/trace.zip` - that is how #351 was found.
 
 `PROPOSAL.md` §16 has the Phase 6 row.
 
@@ -69,6 +71,9 @@ screenshot spec, then `uv run mkdocs build --strict`.
 reset its form on every pipeline refetch, so the refetch after an Apply put the old value back over
 a newly typed one. The form now resets on node id and kind only, and `inspector.spec.ts` holds the
 app's refetch back with `page.route` so the race runs every time.
+
+**#351, fixed in #359**: the same `ERR_NO_BUFFER_SPACE` on one `GET /api/projects` showed "server
+is not answering". `api/client.ts` `send` now retries a GET twice on a network failure.
 
 **#255, explained and fixed in #262.** The Windows trace showed `net::ERR_NO_BUFFER_SPACE` on the
 bundle's CSS: the page rendered unstyled and the canvas div had no size. #221's red had the same
@@ -242,5 +247,6 @@ Merged through green pull requests on `dev`:
 
 ## Next action
 
-Start `step-list-parity` (#337): no dependencies. Read the issue body as well as its entry. #351 and
-#354 (e2e flakes) need their job logs read first; #346 (drop the docs Decisions section) is small.
+Start `step-list-parity` (#337): no dependencies. Read the issue body as well as its entry. #354
+(macOS e2e flake) needs its report artifact read first - #353's run was 2026-10-05, so it expires
+around 2026-10-12; #346 (drop the docs Decisions section) is small.
