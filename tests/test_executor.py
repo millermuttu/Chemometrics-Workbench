@@ -1314,6 +1314,43 @@ def _with_classes(
     return version.model_copy(update={"metadata_columns": {column: labels}})
 
 
+@pytest.mark.parametrize(
+    "spec",
+    [
+        PLSDASpec(n_components=2, class_column="fat_class"),
+        SIMCASpec(n_components=2, class_column="fat_class"),
+        LDASpec(n_components=2, class_column="fat_class"),
+        KNNSpec(k=3, n_components=2, class_column="fat_class"),
+    ],
+    ids=lambda spec: spec.kind,
+)
+def test_a_classifier_refuses_a_training_fold_of_one_class_by_name(
+    project: tuple[Path, DatasetVersion], tecator: Any, spec: Any
+) -> None:
+    """#343: grouped by the class column, two folds each train on one class.
+
+    PLS-DA said "X and y have no covariance", which is true and says nothing
+    about why. Every classifier now refuses, naming the fold and the class."""
+    directory, version = project
+    version = _with_classes(version, tecator)
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(
+            id="split",
+            inputs=("source",),
+            spec=KFoldSplit(n_splits=2, seed=42, group_by="fat_class"),
+        ),
+        PreprocessNode(id="centre", inputs=("split",), step=MeanCentre()),
+        EstimatorNode(id="model", inputs=("centre",), spec=spec),
+    )
+    with pytest.raises(
+        ExecutorError,
+        match=rf"node 'model' \({spec.kind}\) cannot be fitted: training fold 1 of 2 holds "
+        r"only '(high|low)' in 'fat_class'.*Stratify the split by 'fat_class'",
+    ):
+        execute(directory, pipeline, version)
+
+
 def test_a_plsda_node_is_the_regression_on_a_dummy_response_and_tallies_it(
     project: tuple[Path, DatasetVersion], tecator: Any
 ) -> None:
