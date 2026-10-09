@@ -204,6 +204,14 @@ def test_a_delimiter_correction_is_refused_for_a_workbook() -> None:
         apply_corrections(detection, {"delimiter": ";"})
 
 
+def test_the_axis_kind_can_be_corrected_in_a_workbook() -> None:
+    imported = read(BOOK, {"axis_kind": "wavenumber_cm-1"})
+
+    assert imported.axis.kind is AxisKind.WAVENUMBER_CM1
+    assert imported.axis.unit == "cm-1"
+    assert imported.source.corrections == {"axis_kind": "wavenumber_cm-1"}
+
+
 # --- The preview shape ----------------------------------------------------
 
 

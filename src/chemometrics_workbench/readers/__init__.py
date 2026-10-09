@@ -45,6 +45,7 @@ __all__ = [
     "Reader",
     "ReaderError",
     "apply_corrections",
+    "axis_kind_choice",
     "file_hash",
     "index_axis",
     "preview",
@@ -52,6 +53,7 @@ __all__ = [
     "reader_for",
     "source_file",
     "spectrum_files",
+    "with_axis_kind",
 ]
 
 #: How many rows a preview shows. Six is what the import screen's table holds.
@@ -116,6 +118,11 @@ class Detection:
     #: their axis - `none` for an index. `None` for every other format.
     matrix: Choice | None = None
     axis_variable: Choice | None = None
+    #: What the axis's numbers are - nanometres, wavenumbers, a Raman shift, or
+    #: an index (#336). Offered by the readers that guess it from the numbers
+    #: alone, and correctable whenever it is offered; `None` where the file
+    #: states its unit, or has no numbers to call anything.
+    axis_kind: Choice | None = None
     #: The fields this reader will accept a correction to. Per-reader because a
     #: delimiter means nothing to a spreadsheet and a sheet means nothing to a
     #: text file, and offering a correction that cannot be applied is the same
@@ -156,6 +163,8 @@ class Detection:
             payload["matrix"] = self.matrix.payload()
         if self.axis_variable is not None:
             payload["axis_variable"] = self.axis_variable.payload()
+        if self.axis_kind is not None:
+            payload["axis_kind"] = self.axis_kind.payload()
         return payload
 
 
@@ -290,7 +299,7 @@ def apply_corrections(detection: Detection, corrections: dict[str, str]) -> Dete
     """
     from dataclasses import replace
 
-    correctable = set(detection.correctable)
+    correctable = set(detection.correctable) | ({"axis_kind"} if detection.axis_kind else set())
     unknown = sorted(set(corrections) - correctable)
     if unknown:
         raise ReaderError(
@@ -303,13 +312,17 @@ def apply_corrections(detection: Detection, corrections: dict[str, str]) -> Dete
         chosen = corrections.get(name)
         if chosen is None:
             continue
-        current: Choice = getattr(detection, name)
+        current: Choice | None = getattr(detection, name)
+        if current is None:
+            raise ReaderError(f"this file has no {name} to correct.")
         allowed = (current.value, *current.alternatives)
         if chosen not in allowed:
             raise ReaderError(
                 f"{chosen!r} is not one of the {name} options for this file: {', '.join(allowed)}."
             )
         changes[name] = Choice(chosen, tuple(option for option in allowed if option != chosen))
+    if "axis_kind" in changes:
+        changes["axis"] = with_axis_kind(detection.axis, changes["axis_kind"].value)
     return replace(detection, **changes)
 
 
@@ -341,12 +354,31 @@ def read(path: str | Path, corrections: dict[str, str] | None = None) -> Importe
     """Read a file whole, with the user's corrections applied."""
     file = Path(path)
     module = reader_for(file)
-    detection = _detect_with(module, file, corrections)
+    sniffed: Detection = module.sniff(file)
+    detection = _detect_with(module, file, corrections, sniffed)
     imported: Imported = module.read(file, detection)
+    if not corrections:
+        return imported
+    # The reader works the axis out again from the table it reads, so the
+    # user's word on what its numbers are goes on top of that.
+    if "axis_kind" in corrections:
+        imported.axis = with_axis_kind(imported.axis, corrections["axis_kind"])
+    made = {
+        name: value
+        for name, value in corrections.items()
+        if getattr(sniffed, name, None) is None or getattr(sniffed, name).value != value
+    }
+    if made:
+        imported.source = imported.source.model_copy(update={"corrections": made})
     return imported
 
 
-def _detect_with(module: Any, file: Path, corrections: dict[str, str] | None) -> Detection:
+def _detect_with(
+    module: Any,
+    file: Path,
+    corrections: dict[str, str] | None,
+    sniffed: Detection | None = None,
+) -> Detection:
     """Sniff, apply the corrections, and let the reader look again if it needs to.
 
     Most corrections re-read the same table differently. A few — a sheet in a
@@ -355,7 +387,7 @@ def _detect_with(module: Any, file: Path, corrections: dict[str, str] | None) ->
     correction offers `resniff`, and the second `apply_corrections` puts the
     user's other choices back on top of the fresh detection.
     """
-    detection: Detection = module.sniff(file)
+    detection: Detection = sniffed or module.sniff(file)
     if not corrections:
         return detection
     detection = apply_corrections(detection, corrections)
@@ -402,3 +434,38 @@ def index_axis(n: int) -> VariableAxis:
     not know the axis says so instead of inventing plausible numbers.
     """
     return VariableAxis(kind=AxisKind.INDEX, values=[float(i) for i in range(n)], unit=None)
+
+
+#: The unit each axis kind is plotted in.
+AXIS_UNITS: dict[AxisKind, str | None] = {
+    AxisKind.WAVELENGTH_NM: "nm",
+    AxisKind.WAVENUMBER_CM1: "cm-1",
+    AxisKind.RAMAN_SHIFT_CM1: "cm-1",
+    AxisKind.INDEX: None,
+}
+
+
+def axis_kind_choice(axis: VariableAxis) -> Choice | None:
+    """The axis kind as a guess with its alternatives, or `None` for a numbered axis.
+
+    A numbered axis has no numbers of the file's to call nanometres, so there is
+    nothing to correct it to; an index is offered as the way back from any other.
+    """
+    if axis.kind is AxisKind.INDEX:
+        return None
+    return Choice(axis.kind.value, tuple(k.value for k in AxisKind if k is not axis.kind))
+
+
+def with_axis_kind(axis: VariableAxis, kind: str) -> VariableAxis:
+    """The same axis called something else: its unit follows, an index renumbers it."""
+    chosen = AxisKind(kind)
+    if chosen is axis.kind:
+        return axis
+    if chosen is AxisKind.INDEX:
+        return index_axis(len(axis.values))
+    if axis.kind is AxisKind.INDEX:
+        raise ReaderError(
+            f"the axis is numbered, so there are no values to read as {kind}. "
+            "Leave the axis kind as an index."
+        )
+    return VariableAxis(kind=chosen, values=axis.values, unit=AXIS_UNITS[chosen])

@@ -152,7 +152,8 @@ def test_preview_returns_the_readers_detection_in_the_published_shape(
     published = fixture("import_preview")
     assert set(body) == set(published)
     assert set(body["source"]) == set(published["source"])
-    assert set(body["detected"]) == set(published["detected"])
+    # The axis kind is the one field added since the contract (#336).
+    assert set(body["detected"]) == set(published["detected"]) | {"axis_kind"}
     assert set(body["detected"]["axis"]) >= {"kind", "unit", "start", "end", "reconstructed"}
     assert set(body["head"]) == set(published["head"])
 
@@ -280,6 +281,20 @@ def test_the_corrections_the_user_made_are_the_ones_the_parse_obeys(
     np.testing.assert_allclose(
         values, read_array(project, plain["versions"][0]["array_path"]), atol=1e-4
     )
+
+
+def test_an_axis_correction_is_stored_and_recorded_in_provenance(client: TestClient) -> None:
+    """#336: the user's word on the axis is what the dataset carries, and the record says so."""
+    entry = client.post(
+        "/api/import",
+        files=upload("tecator_subset.csv"),
+        data={"corrections": json.dumps({"axis_kind": "wavenumber_cm-1", "decimal": "."})},
+    ).json()
+    version = entry["versions"][0]
+
+    assert version["axis"]["kind"] == "wavenumber_cm-1"
+    assert version["axis"]["unit"] == "cm-1"
+    assert version["source"]["corrections"] == {"axis_kind": "wavenumber_cm-1"}
 
 
 def test_a_correction_the_reader_does_not_offer_is_refused_not_dropped(

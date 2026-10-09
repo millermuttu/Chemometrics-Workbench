@@ -113,6 +113,62 @@ def test_an_unordered_header_is_not_an_axis(tmp_path: Path) -> None:
     assert "not ordered" in (detection.axis_note or "")
 
 
+def test_the_axis_kind_is_offered_with_its_alternatives() -> None:
+    detection = delimited.sniff(PLAIN)
+
+    assert detection.axis_kind == Choice(
+        "wavelength_nm", ("wavenumber_cm-1", "raman_shift_cm-1", "index")
+    )
+    assert preview(PLAIN)["detected"]["axis_kind"]["value"] == "wavelength_nm"
+
+
+def test_a_numbered_axis_offers_no_kind_to_correct(tmp_path: Path) -> None:
+    path = tmp_path / "shuffled.csv"
+    path.write_text("id,900,850,1000,875\nA,0.1,0.2,0.3,0.4\nB,0.2,0.3,0.4,0.5\n")
+
+    detection = delimited.sniff(path)
+    assert detection.axis_kind is None
+    with pytest.raises(ReaderError, match="axis_kind cannot be corrected"):
+        read(path, {"axis_kind": "wavelength_nm"})
+
+
+def test_an_ascending_ftir_file_can_be_corrected_to_wavenumbers(tmp_path: Path) -> None:
+    """#336: ascending below the ceiling is guessed as nm, and the user can say otherwise."""
+    path = tmp_path / "ftir.csv"
+    path.write_text("id,1000,1500,2000,2500\nA,0.1,0.2,0.3,0.4\nB,0.2,0.3,0.4,0.5\n")
+    assert delimited.sniff(path).axis.kind is AxisKind.WAVELENGTH_NM
+
+    shown = preview(path, {"axis_kind": "wavenumber_cm-1"})["detected"]["axis"]
+    assert (shown["kind"], shown["unit"]) == ("wavenumber_cm-1", "cm-1")
+
+    imported = read(path, {"axis_kind": "wavenumber_cm-1"})
+    assert imported.axis.kind is AxisKind.WAVENUMBER_CM1
+    assert imported.axis.unit == "cm-1"
+    assert imported.axis.values == [1000.0, 1500.0, 2000.0, 2500.0]
+    assert imported.source.corrections == {"axis_kind": "wavenumber_cm-1"}
+
+
+def test_correcting_the_axis_to_an_index_numbers_it(tmp_path: Path) -> None:
+    imported = read(PLAIN, {"axis_kind": "index"})
+
+    assert imported.axis.kind is AxisKind.INDEX
+    assert imported.axis.unit is None
+    assert imported.axis.values[:3] == [0.0, 1.0, 2.0]
+
+
+def test_an_axis_correction_survives_an_orientation_correction() -> None:
+    imported = read(TRANSPOSED, {"axis_kind": "raman_shift_cm-1"})
+
+    assert imported.axis.kind is AxisKind.RAMAN_SHIFT_CM1
+    assert imported.axis.unit == "cm-1"
+
+
+def test_only_what_was_changed_is_recorded_as_a_correction() -> None:
+    assert read(PLAIN).source.corrections == {}
+    assert read(PLAIN, {"delimiter": ",", "axis_kind": "wavelength_nm"}).source.corrections == {}
+    assert "corrections" not in read(PLAIN).source.model_dump()
+
+
 def test_targets_and_metadata_columns_are_separated() -> None:
     detection = delimited.sniff(EUROPEAN)
 
@@ -340,7 +396,9 @@ def test_the_preview_matches_the_fixture_the_frontend_was_built_against() -> Non
 
     assert set(payload) == set(fixture)
     assert set(payload["source"]) == set(fixture["source"])
-    assert set(payload["detected"]) == set(fixture["detected"])
+    # The axis kind became a choice after the contract was written (#336); it
+    # is the one field added, and a screen built on the contract ignores it.
+    assert set(payload["detected"]) == set(fixture["detected"]) | {"axis_kind"}
     assert set(payload["detected"]["axis"]) <= set(fixture["detected"]["axis"])
     assert set(payload["head"]) == set(fixture["head"])
 
