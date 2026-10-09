@@ -148,9 +148,9 @@
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; an e2e test corrects the axis and sees the unit on the plot"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-09. `uv run pytest`: 1192 passed, 1 skipped; the ten new or changed tests (axis_kind offered, refused on a numbered axis, ascending FT-IR corrected to cm-1 in preview and read, index renumbers, survives orientation, only changed fields recorded, xlsx correction, API stores axis and source.corrections, both contract-shape tests) each failed with src/ stashed. `uv run ruff check .`: All checks passed; `uv run mypy`: no issues in 87 files. `pnpm typecheck && pnpm lint`: clean; `pnpm test`: 164 passed; `pnpm build`: built; `pnpm exec playwright test`: 96 passed (5.0m). New e2e `empty.spec.ts` 'a corrected axis kind is the unit the spectra are plotted in' corrects Kind to wavenumber_cm-1, sees '1000–1500 cm-1' in the preview and 'wavenumber_cm-1 (cm-1)' on the Source spectra plot; it failed on the unfixed bundle (getByLabel('Kind') not found).",
+      "notes": "Detection.axis_kind is a Choice for the CSV and XLSX readers, offered whenever the axis is not an index; SourceFile.corrections records the fields the user changed (left out of the dump when empty). The e2e imports 70 samples to step round #355."
     },
     {
       "id": "step-list-parity",
@@ -310,6 +310,21 @@
       "status": "not_started",
       "evidence": "",
       "notes": "Seen once on #353 (job 111918116712), a 7.1-minute run under runner capacity constraints."
+    },
+    {
+      "id": "small-set-spectra-view",
+      "priority": 18,
+      "area": "frontend",
+      "issue": 355,
+      "title": "The spectra view goes blank for a dataset of sixty samples or fewer",
+      "depends_on": [],
+      "user_visible_behavior": "Opening the spectra of a node whose dataset has 60 or fewer samples draws them, with a caption that says there is no band.",
+      "verification": [
+        "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; an e2e test opens the spectra of a small dataset, failing on the unfixed code first"
+      ],
+      "status": "not_started",
+      "evidence": "",
+      "notes": "Found during #336: the payload carries `band` only when banded (more than MAX_TRACES = 60), and SpectraView reads primary.band.n_spectra unconditionally. #336's e2e imports 70 samples to step round it."
     }
   ]
 }

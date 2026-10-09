@@ -105,6 +105,12 @@ class SourceFile(Frozen):
     reader: str = Field(description="Reader module, e.g. 'jcamp_dx' or 'bruker_opus'.")
     reader_version: str
     imported_at: datetime = Field(default_factory=_now)
+    corrections: dict[str, str] = Field(
+        default_factory=dict,
+        exclude_if=lambda value: not value,
+        description="What the user corrected in the import preview, each field to the value "
+        "chosen over the detected one (#336). Left out of the dump when nothing was.",
+    )
 
 
 # --------------------------------------------------------------------------

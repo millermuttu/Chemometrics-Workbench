@@ -81,6 +81,9 @@ export interface ImportPreview {
      * (#284); absent for every other format. */
     matrix?: Detected<string>;
     axis_variable?: Detected<string>;
+    /** What the axis's numbers are, where the reader guessed it from them
+     * alone (#336); absent when the file states its unit. */
+    axis_kind?: Detected<string>;
   };
   head: { sample_ids: string[]; rows: number[][] };
 }

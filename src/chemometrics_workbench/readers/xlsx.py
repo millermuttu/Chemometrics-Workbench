@@ -33,6 +33,7 @@ from chemometrics_workbench.readers import (
     Detection,
     Imported,
     ReaderError,
+    axis_kind_choice,
     grid,
     source_file,
 )
@@ -122,6 +123,7 @@ def _detect(path: Path, sheet: str, sheets: list[str]) -> Detection:
             axis=axis,
             axis_reconstructed=reconstructed,
             axis_note=note,
+            axis_kind=axis_kind_choice(axis),
             **common,  # type: ignore[arg-type]
         )
 
@@ -136,6 +138,7 @@ def _detect(path: Path, sheet: str, sheets: list[str]) -> Detection:
         axis=axis,
         axis_reconstructed=reconstructed,
         axis_note=note,
+        axis_kind=axis_kind_choice(axis),
         metadata_columns=tuple(columns["metadata_names"]),
         targets=tuple(columns["target_names"]),
         discarded=tuple(columns["discarded"]),
