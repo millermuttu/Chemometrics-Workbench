@@ -155,7 +155,8 @@ export interface SpectraPayload {
     banded: boolean;
   };
   traces: { index: number; sample_id: string; y: number[] }[];
-  band: { n_spectra: number; y_lower: number[]; y_median: number[]; y_upper: number[] };
+  /** Present only when the set is banded, more spectra than are drawn (#355). */
+  band?: { n_spectra: number; y_lower: number[]; y_median: number[]; y_upper: number[] };
 }
 
 /** `outliers.md` section 5's rules, in the order the flags table names them. */

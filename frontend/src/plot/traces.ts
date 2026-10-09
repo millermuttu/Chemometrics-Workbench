@@ -20,6 +20,9 @@ export function bandTraces(
   theme: PlotTheme,
   options: { faded?: boolean } = {},
 ) {
+  const { band } = payload;
+  // A set small enough to draw whole carries no band (#355).
+  if (!band) return [];
   const x = payload.axis.values;
   const opacity = options.faded ? 0.35 : 1;
   return [
@@ -27,7 +30,7 @@ export function bandTraces(
       type: "scattergl",
       mode: "lines",
       x,
-      y: payload.band.y_lower,
+      y: band.y_lower,
       line: { width: 0, color: theme.band },
       hoverinfo: "skip",
       showlegend: false,
@@ -37,7 +40,7 @@ export function bandTraces(
       type: "scattergl",
       mode: "lines",
       x,
-      y: payload.band.y_upper,
+      y: band.y_upper,
       fill: "tonexty",
       fillcolor: theme.band,
       line: { width: 0, color: theme.band },
@@ -49,7 +52,7 @@ export function bandTraces(
       type: "scattergl",
       mode: "lines",
       x,
-      y: payload.band.y_median,
+      y: band.y_median,
       line: { width: 1.2, color: theme.band, dash: "dot" },
       name: "median",
       hovertemplate: "median<br>%{x:.1f} · %{y:.4f}<extra></extra>",
