@@ -292,9 +292,9 @@
       "verification": [
         "Read the job log for a console error first; fix the cause; e2e (windows-latest) green"
       ],
-      "status": "in_progress",
-      "evidence": "",
-      "notes": "Cause read from job 111909342941's trace (playwright-report-windows-latest, downloaded 2026-10-09): one GET /api/projects failed with net::ERR_NO_BUFFER_SPACE, the shell showed 'No project' and CannotLoad's 'server is not answering' in the PCA tab, so scores-plot never mounted. #255's reload guard covers LINK/SCRIPT only. Fix: api/client.ts `send` retries a GET twice on a network failure (not on any HTTP status, not on a write). Local verification done; waiting on e2e (windows-latest) in CI to mark passing."
+      "status": "passing",
+      "evidence": "2026-10-09. Job log read first: trace of job 111909342941 shows console 'Failed to load resource: net::ERR_NO_BUFFER_SPACE' on http://127.0.0.1:8765/api/projects and the page snapshot 'No project' + 'The workbench server is not answering'. Fix verified: `pnpm typecheck && pnpm lint`: clean; `pnpm test`: 168 passed (3 new client.test.ts cases); `pnpm exec playwright test`: 97 passed (3.7m). New shell.spec.ts test aborts the first /api/projects with route.abort('failed'); on the unfixed bundle it failed (getByText('Tecator meat study') not found). PR #359 CI on 005ccf8: e2e (windows-latest) success (job 113960221061), e2e ubuntu and macOS success, all 10 checks green.",
+      "notes": "api/client.ts `send` retries a GET twice (100 ms, 200 ms) on a network failure; never an HTTP status, never a write. #255's index.html guard still covers the bundle's own LINK/SCRIPT loads."
     },
     {
       "id": "macos-train-test-note-timeout",
