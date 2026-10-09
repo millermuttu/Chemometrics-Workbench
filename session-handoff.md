@@ -2,7 +2,7 @@
 
 Compact state for the next session. **Overwrite this file at the end of every session** — it is a snapshot, not a log. Read it first, then `feature_list.json`, `git log` on `dev`, and the open issues.
 
-**Updated:** 2026-10-06 (after #353)
+**Updated:** 2026-10-09 (after #356)
 
 ---
 
@@ -23,8 +23,9 @@ through a green pull request:
 | Seeded y-permutation test, run as a job (`metrics-and-validation.md` §14) | #333 | #350 |
 | Bootstrap intervals for PLS/PCR coefficients and VIP (`pls-regression.md` §16) | #334 | #352 |
 | Class-wise outlier diagnostics; flags sorted by rules broken (`outliers.md` §8) | #335 | #353 |
+| The axis kind a correctable choice in the import preview; corrections in provenance | #336 | #356 |
 
-Not started, in priority order: a correctable axis unit (#336), a complete Step list (#337), SVM
+Not started, in priority order: a complete Step list (#337), SVM
 (#338), docs (#340), exit run (#341). Signed packages (#339) are `blocked` on certificates. One
 release, `v1.2.0`, at the end.
 
@@ -35,6 +36,9 @@ release, `v1.2.0`, at the end.
 - **#351** - Windows e2e once failed to find the PCA tab's scores plot (#350's first run).
 - **#354** - macOS e2e once timed out on the train/test results note (#353's first run, a 7-minute
   run under runner capacity limits). Both passed on a re-run; neither log has been read yet.
+- **#355** - the spectra view goes blank for a dataset of 60 samples or fewer: `band` is only in the
+  payload when banded and `SpectraView.tsx` reads `primary.band.n_spectra` unconditionally. #356's
+  e2e imports 70 samples to step round it.
 
 `PROPOSAL.md` §16 has the Phase 6 row.
 
@@ -191,6 +195,9 @@ Merged through green pull requests on `dev`:
   `executor.permutation_test_for` reruns `_fitted` on stored fold matrices with a permuted version.
 - **Bootstrap (#334)** is synchronous (`GET /results/{id}/bootstrap`); `api._fit_chain` is shared with
   `folded_coefficients`.
+- **Axis kind (#336)**: `Detection.axis_kind` is offered by the CSV and XLSX readers whenever the
+  axis is not an index, and is correctable without being in `correctable`; `readers.read` reapplies
+  it to the axis the reader rebuilds. `SourceFile.corrections` holds the fields changed from the sniff.
 - **Class-wise outliers (#335)**: `outliers.class_diagnostics`, `api.classwise_payload`; flags carry
   `n_rules` and are sorted by it for every model, so a test reading the first flag gets the worst.
 - **New parity-style claims** that are tests rather than fixture entries have a `Coverage` row with
@@ -236,5 +243,5 @@ Merged through green pull requests on `dev`:
 
 ## Next action
 
-Start `axis-correction` (#336): no dependencies. Read the issue body as well as its entry. #343 is
-small and worth taking early; #351 and #354 need their job logs read first.
+Start `step-list-parity` (#337): no dependencies. Read the issue body as well as its entry. #355 and
+#343 are small and worth taking early; #351 and #354 need their job logs read first.
