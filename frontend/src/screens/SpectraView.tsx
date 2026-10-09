@@ -280,7 +280,10 @@ function SpectraPlotView({ nodeId, title }: { nodeId: string; title: string }) {
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
           <span style={{ fontSize: 11.5, fontWeight: 600 }}>{title}</span>
           <span className="mono" style={{ fontSize: 10.5, color: "var(--ink3)" }}>
-            shaded band = full set ({primary.band.n_spectra}) · lines drawn at full resolution
+            {primary.band
+              ? `shaded band = full set (${primary.band.n_spectra})`
+              : `every spectrum drawn (${primary.n_spectra})`}{" "}
+            · lines drawn at full resolution
           </span>
         </div>
         <Plot payloads={payloads} selected={selected} onPick={pick} />

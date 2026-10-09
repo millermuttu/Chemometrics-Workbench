@@ -322,9 +322,9 @@
       "verification": [
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; an e2e test opens the spectra of a small dataset, failing on the unfixed code first"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": "Found during #336: the payload carries `band` only when banded (more than MAX_TRACES = 60), and SpectraView reads primary.band.n_spectra unconditionally. #336's e2e imports 70 samples to step round it."
+      "status": "passing",
+      "evidence": "2026-10-09. `pnpm typecheck && pnpm lint`: clean; `pnpm test`: 165 passed (new: bandTraces is [] without a band); `pnpm build`: built; `pnpm exec playwright test`: 96 passed (4.0m). empty.spec.ts's axis-kind test now imports the 4-sample file, opens Source's spectra and sees 'every spectrum drawn (4)'; on the unfixed bundle the same test failed (spectra-plot not found: the page threw on primary.band.n_spectra).",
+      "notes": "SpectraPayload.band is optional; bandTraces returns nothing without it and the caption says every spectrum is drawn. #336's 70-sample workaround is removed."
     }
   ]
 }

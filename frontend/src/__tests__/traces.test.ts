@@ -42,14 +42,18 @@ describe("the density band", () => {
 
   it("fills between the bounds and marks the median", () => {
     const [lower, upper, median] = bandTraces(source, theme);
-    expect(lower.y).toEqual(source.band.y_lower);
+    expect(lower.y).toEqual(source.band?.y_lower);
     expect(upper.fill).toBe("tonexty");
-    expect(upper.y).toEqual(source.band.y_upper);
-    expect(median.y).toEqual(source.band.y_median);
+    expect(upper.y).toEqual(source.band?.y_upper);
+    expect(median.y).toEqual(source.band?.y_median);
+  });
+
+  it("is nothing when the set is small enough to draw whole (#355)", () => {
+    expect(bandTraces({ ...source, band: undefined }, theme)).toEqual([]);
   });
 
   it("carries the whole set, not the drawn subset", () => {
-    expect(source.band.n_spectra).toBe(source.n_spectra);
+    expect(source.band?.n_spectra).toBe(source.n_spectra);
     expect(source.traces.length).toBeLessThan(source.n_spectra);
   });
 });
