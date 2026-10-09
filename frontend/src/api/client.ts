@@ -47,12 +47,34 @@ export class ApiError extends Error {
   }
 }
 
+/** A read that fails before any response is tried again, twice (#351).
+ *
+ * Windows runners - and so, one day, a user's machine - occasionally fail a
+ * single loopback request with `net::ERR_NO_BUFFER_SPACE`. Taken at its word,
+ * that one failed `GET /api/projects` put "the server is not answering" over a
+ * window whose server was answering everything else. Only a network failure is
+ * retried, and only on a GET: an HTTP status is the server's answer and stands
+ * (CannotLoad has no retry loop, for a 401 above all), and a POST that failed
+ * midway is not one to send twice. A server that is really gone still says so,
+ * a third of a second later. */
+async function send(path: string, init: RequestInit = {}): Promise<Response> {
+  const attempts = (init.method ?? "GET").toUpperCase() === "GET" ? 3 : 1;
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await fetch(`/api${path}`, {
+        ...init,
+        headers: { ...init.headers, Authorization: `Bearer ${apiToken()}` },
+      });
+    } catch (error) {
+      if (attempt >= attempts) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
+    }
+  }
+}
+
 /** Call the server. `path` is relative to /api - `api("/projects")`. */
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(`/api${path}`, {
-    ...init,
-    headers: { ...init.headers, Authorization: `Bearer ${apiToken()}` },
-  });
+  const response = await send(path, init);
   if (!response.ok) throw await failure(response);
   return (await response.json()) as T;
 }
@@ -78,9 +100,7 @@ async function failure(response: Response): Promise<ApiError> {
  * the server's `Content-Disposition` one when it gives one, else `fallback`.
  * A refusal throws the server's sentence, as `api()` does. */
 export async function download(path: string, fallback: string): Promise<string> {
-  const response = await fetch(`/api${path}`, {
-    headers: { Authorization: `Bearer ${apiToken()}` },
-  });
+  const response = await send(path);
   if (!response.ok) throw await failure(response);
   const disposition = response.headers.get("content-disposition") ?? "";
   const name = /filename="([^"]+)"/.exec(disposition)?.[1] ?? fallback;
