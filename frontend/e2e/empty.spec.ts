@@ -83,15 +83,13 @@ test("the preview states what was read, and a correction changes what would be",
 test("a corrected axis kind is the unit the spectra are plotted in", async ({ page }) => {
   await page.goto("/?token=e2e-token");
   await page.getByRole("button", { name: "Import data" }).click();
-  // Seventy samples, because a set of sixty or fewer is drawn without a band
-  // and the spectra view cannot show one yet (#355).
-  await choose(page, "ftir.csv", spectraCsv(70, 6));
+  await choose(page, "ftir.csv", SPECTRA);
 
   await expect(page.getByLabel("Kind")).toHaveValue("wavelength_nm");
   await page.getByLabel("Kind").selectOption("wavenumber_cm-1");
   await expect(page.getByText("corrected")).toBeVisible();
   await expect(page.getByText("1000–1500 cm-1")).toBeVisible();
-  await page.getByRole("button", { name: "Import 70 × 6" }).click();
+  await page.getByRole("button", { name: "Import 4 × 6" }).click();
   await expect(page.getByRole("tab", { name: /ftir/ })).toBeVisible();
 
   // The source has spectra to show once it has run.
@@ -100,6 +98,9 @@ test("a corrected axis kind is the unit the spectra are plotted in", async ({ pa
   await expect(outline.getByRole("button", { name: "Run 1 succeeded" })).toBeVisible();
   await outline.getByRole("button", { name: /^Source/ }).first().dblclick();
   await expect(page.getByTestId("spectra-plot")).toContainText("wavenumber_cm-1 (cm-1)");
+  // Four samples are drawn whole, with no band: this view went blank on a set
+  // that small until #355.
+  await expect(page.getByText("every spectrum drawn (4)")).toBeVisible();
 });
 
 test("confirming the preview opens the dataset, and nothing is committed before", async ({
