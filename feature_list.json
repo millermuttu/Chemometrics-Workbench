@@ -261,9 +261,9 @@
         "uv run pytest - a grouped split by the class column refuses with the fold and class named, for every classifier; failing on the unfixed code first",
         "uv run pytest, uv run ruff check, uv run mypy - green"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": "Found during #329."
+      "status": "passing",
+      "evidence": "2026-10-09. `uv run pytest`: 1196 passed, 1 skipped. New test_executor.py::test_a_classifier_refuses_a_training_fold_of_one_class_by_name [plsda, simca, lda, knn] groups a two-fold K-fold by fat_class and asserts \"node 'model' (<kind>) cannot be fitted: training fold 1 of 2 holds only 'high'|'low' in 'fat_class' ... Stratify the split by 'fat_class'\"; with src/ stashed all four failed (e.g. lda: \"class 'low' has no calibration samples\"). `uv run ruff check .`: All checks passed; `ruff format --check`: 145 files already formatted; `uv run mypy`: no issues in 87 files.",
+      "notes": "One check, `_refuse_one_class_folds` in executor._estimator, for any spec with a class_column, so SVM inherits it. The optional inspector warning for group_by set to the class column was not built."
     },
     {
       "id": "docs-without-decisions",

@@ -1185,6 +1185,7 @@ def _estimator(
             # pruned array is: the cache is a saving, never an authority.
             pass
 
+    _refuse_one_class_folds(node, parent.folds, version)
     if parent.folds is not None and parent.full is not None:
         # #330: below a split the model is refitted on every sample, through
         # every step above it refitted on every sample too. Cross-validation
@@ -1215,6 +1216,35 @@ def _estimator(
 
 
 _NONE = np.array([], dtype=np.intp)
+
+
+def _refuse_one_class_folds(
+    node: PipelineNode, folds: list[Fold] | None, version: DatasetVersion
+) -> None:
+    """A classifier cannot be fitted on a training fold that holds one class (#343).
+
+    Checked once here for every classifier - anything whose spec names a
+    `class_column` - because the kernels fail it each in their own words, and
+    PLS-DA's ("X and y have no covariance") is true without saying why. A
+    grouped or small split puts every member of a class in one validation set
+    this way; the column being missing is `_class_labels`'s to refuse.
+    """
+    spec = getattr(node, "spec", None)
+    column = getattr(spec, "class_column", None)
+    labels = version.metadata_columns.get(column) if column is not None else None
+    if spec is None or folds is None or labels is None:
+        return
+    for number, fold in enumerate(folds, start=1):
+        present = sorted({str(labels[row]) for row in fold.train})
+        if len(present) < 2:
+            raise ExecutorError(
+                f"node {node.id!r} ({spec.kind}) cannot be fitted: training fold "
+                f"{number} of {len(folds)} holds only {', '.join(map(repr, present))} "
+                f"in {column!r}, and a classifier needs two classes to separate. Stratify "
+                f"the split by {column!r}, or group it by a column other than the class.",
+                node.id,
+            )
+
 
 #: Metrics measured on the held-out rows (`metrics-and-validation.md` §11):
 #: RMSEP and SEP, and the `_p` classification metrics.
