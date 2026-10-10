@@ -549,7 +549,13 @@ def test_a_pca_has_no_residuals_and_a_simca_no_outlier_block(tmp_path: Path) -> 
 
     from dataclasses import replace
 
-    for method, expected in (("plsda", True), ("lda", True), ("knn", True), ("simca", False)):
+    for method, expected in (
+        ("plsda", True),
+        ("lda", True),
+        ("knn", True),
+        ("svm", True),
+        ("simca", False),
+    ):
         classifier = replace(run.results["pca_a"], task="classification", method=method)
         assert diagnosed(classifier) is expected, method
     assert diagnosed(run.results["pca_a"])

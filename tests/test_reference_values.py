@@ -33,6 +33,7 @@ ALGORITHMS = (
     "plsda",
     "lda",
     "knn",
+    "svm",
     "mcd",
     "ipls",
     "preprocess",

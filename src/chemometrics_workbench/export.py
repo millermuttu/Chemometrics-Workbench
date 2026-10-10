@@ -162,9 +162,9 @@ def json_model(
         },
     }
 
-    if result.simca or result.training_classes:
-        # #306: a SIMCA or a kNN decides on the whole preprocessed spectrum, so
-        # the foldable tail travels as the affine map it is (§6).
+    if result.simca or result.training_classes or result.svm:
+        # #306: a SIMCA, a kNN or an SVM decides on the whole preprocessed
+        # spectrum, so the foldable tail travels as the affine map it is (§6).
         payload["model"].update(threshold=None, assignment=result.method)
         payload["affine"] = _affine(fitted, n_variables) if fitted else None
         if result.simca:
@@ -172,6 +172,23 @@ def json_model(
                 "models": [
                     {key: model[key] for key in _SIMCA_KEYS} for model in result.simca["models"]
                 ]
+            }
+        elif result.svm:
+            scores = np.asarray(result.scores, dtype=np.float64)
+            payload["svm"] = {
+                "kernel": result.svm["kernel"],
+                "gamma": result.svm["gamma"],
+                "x_mean": list(result.x_mean),
+                "loadings": [list(row) for row in result.loadings],
+                "pairs": [
+                    {
+                        "classes": pair["classes"],
+                        "support_vectors": scores[pair["support"]].tolist(),
+                        "dual": list(pair["dual"]),
+                        "rho": pair["rho"],
+                    }
+                    for pair in result.svm["pairs"]
+                ],
             }
         else:
             payload["knn"] = {
@@ -295,6 +312,25 @@ def python_snippet(model: dict[str, Any]) -> str:
             f"NEIGHBOURS = np.array({_matrix_literal(knn['neighbours'])})",
             f"NEIGHBOUR_CLASSES = np.array({knn['neighbour_classes']!r})",
         ]
+    elif assignment == "svm":
+        svm = model["svm"]
+        body += [
+            f"KERNEL = {svm['kernel']!r}",
+            f"GAMMA = {svm['gamma']!r}",
+            f"X_MEAN = np.array({_literal(svm['x_mean'])})",
+            f"LOADINGS = np.array({_matrix_literal(svm['loadings'])})",
+            "PAIRS = [",
+        ]
+        for pair in svm["pairs"]:
+            body += [
+                "    {",
+                f"        'classes': {tuple(pair['classes'])!r},",
+                f"        'support_vectors': np.array({_matrix_literal(pair['support_vectors'])}),",
+                f"        'dual': np.array({_literal(pair['dual'])}),",
+                f"        'rho': {pair['rho']!r},",
+                "    },",
+            ]
+        body += ["]"]
     else:
         body += [
             f"COEFFICIENTS = np.array({_matrix_literal(model['coefficients'])})",
@@ -353,6 +389,27 @@ def python_snippet(model: dict[str, Any]) -> str:
             "        for row in nearest",
             "    ])",
             "    return np.array([CLASSES[i] for i in counts.argmax(axis=1)])",
+        ]
+    elif assignment == "svm":
+        # svm.md section 4, as classification.SVM computes it: a pair's
+        # positive decision votes for its first class, a tied vote goes to the
+        # first class.
+        body += [
+            "    T = (X - X_MEAN) @ LOADINGS.T",
+            "    votes = np.zeros((T.shape[0], len(CLASSES)), dtype=int)",
+            "    for pair in PAIRS:",
+            "        S = pair['support_vectors']",
+            "        if KERNEL == 'linear':",
+            "            K = T @ S.T",
+            "        else:",
+            "            squared = (",
+            "                (T**2).sum(axis=1)[:, None] - 2.0 * T @ S.T + (S**2).sum(axis=1)",
+            "            )",
+            "            K = np.exp(-GAMMA * np.maximum(squared, 0.0))",
+            "        first = K @ pair['dual'] - pair['rho'] > 0",
+            "        i, j = pair['classes']",
+            "        votes[np.arange(T.shape[0]), np.where(first, i, j)] += 1",
+            "    return np.array([CLASSES[i] for i in votes.argmax(axis=1)])",
         ]
     elif argmax:
         body += [

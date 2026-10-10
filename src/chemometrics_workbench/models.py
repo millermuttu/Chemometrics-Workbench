@@ -464,6 +464,21 @@ class KNNSpec(Frozen):
     class_column: str
 
 
+class SVMSpec(Frozen):
+    """`svm.md`: a C-SVM on principal component scores, one-vs-one."""
+
+    kind: Literal["svm"] = "svm"
+    kernel: Literal["linear", "rbf"] = "rbf"
+    C: float = Field(default=1.0, gt=0, description="Penalty on a margin violation.")
+    gamma: float | None = Field(
+        default=None,
+        gt=0,
+        description="RBF width. Unset is 1 / (A var(T)), scikit-learn's 'scale'.",
+    )
+    n_components: int = Field(ge=1, description="Principal components the kernel is taken on.")
+    class_column: str
+
+
 class PLSDASpec(Frozen):
     kind: Literal["plsda"] = "plsda"
     n_components: int = Field(ge=1)
@@ -472,7 +487,7 @@ class PLSDASpec(Frozen):
 
 
 EstimatorSpec = Annotated[
-    PCASpec | PLSRegressionSpec | PCRSpec | PLSDASpec | SIMCASpec | LDASpec | KNNSpec,
+    PCASpec | PLSRegressionSpec | PCRSpec | PLSDASpec | SIMCASpec | LDASpec | KNNSpec | SVMSpec,
     Field(discriminator="kind"),
 ]
 

@@ -241,6 +241,15 @@ def _arrays(
         arrays["knn_classes"] = np.asarray(result.training_classes, dtype=np.int64)
         arrays["x_mean"] = _float64(result.x_mean)
 
+    if result.svm:
+        # #338, svm.md section 6: every pair's support vectors in score space,
+        # their coefficients a y, and rho.
+        arrays["x_mean"] = _float64(result.x_mean)
+        scores = _float64(result.scores)
+        for index, pair in enumerate(result.svm["pairs"]):
+            arrays[f"svm_{index}_support_vectors"] = scores[pair["support"]]
+            arrays[f"svm_{index}_dual"] = _float64(pair["dual"])
+
     for k, model in enumerate(result.simca.get("models", [])):
         # #275, simca.md section 7: every class model, indexed by its class's
         # position in `classes`.
@@ -280,6 +289,16 @@ def _manifest(
             "spe_limit": result.spe_limit,
             "spe_limit_caveat": result.spe_limit_caveat,
             "k": result.k,
+            "svm": {
+                "kernel": result.svm["kernel"],
+                "C": result.svm["C"],
+                "gamma": result.svm["gamma"],
+                "pairs": [
+                    {"classes": pair["classes"], "rho": pair["rho"]} for pair in result.svm["pairs"]
+                ],
+            }
+            if result.svm
+            else None,
             "simca": [
                 {name: model[name] for name in ("class", "n_samples", "t2_limit", "q_limit")}
                 for model in result.simca.get("models", [])

@@ -338,6 +338,43 @@ test("a kNN tab reads as a classification, and exports its JSON model", async ({
   }
 });
 
+test("an SVM tab reads as a classification, and exports its JSON model", async ({ page }) => {
+  // #338. As the kNN test does: added beside the seeded PLS-DA, then removed.
+  const auth = { Authorization: "Bearer e2e-token" };
+  await page.goto("/?token=e2e-token");
+  const original = (await (await page.request.get("/api/pipelines/current", { headers: auth })).json())
+    .nodes as { id: string; inputs: string[] }[];
+  const plsda = original.find((node) => node.id === "plsda_d")!;
+  const put = (body: unknown[]) =>
+    page.request.put("/api/pipelines/current", {
+      headers: { ...auth, "Content-Type": "application/json" },
+      data: { nodes: body },
+    });
+  const svm = {
+    id: "svm_d",
+    type: "estimator",
+    inputs: plsda.inputs,
+    spec: { kind: "svm", kernel: "rbf", C: 1, n_components: 5, class_column: "fat_class" },
+  };
+  expect((await put([...original, svm])).status()).toBe(200);
+  try {
+    await page.reload();
+    await page.getByRole("button", { name: "Run pipeline" }).click();
+    await expect(page.locator(".status")).toContainText("Done", { timeout: 120_000 });
+    const outline = page.getByRole("complementary", { name: "Project outline" });
+    await outline.getByRole("button", { name: /SVM rbf 5 PC · fat_class/ }).dblclick();
+    await expect(page.getByTestId("analysis-header")).toContainText("SVM on fat_class 5 components");
+    await expect(page.getByTestId("confusion-cross_validation")).toBeVisible();
+    const [file] = await Promise.all([page.waitForEvent("download"), page.getByTestId("export-json").click()]);
+    expect(file.suggestedFilename()).toBe("svm_d_model.json");
+    const model = JSON.parse(await readFile((await file.path())!, "utf8"));
+    expect(model.model.assignment).toBe("svm");
+    expect(model.svm.pairs).toHaveLength(1);
+  } finally {
+    expect((await put(original)).status()).toBe(200);
+  }
+});
+
 /** Hover a plot's point by its data coordinates, through Plotly's own axes. */
 async function hoverPoint(page: Page, testId: string, x: number, y: number) {
   const plot = page.getByTestId(testId);

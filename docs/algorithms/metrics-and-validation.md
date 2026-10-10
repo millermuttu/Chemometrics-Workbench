@@ -318,7 +318,7 @@ Recorded so the parity report can classify them as *differs by documented conven
 
 [#333](https://github.com/millermuttu/Chemometrics-Workbench/issues/333). A cross-validated score says how well a model predicts; a permutation test says whether it predicts better than chance would. It answers "could a model this good have come from a response with no relation to the spectra?", which matters most when samples are few and variables many.
 
-**What is permuted.** The response of a PLS or PCR, or the class labels of a PLS-DA, LDA or kNN. The spectra, the split and the preprocessing stay exactly as they are: each permutation reruns the estimator's whole cross-validation on the stored per-fold matrices and the stored folds, with only the response reordered.
+**What is permuted.** The response of a PLS or PCR, or the class labels of a PLS-DA, LDA, kNN or SVM. The spectra, the split and the preprocessing stay exactly as they are: each permutation reruns the estimator's whole cross-validation on the stored per-fold matrices and the stored folds, with only the response reordered.
 
 **The orders.** $N$ permutations of $0 \dots n-1$, drawn in turn from one `numpy.random.default_rng(seed)`, seed 0 unless one is given. A seed always gives the same null. The observed score is the unpermuted order's.
 

@@ -86,6 +86,8 @@ export function parameterLine(node: PipelineNode): string {
       return `${spec!.n_components} components · ${spec!.target}`;
     case "knn":
       return `k ${spec!.k} · ${spec!.n_components} components · ${spec!.class_column}`;
+    case "svm":
+      return `${spec!.kernel} · C ${spec!.C} · ${spec!.n_components} components · ${spec!.class_column}`;
     case "plsda":
     case "simca":
     case "lda":

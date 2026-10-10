@@ -65,7 +65,7 @@ Everything after the last unfoldable step folds; everything up to and including 
 | `schema_version` | Integer, currently **1**. A reader refuses a higher one by name, as [`model-artifact.md`](model-artifact.md) §2 has it |
 | `model.task` | `regression` or `classification`. **A decomposition has no prediction to export** and is refused: PCA produces scores, not a response |
 | `model.threshold` | `0.5` for a two-class classification, `null` otherwise — `pls-da.md` §5's fixed cut, stated rather than assumed by the reader |
-| `model.assignment` | `"argmax"` for a classification of three or more classes (#274), `"simca"` or `"knn"` for those (§6), `null` otherwise |
+| `model.assignment` | `"argmax"` for a classification of three or more classes (#274), `"simca"`, `"knn"` or `"svm"` for those (§6), `null` otherwise |
 | `model.classes` | The classes in Unicode order. With two, the prediction is `classes[1]` at or above the threshold; with more, it is `classes[k]` for the largest of the N predictions |
 | `axis.values` | The **raw** variable axis the model expects its input on, with as many entries as `coefficients` has when the residual chain preserves the variable count. It is the axis of the matrix the residual chain is applied to |
 | `preprocessing` | The residual chain, in the order it is applied, each step as `models.py` serialises it plus whatever fitted parameters it needs (§4) |
@@ -139,9 +139,9 @@ The export tolerance is therefore set an order of magnitude above the largest di
 
 ---
 
-## 6. SIMCA and kNN: the affine map
+## 6. SIMCA, kNN and SVM: the affine map
 
-A SIMCA (`simca.md`) and a kNN (`knn.md`) do not decide by a dot product with one coefficient vector. Each needs the whole preprocessed spectrum: SIMCA measures its distance to every class model, kNN its distance to every calibration sample. So the foldable tail cannot be folded into `b`, and is carried instead as the **affine map** it is:
+A SIMCA (`simca.md`), a kNN (`knn.md`) and an SVM (`svm.md`) do not decide by a dot product with one coefficient vector. Each needs the whole preprocessed spectrum: SIMCA measures its distance to every class model, kNN its distance to every calibration sample, and an SVM its kernel against every support vector. So the foldable tail cannot be folded into `b`, and is carried instead as the **affine map** it is:
 
 $$x_{\text{model}} = x_{\text{after residual chain}} \cdot M + c$$
 
@@ -151,10 +151,11 @@ The JSON model of either carries, beside the fields of §2 that every model has:
 
 | Field | Meaning |
 | --- | --- |
-| `model.assignment` | `"simca"` or `"knn"`; `model.threshold` is `null` and there is no `coefficients` or `intercept` |
+| `model.assignment` | `"simca"`, `"knn"` or `"svm"`; `model.threshold` is `null` and there is no `coefficients` or `intercept` |
 | `affine` | `{"matrix": p × p', "offset": p'}`, or **`null`** when the tail is empty — an identity is not written out |
 | `simca.models` | One entry per class, in the order of `classes`: `mean` (p'), `loadings` (A × p', one row per component), `eigenvalues` (A), `t2_limit`, `q_limit` |
 | `knn` | `k`, `x_mean` (p'), `loadings` (A × p'), `neighbours` (the n calibration scores, n × A) and `neighbour_classes` (n indices into `classes`) |
+| `svm` | `kernel`, `gamma`, `x_mean` (p'), `loadings` (A × p') and `pairs`: per pair of classes, `classes` (`[i, j]`), `support_vectors` (in score space, m × A), `dual` (their $a y$) and `rho` |
 
 `p` is the width the residual chain hands on, which is the raw width; `p'` the width after the tail, smaller than `p` when a range selection is in it.
 
@@ -162,6 +163,7 @@ The JSON model of either carries, beside the fields of §2 that every model has:
 
 - **SIMCA**, for each class model, `simca.md` §3 and §4: $t = (x - \bar{x}_k) P_k^\top$, $T^2 = \sum_a t_a^2 / \lambda_a$, $Q = \lVert (x - \bar{x}_k) - t P_k \rVert^2$, and the class accepts the sample when $\max(T^2 / T^2_{\text{lim}},\; Q / Q_{\text{lim}}) \le 1$. The snippet's `predict` returns an `n × N` array of booleans, column `k` for `classes[k]`: a sample may be accepted by none of the classes or by several, and that is the answer, not an error.
 - **kNN**, `knn.md` §3: $t = (x - \bar{x}) P^\top$, squared Euclidean distances to every neighbour, the `k` nearest by a stable sort so equal distances keep calibration order, an unweighted vote, a tied vote to the first class. `predict` returns `n` class labels.
+- **SVM**, `svm.md` §4: $t = (x - \bar{x}) P^\top$; for each pair, $f = K(t, S)\,\text{dual} - \rho$ with the linear or RBF kernel; $f > 0$ votes for the pair's first class, otherwise its second; the most votes wins, a tied vote to the first class. `predict` returns `n` class labels.
 
 **The size.** `M` is `p × p'` floats. Tecator's 100 variables give 10,000; a 1,000-variable NIR spectrum gives a million, which is about 20 MB of JSON and of snippet, each float written at full precision. That is the price of carrying a Whittaker smoother or a Savitzky–Golay derivative exactly, and it is paid only when the tail is not empty: a chain that ends in its last carried step writes `"affine": null`. A kNN also carries its `n × A` neighbours, which is small beside `M`.
 

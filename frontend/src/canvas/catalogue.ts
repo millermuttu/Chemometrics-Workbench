@@ -159,6 +159,14 @@ export function stepMenu(targets: string[], classColumns: string[] = []): Catalo
             payload: { spec: { kind: "knn", k: 5, n_components: 5, class_column: classColumn } },
           },
           {
+            kind: "SVM rbf 5 PC",
+            type: "estimator" as const,
+            parameters: `rbf · C 1 · 5 components · ${classColumn}`,
+            payload: {
+              spec: { kind: "svm", kernel: "rbf", C: 1, n_components: 5, class_column: classColumn },
+            },
+          },
+          {
             kind: "SIMCA 3 PC",
             type: "estimator" as const,
             parameters: `3 components · ${classColumn}`,

@@ -69,6 +69,7 @@ nav:
           - SIMCA: algorithms/simca.md
           - LDA: algorithms/lda.md
           - kNN: algorithms/knn.md
+          - SVM: algorithms/svm.md
           - Outlier diagnostics: algorithms/outliers.md
           - Variable selection: algorithms/variable-selection.md
           - Smoothing and baselines: algorithms/smoothing-and-baselines.md

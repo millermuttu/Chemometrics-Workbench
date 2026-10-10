@@ -135,6 +135,7 @@ from chemometrics_workbench.classification import (
     KNN,
     LDA,
     SIMCA,
+    SVM,
     acceptance_table,
     simca_metrics,
 )
@@ -161,6 +162,7 @@ from chemometrics_workbench.models import (
     ResolvedSplit,
     SelectVariables,
     SIMCASpec,
+    SVMSpec,
     TrainTestSplit,
 )
 from chemometrics_workbench.project import (
@@ -245,6 +247,7 @@ _FITTED: tuple[type, ...] = (
     SIMCASpec,
     LDASpec,
     KNNSpec,
+    SVMSpec,
 )
 
 
@@ -477,6 +480,11 @@ class EstimatorResult:
 
     k: int | None = None
     """A kNN's neighbour count; `None` for every other estimator."""
+
+    svm: dict[str, Any] = field(default_factory=dict)
+    """An SVM's kernel, C, the gamma used and, per pair of classes, its
+    support vectors as positions in `scores`, their `a y` and `rho`
+    (`svm.md` §5, #338). Empty for every other estimator."""
 
     simca: dict[str, Any] = field(default_factory=dict)
     """A SIMCA's class models and its decisions per set (`simca.md` §5, #275).
@@ -1316,6 +1324,9 @@ def _fitted(
             estimator=PCR,
         )
 
+    if isinstance(node.spec, SVMSpec):
+        return _svm(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
+
     if isinstance(node.spec, KNNSpec):
         return _knn(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
 
@@ -1859,14 +1870,98 @@ def _knn(
     version: DatasetVersion,
 ) -> EstimatorResult:
     """`knn.md`: PCA-kNN, tallied by `classification.md`."""
-    classes, codes = _class_labels(version, node, spec.class_column, kind="knn")
+    model, result = _scores_classifier(
+        node,
+        "knn",
+        spec.class_column,
+        spec.n_components,
+        lambda: KNN(spec.k, spec.n_components),
+        parent,
+        key,
+        matrix,
+        rows,
+        held_out,
+        fold,
+        version,
+    )
+    assert isinstance(model, KNN)
+    # The calibration scores are also the neighbours, with their classes in
+    # `training_classes` (knn.md section 4).
+    codes = model.codes_
+    assert codes is not None
+    return replace(result, training_classes=[int(value) for value in codes], k=spec.k)
+
+
+def _svm(
+    node: PipelineNode,
+    spec: SVMSpec,
+    parent: _State,
+    key: str,
+    matrix: NDArray[np.float64],
+    rows: NDArray[np.intp],
+    held_out: NDArray[np.intp],
+    fold: int | None,
+    version: DatasetVersion,
+) -> EstimatorResult:
+    """`svm.md`: PCA-SVM, one-vs-one, tallied by `classification.md`."""
+    model, result = _scores_classifier(
+        node,
+        "svm",
+        spec.class_column,
+        spec.n_components,
+        lambda: SVM(spec.n_components, spec.kernel, spec.C, spec.gamma),
+        parent,
+        key,
+        matrix,
+        rows,
+        held_out,
+        fold,
+        version,
+    )
+    assert isinstance(model, SVM)
+    # svm.md section 5: the support vectors are rows of `scores`, by position.
+    svm = {
+        "kernel": spec.kernel,
+        "C": spec.C,
+        "gamma": model.gamma_,
+        "pairs": [
+            {
+                "classes": list(pair["classes"]),
+                "support": [int(row) for row in pair["support"]],
+                "dual": _values(pair["dual"]),
+                "rho": float(pair["rho"]),
+            }
+            for pair in model.pairs_
+        ],
+    }
+    return replace(result, svm=svm)
+
+
+def _scores_classifier(
+    node: PipelineNode,
+    kind: str,
+    class_column: str,
+    n_components: int,
+    build: Callable[[], KNN | SVM],
+    parent: _State,
+    key: str,
+    matrix: NDArray[np.float64],
+    rows: NDArray[np.intp],
+    held_out: NDArray[np.intp],
+    fold: int | None,
+    version: DatasetVersion,
+) -> tuple[KNN | SVM, EstimatorResult]:
+    """A classifier on the PCA front's scores, kNN's or SVM's: fitted on the
+    calibration rows and on every fold, tallied by `classification.md`, with
+    the PCA front's panels (`knn.md` §4, `svm.md` §5)."""
+    classes, codes = _class_labels(version, node, class_column, kind=kind)
     n_classes = len(classes)
 
-    def fit(values: NDArray[np.float64], train: NDArray[np.intp]) -> KNN:
+    def fit(values: NDArray[np.float64], train: NDArray[np.intp]) -> KNN | SVM:
         try:
-            return KNN(spec.k, spec.n_components).fit(values[train], codes[train], n_classes)
+            return build().fit(values[train], codes[train], n_classes)
         except ValueError as error:
-            raise ExecutorError(f"node {node.id!r} (knn) failed: {error}", node.id) from error
+            raise ExecutorError(f"node {node.id!r} ({kind}) failed: {error}", node.id) from error
 
     model = fit(matrix, rows)
     assigned = model.predict(matrix[rows])
@@ -1888,22 +1983,20 @@ def _knn(
     x_mean = np.asarray(model.x_mean_)
     centred = matrix[rows] - x_mean
     held_x = matrix[held_out] - x_mean
-    return EstimatorResult(
+    return model, EstimatorResult(
         node_id=node.id,
         key=key,
         task="classification",
-        n_components=spec.n_components,
+        n_components=n_components,
         n_samples=int(rows.size),
         n_variables=int(matrix.shape[1]),
-        rank=spec.n_components,
+        rank=n_components,
         fold=fold,
         rows=[int(row) for row in rows],
-        # The PCA front's (knn.md section 4); the calibration scores are also
-        # the neighbours, with their classes in `training_classes`.
         scores=_rows(pca.transform(centred)),
         loadings=_rows(np.asarray(pca.loadings_).T),
         rotations=_rows(np.asarray(pca.loadings_).T),
-        eigenvalues=_values(np.asarray(pca.eigenvalues_)[: spec.n_components]),
+        eigenvalues=_values(np.asarray(pca.eigenvalues_)[:n_components]),
         explained_variance_ratio=_values(pca.explained_variance_ratio()),
         cumulative_explained_variance=_values(pca.cumulative_explained_variance()),
         hotelling_t2=_values(pca.hotelling_t2(centred)),
@@ -1911,12 +2004,10 @@ def _knn(
         spe=_values(pca.spe(centred)),
         spe_limit=float(pca.spe_limit(ALPHA)),
         spe_limit_caveat=pca.spe_limit_caveat(),
-        target=spec.class_column,
-        method="knn",
+        target=class_column,
+        method=kind,
         x_mean=_values(x_mean),
         classes=classes,
-        training_classes=[int(value) for value in codes[rows]],
-        k=spec.k,
         predicted_class=[int(value) for value in assigned],
         held_out_predicted_class=[int(value) for value in held_class],
         confusion=confusion,
@@ -2375,7 +2466,7 @@ def permutation_test_for(
 
 
 #: The estimators §14 permutes: those with a cross-validated score.
-_PERMUTABLE = (PLSRegressionSpec, PCRSpec, PLSDASpec, LDASpec, KNNSpec)
+_PERMUTABLE = (PLSRegressionSpec, PCRSpec, PLSDASpec, LDASpec, KNNSpec, SVMSpec)
 
 
 def governing_split(node_id: NodeId, by_id: dict[NodeId, PipelineNode]) -> PipelineNode | None:
