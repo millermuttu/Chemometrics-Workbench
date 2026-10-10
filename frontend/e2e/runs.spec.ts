@@ -201,8 +201,10 @@ test("a train/test split runs, and its PLS reports on the held-out set", async (
 
   await outline.getByRole("button", { name: /PLS 5 LV/ }).first().dblclick();
   // 3,000 synthetic samples: the model is fitted on all of them (#330), and
-  // ceil(0.25 * 3000) are held out from the training rows' model.
-  await expect(page.getByText("3000 fitted · 750 held out (fold 0)")).toBeVisible();
+  // ceil(0.25 * 3000) are held out from the training rows' model. The note
+  // waits on a results payload carrying all 3,000 rows (#330); a queued macOS
+  // runner once took over the default 5 s to load it (#354).
+  await expect(page.getByText("3000 fitted · 750 held out (fold 0)")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByTestId("metric-RMSEP")).not.toHaveText("—");
   await expect(page.getByTestId("metric-RMSECV")).toHaveText("—");
 });
