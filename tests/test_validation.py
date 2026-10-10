@@ -10,6 +10,8 @@ than against another implementation.
 
 from __future__ import annotations
 
+import functools
+
 import numpy as np
 import pytest
 
@@ -405,29 +407,32 @@ def _splitters(n_groups: int) -> list[tuple[str, object]]:
     ]
 
 
-@pytest.mark.parametrize("seed", range(20))
-def test_a_grouped_split_never_splits_a_group_and_still_partitions(seed: int) -> None:
+def test_a_grouped_split_never_splits_a_group_and_still_partitions() -> None:
     """The property #329 exists for: a replicate never validates its twin's model."""
-    groups = _random_groups(seed)
-    n_groups = len(set(groups))
-    for name, splitter in _splitters(n_groups):
-        folds = by_group(groups, splitter)  # type: ignore[arg-type]
-        validate_partition(folds, len(groups))
-        for fold in folds:
-            assert not {groups[i] for i in fold.train} & {groups[i] for i in fold.test}, name
-    [held] = by_group(groups, lambda n: train_test(n, 0.3, seed=seed))
-    assert not {groups[i] for i in held.train} & {groups[i] for i in held.test}
-    assert np.array_equal(np.sort(np.concatenate([held.train, held.test])), np.arange(len(groups)))
+    for seed in range(20):
+        groups = _random_groups(seed)
+        n_groups = len(set(groups))
+        for name, splitter in _splitters(n_groups):
+            folds = by_group(groups, splitter)  # type: ignore[arg-type]
+            validate_partition(folds, len(groups))
+            for fold in folds:
+                train, test = {groups[i] for i in fold.train}, {groups[i] for i in fold.test}
+                assert not train & test, f"seed {seed}, {name}"
+        [held] = by_group(groups, functools.partial(train_test, test_size=0.3, seed=seed))
+        assert not {groups[i] for i in held.train} & {groups[i] for i in held.test}, f"seed {seed}"
+        everything = np.sort(np.concatenate([held.train, held.test]))
+        assert np.array_equal(everything, np.arange(len(groups))), f"seed {seed}"
 
 
-@pytest.mark.parametrize("seed", range(5))
-def test_a_grouped_split_follows_from_its_seed(seed: int) -> None:
-    groups = _random_groups(seed)
+def test_a_grouped_split_follows_from_its_seed() -> None:
+    for seed in range(5):
+        groups = _random_groups(seed)
 
-    def tests(split_seed: int) -> list[list[int]]:
-        return [f.test.tolist() for f in by_group(groups, lambda n: k_fold(n, 3, seed=split_seed))]
+        def tests(split_seed: int, groups: list[str] = groups) -> list[list[int]]:
+            folds = by_group(groups, lambda n: k_fold(n, 3, seed=split_seed))
+            return [f.test.tolist() for f in folds]
 
-    assert tests(seed) == tests(seed) != tests(seed + 100)
+        assert tests(seed) == tests(seed) != tests(seed + 100), f"seed {seed}"
 
 
 def test_groups_are_the_splitter_s_items_in_unicode_order() -> None:

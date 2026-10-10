@@ -339,9 +339,9 @@
         "uv run pytest, uv run ruff check, uv run mypy - green; test_parity_coverage.py green",
         "uv run python -m tests.parity_report regenerates docs/parity-report.md with the same claims"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": "Found during #338: 1,219 collected on 2026-10-10. About 67 s in test bodies and 15 s in setup; one iPLS rebuild alone is 11.5 s."
+      "status": "passing",
+      "evidence": "2026-10-10, branch feature/362_test-suite-shrink, on an 8-core Linux machine. Before (dev at 612c229): `uv run pytest` 1218 passed, 1 skipped (1,219 collected), real 1m23s. After: 983 passed, real 22s. Where it came from: pytest-xdist (`-n auto --dist loadfile`; loadfile because module-level RNGs make some tests order-dependent - `test_a_full_rank_model_reproduces_the_least_squares_fit` failed under `--dist load`), one BLAS thread per process in conftest (eight workers of eight threads ran no faster than one process), and each worker handing its parity comparisons to the controller (`pytest_testnodedown`), which writes the one parity-results.json. Count: `@every_dataset` in test_parity.py replaces 47 dataset parametrisations (170 tests to 60); every dataset's `parity.check` still runs when an earlier one fails, checked by calling a decorated function that fails on corn (all three ran, the failure named corn). The gasoline SPE-limit case returns instead of skipping, which would have skipped tecator. The transformer conventions (6 tests x 12) are one test per transformer; grouped-split seeds, reference-value coverage and the feature-list check loop inside one test. The iPLS one-hot rebuild uses four intervals, three folds and two components: 11.1 s to 2.9 s. `uv run ruff check`, `ruff format --check`, `uv run mypy` clean; test_parity_coverage.py passes in the run. `uv run python -m tests.parity_report` wrote 192 claims and `git diff docs/parity-report.md` is empty.",
+      "notes": "Found during #338: 1,219 collected on 2026-10-10. About 67 s in test bodies and 15 s in setup; one iPLS rebuild alone is 11.5 s. Not done: removing unit/API duplicates by judgement - the merges above got the count and the time down without dropping an assertion."
     }
   ]
 }
