@@ -50,6 +50,9 @@ dev = [
   "mkdocs-material>=9.7.7",
   # MkDocs 2.0 drops the plugin and theme systems Material depends on.
   "mkdocs>=1.6,<2",
+  # pytest-xdist spreads the suite over the cores (`-n auto` below); each worker
+  # hands its parity comparisons to the controller (tests/conftest.py).
+  "pytest-xdist>=3.6",
 ]
 
 [tool.ruff]
@@ -86,7 +89,7 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q -n auto --dist loadfile"
 markers = [
   "parity: a claim in the parity report. Run the suite alone with `pytest -m parity`.",
 ]

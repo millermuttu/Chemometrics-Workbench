@@ -153,20 +153,16 @@ def test_a_value_that_is_not_a_parity_target_says_so(entries: list[dict[str, Any
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
-@pytest.mark.parametrize("algorithm", ALGORITHMS)
 def test_every_algorithm_has_a_comparable_value_for_every_dataset(
-    entries: list[dict[str, Any]], dataset: str, algorithm: str
+    entries: list[dict[str, Any]],
 ) -> None:
-    found = [
-        e
+    covered = {
+        (e["algorithm"], e["dataset"])
         for e in entries
-        if e["dataset"] == dataset
-        and e["algorithm"] == algorithm
-        and e["status"] == "sourced"
-        and e["comparable"]
-    ]
-    assert found, f"no comparable reference value for {algorithm} on {dataset}"
+        if e["status"] == "sourced" and e["comparable"]
+    }
+    missing = [(a, d) for a in ALGORITHMS for d in DATASETS if (a, d) not in covered]
+    assert not missing, f"no comparable reference value for {missing}"
 
 
 def test_content_hashes_match_the_loaders_in_use() -> None:

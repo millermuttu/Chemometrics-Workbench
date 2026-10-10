@@ -60,14 +60,16 @@ Parity is tested through the shared harness, never with a bare `assert_allclose`
 `tests/test_parity.py`:
 
 ```python
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 @pytest.mark.parametrize("norm", ["l1", "l2", "max"])
 def test_normalisation_matches_the_reference(dataset: str, norm: str) -> None:
     ours = NormaliseTransformer(norm).fit_transform(_block(dataset))
     assert parity.check(f"{dataset}.preprocess.normalised_{norm}.sklearn", ours).passed
 ```
 
-`parity.check` picks the tolerance for the quantity's class. `tests/parity.py` maps `normalised_l2`
+`@every_dataset` makes one test of the claim on corn, gasoline and Tecator: every dataset's
+comparison runs and is recorded even when an earlier one fails, and a failure names each dataset
+that failed. `parity.check` picks the tolerance for the quantity's class. `tests/parity.py` maps `normalised_l2`
 to `preprocessing`. It then tags the claim's tier and records the result for the
 [parity report](parity-report.md). **Tolerances are not knobs.** A comparison that fails is a
 finding, not a number to widen.

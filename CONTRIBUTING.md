@@ -54,6 +54,8 @@ uv run pyinstaller packaging/workbench.spec --noconfirm
 uv run python -m tests.smoke_package dist/ChemometricsWorkbench
 ```
 
+The suite runs on every core through pytest-xdist (`-n auto --dist loadfile` in `pyproject.toml`), a file per worker so each file's tests keep their order. `-n 0` runs it in one process, which is what a debugger or `-x` wants.
+
 Run a single test file or case with the usual pytest selectors:
 
 ```bash

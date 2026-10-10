@@ -334,13 +334,16 @@ def tecator_terciles() -> tuple[np.ndarray, np.ndarray]:
 def test_ipls_on_a_one_hot_response_matches_a_scikit_learn_rebuild(
     tecator_terciles: tuple[np.ndarray, np.ndarray],
 ) -> None:
+    # Four intervals, three folds and two components keep the forward search
+    # (and scikit-learn's PLS2 rebuild of it) to a second; five, five and three
+    # took eleven (#362).
     x, onehot = tecator_terciles
-    folds = k_fold(len(onehot), 5, seed=42)
-    ours = ipls(x, onehot, folds, 5, 3)
-    for interval, (start, stop) in zip(ours.intervals, interval_bounds(100, 5), strict=True):
-        reference = min(_sklearn_rmsecv_curve(x[:, start:stop], onehot, folds, 3))
+    folds = k_fold(len(onehot), 3, seed=42)
+    ours = ipls(x, onehot, folds, 4, 2)
+    for interval, (start, stop) in zip(ours.intervals, interval_bounds(100, 4), strict=True):
+        reference = min(_sklearn_rmsecv_curve(x[:, start:stop], onehot, folds, 2))
         assert interval.rmsecv == pytest.approx(reference, rel=1e-6)
-    assert ours.selected == _sklearn_ipls(x, onehot, folds, 5, 3)
+    assert ours.selected == _sklearn_ipls(x, onehot, folds, 4, 2)
 
 
 def test_two_classes_are_pls1_on_the_codes(tecator_fat: tuple[np.ndarray, np.ndarray]) -> None:
