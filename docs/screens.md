@@ -23,7 +23,8 @@ running, complete (with its headline metric), stale because something upstream c
 
 ![The pipeline canvas](images/screens/pipeline.png)
 
-Build with the step list (**Step**, **Add**, **Validate**, **Save**), drag nodes to arrange them,
+Build with the step list (**Step**, **Add**, **Validate**, **Save**), which offers every step, split and
+model that dragging from a node's port does; drag nodes to arrange them,
 and click **Run pipeline**. Selecting a node on the canvas or in the outline opens its tab.
 
 ## Spectra

@@ -163,9 +163,9 @@
       "verification": [
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; a unit test that the two lists match, and an e2e test that adds a split and a PLS-DA from the Step list"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-10, branch feature/337_step-list-parity. In frontend/: `pnpm typecheck` and `pnpm lint` clean; `pnpm test` 19 files, 169 passed, including catalogue.test.tsx 'offers in the Step list what the port menu offers, splits and estimators included (#337)', which renders StepList with stepMenu(['fat'], ['fat_class']) and asserts its options equal the menu's kinds; `pnpm build` built; `pnpm exec playwright test` 97 passed, 1 failed - the new test, whose first assertion expected 'valid · 3 steps' where the server rightly reported the mean centre above the drafted split; reworded to assert that message, then `pnpm exec playwright test e2e/pipeline.spec.ts` 14 passed, including 'the step list offers a split and a PLS-DA, as the port menu does (#337)', which adds K-fold 10, SNV and PLS-DA 5 LV from the Step list and validates them. `uv run mkdocs build --strict` built.",
+      "notes": "The list and the port menu both take stepMenu(targets, classColumns); DraftStep.type admits 'split'. Neither sets a stratify_by default: the port menu never did, and the inspector offers stratifiable columns once the split is saved."
     },
     {
       "id": "svm",
@@ -325,6 +325,23 @@
       "status": "passing",
       "evidence": "2026-10-09. `pnpm typecheck && pnpm lint`: clean; `pnpm test`: 165 passed (new: bandTraces is [] without a band); `pnpm build`: built; `pnpm exec playwright test`: 96 passed (4.0m). empty.spec.ts's axis-kind test now imports the 4-sample file, opens Source's spectra and sees 'every spectrum drawn (4)'; on the unfixed bundle the same test failed (spectra-plot not found: the page threw on primary.band.n_spectra).",
       "notes": "SpectraPayload.band is optional; bandTraces returns nothing without it and the caption says every spectrum is drawn. #336's 70-sample workaround is removed."
+    },
+    {
+      "id": "test-suite-shrink",
+      "priority": 19,
+      "area": "tests",
+      "issue": 362,
+      "title": "Shrink and speed up the Python test suite",
+      "depends_on": [],
+      "user_visible_behavior": "None for a user; the Python suite has fewer test functions and runs faster, with every parity claim still checked.",
+      "verification": [
+        "Test count and local wall time of `uv run pytest` recorded before and after",
+        "uv run pytest, uv run ruff check, uv run mypy - green; test_parity_coverage.py green",
+        "uv run python -m tests.parity_report regenerates docs/parity-report.md with the same claims"
+      ],
+      "status": "not_started",
+      "evidence": "",
+      "notes": "Found during #338: 1,219 collected on 2026-10-10. About 67 s in test bodies and 15 s in setup; one iPLS rebuild alone is 11.5 s."
     }
   ]
 }
