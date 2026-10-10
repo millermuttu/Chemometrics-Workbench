@@ -130,7 +130,7 @@ The table lists calibration rows only. Held-out rows are predictions, not part o
 
 ## 8. Class-wise diagnostics
 
-[#335](https://github.com/millermuttu/Chemometrics-Workbench/issues/335). On a dataset whose samples belong to classes, a sample is an outlier when it is unlike **its own class**, not unlike the pooled data. On the meat set, a PCA of all three meats flags nearly every pork sample on $Q$, because pork genuinely differs from beef and lamb; that is the classes, not outliers.
+[#335](https://github.com/millermuttu/Chemometrics-Workbench/issues/335). On a dataset whose samples belong to classes, a sample is an outlier when it is unlike **its own class**, not unlike the pooled data. On the meat set, a PCA of all three meats flags nearly every pork sample on $Q$, because pork genuinely differs from chicken and turkey; that is the classes, not outliers.
 
 So a PLS-DA, an LDA, a kNN and an SVM are diagnosed through their X model, one class at a time:
 

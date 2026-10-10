@@ -62,3 +62,20 @@ The comparison marks the source node, because its dataset version is now differe
 
 To undo it, double-click the new version in the outline and click **Restore v1**. Nothing was
 deleted.
+
+## For a classifier
+
+A classifier's samples belong to classes, and a sample is unusual when it is unlike its **own
+class**, not unlike the pooled data. So a PLS-DA, LDA, kNN or SVM is diagnosed class by class: a
+PCA of each class's samples, with each sample's T², Q and leverage measured against its own
+class's limits ([class-wise diagnostics](../algorithms/outliers.md#8-class-wise-diagnostics)).
+The panel reads **Influence, by class**, and draws T² and Q as ratios to each class's limit, so
+one line at 1 serves every class. There is no residual or robust distance rule.
+
+On the grouped PLS-DA of [validating a classifier](../examples/validation.md), **Flagged samples**
+reads **49 of 120**, 38 of them only on Q: each meat's model leaves something in those spectra it
+does not describe, which on its own is a reason to look rather than to exclude. 8 break two rules,
+and no sample breaks more: **CA01B**, **CA05A**, **CA05B**, **CB01A**, **CB03A**, **CC03A**,
+**PA02A**, **TE13B**. Before excluding one, look at its twin: the other run of the same sample. A
+sample whose two runs are both flagged is unusual meat; one run flagged alone points at that
+measurement.

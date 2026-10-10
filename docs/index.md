@@ -15,7 +15,8 @@ screens in your browser. Nothing leaves the computer.
 - **Worked examples** on the Tecator meat spectra: **[exploring a dataset with PCA](examples/pca.md)**
   and **[a calibration with PLS](examples/pls.md)**, with the data to download. A third,
   **[classifying meat](examples/classification.md)**, compares PLS-DA, LDA, kNN and SIMCA on
-  mid-infrared spectra.
+  mid-infrared spectra, and **[validating a classifier honestly](examples/validation.md)** checks
+  one with a grouped cross-validation, a permutation test and a nested selection.
 - **How-to**: **[find and exclude outliers](how-to/outliers.md)** and
   **[select variables](how-to/variable-selection.md)** for a PLS model.
 
