@@ -277,8 +277,8 @@
         "uv run mkdocs build --strict - green, and site/ holds no decisions/ directory",
         "CI docs job green"
       ],
-      "status": "not_started",
-      "evidence": "",
+      "status": "passing",
+      "evidence": "2026-10-10, branch feature/346_docs-without-decisions. mkdocs.yml: the Decisions block left the nav and `decisions/` joined `exclude_docs`; no published page linked into docs/decisions/. `uv run mkdocs build --strict` built with no warning; `ls site | grep -c decisions` printed 0. The files stay in docs/decisions/. CI docs job: on the pull request.",
       "notes": "Asked by the maintainer on 2026-10-05."
     },
     {
