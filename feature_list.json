@@ -223,8 +223,8 @@
         "uv run pytest tests/test_examples.py - every number the new pages quote recomputed",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; a docs spec walks the new example"
       ],
-      "status": "not_started",
-      "evidence": "",
+      "status": "passing",
+      "evidence": "2026-10-10, branch feature/340_docs-phase-6. Algorithm pages: every Phase 6 method already had its section in the reference pages, written with its feature (metrics-and-validation.md 8.8 grouping, 9 the all-sample model, 14 the permutation test; variable-selection.md 8 nested, 9 from a PLS-DA; pls-regression.md 16 bootstrap; outliers.md 8 class-wise, where \"beef and lamb\" was corrected to chicken and turkey; svm.md). New: docs/examples/validation.md (raw meat set grouped by sample: grouped vs ungrouped CV, held-out table, permutation test, SVM, nested VIP check) on docs/examples/meat-raw.csv, 120 spectra built from the Quadram source (meat-source.md describes it; a test checks each pair averages to meat.csv's row); how-to/variable-selection.md gains nested validation (CARS and VIP) and bootstrap VIP bands; how-to/outliers.md gains class-wise diagnostics on the grouped PLS-DA. `uv run pytest tests/test_examples.py`: 11 passed, four new tests recomputing every quoted number. `uv run mkdocs build --strict`: built. `uv run ruff check`, `ruff format --check`, `uv run mypy`: clean; `uv run pytest`: 1222 passed, 1 skipped. In frontend/: `pnpm typecheck`, `pnpm lint` clean; `pnpm test` 170 passed; `pnpm build`; `pnpm exec playwright test`: 100 passed (4.1m), including the new e2e/docs-validation.spec.ts on a seventh server (8771, `validation`), which the CI docs job now runs for its screenshots.",
       "notes": ""
     },
     {

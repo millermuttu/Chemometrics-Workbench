@@ -53,6 +53,7 @@ nav:
       - Exploring a dataset with PCA: examples/pca.md
       - A calibration with PLS: examples/pls.md
       - Classifying meat: examples/classification.md
+      - Validating a classifier honestly: examples/validation.md
   - How-to:
       - Find and exclude outliers: how-to/outliers.md
       - Select variables: how-to/variable-selection.md

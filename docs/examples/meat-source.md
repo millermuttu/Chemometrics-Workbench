@@ -27,3 +27,13 @@ ways:
    is taken by position.
 
 All 20 turkey samples come from supplier E, and no chicken or pork does.
+
+## meat-raw.csv
+
+`meat-raw.csv` keeps both runs. It has the same axis, samples in rows, the
+spectrum's name (the sample with its run, `CA01A`) first, and four label
+columns: `meat` and `supplier`, as in `meat.csv`, then `sample` (`CA01`, the
+column to group by) and `run` (`A` or `B`, taken by position as above). `meat`
+comes first because a new classifier takes the first label column as its class. Its 120 rows are the source's columns unchanged, and the
+mean of each sample's two rows is that sample's row in `meat.csv`, which
+`tests/test_examples.py` checks.

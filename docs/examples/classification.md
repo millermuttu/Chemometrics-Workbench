@@ -100,3 +100,7 @@ All 20 turkey samples come from supplier E, and no chicken or pork does. A class
 recognised supplier E's processing rather than turkey meat would score the same on this data.
 The cross-validation cannot tell those apart, because every fold has the same confounding. Only
 turkey from another supplier would show which one the model learned.
+
+The raw measurements hold two runs of every sample. [Validating a classifier
+honestly](validation.md) uses them, with a cross-validation grouped by sample, a permutation test
+and a nested check of a variable selection.
