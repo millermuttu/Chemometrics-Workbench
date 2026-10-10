@@ -87,68 +87,47 @@ def _all_transformers(axis: np.ndarray | None = None) -> list[Transformer]:
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("transformer", _all_transformers(), ids=_describe)
-def test_the_callers_array_is_never_modified(transformer: Transformer) -> None:
-    """The issue's second verification step."""
-    X = _spectra()
-    before = X.copy()
+@pytest.mark.parametrize(
+    "index", range(len(_all_transformers())), ids=[_describe(t) for t in _all_transformers()]
+)
+def test_every_transformer_follows_the_conventions(index: int) -> None:
+    """The conventions every transformer follows, each on a fresh instance."""
 
-    transformer.fit_transform(X)
+    def fresh() -> Transformer:
+        return _all_transformers()[index]
 
-    np.testing.assert_array_equal(X, before)
-
-
-@pytest.mark.parametrize("transformer", _all_transformers(), ids=_describe)
-def test_float32_input_is_promoted_and_the_result_is_float64(
-    transformer: Transformer,
-) -> None:
-    """Storage dtype is the caller's business; numerical results are not."""
-    X = _spectra().astype(np.float32)
-    before = X.copy()
-
-    result = transformer.fit_transform(X)
-
-    assert result.dtype == np.float64
-    assert X.dtype == np.float32, "the caller's array was cast in place"
-    np.testing.assert_array_equal(X, before)
-
-
-@pytest.mark.parametrize("transformer", _all_transformers(), ids=_describe)
-def test_a_transposed_array_is_rejected(transformer: Transformer) -> None:
-    """The issue's third verification step.
-
-    A transposed matrix is still two-dimensional, so shape alone cannot catch
-    it. What catches it is the variable count recorded at fit — which is why
-    even the stateless transformers have a `fit`.
-    """
-    X = _spectra(n=6, p=12)
-    transformer.fit(X)
-
-    with pytest.raises(ValueError, match="never silently transposed"):
-        transformer.transform(X.T)
-
-
-@pytest.mark.parametrize("transformer", _all_transformers(), ids=_describe)
-def test_a_one_dimensional_array_is_rejected(transformer: Transformer) -> None:
-    with pytest.raises(ValueError, match="must be 2-D"):
-        transformer.fit(np.arange(12, dtype=float))
-
-
-@pytest.mark.parametrize("transformer", _all_transformers(), ids=_describe)
-def test_missing_values_are_rejected_with_their_position(
-    transformer: Transformer,
-) -> None:
-    X = _spectra()
-    X[2, 5] = np.nan
-
-    with pytest.raises(ValueError, match="row 2, column 5"):
-        transformer.fit(X)
-
-
-@pytest.mark.parametrize("transformer", _all_transformers(), ids=_describe)
-def test_transform_before_fit_is_refused(transformer: Transformer) -> None:
     with pytest.raises(RuntimeError, match="has not been fitted"):
-        transformer.transform(_spectra())
+        fresh().transform(_spectra())
+
+    # The issue's second verification step: the caller's array is never modified.
+    X = _spectra()
+    before = X.copy()
+    fresh().fit_transform(X)
+    np.testing.assert_array_equal(X, before)
+
+    # Storage dtype is the caller's business; numerical results are not.
+    X32 = _spectra().astype(np.float32)
+    before32 = X32.copy()
+    assert fresh().fit_transform(X32).dtype == np.float64
+    assert X32.dtype == np.float32, "the caller's array was cast in place"
+    np.testing.assert_array_equal(X32, before32)
+
+    # The issue's third verification step. A transposed matrix is still
+    # two-dimensional, so shape alone cannot catch it. What catches it is the
+    # variable count recorded at fit - which is why even the stateless
+    # transformers have a `fit`.
+    small = _spectra(n=6, p=12)
+    fitted = fresh().fit(small)
+    with pytest.raises(ValueError, match="never silently transposed"):
+        fitted.transform(small.T)
+
+    with pytest.raises(ValueError, match="must be 2-D"):
+        fresh().fit(np.arange(12, dtype=float))
+
+    missing = _spectra()
+    missing[2, 5] = np.nan
+    with pytest.raises(ValueError, match="row 2, column 5"):
+        fresh().fit(missing)
 
 
 def test_an_all_nan_row_is_rejected_like_any_other_missing_value() -> None:
