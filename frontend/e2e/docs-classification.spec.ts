@@ -25,7 +25,7 @@ test("the classification example, step by step", async ({ page }) => {
   await expect(page.getByRole("tab", { name: /^meat/ })).toBeVisible();
 
   // Step 2: split, centre, PLS-DA, then the split stratified by meat.
-  // Splits and estimators are not in the step list; they come off a port.
+  // Off the ports, as the page tells it; the Step list offers the same (#337).
   await canvas(page);
   await branch(page, page.locator(".react-flow__node").first(), "K-fold 10");
   await branch(page, node(page, "K-fold 10"), "Mean centre");

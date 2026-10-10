@@ -117,6 +117,7 @@ export function PipelineCanvas({
   const state = usePipelineState();
   const save = useSavePipeline();
   const [steps, setSteps] = useState<DraftStep[]>([]);
+  const menu = stepMenu(targets, classColumns);
   const [validation, setValidation] = useState<string | null>(null);
   /** The edited graph, or null while it still matches what the server holds. */
   const [edited, setEdited] = useState<PipelineNode[] | null>(null);
@@ -349,7 +350,7 @@ export function PipelineCanvas({
           <div className="ilabel" style={{ padding: "2px 8px 4px" }}>
             Add after {dropped.parent}
           </div>
-          {stepMenu(targets, classColumns).map((step) => (
+          {menu.map((step) => (
             <button
               key={step.kind}
               role="menuitem"
@@ -375,6 +376,7 @@ export function PipelineCanvas({
       ) : null}
 
       <StepList
+        menu={menu}
         steps={steps}
         saving={save.isPending}
         edited={edited !== null}
