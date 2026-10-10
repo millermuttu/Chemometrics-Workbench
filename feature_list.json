@@ -307,8 +307,8 @@
       "verification": [
         "Read the job log for a console error first; fix the cause or size the timeout with its reason; e2e (macos-latest) green"
       ],
-      "status": "not_started",
-      "evidence": "",
+      "status": "passing",
+      "evidence": "2026-10-10, branch fix/354_train-test-note-timeout. The job log needs auth; its public annotations (`curl .../check-runs/111918116712/annotations`) carry only the Playwright summary - 1 failed, 94 passed in 7.1m - and no console error, so no cause beyond the slow runner was found. Measured locally with a temporary response listener: `GET /api/results/pls_d` is 1,042,247 bytes (3,000 rows of scores and predictions), the payload the note waits on; at about 1 MB it is not worth reducing for a localhost application. The expect is given a 30 s timeout with its reason in a comment. `pnpm build` then `pnpm exec playwright test e2e/runs.spec.ts`: 9 passed (45.5s). e2e (macos-latest): on the pull request.",
       "notes": "Seen once on #353 (job 111918116712), a 7.1-minute run under runner capacity constraints."
     },
     {
