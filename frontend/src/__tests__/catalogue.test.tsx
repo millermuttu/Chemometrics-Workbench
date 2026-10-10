@@ -1,10 +1,12 @@
 /** #182: the drop menu's PLS entry models a column the dataset has, or is
  * not offered. It used to write `target: "fat"` into every PLS node. */
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import type { PipelineNode } from "@/api/queries";
 import { STEPS, stepMenu } from "@/canvas/catalogue";
 import { parameterLine } from "@/canvas/graph";
+import { StepList } from "@/canvas/StepList";
 import { nodeLabel } from "@/shell/Sidebar";
 
 describe("the PLS menu entry", () => {
@@ -86,4 +88,23 @@ it("offers kNN beside PLS-DA on a class column, labelled alike (#277)", () => {
   const node = { id: "knn", type: "estimator", inputs: ["snv"], ...knn.payload } as PipelineNode;
   expect(nodeLabel(node)).toBe("kNN k5 · grade");
   expect(parameterLine(node)).toBe(knn.parameters);
+});
+
+it("offers in the Step list what the port menu offers, splits and estimators included (#337)", () => {
+  const menu = stepMenu(["fat"], ["fat_class"]);
+  const markup = renderToStaticMarkup(
+    <StepList
+      menu={menu}
+      steps={[]}
+      onChange={() => {}}
+      onValidate={() => {}}
+      onSave={() => {}}
+      saving={false}
+      validation={null}
+      edited={false}
+    />,
+  );
+  const options = [...markup.matchAll(/<option value="([^"]+)"/g)].map((match) => match[1]);
+  expect(options).toEqual(menu.map((step) => step.kind));
+  expect(options).toEqual(expect.arrayContaining(["K-fold 10", "Train/test 25%", "PLS-DA 5 LV"]));
 });

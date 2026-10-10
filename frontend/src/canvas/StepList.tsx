@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import type { DraftStep } from "@/canvas/graph";
-import { STEPS } from "@/canvas/catalogue";
+import type { CatalogueStep } from "@/canvas/catalogue";
 
 /** The pipeline builder beside the canvas: appending, and what a drag cannot do.
  *
@@ -25,6 +25,8 @@ import { STEPS } from "@/canvas/catalogue";
  */
 
 interface Props {
+  /** `stepMenu` for the open dataset, the port menu's list (#337). */
+  menu: CatalogueStep[];
   steps: DraftStep[];
   onChange: (steps: DraftStep[]) => void;
   onValidate: () => void;
@@ -36,6 +38,7 @@ interface Props {
 }
 
 export function StepList({
+  menu,
   steps,
   onChange,
   onValidate,
@@ -44,7 +47,9 @@ export function StepList({
   validation,
   edited,
 }: Props) {
-  const [choice, setChoice] = useState(STEPS[0].kind);
+  const [picked, setPicked] = useState(menu[0].kind);
+  // The menu follows the dataset, so a PLS-DA picked on one may be gone on the next.
+  const choice = menu.find((step) => step.kind === picked) ?? menu[0];
 
   return (
     <aside
@@ -87,8 +92,8 @@ export function StepList({
         <select
           aria-label="Step"
           className="mono"
-          value={choice}
-          onChange={(event) => setChoice(event.target.value)}
+          value={choice.kind}
+          onChange={(event) => setPicked(event.target.value)}
           style={{
             flex: 1,
             height: 24,
@@ -100,7 +105,7 @@ export function StepList({
             fontSize: 11,
           }}
         >
-          {STEPS.map((step) => (
+          {menu.map((step) => (
             <option key={step.kind} value={step.kind}>
               {step.kind}
             </option>
@@ -109,7 +114,7 @@ export function StepList({
         <button
           className="btn"
           style={{ height: 24 }}
-          onClick={() => onChange([...steps, STEPS.find((step) => step.kind === choice)!])}
+          onClick={() => onChange([...steps, choice])}
         >
           Add
         </button>
