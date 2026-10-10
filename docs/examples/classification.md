@@ -87,7 +87,7 @@ accepted.
 
 Cross-validated, SIMCA's sensitivity is **0.750** and its specificity **0.983**. Most of the
 missed sensitivity is in the **none** column: **15 of 60** samples are accepted by no model. That
-is SIMCA doing its job, not failing at it. A class model built from 18 samples at a 95% acceptance
+is SIMCA doing its job, not failing at it. A class model built from 20 samples at a 95% acceptance
 limit draws a tight boundary, and a sample outside every boundary is reported as unlike anything it
 knows. A sample that is none of the three meats would be reported the same way, while PLS-DA, LDA
 and kNN would each force it into one of the three. Use SIMCA when that question matters.
@@ -100,3 +100,7 @@ All 20 turkey samples come from supplier E, and no chicken or pork does. A class
 recognised supplier E's processing rather than turkey meat would score the same on this data.
 The cross-validation cannot tell those apart, because every fold has the same confounding. Only
 turkey from another supplier would show which one the model learned.
+
+The raw measurements hold two runs of every sample. [Validating a classifier
+honestly](validation.md) uses them, with a cross-validation grouped by sample, a permutation test
+and a nested check of a variable selection.

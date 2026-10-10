@@ -20,8 +20,9 @@ Open the PLS node's results and scroll to the **Outliers** row. It has three pan
 
 Hover over a point to see which sample it is.
 
-**Flagged samples** reads **67 of 216**. The model on screen was fitted on the 216 samples in
-fold 0's training set; the other 24 are its held-out samples. 55 of the 67 are flagged only by
+**Flagged samples** reads **84 of 240**. The model on screen was fitted on the 240 samples, every
+one: below a split, cross-validation measures the error and the model you see is refitted on every
+sample. 67 of the 84 are flagged only by
 **robust distance**. Robust distance measures each sample against the most tightly clustered part
 of the data, and Tecator's fat content runs from 0.9% to 58.5%, so the samples at either end are far
 from that core without being wrong. One rule on its own is a reason to look at a sample, not to
@@ -61,3 +62,20 @@ The comparison marks the source node, because its dataset version is now differe
 
 To undo it, double-click the new version in the outline and click **Restore v1**. Nothing was
 deleted.
+
+## For a classifier
+
+A classifier's samples belong to classes, and a sample is unusual when it is unlike its **own
+class**, not unlike the pooled data. So a PLS-DA, LDA, kNN or SVM is diagnosed class by class: a
+PCA of each class's samples, with each sample's T², Q and leverage measured against its own
+class's limits ([class-wise diagnostics](../algorithms/outliers.md#8-class-wise-diagnostics)).
+The panel reads **Influence, by class**, and draws T² and Q as ratios to each class's limit, so
+one line at 1 serves every class. There is no residual or robust distance rule.
+
+On the grouped PLS-DA of [validating a classifier](../examples/validation.md), **Flagged samples**
+reads **49 of 120**, 38 of them only on Q: each meat's model leaves something in those spectra it
+does not describe, which on its own is a reason to look rather than to exclude. 8 break two rules,
+and no sample breaks more: **CA01B**, **CA05A**, **CA05B**, **CB01A**, **CB03A**, **CC03A**,
+**PA02A**, **TE13B**. Before excluding one, look at its twin: the other run of the same sample. A
+sample whose two runs are both flagged is unusual meat; one run flagged alone points at that
+measurement.

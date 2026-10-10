@@ -50,8 +50,9 @@ import os
 import tempfile
 import threading
 from collections.abc import Callable, Sequence
+from dataclasses import asdict
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import numpy as np
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
@@ -66,12 +67,14 @@ from chemometrics_workbench.classification import simca_class_metrics
 from chemometrics_workbench.decomposition import spe_contributions, t2_contributions
 from chemometrics_workbench.executor import (
     EstimatorResult,
+    Progress,
+    RunCancelled,
     class_metrics,
-    governing_folds,
     governing_split,
     has_kernel,
     metrics_for,
     node_axis,
+    permutation_test_for,
     stored,
 )
 from chemometrics_workbench.executor import stored_display as _stored_display
@@ -79,7 +82,7 @@ from chemometrics_workbench.executor import stored_fitted_matrix as _stored_fitt
 from chemometrics_workbench.executor import stored_fold_matrices as _stored_fold_matrices
 from chemometrics_workbench.executor import stored_result as _stored_result
 from chemometrics_workbench.export import ExportError, json_model, python_snippet
-from chemometrics_workbench.jobs import Job, Jobs, submit_run
+from chemometrics_workbench.jobs import Job, Jobs, JobStatus, Reporter, submit_run
 from chemometrics_workbench.models import (
     Dataset,
     DatasetVersion,
@@ -117,9 +120,9 @@ from chemometrics_workbench.project import (
     write_model,
     write_pipeline,
 )
-from chemometrics_workbench.regression import coefficients_original_units
+from chemometrics_workbench.regression import PCR, PLS, coefficients_original_units
 from chemometrics_workbench.report import render_report, report_filename
-from chemometrics_workbench.validation import Fold
+from chemometrics_workbench.validation import Fold, bootstrap
 
 __all__ = [
     "ESTIMATOR_NOT_FITTED",
@@ -652,8 +655,14 @@ def results_payload(
 
 
 def diagnosed(result: EstimatorResult) -> bool:
-    """`outliers.md` section 1: PCA, PLS and PCR only."""
-    return result.task == "decomposition" or result.method in ("pls", "pcr")
+    """`outliers.md` section 1: PCA, PLS and PCR on their own model, and since
+    #335 PLS-DA, LDA, kNN and SVM class by class (section 8). SIMCA's class models
+    are its decision, not a diagnostic."""
+    return result.task == "decomposition" or result.method in ("pls", "pcr", *CLASSWISE)
+
+
+#: `outliers.md` section 8: the classifiers diagnosed against their own class.
+CLASSWISE = ("plsda", "lda", "knn", "svm")
 
 
 def outliers_payload(result: EstimatorResult, version: DatasetVersion) -> dict[str, Any]:
@@ -719,15 +728,7 @@ def _outliers(result: EstimatorResult) -> dict[str, Any]:
         "residual": [None if v is None else abs(v) for v in residuals] if residuals else None,
         "robust": robust,
     }
-    flags = []
-    for index in range(n):
-        rules = [
-            rule
-            for rule, values in columns.items()
-            if values is not None and values[index] is not None and values[index] > limits[rule]  # type: ignore[operator]
-        ]
-        if rules:
-            flags.append({"index": index, "rules": rules})
+    flags = _flags(n, columns, {rule: [value] * n for rule, value in limits.items()})
     return {
         "leverage": hat,
         "studentised_residuals": residuals,
@@ -735,6 +736,75 @@ def _outliers(result: EstimatorResult) -> dict[str, Any]:
         "limits": limits,
         "caveats": caveats,
         "flags": flags,
+    }
+
+
+def _flags(
+    n: int,
+    columns: dict[str, list[float | None] | None],
+    limits: dict[str, list[float]],
+) -> list[dict[str, Any]]:
+    """`outliers.md` section 5: every sample that breaks a rule, the rules it
+    breaks and how many, most rules first (#335) and by row within a count."""
+    flags = []
+    for index in range(n):
+        rules = [
+            rule
+            for rule, values in columns.items()
+            if values is not None
+            and values[index] is not None
+            and values[index] > limits[rule][index]  # type: ignore[operator]
+        ]
+        if rules:
+            flags.append({"index": index, "rules": rules, "n_rules": len(rules)})
+    return sorted(flags, key=lambda flag: (-flag["n_rules"], flag["index"]))
+
+
+def classwise_payload(
+    result: EstimatorResult, matrix: NDArray[np.float64], version: DatasetVersion
+) -> dict[str, Any]:
+    """`outliers.md` section 8 (#335): a classifier's samples, each against
+    its own class's PCA on the estimator's input. The same keys as a PCA's
+    block, so the flags table reads both; `classwise` carries what has a
+    limit per class, which the influence plot draws as ratios to it."""
+    labels = [str(label) for label in version.metadata_columns[result.target or ""]]
+    codes = np.asarray([result.classes.index(label) for label in labels])
+    rows = np.asarray(result.rows, dtype=np.intp)
+    found = outliers.class_diagnostics(matrix[rows], codes[rows], result.n_components, result.alpha)
+
+    def listed(values: NDArray[np.float64]) -> list[float]:
+        return [float(value) for value in values]
+
+    columns: dict[str, list[float | None] | None] = {
+        "t2": list(listed(found.t2)),
+        "q": list(listed(found.q)),
+        "leverage": list(listed(found.leverage)),
+    }
+    limits = {
+        "t2": listed(found.t2_limit),
+        "q": listed(found.q_limit),
+        "leverage": listed(found.leverage_limit),
+    }
+    return {
+        "leverage": list(listed(found.leverage)),
+        "studentised_residuals": None,
+        "robust_distance": None,
+        # The flags table reads one number per rule; per class there are several.
+        "limits": {},
+        "caveats": {},
+        "flags": _flags(len(rows), columns, limits),
+        "classwise": {
+            "classes": result.classes,
+            "class_of": [int(code) for code in codes[rows]],
+            "n_components": found.n_components,
+            "t2": columns["t2"],
+            "t2_limit": limits["t2"],
+            "q": columns["q"],
+            "q_limit": limits["q"],
+            "leverage_limit": limits["leverage"],
+        },
+        "dataset_id": str(version.dataset_id),
+        "version_id": str(version.version_id),
     }
 
 
@@ -893,6 +963,26 @@ def _preprocess_chain(pipeline: Pipeline, node_id: NodeId) -> tuple[list[Pipelin
         current = node.inputs[0]
 
 
+def _fit_chain(
+    chain: list[PipelineNode],
+    values: NDArray[np.float64],
+    rows: NDArray[np.intp],
+    version: DatasetVersion,
+) -> tuple[list[preprocessing.Transformer], NDArray[np.float64]]:
+    """Fit each step of `chain` on `rows` of its input and transform every row."""
+    axis = np.asarray(version.axis.values, dtype=np.float64)
+    transformers: list[preprocessing.Transformer] = []
+    for node in chain:
+        assert node.type == "preprocess"
+        transformer = preprocessing.from_spec(node.step, axis=axis)
+        transformer.fit(values[rows])
+        values = transformer.transform(values)
+        if isinstance(transformer, preprocessing.Selection):
+            axis = transformer.selected_axis()
+        transformers.append(transformer)
+    return transformers, values
+
+
 def folded_coefficients(
     directory: Path,
     pipeline: Pipeline,
@@ -934,23 +1024,12 @@ def folded_coefficients(
     except ProjectError as error:
         raise _fail(500, "project_unavailable", str(error)) from error
 
-    # Fold zero's training rows below a split, every row above one - the rows
-    # `_pls` fitted the model on, so the parameters folded here are the
-    # parameters the coefficients were produced with.
-    by_id = {node.id: node for node in pipeline.nodes}
-    folds = governing_folds(NodeId(node_id), by_id, version)
-    rows = folds[0].train if folds else np.arange(version.n_samples, dtype=np.intp)
+    # The rows the model was fitted on - every row since #330, fold zero's
+    # training rows on a result stored before it - so the parameters folded
+    # here are the parameters the coefficients were produced with.
+    rows = np.asarray(result.rows, dtype=np.intp)
 
-    axis = np.asarray(version.axis.values, dtype=np.float64)
-    transformers: list[preprocessing.Transformer] = []
-    for node in chain:
-        assert node.type == "preprocess"
-        transformer = preprocessing.from_spec(node.step, axis=axis)
-        transformer.fit(values[rows])
-        values = transformer.transform(values)
-        if isinstance(transformer, preprocessing.Selection):
-            axis = transformer.selected_axis()
-        transformers.append(transformer)
+    transformers, values = _fit_chain(chain, values, rows, version)
 
     # The estimator's own centring, as it recorded it (#211). This used to be
     # recomputed from the refitted chain - the same number when the chain is
@@ -1602,6 +1681,66 @@ def cancel_job(job_id: str) -> Any:
     return job.payload()
 
 
+@router.post("/results/{node_id}/permutation")
+def run_permutation(node_id: str, n_permutations: int = 100, seed: int = 0) -> Any:
+    """`metrics-and-validation.md` §14 (#333): a y-permutation test, as a job.
+
+    It is the cross-validation repeated `n_permutations` times, so it is
+    submitted and polled rather than waited on, and its result is read from
+    `GET /permutations/{job_id}` once the job has succeeded. Like every job it
+    is not persisted: a restart loses it.
+    """
+    if not 1 <= n_permutations <= 10_000:
+        raise _fail(
+            422,
+            "invalid_permutation",
+            f"n_permutations must be between 1 and 10000, got {n_permutations}.",
+            node_id=node_id,
+        )
+    directory, pipeline, version = _runnable()
+
+    def work(reporter: Reporter) -> Any:
+        def advance(done: int) -> None:
+            if reporter.cancelled:
+                raise RunCancelled(f"cancelled after {done} permutations")
+            reporter.advance(
+                Progress(
+                    done, n_permutations, NodeId(node_id), f"Permutation {done} of {n_permutations}"
+                )
+            )
+
+        found = permutation_test_for(
+            directory,
+            pipeline,
+            version,
+            NodeId(node_id),
+            n_permutations,
+            seed=seed,
+            on_progress=advance,
+        )
+        return {"node_id": node_id, "n_permutations": n_permutations, **asdict(found)}
+
+    # Its own experiment id, so the canvas's "is this pipeline running" is
+    # not answered by a permutation test.
+    return JOBS.submit(f"permutation:{node_id}", work).payload()
+
+
+@router.get("/permutations/{job_id}")
+def get_permutation(job_id: str) -> Any:
+    """A permutation test's result: the observed score, the null and the p-value."""
+    job = JOBS.get(job_id)
+    if job is None or not job.experiment_id.startswith("permutation:"):
+        raise _fail(404, "not_found", f"no permutation test {job_id}.", job_id=job_id)
+    if job.status is not JobStatus.SUCCEEDED:
+        raise _fail(
+            409,
+            "not_finished",
+            f"permutation test {job_id} is {job.status}: {job.message}",
+            job_id=job_id,
+        )
+    return job.result
+
+
 def _running_job(experiment_id: str) -> Job | None:
     return JOBS.running_for(experiment_id)
 
@@ -1667,9 +1806,23 @@ def get_outliers(node_id: str) -> Any:
             422,
             "not_diagnosed",
             f"node {node_id!r} is a {result.method or result.task}, which outliers.md does not "
-            "diagnose: only a PCA, a PLS or a PCR (section 1).",
+            "diagnose: a PCA, PLS or PCR on its own model, or a PLS-DA, LDA, kNN or SVM class by "
+            "class (sections 1 and 8).",
             node_id=node_id,
         )
+    if result.method in CLASSWISE:
+        matrix = _stored_fitted_matrix(directory, pipeline, version, node_id)
+        if matrix is None:
+            raise _fail(
+                404,
+                "not_found",
+                f"node {node_id!r}'s input has no stored array. Run the pipeline.",
+                node_id=node_id,
+            )
+        try:
+            return classwise_payload(result, matrix, version)
+        except ValueError as error:
+            raise _fail(422, "not_diagnosed", str(error), node_id=node_id) from error
     return outliers_payload(result, version)
 
 
@@ -1682,21 +1835,23 @@ def _selection_inputs(
     NDArray[np.float64],
     NDArray[np.float64],
 ]:
-    """What iPLS and CARS run on (`variable-selection.md` §2, §6): a PLS node's
-    stored per-fold input, its folds, its response and its axis - or a refusal
-    naming what is missing."""
+    """What iPLS and CARS run on (`variable-selection.md` §2, §6): a PLS or
+    PLS-DA node's stored per-fold input, its folds, its response and its axis -
+    or a refusal naming what is missing. A PLS-DA's response is its dummy
+    (§9): the {0, 1} codes for two classes, one-hot for three or more."""
     directory, pipeline, version = _runnable()
     result = _stored_result(directory, pipeline, version, node_id)
     if result is None:
         raise _fail(
             404, "not_found", f"node {node_id!r} has no fitted result yet.", node_id=node_id
         )
-    if result.task != "regression" or result.method not in ("pls", ""):
+    plsda = result.task == "classification" and result.method == "plsda"
+    if not plsda and (result.task != "regression" or result.method not in ("pls", "")):
         raise _fail(
             422,
             "not_a_pls",
             f"node {node_id!r} is a {result.method or result.task}; {method} fits PLS models, so "
-            "it is run from a PLS regression (variable-selection.md).",
+            "it is run from a PLS regression or a PLS-DA (variable-selection.md).",
             node_id=node_id,
         )
     stored = _stored_fold_matrices(directory, pipeline, version, NodeId(node_id))
@@ -1709,7 +1864,16 @@ def _selection_inputs(
             "two folds (variable-selection.md).",
             node_id=node_id,
         )
-    y = np.asarray(version.targets[result.target or ""], dtype=np.float64)
+    if plsda:
+        labels = [str(label) for label in version.metadata_columns[result.target or ""]]
+        codes = np.asarray([result.classes.index(label) for label in labels])
+        y = (
+            codes.astype(np.float64)
+            if len(result.classes) == 2
+            else np.eye(len(result.classes))[codes]
+        )
+    else:
+        y = np.asarray(version.targets[result.target or ""], dtype=np.float64)
     return result, stored[0], stored[1], y, node_axis(pipeline, NodeId(node_id), version)
 
 
@@ -1768,6 +1932,79 @@ def get_cars(
     }
 
 
+@router.get("/results/{node_id}/nested")
+def get_nested(
+    node_id: str,
+    method: Literal["vip", "b", "ipls", "cars"] = "vip",
+    cut: float | None = None,
+    n_intervals: int = 20,
+    n_runs: int = 50,
+    seed: int = 0,
+    inner_splits: int = 5,
+) -> Any:
+    """`variable-selection.md` §8 (#331): a selection validated in an outer loop.
+
+    The selection is rerun inside each outer training fold, on an inner K-fold
+    of it, and the selected model scored on the outer held-out rows. Beside it,
+    the RMSECV of the same selection made on every sample - the optimistic one
+    the pipeline warns about.
+    """
+    result, matrices, folds, y, _ = _selection_inputs(node_id, "a nested validation")
+    a = result.n_components
+    if method == "vip":
+        threshold = 1.0 if cut is None else cut
+        chosen = [int(j) for j in np.flatnonzero(np.asarray(result.vip) >= threshold)]
+        select = selection.vip_selector(a, threshold)
+    elif method == "b":
+        if cut is None:
+            raise _fail(422, "invalid_nested", "a |b| selection needs its cut.", node_id=node_id)
+        if not result.coefficients:
+            raise _fail(
+                422,
+                "invalid_nested",
+                "a |b| cut needs one coefficient vector; this model has one per class.",
+                node_id=node_id,
+            )
+        b = np.abs(np.asarray(result.coefficients))
+        chosen = [int(j) for j in np.flatnonzero(b >= cut)]
+        select = selection.coefficient_selector(a, cut)
+    elif method == "ipls":
+        select = selection.ipls_selector(n_intervals, a)
+        chosen = []
+    else:
+        select = selection.cars_selector(a, n_runs=n_runs, seed=seed)
+        chosen = []
+
+    _, pipeline, version = _runnable()
+    by_id = {node.id: node for node in pipeline.nodes}
+    split = governing_split(NodeId(node_id), by_id)
+    group_by = getattr(getattr(split, "spec", None), "group_by", None)
+    groups = version.metadata_columns.get(group_by) if group_by else None
+    try:
+        # Chosen on every sample, with the outer folds, as Apply does.
+        if method == "ipls":
+            chosen = selection.ipls(matrices, y, folds, n_intervals, a).selected
+        elif method == "cars":
+            chosen = selection.cars(matrices, y, folds, a, n_runs=n_runs, seed=seed).selected
+        if not chosen:
+            raise ValueError("the selection made on every sample kept no variable")
+        inner = selection.selected_rmsecv(matrices, y, folds, chosen, a)
+        found = selection.nested(
+            matrices, y, folds, select, a, inner_splits=inner_splits, seed=seed, groups=groups
+        )
+    except ValueError as error:
+        raise _fail(422, "invalid_nested", str(error), node_id=node_id) from error
+    return {
+        "method": method,
+        "outer_rmsecv": found.outer_rmsecv,
+        "inner_rmsecv": inner,
+        "n_outer_folds": len(folds),
+        "inner_splits": inner_splits,
+        "selected": len(chosen),
+        "selected_per_fold": [len(one) for one in found.selected],
+    }
+
+
 @router.get("/results/{node_id}/coefficients")
 def get_coefficients(node_id: str) -> Any:
     """The model as `y_hat = intercept + X_raw @ b`, or why it cannot be one."""
@@ -1785,6 +2022,84 @@ def get_coefficients(node_id: str) -> Any:
             node_id=node_id,
         )
     return folded_coefficients(directory, pipeline, NodeId(node_id), version, result)
+
+
+@router.get("/results/{node_id}/bootstrap")
+def get_bootstrap(node_id: str, n_resamples: int = 200, level: float = 0.95, seed: int = 0) -> Any:
+    """`pls-regression.md` §16, `pcr.md` §9 (#334): bootstrap intervals for a
+    PLS's or PCR's coefficients and VIP.
+
+    Each resample refits every step of the chain from the source, then the
+    estimator, on the resampled rows - the same refit `folded_coefficients`
+    makes on every row. The coefficients are folded to the dataset's axis, as
+    the coefficient plot draws them, or `null` when the chain cannot be folded;
+    VIP is on the estimator's own axis, and `null` for a PCR.
+    """
+    directory, pipeline, version = _runnable()
+    result = _stored_result(directory, pipeline, version, node_id)
+    if result is None:
+        raise _fail(
+            404, "not_found", f"node {node_id!r} has no fitted result yet.", node_id=node_id
+        )
+    if result.task != "regression" or result.method not in ("pls", "pcr", ""):
+        raise _fail(
+            422,
+            "not_a_regression",
+            f"node {node_id!r} is a {result.method or result.task}; bootstrap intervals are for "
+            "a PLS or PCR's coefficients and VIP.",
+            node_id=node_id,
+        )
+    if not 2 <= n_resamples <= 5000:
+        raise _fail(
+            422,
+            "invalid_bootstrap",
+            f"n_resamples must be between 2 and 5000, got {n_resamples}.",
+            node_id=node_id,
+        )
+    chain, _ = _preprocess_chain(pipeline, NodeId(node_id))
+    try:
+        raw = read_array(directory, version.array_path)
+    except ProjectError as error:
+        raise _fail(500, "project_unavailable", str(error)) from error
+    y = np.asarray(version.targets[result.target or ""], dtype=np.float64)
+    pcr = result.method == "pcr"
+    foldable = folded_coefficients(directory, pipeline, NodeId(node_id), version, result)[
+        "available"
+    ]
+
+    def statistic(rows: NDArray[np.intp]) -> NDArray[np.float64]:
+        sample = raw[rows]
+        every = np.arange(rows.size, dtype=np.intp)
+        transformers, x = _fit_chain(chain, sample, every, version)
+        target = y[rows]
+        x_mean, y_mean = x.mean(axis=0), float(target.mean())
+        model = (PCR if pcr else PLS)(result.n_components).fit(x - x_mean, target - y_mean)
+        b = np.asarray(model.coefficients_, dtype=np.float64).ravel()
+        parts = [] if pcr else [np.asarray(model.vip(), dtype=np.float64)]  # type: ignore[union-attr]
+        if foldable:
+            folded, _ = coefficients_original_units(
+                b, transformers, n_variables=version.n_variables, y_mean=y_mean - float(x_mean @ b)
+            )
+            parts.append(np.asarray(folded, dtype=np.float64))
+        return np.concatenate(parts)
+
+    try:
+        found = bootstrap(statistic, version.n_samples, n_resamples, level=level, seed=seed)
+    except ValueError as error:
+        raise _fail(422, "invalid_bootstrap", str(error), node_id=node_id) from error
+    p = 0 if pcr else len(result.vip)
+
+    def band(lower: NDArray[np.float64], upper: NDArray[np.float64]) -> dict[str, list[float]]:
+        return {"lower": [float(v) for v in lower], "upper": [float(v) for v in upper]}
+
+    return {
+        "node_id": node_id,
+        "level": found.level,
+        "n_resamples": found.n_resamples,
+        "seed": found.seed,
+        "vip": None if pcr else band(found.lower[:p], found.upper[:p]),
+        "coefficients": band(found.lower[p:], found.upper[p:]) if foldable else None,
+    }
 
 
 @router.get("/results/{node_id}/contributions/{sample}")

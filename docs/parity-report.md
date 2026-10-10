@@ -9,7 +9,7 @@ report green in CI against published reference values* — means in practice. Th
 committed copy is not byte-compared: the last bits of a difference depend on the
 machine's BLAS (#38), so the suite checks its coverage and its tolerances instead.
 
-Fixture schema 1, generated 2026-10-05.
+Fixture schema 1, generated 2026-10-10.
 
 ---
 
@@ -21,11 +21,11 @@ strong the agreement is** rather than a bare pass or fail:
 
 | Claim | Count | Meaning |
 | --- | --- | --- |
-| identical within floating point | 134 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
-| agrees within stated tolerance | 26 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
-| differs by documented convention | 8 | Not compared numerically at all. The two quantities are not the same thing, and the reason is given in full below. |
+| identical within floating point | 143 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
+| agrees within stated tolerance | 32 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
+| differs by documented convention | 17 | Not compared numerically at all. The two quantities are not the same thing, and the reason is given in full below. |
 
-**168 comparisons, 168 passed, 0 failed.**
+**192 comparisons, 192 passed, 0 failed.**
 
 Three things a reader should hold on to, because the agreement column cannot
 show them:
@@ -81,9 +81,11 @@ those listed under *Gaps* or *Documented divergences* below.
 | PLS2 | `PLS2` | 9 claims |
 | LDA | `LDA` | 6 claims |
 | kNN | `KNN` | 6 claims |
+| SVM | `SVM` | 18 claims |
 | Robust distance (FastMCD) | `min_cov_det`, `RobustCovariance`, `robust_distance_limit` | 3 claims |
 | iPLS | `ipls`, `interval_bounds`, `Interval`, `IPLSResult` | 6 claims |
 | CARS | `cars`, `CARSRun`, `CARSResult` | **not compared.** No established reference: CARS is published as MATLAB code, its Python ports are not versioned libraries, and its randomness makes a value-by-value comparison meaningless unless both sides draw the same numbers. Determinism for a seed, the shrinking schedule and recovery of the informative variables on a synthetic set are tested in tests/test_selection.py (variable-selection.md section 6). |
+| Nested validation of a selection | `nested`, `NestedResult`, `selected_rmsecv`, `Selector`, `vip_selector`, `coefficient_selector`, `ipls_selector`, `cars_selector` | **not compared.** No library offers nested selection as one call, so there is no fixture value. tests/test_selection.py rebuilds the loop with scikit-learn's PLSRegression on the served outer folds, for VIP and iPLS selection, and the outer predictions and selections agree; the outer error is at least the inner on Tecator (variable-selection.md section 8). |
 | Leverage and studentised residuals | `leverage`, `leverage_limit`, `studentised_residuals` | **not compared.** No reference in this environment: the R mdatools comparison the plan named needs R, and scikit-learn has no influence measures. The leverage is checked against the hat matrix formed by an explicit inverse, and the PLS and PCR calibration fits against least squares on [1, T], which makes the studentisation exact, in tests/test_outliers.py (outliers.md section 7). |
 | SIMCA | `SIMCA`, `acceptance_table`, `simca_class_metrics`, `simca_metrics` | **not compared.** No reference in this environment: the R mdatools comparison the plan named needs R, which the development environment does not carry, and scikit-learn has no SIMCA. Every class model is checked equal to decomposition.PCA on its centred class, which has its own parity claims, and every distance, decision and tally is recomputed from it in tests/test_classification.py (simca.md section 9). |
 | SNV | `SNVTransformer` | 3 claims |
@@ -112,6 +114,10 @@ those listed under *Gaps* or *Documented divergences* below.
 | Bias | `bias` | **not compared.** The mean signed residual; no reference reports it apart from RMSE. Unit-tested, and held by the identity RMSEP² = bias² + (n-1)/n SEP² in `tests/test_validation.py`. |
 | PLS-DA (two-class): dummy predictions, confusion, accuracy | `PLS` | 15 claims |
 | Fold assignment: k-fold, leave-one-out, train/test, stratified | `k_fold`, `leave_one_out`, `train_test`, `stratified_k_fold`, `stratified_train_test` | **not compared.** Differs by convention: folds are drawn with NumPy's `default_rng`, scikit-learn's with a legacy `RandomState`, so one seed gives different folds (`metrics-and-validation.md` §8). Cross-validated claims above pass our resolved folds to the reference instead. The fold structure is unit-tested in `tests/test_validation.py`. Stratified folds also deal each level into folds by §8.7's own rule, which is not scikit-learn's `StratifiedKFold` assignment either. |
+| Grouped splits | `by_group` | 6 claims |
+| Class-wise outlier diagnostics | `class_diagnostics`, `ClassDiagnostics` | **not compared.** Each class's T² and Q are a PCA's, already compared above; tests/test_outliers.py checks every class against scikit-learn's PCA of that class's centred rows, and the leverage against the hat diagonal (`outliers.md` section 8). |
+| Bootstrap intervals | `bootstrap`, `BootstrapResult` | **not compared.** A procedure over a fitted model rather than a value: tests/test_server.py rebuilds the intervals with scikit-learn's PLSRegression on the same resampled rows, drawn from the same stream, and they agree to rtol 1e-6 (`pls-regression.md` section 16). |
+| Permutation test | `permutation_test`, `PermutationResult` | **not compared.** Compared in tests/test_permutation.py rather than through the fixture, because it is a procedure over a fitted model rather than a value: scikit-learn's `permutation_test_score`, handed our permutations and our folds, gives the same null distribution and p-value for a PLS RMSECV and a PLS-DA accuracy (`metrics-and-validation.md` section 14). |
 | Model export: JSON model and prediction snippet | `json_model`, `python_snippet` | **not compared.** Not a computation with an outside reference: the export must reproduce this application's own predictions, within rtol 1e-4 (`model-export.md` §5), in a NumPy-only interpreter - `tests/test_export.py`. |
 
 ---
@@ -317,6 +323,29 @@ those listed under *Gaps* or *Documented divergences* below.
 | tecator | `assigned_class` | scikit-learn 1.9.0 | identical | 240 values, worst Δ 0, exactly |
 | tecator | `class_votes` | scikit-learn 1.9.0 | identical | 720 values, worst Δ 0, exactly |
 
+### SVM (PCA-SVM, one-vs-one)
+
+| Dataset | Quantity | Reference | Claim | Ours vs reference |
+| --- | --- | --- | --- | --- |
+| corn | `assigned_class` | scikit-learn 1.9.0 | identical | 80 values, worst Δ 0, exactly |
+| corn | `assigned_class` | scikit-learn 1.9.0 | identical | 80 values, worst Δ 0, exactly |
+| corn | `svm_decision` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| corn | `svm_decision` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 240 values, worst Δ < 1e-5 |
+| corn | `svm_decision` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| corn | `svm_decision` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 240 values, worst Δ < 1e-6 |
+| gasoline | `assigned_class` | scikit-learn 1.9.0 | identical | 60 values, worst Δ 0, exactly |
+| gasoline | `assigned_class` | scikit-learn 1.9.0 | identical | 60 values, worst Δ 0, exactly |
+| gasoline | `svm_decision` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| gasoline | `svm_decision` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 180 values, worst Δ < 1e-7 |
+| gasoline | `svm_decision` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| gasoline | `svm_decision` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 180 values, worst Δ < 1e-6 |
+| tecator | `assigned_class` | scikit-learn 1.9.0 | identical | 240 values, worst Δ 0, exactly |
+| tecator | `assigned_class` | scikit-learn 1.9.0 | identical | 240 values, worst Δ 0, exactly |
+| tecator | `svm_decision` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| tecator | `svm_decision` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 720 values, worst Δ < 1e-4 |
+| tecator | `svm_decision` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| tecator | `svm_decision` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 720 values, worst Δ < 1e-6 |
+
 ### Robust distance (FastMCD)
 
 | Dataset | Quantity | Reference | Claim | Ours vs reference |
@@ -335,6 +364,17 @@ those listed under *Gaps* or *Documented divergences* below.
 | gasoline | `interval_rmsecv` | scikit-learn 1.9.0 | identical | 10 values, worst Δ < 1e-14 |
 | tecator | `forward_path` | scikit-learn 1.9.0 | identical | 2 values, worst Δ 0, exactly |
 | tecator | `interval_rmsecv` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 10 values, worst Δ < 1e-11 |
+
+### Grouped splits
+
+| Dataset | Quantity | Reference | Claim | Ours vs reference |
+| --- | --- | --- | --- | --- |
+| corn | `fold_of_sample` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| corn | `fold_of_sample` | scikit-learn 1.9.0 | identical | 80 values, worst Δ 0, exactly |
+| gasoline | `fold_of_sample` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| gasoline | `fold_of_sample` | scikit-learn 1.9.0 | identical | 60 values, worst Δ 0, exactly |
+| tecator | `fold_of_sample` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| tecator | `fold_of_sample` | scikit-learn 1.9.0 | identical | 240 values, worst Δ 0, exactly |
 
 ---
 
@@ -377,6 +417,42 @@ mdatools computes the classic Hotelling limit a(n-1)/(n-a) F(a, n-a); pca.md §7
 
 Not reproducible from what we model. The reference is a linear model on ten of the 22 principal components supplied inside tecator.txt, computed by the original authors in 1992 on subset C; load_tecator() discards that block because it is preprocessing rather than data. The file also never states its SEP denominator. Recorded for context, not as a target.
 
+**`corn.svm.decision_linear.sklearn`** — scikit-learn 1.9.0
+
+Both solvers are LIBSVM's SMO with second-order working-set selection, and both stop once the largest KKT violation falls below tol = 1e-3 rather than at the optimum. Where each stops depends on its arithmetic: LIBSVM caches the kernel in float32, ours is float64. The decision values therefore agree only to about tol (within 1e-2 here, checked), while the assignments are identical and, solved to 1e-9, the values agree to float32's precision (svm.md section 3).
+
+**`corn.svm.decision_rbf.sklearn`** — scikit-learn 1.9.0
+
+Both solvers are LIBSVM's SMO with second-order working-set selection, and both stop once the largest KKT violation falls below tol = 1e-3 rather than at the optimum. Where each stops depends on its arithmetic: LIBSVM caches the kernel in float32, ours is float64. The decision values therefore agree only to about tol (within 1e-2 here, checked), while the assignments are identical and, solved to 1e-9, the values agree to float32's precision (svm.md section 3).
+
+**`gasoline.svm.decision_linear.sklearn`** — scikit-learn 1.9.0
+
+Both solvers are LIBSVM's SMO with second-order working-set selection, and both stop once the largest KKT violation falls below tol = 1e-3 rather than at the optimum. Where each stops depends on its arithmetic: LIBSVM caches the kernel in float32, ours is float64. The decision values therefore agree only to about tol (within 1e-2 here, checked), while the assignments are identical and, solved to 1e-9, the values agree to float32's precision (svm.md section 3).
+
+**`gasoline.svm.decision_rbf.sklearn`** — scikit-learn 1.9.0
+
+Both solvers are LIBSVM's SMO with second-order working-set selection, and both stop once the largest KKT violation falls below tol = 1e-3 rather than at the optimum. Where each stops depends on its arithmetic: LIBSVM caches the kernel in float32, ours is float64. The decision values therefore agree only to about tol (within 1e-2 here, checked), while the assignments are identical and, solved to 1e-9, the values agree to float32's precision (svm.md section 3).
+
+**`tecator.svm.decision_linear.sklearn`** — scikit-learn 1.9.0
+
+Both solvers are LIBSVM's SMO with second-order working-set selection, and both stop once the largest KKT violation falls below tol = 1e-3 rather than at the optimum. Where each stops depends on its arithmetic: LIBSVM caches the kernel in float32, ours is float64. The decision values therefore agree only to about tol (within 1e-2 here, checked), while the assignments are identical and, solved to 1e-9, the values agree to float32's precision (svm.md section 3).
+
+**`tecator.svm.decision_rbf.sklearn`** — scikit-learn 1.9.0
+
+Both solvers are LIBSVM's SMO with second-order working-set selection, and both stop once the largest KKT violation falls below tol = 1e-3 rather than at the optimum. Where each stops depends on its arithmetic: LIBSVM caches the kernel in float32, ours is float64. The decision values therefore agree only to about tol (within 1e-2 here, checked), while the assignments are identical and, solved to 1e-9, the values agree to float32's precision (svm.md section 3).
+
+**`corn.split.group_kfold.sklearn`** — scikit-learn 1.9.0
+
+Both keep every group in one fold. GroupKFold's default deals groups without a seed, largest first, each to the fold with the fewest samples so far. metrics-and-validation.md §8.8 permutes the groups with the split's seed and slices them by the K-fold size rule (§8.3) - which is GroupKFold(shuffle=True)'s rule, but drawn from NumPy's default_rng rather than a legacy RandomState, so the folds differ either way. A cross-validated claim passes our resolved folds to the reference instead (§8.2).
+
+**`gasoline.split.group_kfold.sklearn`** — scikit-learn 1.9.0
+
+Both keep every group in one fold. GroupKFold's default deals groups without a seed, largest first, each to the fold with the fewest samples so far. metrics-and-validation.md §8.8 permutes the groups with the split's seed and slices them by the K-fold size rule (§8.3) - which is GroupKFold(shuffle=True)'s rule, but drawn from NumPy's default_rng rather than a legacy RandomState, so the folds differ either way. A cross-validated claim passes our resolved folds to the reference instead (§8.2).
+
+**`tecator.split.group_kfold.sklearn`** — scikit-learn 1.9.0
+
+Both keep every group in one fold. GroupKFold's default deals groups without a seed, largest first, each to the fold with the fewest samples so far. metrics-and-validation.md §8.8 permutes the groups with the split's seed and slices them by the K-fold size rule (§8.3) - which is GroupKFold(shuffle=True)'s rule, but drawn from NumPy's default_rng rather than a legacy RandomState, so the folds differ either way. A cross-validated claim passes our resolved folds to the reference instead (§8.2).
+
 ---
 
 ## Tolerances, and why each one is what it is
@@ -392,6 +468,10 @@ Regression coefficients accumulate through per-component deflation (pls-regressi
 **`decomposition`** — rtol 1.000e-08, atol 1.000e-10
 
 Scores, loadings, eigenvalues and explained variance. Two LAPACK drivers on the same matrix agree far better than this; the margin covers a different SVD path, not a different algorithm.
+
+**`float32_kernel`** — rtol 1.000e-05, atol 0.0001
+
+SVM decision values, both solvers run to a KKT gap of 1e-9 (svm.md section 7). LIBSVM caches the kernel matrix in float32, about seven significant digits, and its gradient accumulates that rounding over every SMO step; ours holds the kernel in float64. The largest difference observed on the parity sets is 3e-5, on Tecator's linear kernel, whose kernel values reach 1e2 and whose solve takes about thirty thousand steps.
 
 **`metrics`** — rtol 1.000e-06, atol 1.000e-09
 

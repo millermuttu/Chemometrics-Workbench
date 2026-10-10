@@ -81,6 +81,9 @@ export interface ImportPreview {
      * (#284); absent for every other format. */
     matrix?: Detected<string>;
     axis_variable?: Detected<string>;
+    /** What the axis's numbers are, where the reader guessed it from them
+     * alone (#336); absent when the file states its unit. */
+    axis_kind?: Detected<string>;
   };
   head: { sample_ids: string[]; rows: number[][] };
 }
@@ -152,7 +155,8 @@ export interface SpectraPayload {
     banded: boolean;
   };
   traces: { index: number; sample_id: string; y: number[] }[];
-  band: { n_spectra: number; y_lower: number[]; y_median: number[]; y_upper: number[] };
+  /** Present only when the set is banded, more spectra than are drawn (#355). */
+  band?: { n_spectra: number; y_lower: number[]; y_median: number[]; y_upper: number[] };
 }
 
 /** `outliers.md` section 5's rules, in the order the flags table names them. */
@@ -200,8 +204,21 @@ export interface PcaPayload {
     robust_distance: number[] | null;
     limits: Record<OutlierRule, number>;
     caveats: Partial<Record<OutlierRule, string>>;
-    /** Every calibration row that breaks a rule, naming each rule it breaks. */
-    flags: { index: number; rules: OutlierRule[] }[];
+    /** Every calibration row that breaks a rule, naming each rule it breaks
+     * and how many, most rules first (#335). */
+    flags: { index: number; rules: OutlierRule[]; n_rules: number }[];
+    /** A classifier's diagnostics, each sample against its own class's PCA
+     * (outliers.md section 8); its limits are per sample, its class's. */
+    classwise?: {
+      classes: string[];
+      class_of: number[];
+      n_components: number[];
+      t2: number[];
+      t2_limit: number[];
+      q: number[];
+      q_limit: number[];
+      leverage_limit: number[];
+    };
     /** The version these rows are rows of (#279): an exclusion from the flags
      * table is made against it, not against wherever the source is now. */
     dataset_id: string;
@@ -614,6 +631,80 @@ export interface CarsPayload {
   best: number;
   seed: number;
   selected: number[];
+}
+
+/** `variable-selection.md` section 8 (#331): a selection validated in an outer loop. */
+export interface NestedPayload {
+  method: "vip" | "b" | "ipls" | "cars";
+  outer_rmsecv: number;
+  inner_rmsecv: number;
+  n_outer_folds: number;
+  inner_splits: number;
+  selected: number;
+  selected_per_fold: number[];
+}
+
+/** `metrics-and-validation.md` section 14 (#333): a y-permutation test. */
+export interface PermutationPayload {
+  node_id: string;
+  n_permutations: number;
+  observed: number;
+  null: number[];
+  p_value: number;
+  seed: number;
+  greater_is_better: boolean;
+}
+
+/** Submit a permutation test; the answer is a job, polled with `useJob`. */
+export function useStartPermutation(nodeId: string) {
+  return useMutation({
+    mutationFn: (n: number) =>
+      api<Job>(`/results/${nodeId}/permutation?n_permutations=${n}`, { method: "POST" }),
+  });
+}
+
+/** A finished permutation test's result; asked for only once its job succeeded. */
+export function usePermutation(jobId: string | null, done: boolean) {
+  return useQuery({
+    queryKey: ["permutation", jobId],
+    queryFn: () => api<PermutationPayload>(`/permutations/${jobId}`),
+    enabled: Boolean(jobId) && done,
+    staleTime: Infinity,
+    retry: false,
+  });
+}
+
+/** `pls-regression.md` section 16 (#334): percentile bands, or null where
+ * there is none - a PCR's VIP, an unfoldable chain's coefficients. */
+export interface BootstrapPayload {
+  node_id: string;
+  level: number;
+  n_resamples: number;
+  seed: number;
+  vip: { lower: number[]; upper: number[] } | null;
+  coefficients: { lower: number[]; upper: number[] } | null;
+}
+
+/** Run only when asked: `resamples` is null until the user presses Bootstrap. */
+export function useBootstrap(nodeId: string, resamples: number | null) {
+  return useQuery({
+    queryKey: ["bootstrap", nodeId, resamples],
+    queryFn: () => api<BootstrapPayload>(`/results/${nodeId}/bootstrap?n_resamples=${resamples}`),
+    enabled: resamples !== null,
+    staleTime: Infinity,
+    retry: false,
+  });
+}
+
+/** Run only when asked: `query` is null until the user presses Validate. */
+export function useNested(nodeId: string, query: string | null) {
+  return useQuery({
+    queryKey: ["nested", nodeId, query],
+    queryFn: () => api<NestedPayload>(`/results/${nodeId}/nested?${query}`),
+    enabled: query !== null,
+    staleTime: Infinity,
+    retry: false,
+  });
 }
 
 /** Run only when asked: `runs` is null until the user presses Run. */

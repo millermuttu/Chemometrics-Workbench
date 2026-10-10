@@ -71,7 +71,7 @@ For each set (calibration, the cross-validated set below a split, and fold zero'
 
 ## 6. Cross-validation
 
-As everywhere: below a split, each fold's class models are fitted on that fold's training rows of its own preprocessed array. Each held-out row is decided by its fold's models. The cross-validated acceptance table pools every fold's held-out decisions, so it holds one row of $N$ decisions per sample. The reported models are fold zero's.
+As everywhere: below a split, each fold's class models are fitted on that fold's training rows of its own preprocessed array. Each held-out row is decided by its fold's models. The cross-validated acceptance table pools every fold's held-out decisions, so it holds one row of $N$ decisions per sample. The reported models are refitted on every sample (`metrics-and-validation.md` §9, #330); the held-out set is fold zero's rows, decided by fold zero's models.
 
 ---
 

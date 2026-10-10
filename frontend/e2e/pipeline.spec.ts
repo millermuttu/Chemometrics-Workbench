@@ -97,6 +97,24 @@ test("a linear SNV to Savitzky-Golay to PCA pipeline is assembled through the st
   await expect(page.locator(".react-flow__node")).toHaveCount(before + 2);
 });
 
+test("the step list offers a split and a PLS-DA, as the port menu does (#337)", async ({ page }) => {
+  await openCanvas(page);
+  const before = await page.locator(".react-flow__node").count();
+
+  for (const step of ["K-fold 10", "SNV", "PLS-DA 5 LV"]) {
+    await page.getByLabel("Step").selectOption(step);
+    await page.getByRole("button", { name: "Add", exact: true }).click();
+  }
+  await expect(page.locator(".react-flow__node")).toHaveCount(before + 3);
+  await expect(page.getByText("5 components · fat_class").last()).toBeVisible();
+
+  // The drafts reach the server as a split with a PLS-DA below it. The seeded
+  // chain they extend ends in a mean centre, so the server names the leak a
+  // split placed there would have - which it can only do having read the split.
+  await page.getByRole("button", { name: "Validate" }).click();
+  await expect(page.getByText(/fitted above the split at 'k_fold_10'/)).toBeVisible();
+});
+
 /** Drag a connection between two node ports.
  *
  * React Flow listens to pointer movement rather than to a drop event, so this

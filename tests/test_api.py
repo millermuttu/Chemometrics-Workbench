@@ -152,7 +152,8 @@ def test_preview_returns_the_readers_detection_in_the_published_shape(
     published = fixture("import_preview")
     assert set(body) == set(published)
     assert set(body["source"]) == set(published["source"])
-    assert set(body["detected"]) == set(published["detected"])
+    # The axis kind is the one field added since the contract (#336).
+    assert set(body["detected"]) == set(published["detected"]) | {"axis_kind"}
     assert set(body["detected"]["axis"]) >= {"kind", "unit", "start", "end", "reconstructed"}
     assert set(body["head"]) == set(published["head"])
 
@@ -280,6 +281,20 @@ def test_the_corrections_the_user_made_are_the_ones_the_parse_obeys(
     np.testing.assert_allclose(
         values, read_array(project, plain["versions"][0]["array_path"]), atol=1e-4
     )
+
+
+def test_an_axis_correction_is_stored_and_recorded_in_provenance(client: TestClient) -> None:
+    """#336: the user's word on the axis is what the dataset carries, and the record says so."""
+    entry = client.post(
+        "/api/import",
+        files=upload("tecator_subset.csv"),
+        data={"corrections": json.dumps({"axis_kind": "wavenumber_cm-1", "decimal": "."})},
+    ).json()
+    version = entry["versions"][0]
+
+    assert version["axis"]["kind"] == "wavenumber_cm-1"
+    assert version["axis"]["unit"] == "cm-1"
+    assert version["source"]["corrections"] == {"axis_kind": "wavenumber_cm-1"}
 
 
 def test_a_correction_the_reader_does_not_offer_is_refused_not_dropped(
@@ -437,23 +452,22 @@ def test_the_results_payload_is_the_shape_the_fixture_publishes(tmp_path: Path) 
 def test_a_split_branch_adds_its_validation_rows_without_changing_the_rest(
     tmp_path: Path,
 ) -> None:
-    """§9's held-out rows, pushed through the model that never saw them."""
+    """§9's held-out rows, pushed through fold zero's model, which never saw them."""
     run, version = executed(tmp_path / "results")
     payload = results_payload(run.results["pca_d"], version)
     published = fixture("pca")["pca_d"]
 
-    # The keys the 1.1 screen reads are unchanged, and so are their lengths.
+    # The keys the 1.1 screen reads are unchanged. Their lengths are not: the
+    # 1.1 fixture is fold zero's model, and since #330 the model is fitted on
+    # every sample.
     assert set(payload) - set(published) == {"validation"}
-    assert len(payload["samples"]) == len(published["samples"]) == 216
-    assert len(payload["diagnostics"]["hotelling_t2"]) == 216
+    assert len(published["samples"]) == 216
+    assert len(payload["samples"]) == len(payload["diagnostics"]["hotelling_t2"]) == 240
 
     validation = payload["validation"]
     assert validation["fold"] == 0
     assert len(validation["samples"]) == len(validation["scores"]) == 24
     assert len(validation["hotelling_t2"]) == len(validation["spe"]) == 24
-    assert {row["index"] for row in validation["samples"]}.isdisjoint(
-        {row["index"] for row in payload["samples"]}
-    )
 
 
 def test_a_branch_with_no_split_carries_no_validation_key(tmp_path: Path) -> None:
@@ -516,16 +530,18 @@ def test_a_regression_payload_flags_its_outliers_by_rule(tmp_path: Path) -> None
         "residual": [abs(value) for value in block["studentised_residuals"]],
         "robust": block["robust_distance"],
     }
-    expected = [
-        {"index": i, "rules": [rule for rule, v in columns.items() if v[i] > limits[rule]]}
-        for i in range(n)
-    ]
-    assert block["flags"] == [row for row in expected if row["rules"]]
+    broken = [[rule for rule, v in columns.items() if v[i] > limits[rule]] for i in range(n)]
+    # #335: most rules first, by row within a count.
+    rows = sorted(
+        ((i, rules) for i, rules in enumerate(broken) if rules), key=lambda r: (-len(r[1]), r[0])
+    )
+    assert block["flags"] == [{"index": i, "rules": r, "n_rules": len(r)} for i, r in rows]
     assert {rule for row in block["flags"] for rule in row["rules"]} == set(columns)
 
 
-def test_a_pca_has_no_residuals_and_a_classification_no_outlier_block(tmp_path: Path) -> None:
-    """Section 1: residuals need a response, and a class is not one."""
+def test_a_pca_has_no_residuals_and_a_simca_no_outlier_block(tmp_path: Path) -> None:
+    """Section 1: residuals need a response; section 8: a PLS-DA, LDA or kNN is
+    diagnosed class by class, and a SIMCA's class models are its own decision."""
     run, version = executed(tmp_path / "results")
     block = outliers_payload(run.results["pca_a"], version)
     assert block["studentised_residuals"] is None
@@ -533,8 +549,16 @@ def test_a_pca_has_no_residuals_and_a_classification_no_outlier_block(tmp_path: 
 
     from dataclasses import replace
 
-    plsda = replace(run.results["pca_a"], task="classification", method="plsda")
-    assert not diagnosed(plsda) and diagnosed(run.results["pca_a"])
+    for method, expected in (
+        ("plsda", True),
+        ("lda", True),
+        ("knn", True),
+        ("svm", True),
+        ("simca", False),
+    ):
+        classifier = replace(run.results["pca_a"], task="classification", method=method)
+        assert diagnosed(classifier) is expected, method
+    assert diagnosed(run.results["pca_a"])
     # #314: the search is not on the path every tab waits for.
     assert "outliers" not in results_payload(run.results["pca_a"], version)
 
@@ -782,12 +806,13 @@ def test_contributions_sum_to_the_diagnostics_the_result_serves(tmp_path: Path) 
         )
 
 
-def test_contributions_below_a_split_use_fold_zeros_matrix_and_the_estimators_centring(
+def test_contributions_below_a_split_use_the_all_sample_matrix_and_the_estimators_centring(
     tmp_path: Path,
 ) -> None:
-    """A PCA below the split was fitted on fold zero's array; a PLS beside it
-    centred that array by its fit rows' mean inside the estimator. Both sums
-    have to land on the served diagnostics, held-out rows included."""
+    """A PCA below the split is fitted on the all-sample array (#330); a PLS
+    beside it centred that array by its own mean inside the estimator. Both
+    sums have to land on the served diagnostics, for every row - fold zero's
+    held-out ones included, which the final model has seen."""
     from chemometrics_workbench.api import node_axis
     from chemometrics_workbench.executor import stored_fitted_matrix
     from chemometrics_workbench.models import EstimatorNode, PLSRegressionSpec
@@ -817,11 +842,9 @@ def test_contributions_below_a_split_use_fold_zeros_matrix_and_the_estimators_ce
         matrix = stored_fitted_matrix(directory, pipeline, version, node_id)
         assert matrix is not None
         axis = node_axis(pipeline, node_id, version)
-        # A calibration row and a held-out one.
-        for row, served_t2, served_spe in (
-            (result.rows[0], result.hotelling_t2[0], result.spe[0]),
-            (result.held_out[0], result.held_out_hotelling_t2[0], result.held_out_spe[0]),
-        ):
+        # The first row, and a row fold zero held out.
+        for row in (result.rows[0], result.held_out[0]):
+            served_t2, served_spe = result.hotelling_t2[row], result.spe[row]
             payload = contributions_payload(result, matrix, row, version, axis)
             assert payload["hotelling_t2"]["total"] == pytest.approx(served_t2, rel=1e-4)
             assert payload["spe"]["total"] == pytest.approx(served_spe, rel=1e-4)

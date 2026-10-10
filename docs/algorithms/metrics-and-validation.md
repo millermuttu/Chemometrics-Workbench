@@ -197,6 +197,22 @@ Unshuffled example: labels `a, b, a, b` and $K = 2$. The groups are `a: 0, 2` an
 
 Continuous responses are not stratified. Binning a response to balance folds is a defensible technique with an arbitrary bin count that would have to be recorded, and it is out of scope for v1.
 
+### 8.8 Grouping
+
+`TrainTestSplit.group_by`, `KFoldSplit.group_by` and `LeaveOneOut.group_by` name a metadata column ([#329](https://github.com/millermuttu/Chemometrics-Workbench/issues/329)). Rows sharing its value are one group — typically the replicate scans of one physical sample — and **a group never straddles training and held-out rows**. Without it, a replicate in the training set leaks into its twin's held-out score, and the cross-validated error is optimistic in exactly the way §8.4 warns of for leave-one-out.
+
+The rule is the ungrouped splitter run over the groups instead of the rows. The $G$ distinct values are taken in Unicode order and numbered $0 \dots G-1$; the splitter of §8.3, §8.4 or §8.6 is applied with $n = G$, seed and shuffle unchanged; and each group in a fold's validation set brings all of its rows. So:
+
+- **K-fold** permutes the groups with `default_rng(seed)` and gives the first $G \bmod K$ folds one extra *group*. Fold sizes in rows are as uneven as the groups are. $K > G$ is an error naming $G$.
+- **Leave-one-out** becomes leave-one-group-out: $G$ folds, fold $g$ holding out group $g$. Deterministic, as §8.4.
+- **Train/test** holds out the first $\lceil \texttt{test\_size} \cdot G \rceil$ permuted groups.
+
+Every guarantee the splitter makes about its items then holds for the groups, and `validate_partition` (§7) holds for the rows. A column the dataset does not carry is refused as in §8.7. A split is grouped or stratified, never both: balancing a class while dealing whole groups is not specified, and the schema refuses the pair. The field is left out of the serialisation when unset, so a split recorded before it existed keeps its cache key.
+
+Example: groups `2, 10, 2, 1, 10, 1` are `1, 10, 2` in Unicode order, so leave-one-group-out holds out rows `3, 5`, then `1, 4`, then `0, 2`.
+
+This is not scikit-learn's `GroupKFold` default, which deals the largest groups first to the lightest fold and takes no seed (§12). Its `LeaveOneGroupOut` is the same split as ours.
+
 ---
 
 ## 9. What is refitted inside a fold
@@ -218,6 +234,8 @@ Continuous responses are not stratified. Binning a response to balance folds is 
 `MSC` was on neither list until [#103](https://github.com/millermuttu/Chemometrics-Workbench/issues/103), and it is the case that shows why the test above is the rule rather than the two names. It is not centring, so the PLS rule in `pls-regression.md` §3 does *not* count it — an MSC leaves no intercept for a first component to stop chasing — but it is fitted across samples, so this rule does. `checks.py` warns on all three under one code, `fitted_upstream_of_split`, with a sentence per step: saying "the mean" about a reference spectrum would be wrong in a way a reader would notice.
 
 Placing a `MeanCentre` or `Autoscale` node upstream of a split therefore leaks the validation samples' contribution into the training statistics and makes RMSECV optimistic. The pipeline validator **warns and names the node**. It does not rewrite the graph: the pipeline is the record of what was done, and silently relocating a node would make the recipe a lie. The warning travels into the experiment record so the number is never read without it.
+
+**The model that is reported, saved and exported is refitted on every sample** ([#330](https://github.com/millermuttu/Chemometrics-Workbench/issues/330)). Cross-validation estimates the error of a recipe; it does not choose one fold's model to keep. Once the folds have produced their pooled predictions, every node below the split is fitted once more on every row - each preprocessing step on all of its input, then the estimator - and that all-sample model is the one whose coefficients, scores, loadings, VIP and calibration metrics (RMSEC, $R^2$, SEC) are reported, the one the registry saves and the one both exports carry. The CV metrics beside it are the split's. Below a train/test split the same holds: RMSEP comes from the training rows' model on the test rows, and the model reported is refitted on all of them. Fold zero's model survives only as the **held-out view**: its held-out rows, predicted by the model that never saw them, carry the `_p` metrics and the held-out points a predicted-versus-measured plot draws.
 
 **The component count $A$ is not re-selected inside folds.** $A$ is a user parameter; every fold model is fitted with the same $A$, and the reported RMSECV is a property of that $A$. RMSECV as a function of $A$ from 1 to $A_{\max}$ is produced from the *same* fold assignment across all component counts, and is stored as `rmsecv_a<A>` keys in `extra` — one split, one pass, one curve. Choosing $A$ by the minimum of that curve and then quoting the same curve's minimum as the model's expected error is optimistic; it is the user's call, and the application does not do it for them.
 
@@ -279,6 +297,7 @@ Recorded so the parity report can classify them as *differs by documented conven
 | **Leverage-corrected RMSE** | Not reported | Unscrambler and others offer a leverage-corrected error, $e_i/(1 - h_i)$, as a fast approximation to LOOCV |
 | Preprocessing inside CV | Refitted per fold, warned when upstream | Frequently fitted once on all data, which makes RMSECV optimistic |
 | Repeated K-fold | Mean of per-repeat RMSECVs | Pooling all repeats into one sum is also seen |
+| Grouped K-fold | Seeded permutation of the groups, sliced by §8.3 (§8.8) | `scikit-learn`'s `GroupKFold` deals the largest group first to the lightest fold, unseeded; with `shuffle=True` it follows our rule from a `RandomState` stream |
 
 **Leverage-corrected RMSE deserves the emphasis.** Where cross-validation refits the model $K$ times, the leverage correction inflates each calibration residual by $1/(1-h_i)$ to approximate what the residual would have been had that sample been held out — one fit instead of $n$. For a linear model with a fixed design it is exactly LOOCV; for PLS it is an approximation, because the latent variables themselves shift when a sample is removed. It is not reported here: it is cheap and it is *nearly* RMSECV, which is precisely what makes it dangerous to display beside a real RMSECV under a similar name. A user comparing our RMSECV against a leverage-corrected number from another package is comparing two different quantities, and this row is the answer to that report.
 
@@ -291,4 +310,28 @@ Recorded so the parity report can classify them as *differs by documented conven
 - **Slope-and-bias correction and other model updating** — post-1.0.
 - **Automatic selection of $A$**, including the one-standard-error rule and Wold's R. A workflow question; see [`pls-regression.md` §11](pls-regression.md).
 - **Continuous-response binning** for stratification, and stratified repeated K-fold (§8.7).
-- **Nested cross-validation** — needed only once something is tuned inside the loop, and nothing is in v1.
+- **Nested cross-validation** of the component count. A variable selection is validated in an outer loop since #331 (`variable-selection.md` §8); nothing else is tuned inside the loop.
+
+---
+
+## 14. The permutation test
+
+[#333](https://github.com/millermuttu/Chemometrics-Workbench/issues/333). A cross-validated score says how well a model predicts; a permutation test says whether it predicts better than chance would. It answers "could a model this good have come from a response with no relation to the spectra?", which matters most when samples are few and variables many.
+
+**What is permuted.** The response of a PLS or PCR, or the class labels of a PLS-DA, LDA, kNN or SVM. The spectra, the split and the preprocessing stay exactly as they are: each permutation reruns the estimator's whole cross-validation on the stored per-fold matrices and the stored folds, with only the response reordered.
+
+**The orders.** $N$ permutations of $0 \dots n-1$, drawn in turn from one `numpy.random.default_rng(seed)`, seed 0 unless one is given. A seed always gives the same null. The observed score is the unpermuted order's.
+
+**The score.** RMSECV (§4, §7) for a regression, where lower is better, and the cross-validated accuracy (`classification.md`) for a classifier, where higher is better.
+
+**The p-value** is
+
+$$p = \frac{1 + \#\{\text{permutations scoring at least as well as the observed}\}}{N + 1}.$$
+
+It is never zero: the observed labelling is one of those the null could have drawn. With $N$ permutations the smallest $p$ is $1/(N+1)$, so 99 permutations can say $p = 0.01$ and no less.
+
+**Grouping.** The response is permuted sample by sample, also under a grouped split (§8.8). Replicates of one sample then usually carry different permuted values, which is a null with less structure than the real data. A test that shuffles whole groups is not specified here.
+
+**It runs as a job** (`POST /api/results/{id}/permutation`), because it is the cross-validation repeated $N$ times. It reports progress per permutation, can be cancelled, and like every job is not persisted.
+
+**Parity.** scikit-learn's `permutation_test_score` is given the same permutations, through a `RandomState` whose `permutation` draws from the same `default_rng(seed)`, and the same folds. It averages a score per fold where §7 pools, so the comparison uses folds of equal size, where the two coincide. For a regression it compares negative MSE, whose fold mean over equal folds is minus the pooled MSE. The null distributions and the p-values agree, for a PLS RMSECV and a two-class PLS-DA accuracy on Tecator (`tests/test_permutation.py`).

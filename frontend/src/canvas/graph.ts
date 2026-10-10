@@ -86,6 +86,8 @@ export function parameterLine(node: PipelineNode): string {
       return `${spec!.n_components} components · ${spec!.target}`;
     case "knn":
       return `k ${spec!.k} · ${spec!.n_components} components · ${spec!.class_column}`;
+    case "svm":
+      return `${spec!.kernel} · C ${spec!.C} · ${spec!.n_components} components · ${spec!.class_column}`;
     case "plsda":
     case "simca":
     case "lda":
@@ -243,7 +245,8 @@ export function toEdges(
 export interface DraftStep {
   kind: string;
   parameters: string;
-  type: "preprocess" | "estimator";
+  /** A split since #337, which put the port menu's whole catalogue in the list. */
+  type: "preprocess" | "estimator" | "split";
   /** What the node actually is, in the shape `PUT /pipelines/{id}` takes.
    *
    * Until #108 a draft carried only the two display strings above, because

@@ -101,7 +101,7 @@ Exactly `metrics-and-validation.md` §7 to §9 on the dummy response: every node
 
 **The RMSECV curve is reported on the dummy response**, pooled over every column for three or more classes, as the model's selection curve, $A = 1 \ldots A_{\max}$, exactly as for a regression. A misclassification-rate curve would be the more natural thing to look at for a classifier and would also be a step function of $A$ that hides which $A$ is close to a boundary; the continuous curve is kept for that reason, and the `_cv` accuracy at the chosen $A$ is reported beside it. A misclassification curve is a reasonable later addition and not a change to anything here.
 
-The fitted model reported is fold zero's, as for PCA and PLS below a split (`executor.py`, *Estimators*); its `_p` metrics are fold zero's held-out rows.
+The fitted model reported is refitted on every sample, as for PCA and PLS below a split (`metrics-and-validation.md` §9, #330); its `_p` metrics are fold zero's held-out rows, predicted by fold zero's model.
 
 ---
 

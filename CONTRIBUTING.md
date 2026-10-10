@@ -38,7 +38,7 @@ pnpm exec playwright install chromium   # once
 pnpm test:e2e
 ```
 
-**Build before the end-to-end suite.** Playwright drives the real server serving `frontend/dist`, so a suite run against a stale bundle tests old code and can pass for the wrong reason. It starts four seeded servers on ports 8765 to 8768; free them first if a previous run left one behind.
+**Build before the end-to-end suite.** Playwright drives the real server serving `frontend/dist`, so a suite run against a stale bundle tests old code and can pass for the wrong reason. It starts seven servers on ports 8765 to 8771, each on a project of its own; free them first if a previous run left one behind.
 
 The documentation site takes its screenshots from the running application, then builds strictly (a broken link or a missing image fails it):
 
@@ -53,6 +53,8 @@ CI also builds the packaged application on all three platforms and smoke-tests i
 uv run pyinstaller packaging/workbench.spec --noconfirm
 uv run python -m tests.smoke_package dist/ChemometricsWorkbench
 ```
+
+The suite runs on every core through pytest-xdist (`-n auto --dist loadfile` in `pyproject.toml`), a file per worker so each file's tests keep their order. `-n 0` runs it in one process, which is what a debugger or `-x` wants.
 
 Run a single test file or case with the usual pytest selectors:
 

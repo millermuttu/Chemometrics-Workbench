@@ -34,11 +34,16 @@ with zipfile.ZipFile("model.cwmodel") as archive:
 
 ## 2. Versioning
 
-`manifest.json` carries `schema_version`, an integer, currently **1**.
+`manifest.json` carries `schema_version`, an integer, currently **2**.
 
 A reader **refuses a file stamped higher than the version it understands**, naming both numbers, exactly as `db.py` refuses a database written by a newer application: a newer writer may have added fields whose absence this reader would silently take as a default. A file stamped *lower* is read if the reader still supports that version, and refused by name otherwise.
 
 The version is bumped when a field is removed, renamed, or changes meaning. Adding an optional field does not bump it, because a reader that ignores an unknown key loses nothing.
+
+| Version | Change |
+| --- | --- |
+| 1 | The first format. Below a split, the model was fold zero's: `split.fold` named it and `train_indices` / `test_indices` held its rows |
+| 2 | [#330](https://github.com/millermuttu/Chemometrics-Workbench/issues/330): below a split the model is **refitted on every sample**, with every fitted step above it refitted on every sample too. `split.fold` and the index arrays are gone, and `split.fitted_on` says `"all_samples"`. A version 1 file still reads |
 
 ---
 
@@ -73,6 +78,7 @@ Every field is required unless it is marked optional. `null` means *this quantit
 | `classes` | array of string or null | `pls-da.md` §3's `[C_0, C_1]`, for a classification |
 | `y_mean` | number or null | The response mean the estimator subtracted before fitting and adds back to every prediction (`pls-regression.md` §3). `null` for a decomposition |
 | `k` | int or null | A kNN's neighbour count; `null` otherwise |
+| `svm` | object or null | An SVM's `kernel`, `C`, the `gamma` used, and per pair of classes its `classes` and `rho` (#338, `svm.md` §6); `null` otherwise |
 | `simca` | array or null | For a SIMCA, one `{class, n_samples, t2_limit, q_limit}` per class in `classes` order (`simca.md` §3); `null` otherwise |
 | `alpha` | number | The confidence level the limits are quoted at |
 | `hotelling_t2_limit` | number | |
@@ -92,15 +98,15 @@ Every field is required unless it is marked optional. `null` means *this quantit
 
 ### 6. `split`
 
-`null` when the model was fitted above a split. Otherwise the fold it was fitted on, as `ResolvedSplit` records it:
+`null` when the model was fitted above a split. Otherwise the split it was cross-validated by, as `ResolvedSplit` records it:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `node_id` | string | The split node |
-| `fold` | int | Which fold this model is — fold zero, as `executor.py` fits it |
 | `n_folds` | int | How many the split resolved to |
+| `fitted_on` | string | `"all_samples"`: the model is refitted on every sample once the split has estimated its error (#330). The cross-validated metrics in `metrics` belong to the split; every other number is this model's |
 
-The index sets themselves are arrays (§7), because a ten-fold split on 20,000 samples is 20,000 integers and JSON is the wrong place for them.
+A version 1 artifact carries `fold` here instead of `fitted_on`, and the fold's index sets as arrays: its model was fold zero's.
 
 ### 7. `arrays`
 
@@ -123,12 +129,11 @@ Which arrays are present depends on the task. A reader must not assume any of th
 | `coefficient_matrix` | `(n_variables, N)` | classification of three or more classes | `B = RQ'`, one column per class (#274) |
 | `y_means` | `(N,)` | classification of three or more classes | The one-hot response's column means, added back to every prediction |
 | `knn_scores`, `knn_classes` | `(n, A)`, `(n,)` | kNN | The neighbours: the calibration rows' scores and their classes as indices into `classes` (#277, `knn.md` §6). With `x_mean` and `loadings` they are the whole model |
+| `svm_<k>_support_vectors`, `svm_<k>_dual` | `(m, A)`, `(m,)` | SVM | Pair `k`'s support vectors in score space and their $a y$, pairs in the manifest's order (#338, `svm.md` §6). With `x_mean`, `loadings` and the manifest's `rho` they are the whole model |
 | `simca_<k>_mean`, `simca_<k>_loadings`, `simca_<k>_eigenvalues` | `(p,)`, `(A, p)`, `(A,)` | SIMCA | Class `classes[k]`'s centre, PCA loadings and retained eigenvalues (#275, `simca.md` §7). Its limits are in `model.simca` |
 | `y_loadings` | `(A,)` | regression, classification | |
 | `vip` | `(n_variables,)` | regression, classification | `pls-regression.md` §8 |
 | `y_explained_variance_ratio` | `(A,)` | regression, classification | |
-| `train_indices` | `(n_train,)` | split only | The rows the model was fitted on |
-| `test_indices` | `(n_test,)` | split only | The rows held out from it |
 
 **Scores, predictions and diagnostics per sample are deliberately absent.** They are properties of the samples the model happened to see, not of the model, and a reader with the model and the data can recompute every one of them. The artifact is what you need to *use* the model and to *explain* it, which is not the same as everything the run produced.
 

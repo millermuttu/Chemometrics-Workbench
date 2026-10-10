@@ -1,6 +1,6 @@
 # Classification metrics — specification
 
-Status: **normative**. This document fixes how every classifier in this project is tallied and read: PLS-DA, and from Phase 5 SIMCA, LDA and kNN. Where an implementation and this document disagree, one of them is a bug; decide which before changing either.
+Status: **normative**. This document fixes how every classifier in this project is tallied and read: PLS-DA, from Phase 5 SIMCA, LDA and kNN, and from Phase 6 SVM. Where an implementation and this document disagree, one of them is a bug; decide which before changing either.
 
 Companion documents: [`pls-da.md`](pls-da.md), whose §6 is the two-class case of this one; [`metrics-and-validation.md`](metrics-and-validation.md) for the sets a metric is computed over and the "absent, never NaN" rule (§11).
 

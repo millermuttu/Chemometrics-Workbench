@@ -24,6 +24,10 @@ selects its variables, compares PLS-DA, SIMCA, LDA and kNN against independent r
 under one stratified cross-validation, and imports a file of each new format against its
 source (`uv run python -m tests.exit_run_phase5`).
 
+Phase 6 is in progress, towards `v1.2.0`: grouped splits for replicate measurements, a final
+model fitted on every sample, nested validation of variable selection, permutation tests,
+bootstrap intervals, class-wise outlier diagnostics and SVM.
+
 ## Running it
 
 A packaged application for Windows, Apple Silicon macOS and Linux is attached to each

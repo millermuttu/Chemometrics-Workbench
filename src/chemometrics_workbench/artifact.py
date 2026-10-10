@@ -52,7 +52,7 @@ __all__ = [
 #: `docs/model-artifact.md` §2. Bumped when a field is removed, renamed or
 #: changes meaning; adding an optional one does not bump it, because a reader
 #: that ignores an unknown key loses nothing.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 MANIFEST = "manifest.json"
 ARRAYS = "arrays"
@@ -115,7 +115,7 @@ def write_artifact(
     landed, which is what a later read can be checked against.
     """
     target = Path(path)
-    arrays = _arrays(result, version, node_axis, split)
+    arrays = _arrays(result, version, node_axis)
     manifest = _manifest(result, pipeline, version, split, environment, arrays)
 
     buffer = io.BytesIO()
@@ -210,7 +210,6 @@ def _arrays(
     result: EstimatorResult,
     version: DatasetVersion,
     node_axis: object,
-    split: ResolvedSplit | None,
 ) -> dict[str, NDArray[Any]]:
     """Every array §7 names that this model has. A reader must not assume any
     of them beyond `dataset_axis`, so absent is absent rather than empty."""
@@ -242,6 +241,15 @@ def _arrays(
         arrays["knn_classes"] = np.asarray(result.training_classes, dtype=np.int64)
         arrays["x_mean"] = _float64(result.x_mean)
 
+    if result.svm:
+        # #338, svm.md section 6: every pair's support vectors in score space,
+        # their coefficients a y, and rho.
+        arrays["x_mean"] = _float64(result.x_mean)
+        scores = _float64(result.scores)
+        for index, pair in enumerate(result.svm["pairs"]):
+            arrays[f"svm_{index}_support_vectors"] = scores[pair["support"]]
+            arrays[f"svm_{index}_dual"] = _float64(pair["dual"])
+
     for k, model in enumerate(result.simca.get("models", [])):
         # #275, simca.md section 7: every class model, indexed by its class's
         # position in `classes`.
@@ -249,9 +257,8 @@ def _arrays(
         arrays[f"simca_{k}_loadings"] = _float64(model["loadings"])
         arrays[f"simca_{k}_eigenvalues"] = _float64(model["eigenvalues"])
 
-    if split is not None and result.fold is not None:
-        arrays["train_indices"] = np.asarray(result.rows, dtype=np.int64)
-        arrays["test_indices"] = np.asarray(result.held_out, dtype=np.int64)
+    # Version 2 (#330): below a split the model is fitted on every sample, so
+    # there are no index sets to carry - version 1's were fold zero's.
     return arrays
 
 
@@ -282,6 +289,16 @@ def _manifest(
             "spe_limit": result.spe_limit,
             "spe_limit_caveat": result.spe_limit_caveat,
             "k": result.k,
+            "svm": {
+                "kernel": result.svm["kernel"],
+                "C": result.svm["C"],
+                "gamma": result.svm["gamma"],
+                "pairs": [
+                    {"classes": pair["classes"], "rho": pair["rho"]} for pair in result.svm["pairs"]
+                ],
+            }
+            if result.svm
+            else None,
             "simca": [
                 {name: model[name] for name in ("class", "n_samples", "t2_limit", "q_limit")}
                 for model in result.simca.get("models", [])
@@ -303,11 +320,11 @@ def _manifest(
             "excluded_samples": list(version.excluded_samples),
         },
         "split": None
-        if split is None or result.fold is None
+        if split is None
         else {
             "node_id": split.node_id,
-            "fold": result.fold,
             "n_folds": len(split.test_indices),
+            "fitted_on": "all_samples",
         },
         "metrics": dict(result.metrics),
         "environment": None if environment is None else json.loads(environment.model_dump_json()),

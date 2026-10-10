@@ -1,10 +1,12 @@
 /** #182: the drop menu's PLS entry models a column the dataset has, or is
  * not offered. It used to write `target: "fat"` into every PLS node. */
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import type { PipelineNode } from "@/api/queries";
 import { STEPS, stepMenu } from "@/canvas/catalogue";
 import { parameterLine } from "@/canvas/graph";
+import { StepList } from "@/canvas/StepList";
 import { nodeLabel } from "@/shell/Sidebar";
 
 describe("the PLS menu entry", () => {
@@ -86,4 +88,32 @@ it("offers kNN beside PLS-DA on a class column, labelled alike (#277)", () => {
   const node = { id: "knn", type: "estimator", inputs: ["snv"], ...knn.payload } as PipelineNode;
   expect(nodeLabel(node)).toBe("kNN k5 · grade");
   expect(parameterLine(node)).toBe(knn.parameters);
+});
+
+it("offers an SVM beside kNN on a class column, labelled alike (#338)", () => {
+  const svm = stepMenu([], ["grade"]).find((step) => step.kind === "SVM rbf 5 PC")!;
+  expect(svm.payload.spec).toEqual({ kind: "svm", kernel: "rbf", C: 1, n_components: 5, class_column: "grade" });
+  const node = { id: "svm", type: "estimator", inputs: ["snv"], ...svm.payload } as PipelineNode;
+  expect(nodeLabel(node)).toBe("SVM rbf 5 PC · grade");
+  expect(parameterLine(node)).toBe(svm.parameters);
+  expect(stepMenu(["fat"]).map((step) => step.kind)).not.toContain("SVM rbf 5 PC");
+});
+
+it("offers in the Step list what the port menu offers, splits and estimators included (#337)", () => {
+  const menu = stepMenu(["fat"], ["fat_class"]);
+  const markup = renderToStaticMarkup(
+    <StepList
+      menu={menu}
+      steps={[]}
+      onChange={() => {}}
+      onValidate={() => {}}
+      onSave={() => {}}
+      saving={false}
+      validation={null}
+      edited={false}
+    />,
+  );
+  const options = [...markup.matchAll(/<option value="([^"]+)"/g)].map((match) => match[1]);
+  expect(options).toEqual(menu.map((step) => step.kind));
+  expect(options).toEqual(expect.arrayContaining(["K-fold 10", "Train/test 25%", "PLS-DA 5 LV"]));
 });

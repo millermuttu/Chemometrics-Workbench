@@ -1,16 +1,13 @@
 {
-  "phase": "Phase 5 - methods breadth",
-  "exit_criterion": "Two claims, each demonstrated over HTTP by tests/exit_run_phase5.py and recorded in docs/phase-5/exit-run.md. (1) On the Quadram Institute fresh-meat FTIR set (three classes, CC0), outliers are flagged and excluded with the exclusion recorded in lineage, variables are selected, and PLS-DA, SIMCA, LDA and kNN are compared under the same stratified cross-validation, each matching its reference within stated tolerance; separately, PCR and variable-selected PLS on Tecator match their references. (2) A file of each new format (MAT, SPC, SPA, ASD) from the open sources in docs/decisions/0006 imports through the application and matches its source's own export or reference.",
+  "phase": "Phase 6 - validation integrity",
+  "exit_criterion": "Demonstrated over HTTP by tests/exit_run_phase6.py and recorded in docs/phase-6/exit-run.md. (1) On the raw Quadram meat set (120 spectra, both runs of each sample kept, grouped by sample): grouped cross-validation keeps every pair together; PLS-DA's grouped cross-validated accuracy, its permutation p-value and its all-sample final model each match their references (scikit-learn on the served folds, permutation_test_score); a VIP-selected model's nested outer error is reported and matches a reference rebuild; SVM's cross-validated accuracy matches scikit-learn SVC; the final model exported as JSON and as the Python snippet reproduces application predictions. (2) On Tecator, PLS's final model and its bootstrap intervals match a reference.",
   "decisions": [
-    "2026-10-02. Classifiers: PLS-DA becomes multi-class (on a PLS2 kernel), plus SIMCA, LDA and kNN. SVM is deferred: it needs a hand-written QP solver.",
-    "2026-10-02. Outlier detection flags; the user excludes. An exclusion is a derived DatasetVersion (excluded_samples, derived_from), never a pipeline step that drops rows.",
-    "2026-10-02. Variable selection: VIP or coefficient threshold, iPLS and CARS, each applied as an explicit select_variables step. Genetic algorithms are deferred.",
-    "2026-10-02. File formats: MATLAB .mat, Thermo Galactic SPC, Thermo OMNIC SPA, ASD. Each with a real, licensed fixture.",
-    "2026-10-02. Smoothing: moving average, median, Gaussian, Whittaker.",
-    "2026-10-02. Unchanged: scikit-learn and chemotools stay development dependencies. Every kernel is hand-written; parity is against a reference library, mdatools, or recorded not_compared with a reason.",
-    "2026-10-02. One release, v1.1.0, at the end of the phase. Phase 4's timed exit run stays closed as recorded in docs/phase-4/.",
-    "2026-10-02. All Phase 5 development data comes from open, licensed datasets on the internet, downloaded into the gitignored dataset/ folder; CI-facing copies are committed as small fixtures with their licence. Sources and rules: docs/decisions/0006-phase-5-data-sources.md.",
-    "2026-10-04. No R in the development environment: SIMCA (and any later method whose only reference is mdatools) is recorded not_compared and checked by property tests against kernels that carry their own parity claims."
+    "2026-10-05. Phase 6 is validation integrity: the numbers a user reports must be right before more methods are added. Grouped splits, a final all-sample model, nested selection, permutation tests and bootstrap intervals come first.",
+    "2026-10-05. The model saved and exported below a split is refitted on every sample, with every fitted step above it; fold zero's model stays only as the held-out view.",
+    "2026-10-05. SVM joins Phase 6, hand-written (SMO). Genetic-algorithm selection, the plugin API, self-hosted mode, an ASD splice step, zips of single-spectrum SPC files and MATLAB v7.3 stay post-1.0.",
+    "2026-10-05. Signed packages are in the phase but not in its exit criterion: they need certificates the maintainer has to obtain, and the feature is blocked until then.",
+    "2026-10-05. Unchanged: scikit-learn and chemotools stay development dependencies; every kernel is hand-written. One release, v1.2.0, at the end of the phase.",
+    "2026-10-05. Read each feature's GitHub issue, not only this list, before calling it done: Phase 5's exit run missed part of #289's criterion because the two had drifted."
   ],
   "status_values": [
     "not_started",
@@ -20,504 +17,331 @@
   ],
   "features": [
     {
-      "id": "stratified-splits",
+      "id": "grouped-splits",
       "priority": 1,
       "area": "backend",
-      "issue": 268,
-      "title": "Stratified K-fold and train/test splits",
+      "issue": 329,
+      "title": "Grouped splits: replicates of one sample stay in one fold",
       "depends_on": [],
-      "user_visible_behavior": "A split can be stratified by a class column, chosen from a dropdown in the inspector; every fold keeps the class proportions.",
+      "user_visible_behavior": "K-fold, train/test and leave-one-out take a group column, chosen in the inspector; a group never straddles training and held-out rows.",
       "verification": [
-        "uv run pytest - property tests: per-fold class proportions, deterministic for a seed, validate_partition holds; the divergence from scikit-learn's StratifiedKFold assignment recorded with record_divergence",
+        "uv run pytest - property tests: no group split, deterministic for a seed, validate_partition holds; the divergence from scikit-learn GroupKFold recorded with record_divergence",
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
-        "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; an e2e test sets stratify_by and runs"
+        "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; an e2e test sets group_by and runs"
       ],
       "status": "passing",
-      "evidence": "2026-10-02. `uv run pytest`: `931 passed, 1 skipped`. tests/test_validation.py: a stratified K-fold partitions, keeps every level's count per fold within one and fold sizes within one, for K = 2, 3, 5; it follows from its seed; unshuffled it reproduces the section 8.7 worked example; stratified train/test holds out ceil(test_size * n_g) of each level; a one-member level and a test size that empties a level are refused by name. tests/test_executor.py: TrainTestSplit and KFoldSplit with stratify_by resolve to the kernel's folds on Tecator with an unbalanced three-level column, each level's held-out count within one of its share; a missing column and a too-small level are refused naming the node, the column and the level; an unstratified K-fold dumps exactly the JSON it did before (`exclude_if`), so no stored cache key moves, and the contract fixture test passes unchanged. Proof: with src/ reverted and the new tests kept, both modules fail at collection (the stratified kernels do not exist). The sklearn StratifiedKFold difference is stated in the parity report's fold-assignment row (not_compared), regenerated with `uv run python -m tests.parity_report` (120 claims). ruff, ruff format, mypy (70 files) clean. `pnpm typecheck && pnpm lint && pnpm test`: 140 passed, including stratifiableColumns. `pnpm build` then `pnpm exec playwright test`: 74 passed (2.3m), including inspector.spec.ts 'a k-fold is stratified by a class column chosen from a dropdown': the select offers none and fat_class, the saved split carries stratify_by, the run completes the split node, and none puts it back.",
-      "notes": "Decided in the spec (section 8.7): levels in Unicode order, one generator, round-robin dealing for K-fold; a level with fewer than K members is allowed. Repeated K-fold is not stratified."
+      "evidence": "2026-10-05, feature/329_grouped-splits. uv run pytest: all green after the parity report regenerated (174 claims, 174 passed; tecator/corn/gasoline .split.leave_one_group_out.sklearn IDENTICAL, .split.group_kfold.sklearn DOCUMENTED_DIVERGENCE via record_divergence). Property tests in tests/test_validation.py (20 seeds: no group split, validate_partition holds; 5 seeds: deterministic from the seed). Failing first: with src stashed, tests/test_validation.py, test_executor.py and test_parity.py fail at import (by_group absent); with only models.py and executor.py stashed, KFoldSplit(group_by=...) is refused as an extra field; with only executor.py stashed, 4 grouped executor tests FAILED. uv run ruff check, uv run mypy src tests: clean (86 files). pnpm typecheck, lint, test (161 passed), build: green. pnpm exec playwright test: 90 passed (4.2m), including inspector.spec.ts 'a k-fold is grouped by a metadata column chosen from a dropdown, and runs'.",
+      "notes": "Grouped by fat_class, the seeded PLS-DA cannot fit a one-class training fold; that error message is #343. The e2e test removes plsda_d for its duration."
     },
     {
-      "id": "multiclass-groundwork",
+      "id": "final-model",
       "priority": 2,
       "area": "backend",
-      "issue": 269,
-      "title": "Multi-class groundwork: N classes in the payload, metrics and confusion matrix",
-      "depends_on": [
-        "stratified-splits"
-      ],
-      "user_visible_behavior": "Classifiers are offered on any class column with two or more classes; results show an N-by-N confusion matrix and per-class sensitivity, specificity and precision.",
+      "issue": 330,
+      "title": "A final model fitted on every sample",
+      "depends_on": [],
+      "user_visible_behavior": "Below a split, the results, the model registry, the artifact and both exports carry a model refitted on every sample; the cross-validated numbers stay beside it.",
       "verification": [
-        "uv run pytest - classification_metrics per class against scikit-learn's classification report on a fixture; two-class PLS-DA results byte-identical to before",
+        "uv run pytest - the all-sample model equals a fit on all rows; an export reproduces application predictions within model-export.md section 5; an artifact written before still loads",
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green"
       ],
       "status": "passing",
-      "evidence": "2026-10-02. New normative spec docs/algorithms/classification.md (N-by-N matrix, accuracy, per-class n/sensitivity/specificity/precision one-vs-rest, absent never NaN, two classes keep pls-da.md section 6's headline keys), linked from pls-da.md and the docs nav; `uv run mkdocs build --strict` clean. `uv run pytest`: `938 passed, 1 skipped`. tests/test_classification.py: confusion_matrix equals sklearn.metrics.confusion_matrix on a seeded 4-class, 200-sample case; class_metrics' n, sensitivity and precision equal precision_recall_fscore_support(average=None); specificity checked from its definition; two-class flat metrics unchanged ([[50,5],[10,35]] gives the same accuracy, sensitivity, specificity as before); more than two classes give accuracy alone; an empty class's undefined metrics are absent; results_payload serves class_metrics per set equal to class_metrics of each stored matrix. Existing PLS-DA executor and parity tests pass unchanged. Proof: with src/ and frontend/src/screens reverted and the new tests kept, test_classification.py fails at collection and the new confusion.test.tsx case fails. ruff, ruff format, mypy (71 files) clean. `pnpm typecheck && pnpm lint && pnpm test`: 141 passed, including a 3-class matrix and its per-class table with an em dash for an absent metric. `pnpm build` then `pnpm exec playwright test`: 74 passed, analysis.spec.ts now asserting the cross-validated per-class table has one row per class.",
-      "notes": "stepMenu still offers a classifier only on two-valued columns: the only classifier, PLS-DA, refuses three or more classes until plsda-multiclass (#274), and offering a node the executor refuses is the thing classColumns.ts exists to avoid. Each new classifier widens its own menu entry. The export snippet's 0.5 threshold is likewise PLS-DA's and changes in #274."
+      "evidence": "2026-10-05, feature/330_final-model. uv run pytest: green (full suite, including tests/test_examples.py with the quoted numbers updated: pls.md RMSEC 2.37, classification.md 20 samples, how-to/outliers.md 84 of 240). New tests: test_executor 'a_pca_below_a_split_is_fitted_on_every_sample...' and 'the_curve_is_every_folds_and_the_model_is_every_samples' (coefficients and predictions equal PLS fitted on all rows; held-out predictions equal fold zero's model), test_export 'exports_the_all_sample_model' (snippet reproduces every prediction within model-export.md section 5), test_artifact 'an_artifact_written_before_the_final_model_still_loads' (schema 1 reads under schema 2). Failing first: with src and frontend/src stashed, 7 of them FAILED. uv run ruff check, uv run mypy (src and tests): clean after fixing a test typing error CI caught on the first push. pnpm typecheck, lint, test (161 passed), build: green; pnpm exec playwright test: 90 passed (3.3m).",
+      "notes": "Estimator keys carry RESULT_FORMAT, so every result stored before #330 is a cache miss. Artifact schema 2 drops split.fold and the index arrays. CARS still samples from fold zero's matrix; #331 revisits it."
     },
     {
-      "id": "sample-exclusion",
+      "id": "nested-selection",
       "priority": 3,
-      "area": "backend",
-      "issue": 270,
-      "title": "Sample exclusion: a derived dataset version the executor honours",
+      "area": "kernels",
+      "issue": 331,
+      "title": "Nested validation for variable selection",
       "depends_on": [],
-      "user_visible_behavior": "Samples can be excluded from a dataset and brought back; an exclusion creates a new version, and runs, comparisons, reports and models say which samples were left out.",
+      "user_visible_behavior": "A VIP, iPLS or CARS selection can be validated in an outer loop that reruns the selection per outer fold; the honest outer RMSECV is shown beside the inner one.",
       "verification": [
-        "uv run pytest - the executor drops excluded rows; the derived version keeps content_hash and sets derived_from; the experiment diff names the change; report and artifact list the excluded ids",
+        "uv run pytest - outer loop against a scikit-learn rebuild on the served folds; outer error at least the inner on Tecator",
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
-        "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; an e2e test excludes and restores a sample"
+        "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green"
       ],
       "status": "passing",
-      "evidence": "2026-10-02. Design decided in the work: an exclusion materialises a derived version (kept rows written as a new array, its own content hash, derived_from the parent, excluded_samples = parent row indices) rather than masking rows in place, so the executor, folds, payloads and sample ids need no change; recorded in design/data-model.md and the DatasetVersion field description. `uv run pytest`: `945 passed, 1 skipped`. tests/test_api.py: POST /datasets/{id}/versions writes version 2 with rows 1 and 6 gone from the array, ids and targets, deduplicated and sorted excluded_samples, a new content hash, and moves the pipeline source onto it; pointing the source back through PUT /pipelines/current restores the parent; an empty, out-of-range or too-large exclusion is refused 422 invalid_exclusion with the reason. tests/test_artifact.py: the manifest's dataset block carries derived_from and excluded_samples (null and [] when nothing was excluded). tests/test_report.py: a run on a derived version prints '2 rows of version <parent>: 4, 9'. Proof: with src/ reverted and the new tests kept, the derive, refusal, artifact and report tests fail (7 failed); the restore test drives an existing endpoint. ruff, mypy (71 files) clean. `pnpm test`: 142 passed, lineage.test.ts now naming a source's version_id change (the diff compared only step/spec and missed it; fixed in diff.ts). `pnpm build` then `pnpm exec playwright test`: 75 passed, walkthrough.spec.ts excluding A002 and A005 from the dataset table, seeing v2 28x24 with '2 excluded from v1' and 'Left out of v1: A002, A005', running PCA on 28 samples, and restoring v1.",
-      "notes": "The dataset table ticks only the 60 rows it draws (its existing ceiling); exclusion from the outlier table is exclude-flagged (#279), through the same endpoint."
+      "evidence": "2026-10-05, feature/331_nested-selection. uv run pytest: exit 0 (full suite). tests/test_selection.py: nested VIP (5 outer folds) and nested iPLS (4 outer, 5 intervals) agree with a scikit-learn PLSRegression rebuild on the served folds - identical selections per outer fold, predictions within rtol 1e-6; outer RMSECV >= inner on Tecator for iPLS and CARS; a grouped outer split stays grouped inside; an empty outer selection is refused by number. tests/test_server.py: GET /api/results/{id}/nested for vip, ipls and cars. Failing first: with src stashed, test_selection.py fails to collect (nested absent) and the endpoint test gets 404. uv run ruff check, ruff format --check, uv run mypy (86 files): clean. pnpm test 161 passed; pnpm exec playwright test: 91 passed (3.4m), including 'a VIP selection is validated in an outer loop'.",
+      "notes": "VIP is a filter that never reads a CV error, so its outer RMSECV can come out below the inner (it does on Tecator, 3.83 vs 3.84); variable-selection.md section 8 says so and only iPLS and CARS are asserted outer >= inner."
     },
     {
-      "id": "smoothing-filters",
+      "id": "selection-for-plsda",
       "priority": 4,
       "area": "kernels",
-      "issue": 271,
-      "title": "Smoothing filters: moving average, median, Gaussian, Whittaker",
+      "issue": 332,
+      "title": "Variable selection from a PLS-DA",
       "depends_on": [],
-      "user_visible_behavior": "Four new smoothing steps in the add-step menu.",
+      "user_visible_behavior": "VIP threshold, iPLS and CARS run from a PLS-DA on the pooled dummy response and apply as a select_variables step.",
       "verification": [
-        "docs/algorithms/smoothing-and-baselines.md specifies all four, edges included",
-        "uv run pytest - parity claims against chemotools (MeanFilter, MedianFilter, WhittakerSmooth) and scipy gaussian_filter1d; the linear three fold into exported coefficients, median exports as a residual step",
-        "uv run python -m tests.parity_report - docs/parity-report.md regenerated with the new rows, and test_parity_coverage green",
-        "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green"
+        "uv run pytest - against references on a classification dataset",
+        "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
+        "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; an e2e test applies a selection from a PLS-DA"
       ],
       "status": "passing",
-      "evidence": "2026-10-03. smoothing-and-baselines.md section 10 now specifies moving average, median, Gaussian and Whittaker: window smoothers shrink and renormalise their window at the ends (nothing padded, as for SG's interp), Gaussian truncates at SciPy's 4-sigma radius, Whittaker is (I + lam D'D)^-1 with second differences; the old 'not specified' list moves to section 11 and the divergence table names the end convention. `uv run python tests/fixtures/generate_reference_values.py`: 135 entries, the 12 new ones added and nothing else changed but the date. `uv run pytest`: `966 passed, 1 skipped`. test_parity.py on corn, gasoline and tecator (3 x 120 baseline block): moving average against chemotools MeanFilter and Gaussian against scipy gaussian_filter1d on the interior columns, median against chemotools MedianFilter on the interior and identical, Whittaker against chemotools WhittakerSmooth(lam=100) on every column; test_parity_coverage green with four new rows; `uv run python -m tests.parity_report` writes 132 claims. test_preprocessing.py: constants pass every smoother unchanged, the ends shrink (first moving-average output = mean of x0..x2), the Gaussian's cut rows sum to 1 and stop at radius 8 for sigma 2, Whittaker passes a straight line, even or too-wide windows and non-positive sigma/lam are refused by kernel and schema, from_spec builds each. test_export.py: median -> moving average -> Gaussian -> Whittaker -> centre -> PLS exports with only the median as a residual step and the NumPy snippet reproduces the application's predictions within model-export.md's tolerance. Proof: with src/ reverted and the new tests kept, test_preprocessing, test_parity and test_export fail at collection. ruff, ruff format, mypy (71 files) clean; `uv run mkdocs build --strict` exit 0. `pnpm test`: 143 passed, catalogue.test.ts checking the four menu entries against nodeLabel and parameterLine. `pnpm build` then `pnpm exec playwright test`: 76 passed, walkthrough.spec.ts running a median and a Whittaker node upstream of PCA and seeing them labelled and complete.",
-      "notes": "The side list's Add appends below an estimator, which the schema accepts and the executor then fails on with a KeyError; that is pre-existing and recorded as no-step-below-estimator (#296). The e2e test writes the smoothers through the pipeline PUT for that reason."
+      "evidence": "2026-10-05, feature/332_selection-for-plsda. uv run pytest: exit 0 (full suite). References: tests/test_regression.py one-hot RMSECV curve equals scikit-learn multi-target PLSRegression (tol=0, max_iter=2000) pooled over every element, rtol 1e-6; tests/test_selection.py iPLS on Tecator fat terciles one-hot - every interval RMSECV within rel 1e-6 of a scikit-learn rebuild and an identical selection; two classes as codes and as a two-column one-hot give the same curve; CARS and the nested loop run on one-hot and are seeded; a |b| cut on three classes is refused. tests/test_server.py: ipls, cars and nested from a two-class PLS-DA on the seeded Tecator's fat_class. Failing first: with src stashed, all 6 new tests FAILED. ruff check, ruff format --check, mypy (86 files): clean. pnpm test 161 passed; pnpm exec playwright test: 92 passed (3.3m), including 'an iPLS selection from a PLS-DA is applied above a copy of the PLS-DA, which runs'.",
+      "notes": ""
     },
     {
-      "id": "no-step-below-estimator",
-      "priority": 4,
-      "area": "backend",
-      "issue": 296,
-      "title": "A step below an estimator is refused where it is written, not by a KeyError at run time",
-      "depends_on": [],
-      "user_visible_behavior": "Saving a pipeline with a node fed by an estimator is refused with a sentence naming both nodes; the side list does not append below an estimator.",
-      "verification": [
-        "uv run pytest - the schema or the pipeline PUT refuses a node whose input is an estimator, naming both; the test fails on the unfixed code first",
-        "pnpm exec playwright test - adding from the side list to a pipeline ending in an estimator does not produce an unrunnable graph"
-      ],
-      "status": "passing",
-      "evidence": "2026-10-03. Not a schema validator: a pipeline saved before this must still load, so Pipeline.estimator_inputs() names every (node, estimator) pair and the write and the run refuse them. `uv run pytest`: `968 passed, 1 skipped`. tests/test_api.py: PUT /pipelines/current and POST /pipelines/current/validate with an SNV fed by a PCA both answer 422 invalid_pipeline, \"node 'snv' takes its input from 'pca', which is an estimator\". tests/test_executor.py: running such a stored pipeline raises ExecutorError naming both nodes instead of KeyError. Proof: with src/ reverted and the new tests kept, both fail (the API accepts it; the executor raises KeyError). ruff, mypy clean. `pnpm test`: 144 passed; graph.test.ts: withDrafts branches a step from an estimator's input, whether the estimator is saved or drafted (fails on the old withDrafts). `pnpm build` then `pnpm exec playwright test`: 76 passed; walkthrough.spec.ts now adds Median w5 and Whittaker lambda 100 from the side list to the chain ending in PCA, saves, runs, and every node completes - the flow that failed with \"'pca'\" while #271 was tested.",
-      "notes": "Found 2026-10-03 while testing #271: the walkthrough's side-list Add appended a smoother after PCA and the run failed with \"'pca'\" (KeyError in the executor). Pre-existing on dev."
-    },
-    {
-      "id": "run-waits-for-save",
-      "priority": 4,
-      "area": "frontend",
-      "issue": 291,
-      "title": "A run started while a save is in flight runs what was saved",
-      "depends_on": [
-        "no-step-below-estimator"
-      ],
-      "user_visible_behavior": "Run pipeline is disabled while the recipe is being saved, and a click that lands first waits for the save; a run never executes the recipe from before the Save.",
-      "verification": [
-        "pnpm exec playwright test - with the save PUT held back a second, Save then Run completes every node including the new one; the test fails on the unfixed code first"
-      ],
-      "status": "passing",
-      "evidence": "2026-10-03. Root cause of #291 (Windows docs-examples, 1 of 5 complete after Done) and of #298's first ubuntu run (4 of 6): Run was clicked while the Save PUT was in flight, the server executed the recipe from before the save, the job reported Done, and the new nodes stayed not run. useSavePipeline now carries a shared mutation key; Shell disables Run while any save is pending and startRun waits for pending saves before posting. `pnpm test`: 144 passed. `pnpm build` then `pnpm exec playwright test`: 77 passed, including walkthrough.spec.ts 'a run started while a save is in flight runs what was saved', which delays the PUT by 1 s with page.route and clicks Save then Run. Proof: with frontend/src reverted and the test kept, it fails 'Expected: 7, Received: 6' - the CI signature.",
-      "notes": "Found while fixing #296; depends on it only because the test adds a step from the side list to a chain ending in PCA."
-    },
-    {
-      "id": "pcr",
+      "id": "permutation-test",
       "priority": 5,
       "area": "kernels",
-      "issue": 272,
-      "title": "PCR: principal component regression",
+      "issue": 333,
+      "title": "Permutation test",
       "depends_on": [],
-      "user_visible_behavior": "PCR offered beside PLS on a dataset with a target, with the same regression results less VIP.",
+      "user_visible_behavior": "A seeded y-permutation test for PLS, PCR, PLS-DA, LDA and kNN reports a p-value and draws the null distribution with the observed value.",
       "verification": [
-        "docs/algorithms/pcr.md written",
-        "uv run pytest - parity against scikit-learn Pipeline(PCA, LinearRegression) and mdatools pcr on Tecator; JSON and snippet export reproduce the application's predictions",
-        "uv run python -m tests.parity_report - docs/parity-report.md regenerated with the new rows, and test_parity_coverage green",
+        "uv run pytest - parity against scikit-learn permutation_test_score with the same permutations",
+        "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green"
       ],
       "status": "passing",
-      "evidence": "2026-10-03. docs/algorithms/pcr.md written (PCA per pca.md, then least squares on the orthogonal scores; components nest so the RMSECV curve is one fit per fold; X diagnostics are the PCA's with the Jackson-Mudholkar SPE limit; no VIP; exports as a coefficient vector) and added to the docs nav; `uv run mkdocs build --strict` exit 0. regression.PCR has PLS's interface; cross_validated_predictions and rmsecv_curve take the estimator class. Executor: PCRSpec routes through the shared regression fit (renamed _fit_regression) with vip [] and the PCA's spe_limit_caveat; results carry `method` so the header says PCR. `uv run python tests/fixtures/generate_reference_values.py`: 141 entries, the 6 PCR ones added and nothing else changed. `uv run pytest`: `977 passed, 1 skipped`. test_parity.py: coefficients and predictions against scikit-learn PCA(svd_solver='full') + LinearRegression on corn, gasoline and tecator, A=5, without sign alignment; coverage row and ALGORITHM_ORDER updated; `uv run python -m tests.parity_report`: 138 claims. test_executor.py: a PCR below a 5-fold split is a regression with no VIP and its RMSECV equals scikit-learn's PCA + LinearRegression on the run's own resolved folds, each preprocessed by its training rows (rel 1e-6). test_export.py: a centred PCR exports as a bare coefficient vector and the NumPy snippet reproduces the predictions. test_checks.py: PCR without centring gets pls_without_centring. Proof: with src/ reverted the new tests fail at collection. ruff, mypy clean. `pnpm test`: 145 passed (PCR in stepMenu with a target, absent without; nodeLabel 'PCR 5 PC · fat'). `pnpm build` then `pnpm exec playwright test`: 78 passed, walkthrough.spec.ts running a PCR on moisture and reading 'PCR on moisture 3 components', a variable-importance select offering coefficients only, and the predicted-vs-measured panel.",
-      "notes": "Parity is against scikit-learn only; the plan's mdatools pcr reference would need the R script re-run and was not added. The side list offers no target-needing estimators (as for PLS); PCR is on the canvas drop menu."
+      "evidence": "2026-10-05, feature/333_permutation-test. uv run pytest: exit 0 (full suite). Parity, tests/test_permutation.py: scikit-learn permutation_test_score handed our permutations (a RandomState drawing from default_rng(seed)) and our five equal folds gives the same null and p-value - PLS RMSECV via neg MSE (rtol 1e-6) and two-class PLS-DA accuracy (exact), 30 permutations on Tecator; the null follows from its seed and p is never zero. tests/test_executor.py: permutation_test_for's observed score equals the run's RMSECV and kNN accuracy_cv; refused without a split. tests/test_server.py: POST /results/plsda/permutation as a job, GET /permutations/{job_id}. Failing first: with src and frontend/src stashed, test_permutation.py and test_executor.py fail to collect and the endpoint is 404. ruff check, ruff format --check, mypy (87 files): clean. pnpm test 162 passed; pnpm exec playwright test: 93 passed (3.4m), including 'a permutation test runs as a job and places the PLS in its null'.",
+      "notes": "The response is permuted sample by sample also under a grouped split; metrics-and-validation.md section 14 says so."
     },
     {
-      "id": "pls2-kernel",
+      "id": "bootstrap-intervals",
       "priority": 6,
       "area": "kernels",
-      "issue": 273,
-      "title": "PLS2 kernel: NIPALS for a multi-column response",
+      "issue": 334,
+      "title": "Bootstrap intervals for coefficients and VIP",
       "depends_on": [],
-      "user_visible_behavior": "None directly: the kernel multi-class PLS-DA needs.",
+      "user_visible_behavior": "PLS and PCR coefficients and VIP carry seeded bootstrap percentile intervals, drawn as bands.",
       "verification": [
-        "pls-regression.md section 10 replaced by a PLS2 specification",
-        "uv run pytest - parity against scikit-learn PLSRegression with multi-column Y; a one-column Y reproduces PLS1 exactly",
-        "uv run python -m tests.parity_report - docs/parity-report.md regenerated with the new rows, and test_parity_coverage green"
+        "uv run pytest - an independent rebuild on the same resamples; deterministic for a seed",
+        "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
+        "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green"
       ],
       "status": "passing",
-      "evidence": "2026-10-03. pls-regression.md section 10 replaced: PLS2 is a kernel (not a node) whose weight per component is the dominant left singular vector of the deflated E'F, computed by SVD - the fixed point NIPALS's inner loop converges to, with no tolerance, cap or seed; with m = 1 it is PLS1. Section 4's note that PLS2 weights are not orthogonal was wrong and is corrected (they are, from X deflation; measured 3e-15). regression.PLS2 subclasses PLS and overrides fit only. `uv run python tests/fixtures/generate_reference_values.py`: 150 entries, the 9 PLS2 ones added (corn, gasoline, tecator; coefficients, predictions, scores) and no existing entry changed (checked by id). The reference is scikit-learn PLSRegression(scale=False, tol=0, max_iter=2000): its stop test is on the squared weight change, so tol=1e-15 left corn 3.2e-6 relative off; run to machine precision it agrees with ours to 1.5e-14 absolute. `uv run pytest`: `987 passed, 1 skipped`. test_parity.py: PLS2 coefficients (no sign alignment), predictions and scores on all three datasets. test_regression.py: m = 1 reproduces PLS1's coefficients, scores, VIP and Y explained variance; weights orthonormal and scores orthogonal on Tecator's three responses; coefficients p x 3, y_loadings 3 x 5, sum VIP^2 = p, cumulative Y explained variance = 1 - RSS/TSS; mismatched rows and too many components refused. Coverage row added; `uv run python -m tests.parity_report`: 147 claims. Proof: with src/ reverted the new tests fail at collection. ruff, mypy clean; `uv run mkdocs build --strict` exit 0.",
-      "notes": ""
+      "evidence": "2026-10-05, feature/334_bootstrap-intervals. uv run pytest: exit 0 (full suite). tests/test_server.py: GET /results/pls/bootstrap (25 resamples, level 0.9, seed 5) through split, mean centre and PLS on the seeded Tecator equals an independent rebuild - scikit-learn PLSRegression, VIP from its weights, on the same rows drawn from default_rng(5) - for VIP and the folded coefficients, rtol 1e-6; repeated calls are identical; a PCR gets coefficient bands and no VIP. tests/test_validation.py: the kernel follows from its seed, takes the stated percentiles, and refuses fewer than two resamples or a level outside (0, 1). Failing first: with src stashed, all 5 new tests FAILED. ruff check, ruff format --check, mypy (87 files): clean. pnpm test 163 passed; pnpm exec playwright test: 94 passed (3.6m), including 'bootstrap bands are drawn under the PLS's VIP'.",
+      "notes": "Synchronous endpoint (200 PLS fits on Tecator in about a second); an unfoldable chain (SNV) gets VIP bands only."
     },
     {
-      "id": "plsda-multiclass",
+      "id": "classwise-diagnostics",
       "priority": 7,
       "area": "kernels",
-      "issue": 274,
-      "title": "Multi-class PLS-DA",
-      "depends_on": [
-        "multiclass-groundwork",
-        "pls2-kernel"
-      ],
-      "user_visible_behavior": "PLS-DA runs on a class column with three or more classes.",
+      "issue": 335,
+      "title": "Class-wise outlier diagnostics",
+      "depends_on": [],
+      "user_visible_behavior": "On a classification dataset each sample is diagnosed against its own class, classifiers are diagnosable, and the flags table sorts by the number of rules broken.",
       "verification": [
-        "pls-da.md sections 3 and 5 cover N classes",
-        "uv run pytest - parity against scikit-learn PLSRegression on the dummy matrix; argmax assignment; the export snippet reproduces the application's classes",
-        "uv run python -m tests.parity_report - docs/parity-report.md regenerated with the new rows, and test_parity_coverage green",
+        "uv run pytest - against an independent per-class PCA",
+        "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green"
       ],
       "status": "passing",
-      "evidence": "2026-10-03. pls-da.md sections 2, 3, 5, 7, 9, 10, 11 updated: two classes stay PLS1 with the 0.5 cut (results unchanged), three or more are PLS2 on a one-hot response assigned by the largest column, ties to the first class; a single-valued column is refused. model-export.md and model-artifact.md document the p x N coefficient matrix, per-class intercepts, `assignment: argmax`, `coefficient_matrix` and `y_means`. `uv run pytest`: `990 passed, 1 skipped`. test_executor.py: a three-class PLS-DA on Tecator fat terciles below a stratified 5-fold has a 240-sample 3x3 cross-validated confusion matrix, accuracy_cv and no two-class sensitivity, and both its calibration assignments and every cross-validated assignment equal scikit-learn PLSRegression(scale=False, tol=0, max_iter=2000) fitted to the same one-hot matrix on the run's own resolved folds, each preprocessed by its own training rows; a one-valued column is refused by name. test_export.py: Savitzky-Golay + centring + three-class PLS-DA exports a 100x3 folded matrix and 3 intercepts, and the NumPy snippet's argmax reproduces every calibration assignment. test_artifact.py: coefficient_matrix (100x3) and y_means round-trip. Existing two-class tests unchanged and green. Proof: with src/ reverted and the new tests kept, all four fail. ruff, mypy clean; mkdocs --strict exit 0. `pnpm test`: 145 passed, classColumns offering any column with two or more values (fails on the old twoValuedColumns). `pnpm build` then `pnpm exec playwright test`: 78 passed.",
-      "notes": "No new e2e: the e2e datasets carry no column with three or more values. The N-by-N confusion panel is unit-tested from #269; the multi-class path is covered end to end over the executor, export and artifact."
+      "evidence": "2026-10-05, feature/335_classwise-diagnostics. uv run pytest: exit 0 (full suite). tests/test_outliers.py: on Tecator fat terciles, every class's T2, Q and leverage equal scikit-learn PCA of that class's centred rows (rtol 1e-6) and the hat diagonal by explicit inverse (rtol 1e-8), limits at that class's n; a class of 2 is refused by code. tests/test_api.py: flags carry n_rules and are sorted most first, by row within a count; PLS-DA, LDA, kNN diagnosed, SIMCA not. tests/test_server.py: /results/plsda/outliers on the seeded Tecator - each flag's rules recomputed from the class-wise values and own-class limits. Failing first: with src stashed, 5 tests FAILED. ruff check, ruff format --check, mypy (87 files): clean after a test typing fix. pnpm test 164 passed; pnpm exec playwright test: 95 passed (3.5m), including 'a PLS-DA is diagnosed class by class, its flags most rules first'.",
+      "notes": "Class-wise rules are t2, q and leverage; no robust distance (small classes) and no residual (a class is not a response). outliers.md section 8."
     },
     {
-      "id": "simca",
+      "id": "axis-correction",
       "priority": 8,
-      "area": "kernels",
-      "issue": 275,
-      "title": "SIMCA classification",
-      "depends_on": [
-        "multiclass-groundwork"
-      ],
-      "user_visible_behavior": "SIMCA offered on a class column: a per-class acceptance table, a Coomans plot, sensitivity and specificity.",
+      "area": "backend",
+      "issue": 336,
+      "title": "Correct the axis unit in the import preview",
+      "depends_on": [],
+      "user_visible_behavior": "The import preview offers the axis kind as a correctable choice; the correction is recorded in provenance.",
       "verification": [
-        "docs/algorithms/simca.md written",
-        "uv run pytest - parity against mdatools simca/simcam through r_mdatools_reference.R; the artifact holds every class model; the export snippet reproduces memberships",
-        "uv run python -m tests.parity_report - docs/parity-report.md regenerated with the new rows, and test_parity_coverage green",
-        "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green"
+        "uv run pytest - reader tests for the CSV and XLSX readers",
+        "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
+        "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; an e2e test corrects the axis and sees the unit on the plot"
       ],
       "status": "passing",
-      "evidence": "2026-10-04. docs/algorithms/simca.md written: one PCA per class centred on its own mean, reduced distance h_k = max(T2/T2lim, Q/Qlim) with the new-sample F T2 limit and the Jackson-Mudholkar Q limit at alpha 0.05, accepted when h_k <= 1, a sample may be accepted by none, one or several; acceptance table, per-class and pooled sensitivity/specificity, Coomans distances; JSON/snippet export not offered (artifact only). New kernel module classification.py (SIMCA, acceptance_table, simca_class_metrics, simca_metrics) added to KERNEL_MODULES. `uv run pytest`: `998 passed, 1 skipped`. test_classification.py: every class model equals decomposition.PCA on its centred class with the same limits; T2, Q, reduced distance and acceptance recomputed from that PCA; table, none, per-class and pooled metrics checked on a hand-built case; a class too small for A refused. test_executor.py: a SIMCA below a stratified 4-fold on Tecator terciles has calibration, held-out and cross-validated sets whose CV distances equal SIMCA refitted per resolved fold on the float32-stored SNV arrays (rtol 1e-9) and whose table and none match; a 3-sample class refused naming it. test_export.py: JSON export refused with simca.md's reason. test_artifact.py: every class's mean, loadings and limits round-trip. Parity: COVERAGE row not_compared with the reason (no R; scikit-learn has no SIMCA) per the maintainer's choice of option 2 on 2026-10-04; `uv run python -m tests.parity_report`: 147 claims plus the row. Proof: with src/ reverted the new tests fail at collection. ruff, mypy clean; mkdocs --strict exit 0. `pnpm test`: 147 passed (SIMCA menu entry and labels; acceptance panel with none column and an em dash for an absent metric). `pnpm build` then `pnpm exec playwright test`: 79 passed, analysis.spec.ts adding a SIMCA beside the seeded PLS-DA, running it, reading the header, the cross-validated acceptance table's two rows, the Coomans plot and the class models, with no scores panel, then restoring the seeded recipe.",
-      "notes": "Parity against R mdatools was replaced by property tests (no R, maintainer's decision 2026-10-04). JSON/snippet export deferred: it needs the foldable chain carried as an affine map (simca.md section 7)."
+      "evidence": "2026-10-09. `uv run pytest`: 1192 passed, 1 skipped; the ten new or changed tests (axis_kind offered, refused on a numbered axis, ascending FT-IR corrected to cm-1 in preview and read, index renumbers, survives orientation, only changed fields recorded, xlsx correction, API stores axis and source.corrections, both contract-shape tests) each failed with src/ stashed. `uv run ruff check .`: All checks passed; `uv run mypy`: no issues in 87 files. `pnpm typecheck && pnpm lint`: clean; `pnpm test`: 164 passed; `pnpm build`: built; `pnpm exec playwright test`: 96 passed (5.0m). New e2e `empty.spec.ts` 'a corrected axis kind is the unit the spectra are plotted in' corrects Kind to wavenumber_cm-1, sees '1000–1500 cm-1' in the preview and 'wavenumber_cm-1 (cm-1)' on the Source spectra plot; it failed on the unfixed bundle (getByLabel('Kind') not found).",
+      "notes": "Detection.axis_kind is a Choice for the CSV and XLSX readers, offered whenever the axis is not an index; SourceFile.corrections records the fields the user changed (left out of the dump when empty). The e2e imports 70 samples to step round #355."
     },
     {
-      "id": "lda",
+      "id": "step-list-parity",
       "priority": 9,
-      "area": "kernels",
-      "issue": 276,
-      "title": "LDA classifier",
-      "depends_on": [
-        "multiclass-groundwork"
-      ],
-      "user_visible_behavior": "LDA offered on a class column, optionally on PCA scores.",
+      "area": "frontend",
+      "issue": 337,
+      "title": "The Step list offers splits and estimators",
+      "depends_on": [],
+      "user_visible_behavior": "The pipeline panel's Step list offers the same steps as the port menu, with the same defaults.",
       "verification": [
-        "docs/algorithms/lda.md written",
-        "uv run pytest - parity against scikit-learn LinearDiscriminantAnalysis on predictions and decision function; exported like PLS-DA",
-        "uv run python -m tests.parity_report - docs/parity-report.md regenerated with the new rows, and test_parity_coverage green",
+        "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; a unit test that the two lists match, and an e2e test that adds a split and a PLS-DA from the Step list"
+      ],
+      "status": "passing",
+      "evidence": "2026-10-10, branch feature/337_step-list-parity. In frontend/: `pnpm typecheck` and `pnpm lint` clean; `pnpm test` 19 files, 169 passed, including catalogue.test.tsx 'offers in the Step list what the port menu offers, splits and estimators included (#337)', which renders StepList with stepMenu(['fat'], ['fat_class']) and asserts its options equal the menu's kinds; `pnpm build` built; `pnpm exec playwright test` 97 passed, 1 failed - the new test, whose first assertion expected 'valid · 3 steps' where the server rightly reported the mean centre above the drafted split; reworded to assert that message, then `pnpm exec playwright test e2e/pipeline.spec.ts` 14 passed, including 'the step list offers a split and a PLS-DA, as the port menu does (#337)', which adds K-fold 10, SNV and PLS-DA 5 LV from the Step list and validates them. `uv run mkdocs build --strict` built.",
+      "notes": "The list and the port menu both take stepMenu(targets, classColumns); DraftStep.type admits 'split'. Neither sets a stratify_by default: the port menu never did, and the inspector offers stratifiable columns once the split is saved."
+    },
+    {
+      "id": "svm",
+      "priority": 10,
+      "area": "kernels",
+      "issue": 338,
+      "title": "SVM classifier",
+      "depends_on": [],
+      "user_visible_behavior": "An SVM (linear or RBF, on principal component scores, one-vs-one) is a classifier like LDA and kNN.",
+      "verification": [
+        "docs/algorithms/svm.md written",
+        "uv run pytest - parity against scikit-learn SVC with the same kernel, C and gamma; the solver's stopping rule a recorded divergence",
+        "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green"
       ],
       "status": "passing",
-      "evidence": "2026-10-04. docs/algorithms/lda.md written: PCA-LDA always (n_components is the PCA front), estimator-centred, pooled within-class covariance on n-N degrees of freedom, empirical priors; discriminant (x - x_mean)B + c, argmax with ties to the first class even for two classes; export identical to multi-class PLS-DA. classification.LDA; executor _lda stores the PCA front's scores and diagnostics and B, c, x_mean as coefficient_matrix, y_means, x_mean. `uv run python tests/fixtures/generate_reference_values.py`: 156 entries, the 6 LDA ones added, nothing changed (checked by id). `uv run pytest`: `1005 passed, 1 skipped` plus test_parity_report green after `uv run python -m tests.parity_report` (153 claims). test_parity.py: decision function and assigned classes against scikit-learn PCA(svd_solver='full') + LinearDiscriminantAnalysis() on tercile classes of corn, gasoline and tecator, assignments identical. test_executor.py: an LDA below a stratified 5-fold after SNV on Tecator terciles - every cross-validated assignment equals scikit-learn's on the run's own resolved folds. test_export.py: Savitzky-Golay + LDA exports by argmax and the snippet reproduces every calibration assignment. Proof: with src/ reverted the new tests fail at collection. ruff, mypy clean; mkdocs --strict exit 0. `pnpm test`: 148 passed (LDA menu entry and labels). `pnpm build` then `pnpm exec playwright test`: 80 passed, analysis.spec.ts adding an LDA beside the seeded PLS-DA, reading 'LDA on fat_class 5 components', the cross-validated confusion, accuracy and the PCA-front scores panel, then restoring the recipe.",
+      "evidence": "2026-10-10, branch feature/338_svm. docs/algorithms/svm.md written (in mkdocs nav; `uv run mkdocs build --strict` built). Parity: `uv run pytest tests/test_parity.py -k svm` 12 passed - corn, gasoline and tecator terciles, linear and RBF, C=1, gamma scale: assignments identical to sklearn 1.9.0 SVC(shrinking=False) at tol 1e-3; decision values at tol 1e-9 within the new float32_kernel class (rtol 1e-5, atol 1e-4; largest observed 3e-5, tecator linear); default-tol decision values a recorded divergence after a check that they lie within 10 tol. New tests (parity, executor CV against SVC on the run's own folds for both kernels, permutation, one-class fold, artifact, snippet export for both kernels) fail at collection with src/ stashed. `uv run pytest` 1218 passed, 1 skipped; `uv run ruff check` and `ruff format --check` clean; `uv run mypy` no issues in 87 files. In frontend/: `pnpm typecheck`, `pnpm lint` clean; `pnpm test` 169 passed (19 files); `pnpm build` built; `pnpm exec playwright test` 98 passed, including 'an SVM tab reads as a classification, and exports its JSON model'.",
+      "notes": "SMO with LIBSVM's second-order working-set selection, no shrinking, kernel in float64; refuses after 1e6 iterations. A linear kernel with large C on unscaled scores converges slowly (tecator C=100: 12 s per fit). kNN and SVM share executor._scores_classifier. No probability output: SVC's Platt scaling is randomised (svm.md section 4)."
+    },
+    {
+      "id": "signed-packages",
+      "priority": 11,
+      "area": "packaging",
+      "issue": 339,
+      "title": "Signed packages for macOS and Windows",
+      "depends_on": [],
+      "user_visible_behavior": "The packages open without the operating system's unsigned-application warning.",
+      "verification": [
+        "a release candidate's dmg and Windows executable open without the warning on clean machines",
+        "docs/how-to-open.md updated"
+      ],
+      "status": "blocked",
+      "evidence": "",
+      "notes": "Blocked on credentials: an Apple Developer ID with notarisation and a Windows code-signing certificate, supplied by the maintainer as repository secrets. Unblocked when both exist."
+    },
+    {
+      "id": "docs-phase-6",
+      "priority": 12,
+      "area": "docs",
+      "issue": 340,
+      "title": "Phase 6 documentation",
+      "depends_on": [
+        "grouped-splits",
+        "final-model",
+        "nested-selection",
+        "selection-for-plsda",
+        "permutation-test",
+        "bootstrap-intervals",
+        "classwise-diagnostics",
+        "svm"
+      ],
+      "user_visible_behavior": "The docs site covers every Phase 6 method, with a worked example on the raw, grouped meat set.",
+      "verification": [
+        "uv run mkdocs build --strict",
+        "uv run pytest tests/test_examples.py - every number the new pages quote recomputed",
+        "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; a docs spec walks the new example"
+      ],
+      "status": "passing",
+      "evidence": "2026-10-10, branch feature/340_docs-phase-6. Algorithm pages: every Phase 6 method already had its section in the reference pages, written with its feature (metrics-and-validation.md 8.8 grouping, 9 the all-sample model, 14 the permutation test; variable-selection.md 8 nested, 9 from a PLS-DA; pls-regression.md 16 bootstrap; outliers.md 8 class-wise, where \"beef and lamb\" was corrected to chicken and turkey; svm.md). New: docs/examples/validation.md (raw meat set grouped by sample: grouped vs ungrouped CV, held-out table, permutation test, SVM, nested VIP check) on docs/examples/meat-raw.csv, 120 spectra built from the Quadram source (meat-source.md describes it; a test checks each pair averages to meat.csv's row); how-to/variable-selection.md gains nested validation (CARS and VIP) and bootstrap VIP bands; how-to/outliers.md gains class-wise diagnostics on the grouped PLS-DA. `uv run pytest tests/test_examples.py`: 11 passed, four new tests recomputing every quoted number. `uv run mkdocs build --strict`: built. `uv run ruff check`, `ruff format --check`, `uv run mypy`: clean; `uv run pytest`: 1222 passed, 1 skipped. In frontend/: `pnpm typecheck`, `pnpm lint` clean; `pnpm test` 170 passed; `pnpm build`; `pnpm exec playwright test`: 100 passed (4.1m), including the new e2e/docs-validation.spec.ts on a seventh server (8771, `validation`), which the CI docs job now runs for its screenshots.",
       "notes": ""
     },
     {
-      "id": "knn",
-      "priority": 10,
-      "area": "kernels",
-      "issue": 277,
-      "title": "kNN classifier",
-      "depends_on": [
-        "multiclass-groundwork"
-      ],
-      "user_visible_behavior": "kNN offered on a class column, with k and an optional PCA front end.",
-      "verification": [
-        "docs/algorithms/knn.md written, tie rule stated",
-        "uv run pytest - parity against scikit-learn KNeighborsClassifier predictions; artifact and snippet embed the training rows and reproduce predictions",
-        "uv run python -m tests.parity_report - docs/parity-report.md regenerated with the new rows, and test_parity_coverage green",
-        "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green"
-      ],
-      "status": "passing",
-      "evidence": "2026-10-05. docs/algorithms/knn.md written: PCA-kNN always (distances on n_components scores of the centred matrix), k <= n, unweighted votes, equal distances keep calibration order and a tied vote goes to the first class (both scikit-learn's), calibration accuracy stated as resubstitution; artifact carries x_mean, loadings, neighbours' scores and classes, k; JSON/snippet refused (tracked in #306). classification.KNN; executor _knn stores training_classes and k. `uv run python tests/fixtures/generate_reference_values.py`: 162 entries, the 6 kNN ones added, nothing changed (checked by id). `uv run pytest`: `1015 passed, 1 skipped` plus test_parity_report green after `uv run python -m tests.parity_report` (159 claims). test_parity.py: assignments and predict_proba vote fractions against scikit-learn PCA(svd_solver='full') + KNeighborsClassifier(5) on tercile classes of corn, gasoline and tecator, both identical (max abs diff 0). test_executor.py: a kNN (k=3, A=6) below a stratified 5-fold after SNV on Tecator terciles - every cross-validated assignment equals scikit-learn's on the run's own resolved folds; k larger than the calibration set refused. test_export.py: JSON refused with knn.md's reason. test_artifact.py: neighbours' scores, classes and k round-trip. Proof: with src/ reverted the new tests fail at collection. ruff, mypy clean; mkdocs --strict exit 0. `pnpm test`: 149 passed (kNN menu entry and labels). `pnpm build` then `pnpm exec playwright test`: 81 passed, analysis.spec.ts adding a kNN beside the seeded PLS-DA, reading 'kNN on fat_class 5 components' and its cross-validated confusion, and seeing the Export JSON refusal's sentence beside the button, then restoring the recipe.",
-      "notes": "JSON and snippet export of kNN and SIMCA deferred to export-affine-chain (#306)."
-    },
-    {
-      "id": "export-affine-chain",
-      "priority": 10,
-      "area": "backend",
-      "issue": 306,
-      "title": "Export SIMCA and kNN as JSON and a NumPy snippet, carrying the chain as an affine map",
-      "depends_on": [
-        "simca",
-        "knn"
-      ],
-      "user_visible_behavior": "Export JSON and Export Python work for SIMCA and kNN as they do for the linear models.",
-      "verification": [
-        "uv run pytest - the snippet reproduces every calibration decision of a SIMCA and a kNN, through residual and foldable steps",
-        "docs/model-export.md documents the affine-map form and its size"
-      ],
-      "status": "passing",
-      "evidence": "2026-10-05: uv run pytest tests/test_export.py - 17 passed, among them test_a_simca_exports_its_class_models_behind_an_affine_map (SNV carried, Savitzky-Golay and centring as one 100 x 100 map; every calibration acceptance identical), test_a_knn_exports_its_neighbours_behind_an_affine_map (median carried, range selection and moving average as a 100 x 51 map; every calibration assignment identical) and test_a_knn_with_nothing_to_fold_carries_no_map. uv run pytest - 1018 passed, 1 skipped. pnpm exec playwright test e2e/analysis.spec.ts -g kNN - 1 passed: the kNN tab's Export JSON downloads knn_d_model.json with assignment knn. docs/model-export.md section 6 documents the affine form, its fields and its size (p x p' floats; about 20 MB at 1,000 variables); uv run mkdocs build --strict clean.",
-      "notes": "Deferred from #275 and #277. Found on the way: with a carried step before a range selection, the export told the fold the width after the selection and refused the chain (a PLS on SNV then a range selection raised); the width is now measured before the foldable tail, and test_a_range_selection_after_a_carried_step_folds_from_the_full_width fails on dev without the fix."
-    },
-    {
-      "id": "outlier-diagnostics",
-      "priority": 11,
-      "area": "kernels",
-      "issue": 278,
-      "title": "Outlier diagnostics: leverage, studentised residuals, robust distance, a flags table",
-      "depends_on": [],
-      "user_visible_behavior": "An Outliers panel: influence plot, leverage vs studentised residual, and a table of flagged samples with the rule that flagged each.",
-      "verification": [
-        "docs/algorithms/outliers.md written",
-        "uv run pytest - leverage and residuals against mdatools; FastMCD against scikit-learn MinCovDet",
-        "uv run python -m tests.parity_report - docs/parity-report.md regenerated with the new rows, and test_parity_coverage green",
-        "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; hover shows sample identity"
-      ],
-      "status": "passing",
-      "evidence": "2026-10-05: docs/algorithms/outliers.md written (leverage, studentised residuals, FastMCD robust distance, flags table, divergences, parity). uv run pytest - 1037 passed, 1 skipped: tests/test_outliers.py 11 passed (leverage = explicit hat diagonal, sums to A+1; PLS and PCR calibration fits = least squares on [1, T]; studentised residuals = textbook formula; MCD unmasks a planted cluster the classical distance misses; A=1 agrees with scikit-learn MinCovDet); test_parity.py::test_robust_distance_matches_mcd_at_its_minimum 3 passed against scikit-learn 1.9.0's select_candidates + MinCovDet correction and reweighting; tests/test_api.py outlier payload tests pass. uv run python -m tests.parity_report - 162 comparisons, 162 passed; robust_distance identical within float on corn, gasoline and tecator; leverage and residuals recorded not compared (no R, decision 2026-10-04); test_parity_coverage green. pnpm typecheck && pnpm lint && pnpm test (152 passed) && pnpm build && pnpm exec playwright test - 83 passed; the outlier e2e hovers the most extreme flagged point on the influence plot and reads its sample id.",
-      "notes": "Leverage and studentised residuals have no external reference: mdatools needs R. sklearn's MinCovDet(random_state).fit alone stops at a larger determinant than ours on all three datasets (on Tecator A=5 for all 300 seeds tried), so the reference is sklearn's own C-step machinery started from 2000 supplied (p+1)-subsets (outliers.md section 7). FastMCD costs about 0.3 s on Tecator's scores; api._robust_distances memoises it per result key. The analysis grid now scrolls, because the fourth row does not fit at the design height."
-    },
-    {
-      "id": "exclude-flagged",
-      "priority": 12,
-      "area": "frontend",
-      "issue": 279,
-      "title": "Exclude flagged samples from the outlier table",
-      "depends_on": [
-        "sample-exclusion",
-        "outlier-diagnostics"
-      ],
-      "user_visible_behavior": "Tick flagged samples, exclude them, and the pipeline reruns on the new version; lineage shows it.",
-      "verification": [
-        "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
-        "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; an e2e test flags, excludes, reruns and sees the exclusion in the comparison"
-      ],
-      "status": "passing",
-      "evidence": "2026-10-05: uv run ruff check, ruff format --check, mypy (74 files) clean; uv run pytest - 1037 passed, 1 skipped. tests/test_api.py::test_a_regression_payload_flags_its_outliers_by_rule now asserts the outliers block names its dataset_id and version_id; with src/chemometrics_workbench/api.py stashed it fails with KeyError: 'version_id'. pnpm typecheck, lint, test (152 passed), build; pnpm exec playwright test - 84 passed. New e2e walkthrough.spec.ts 'a flagged sample is excluded from the outlier table, rerun, and named in lineage': ticks a flagged sample on the PCR's flags table, 'Exclude 1 and rerun', the served PCR result drops to n-1 samples, and the lineage of the newest run against the previous one marks exactly one changed node, the source, on version_id. With frontend/src stashed and rebuilt it fails at locator.check (no checkbox); 5 other walkthrough tests pass.",
-      "notes": "The exclusion is posted against the version the flags table was drawn from (outliers.dataset_id / version_id in the payload), not the pipeline's current source, so it cannot drop the wrong rows if the source has moved. The rerun is the shell's own startRun, so the status bar tracks it."
-    },
-    {
-      "id": "outliers-off-the-payload",
-      "priority": 12,
-      "area": "backend",
-      "issue": 314,
-      "title": "FastMCD holds up the first view of a result",
-      "depends_on": [
-        "outlier-diagnostics"
-      ],
-      "user_visible_behavior": "A result tab draws at once; the outlier row fills in when its diagnostics arrive.",
-      "verification": [
-        "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
-        "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green"
-      ],
-      "status": "passing",
-      "evidence": "2026-10-05: found as #313's red e2e (macos-latest): three tests opening a PLS tab timed out on analysis-header in the 3,000-sample runs project. min_cov_det measured at 0.42 s (n=240), 1.05 s (2,250) and 1.49 s (3,000). Fix: the block moved to GET /results/{node}/outliers (api.outliers_payload, 422 not_diagnosed for anything but PCA/PLS/PCR), fetched only by the outlier row; and FastMCD's 500 starts and two C-steps are batched with matmul (0.17 s, 0.80 s, 1.01 s). tests/test_server.py::test_the_outlier_diagnostics_are_served_on_their_own fails on dev ('outliers' in the results payload) and passes now. uv run pytest - 1038 passed, 1 skipped, the MCD parity claims among them; ruff, mypy clean. pnpm typecheck, lint, test (152), build; pnpm exec playwright test - 84 passed.",
-      "notes": "Random draws stay in the original loop so a seed gives the same starts and the same distances."
-    },
-    {
-      "id": "select-variables-step",
+      "id": "phase-6-exit-run",
       "priority": 13,
-      "area": "backend",
-      "issue": 280,
-      "title": "A select-variables preprocessing step",
-      "depends_on": [],
-      "user_visible_behavior": "None directly: the step a selection is applied as.",
-      "verification": [
-        "uv run pytest - not fitted, foldable, round-trips the schema, export folds it",
-        "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
-        "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green"
-      ],
-      "status": "passing",
-      "evidence": "2026-10-05: uv run pytest tests/test_select_variables.py - 7 passed: positions stored sorted and deduplicated and the step round-trips the PreprocessStep union; empty and negative selections refused; the transformer keeps exactly the named columns whatever it was fitted on (not fitted) and is FOLDABLE; a position past the input is refused naming the width; node_axis follows a selection below a range selection; a PLS under the step runs, exports a bare coefficient vector with zeros at every dropped variable, and the snippet reproduces its predictions within model-export.md's tolerance. With src/ stashed the file fails to import (no SelectVariables). uv run pytest - 1044 passed, 1 skipped; ruff, ruff format, mypy (75 files) clean; parity report regenerated with the not-compared coverage row, test_parity_coverage green. pnpm typecheck, lint, test (153 passed: nodeLabel 'Select 4 vars', parameterLine '4 variables kept'), build; pnpm exec playwright test - 84 passed. mkdocs build --strict clean.",
-      "notes": "RangeSelectTransformer and SelectVariablesTransformer share preprocessing.Selection, which the payload axis, the export and the fold now test for. Found on the way: a range selection below any selection fails in the executor (#312, executor-selection-axis); until then SelectVariablesTransformer uses positions as its axis when the one it is handed has the wrong width. Not in the add-step menu: only Apply (#281-#283) writes it."
-    },
-    {
-      "id": "executor-selection-axis",
-      "priority": 13,
-      "area": "backend",
-      "issue": 312,
-      "title": "A range selection below another selection fails in the executor",
-      "depends_on": [],
-      "user_visible_behavior": "A range selection placed below another range selection, or below an applied variable selection, runs instead of failing on an axis length mismatch.",
-      "verification": [
-        "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first"
-      ],
-      "status": "passing",
-      "evidence": "2026-10-05: tests/test_select_variables.py::test_a_range_selection_below_another_selection_runs, parametrised over a RangeSelect and a SelectVariables above a RangeSelect, failed on dev with 'axis has 100 values but X has 71 variables' and '... 70 variables' and passes now, the PLS below fitted on the 2 positions kept and node_axis reporting their real wavelengths. tests/test_executor.py's test recording the refusal as a limit is replaced by one asserting the composition (the second selection reads its bounds on the narrowed axis), matching test_node_axis.py::test_two_selections_compose_in_order. uv run ruff check, ruff format --check, mypy (77 files) clean; uv run pytest - 1071 passed, 1 skipped; pnpm exec playwright test - 87 passed.",
-      "notes": "node_axis moved from api.py into executor.py (api re-exports it) and the executor builds each preprocessing step with its input's axis. SelectVariablesTransformer's positions fallback for a wrong-width axis is gone: a mismatch now raises, as RangeSelect's does."
-    },
-    {
-      "id": "vip-selection",
-      "priority": 14,
-      "area": "backend",
-      "issue": 281,
-      "title": "Variable selection by VIP or coefficient threshold",
-      "depends_on": [
-        "select-variables-step"
-      ],
-      "user_visible_behavior": "On a PLS result, a threshold marks selected variables over the mean spectrum and Apply inserts them as a step.",
-      "verification": [
-        "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
-        "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; an e2e test applies a VIP selection and runs the copy"
-      ],
-      "status": "passing",
-      "evidence": "2026-10-05: uv run ruff check, ruff format --check, mypy (75 files) clean; uv run pytest - 1045 passed, 1 skipped; tests/test_api.py asserts regression.x_mean (the mean spectrum the selection is drawn over) and fails with KeyError: 'x_mean' on dev. pnpm typecheck, lint, test - 158 passed (thresholdSelection for VIP and |b|; selectionTraces marks the kept variables at their own wavelengths on the mean; applySelection adds select_variables on the estimator's input and a copy below it, clamps n_components to the variables kept, numbers a second selection, refuses an empty one). pnpm build; pnpm exec playwright test - 85 passed. New e2e analysis.spec.ts 'a VIP selection is applied as a step above a copy of the PLS, which runs': VIP >= 1 counts k of 100, Apply selection, pls_d_selected runs with n_variables = k and pls_d_select holds k indices; with frontend/src stashed and rebuilt it fails at selectOption. walkthrough.spec.ts's PCR test updated: a PCR now offers 'Select variables' by |b|.",
-      "notes": "Offered on a regression (PLS by VIP or |b|, PCR by |b|), not on a classification's dummy response. The original estimator stays beside the copy so the two can be compared."
-    },
-    {
-      "id": "ipls",
-      "priority": 15,
-      "area": "kernels",
-      "issue": 282,
-      "title": "iPLS: interval PLS variable selection",
-      "depends_on": [
-        "select-variables-step"
-      ],
-      "user_visible_behavior": "iPLS offered on a dataset with a target: RMSECV per interval drawn over the spectrum, and Apply.",
-      "verification": [
-        "docs/algorithms/variable-selection.md written (iPLS)",
-        "uv run pytest - parity against mdatools ipls",
-        "uv run python -m tests.parity_report - docs/parity-report.md regenerated with the new rows, and test_parity_coverage green",
-        "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green"
-      ],
-      "status": "passing",
-      "evidence": "2026-10-05: docs/algorithms/variable-selection.md written (selection as an applied step and its leak, intervals, interval PLS, forward selection, reported quantities, parity, divergences). uv run pytest - 1059 passed, 1 skipped: tests/test_selection.py 7 passed (interval bounds, refusals, a planted interval chosen first, each forward step lowering RMSECV, per-fold matrices); tests/test_server.py iPLS endpoint under a 4-fold split and refused 422 needs_cross_validation without one; tests/test_parity.py::test_ipls_matches_interval_models_fitted_by_scikit_learn 3 passed. uv run python -m tests.parity_report - 168 comparisons, 168 passed: interval_rmsecv identical on corn and gasoline and within the metrics tolerance on tecator (worst < 1e-11), forward_path identical on all three; test_parity_coverage and test_reference_values green. pnpm typecheck, lint, test (159 passed, iplsFigure), build; pnpm exec playwright test - 86 passed. New e2e 'iPLS runs on the PLS's folds, draws its intervals, and its selection is applied': 10 bars from the served payload, the count equals the served selection, Apply runs pls_d_selected on exactly those variables; with frontend/src stashed and rebuilt it fails at selectOption. mkdocs build --strict clean.",
-      "notes": "Verification named parity against mdatools ipls; there is no R here (decision 2026-10-04), so the reference is scikit-learn's PLSRegression on every interval and union, on the PLS entries' folds, with the interval and forward rules restated in the generator - recorded in variable-selection.md section 5. Served at GET /results/{node}/ipls, computed on the stored per-fold matrices of the PLS's input (executor.stored_fold_matrices)."
-    },
-    {
-      "id": "cars",
-      "priority": 16,
-      "area": "kernels",
-      "issue": 283,
-      "title": "CARS variable selection",
-      "depends_on": [
-        "select-variables-step"
-      ],
-      "user_visible_behavior": "CARS offered on a dataset with a target: RMSECV per iteration, the selected set, and Apply; a warning when selection and validation share samples.",
-      "verification": [
-        "variable-selection.md covers CARS",
-        "uv run pytest - deterministic for a seed; recovers the informative variables on a synthetic set; COVERAGE row not_compared with its reason; checks.py warning tested",
-        "uv run python -m tests.parity_report - docs/parity-report.md regenerated with the new rows, and test_parity_coverage green",
-        "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green"
-      ],
-      "status": "passing",
-      "evidence": "2026-10-05: variable-selection.md covers CARS (section 6: schedule, forced removal, adaptive reweighted sampling, seeded generator, per-fold RMSECV, reported quantities, not-compared reason) and section 0 the selection_shares_samples warning. uv run pytest - 1069 passed, 1 skipped: tests/test_selection.py CARS deterministic for a seed (and different for another), recovers all five informative variables of a 60-variable synthetic set with fewer than 20 kept, retained set never grows and ends at <= 2, refusals; tests/test_checks.py selection_shares_samples fires on a CARS selection under a split and names the estimator, is silent with no validation and with no chosen_by, and an unset chosen_by leaves the step's JSON (hash) unchanged; tests/test_server.py /results/pls/cars seeded and repeatable, refused 422 needs_cross_validation without a split. With src/ stashed, test_checks and test_selection fail at collection. Parity report regenerated: CARS COVERAGE row not compared with its reason, 168/168 claims, test_parity_coverage green. pnpm typecheck, lint, test (161 passed: carsTraces, chosen_by recorded by applySelection, 'Select 4 vars · CARS'), build; pnpm exec playwright test - 87 passed. New e2e: CARS 20 runs, count equals the seeded server run, Apply runs pls_d_selected on exactly those variables, validate returns selection_shares_samples on pls_d_select naming pls_d_selected, outline shows 'Select N vars · CARS'; with frontend/src stashed and rebuilt it fails at selectOption. mkdocs --strict clean.",
-      "notes": "Served at GET /results/{node}/cars?n_runs=&seed=, sharing its input checks with iPLS (api._selection_inputs). SelectVariables gained an optional chosen_by (vip, coefficients, ipls, cars), excluded when unset so existing steps keep their hash; every Apply now records it, so VIP, |b| and iPLS selections earn the same warning."
-    },
-    {
-      "id": "reader-mat",
-      "priority": 17,
-      "area": "backend",
-      "issue": 284,
-      "title": "MATLAB .mat reader",
-      "depends_on": [],
-      "user_visible_behavior": "A .mat file imports, with X, axis and targets chosen from its variables.",
-      "verification": [
-        "uv run pytest tests/test_readers_mat.py - real fixture with licence; v7.3 refused by name",
-        "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
-        "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; import preview covers .mat"
-      ],
-      "status": "passing",
-      "evidence": "2026-10-05: MLNIRdata downloaded into dataset/mat/ from 10.5281/zenodo.16781223 (CC-BY-4.0). uv run pytest tests/test_readers_mat.py - 8 passed: a committed slice (tests/fixtures/readers/mat/, LICENSE.md naming source, licence, authors and the change) reads as 12 x 53, turned from MATLAB's variables-down-rows, and matches the publisher's CSV twin of the same slice to rtol 1e-12; the preview offers matrix, orientation and axis_variable with alternatives; the derivative matrix takes its own axis; no axis gives an index; a samples-in-rows file reads unturned with a nm axis; a v7.3 (HDF5) file is refused by name with how to re-save it; a file with no matrix is refused; the full 208 x 2635 MAT-file matches its CSV export. tests/test_server.py: /import/preview now takes corrections, choosing the derivative previews 12 x 52 and imports it with the density target. With src/ stashed, 9 of these fail. uv run pytest - 1080 passed, 1 skipped; ruff, mypy clean. pnpm typecheck, lint, test (161), build; pnpm exec playwright test - 88 passed. New e2e empty.spec.ts: the MAT preview shows Matrix, samples_in_columns, Axis from and the density, 'Import 12 x 53', and choosing the derivative re-previews to 'Import 12 x 52' with its axis; it fails with frontend/src stashed. docs/first-pca.md lists .mat; mkdocs --strict clean.",
-      "notes": "Detection has two new optional choices, matrix and axis_variable. The import preview endpoint accepts corrections, and the screen asks again only for corrections that change which table is read (matrix, axis, an OPUS block, and a MAT-file's orientation); a text file's orientation is still turned on the client, because its reader does not recount."
-    },
-    {
-      "id": "reader-spc",
-      "priority": 18,
-      "area": "backend",
-      "issue": 285,
-      "title": "Thermo Galactic SPC reader",
-      "depends_on": [],
-      "user_visible_behavior": "An SPC file imports.",
-      "verification": [
-        "uv run pytest tests/test_readers_spc.py - real fixtures with licence: new and old format, single and multi-file, even and explicit axis",
-        "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first"
-      ],
-      "status": "passing",
-      "evidence": "2026-10-05: uv run pytest tests/test_readers_spc.py - 11 passed on real fixtures with licences (tests/fixtures/readers/spc/LICENSE.md): new-format multifile even axis (nir.spc, 20 x 700 nm), new-format explicit x array (s_xy.spc), old-format single (DOERNER.spc, Raman shift) and old-format multifile (m_ordz.spc, 10 x 857) each match rohanisaac/spc's text conversion to rtol 1e-9; a negative subfile exponent is read signed (m_evenz.spc, matching the conversion times 2^exp where it reads zero); the CC-BY-4.0 bone FTIR file reads as 1 x 14935, 3999.88 to 399.92 cm-1; xyxy (ms.spc), non-SPC and truncated files are refused by name. tests/test_server.py imports nir.spc as one 20 x 700 dataset. With src/ stashed 12 fail. uv run pytest - 1092 passed, 1 skipped; ruff, mypy clean; pnpm exec playwright test - 88 passed; docs/first-pca.md lists .spc; mkdocs --strict clean.",
-      "notes": "Settled against the reference files: each subfile is scaled by its own signed exponent, except a single old-format spectrum (main header's); old-format integers are high word first. Big-endian new format (0x4C) and xyxy are refused by name. A folder or zip of single-spectrum SPC files (the bone set is 31) imports one file at a time for now; .zip is the OPUS reader's suffix."
-    },
-    {
-      "id": "reader-spa",
-      "priority": 19,
-      "area": "backend",
-      "issue": 286,
-      "title": "Thermo OMNIC SPA reader",
-      "depends_on": [],
-      "user_visible_behavior": "An SPA file imports.",
-      "verification": [
-        "uv run pytest tests/test_readers_spa.py - real fixtures with licence",
-        "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first"
-      ],
-      "status": "passing",
-      "evidence": "2026-10-05: uv run pytest tests/test_readers_spa.py - 7 passed on real CC-BY-4.0 fixtures (tests/fixtures/readers/spa/LICENSE.md): ecoflex-1.SPA reads as 1 x 7468, 4000.19 to 400.16 cm-1, and matches OMNIC's own CSV export reversed (values rtol 1e-6, axis 1e-3; the export's extra zero point below 400 is not in the file); a zip of three dust SPA files is one 3 x 29868 dataset whose first row equals the single file; a zip mixing %T and absorbance, a non-SPA file and a truncated one are refused by name; a zip of non-SPA members still goes to OPUS. tests/test_server.py::test_a_zip_of_spa_files_imports_as_one_dataset imports the dust zip over HTTP as 3 x 29868 wavenumber_cm-1. With spa.py removed and src/ stashed, 7 of the 8 fail (the OPUS-routing guard passes, as it should). uv run pytest - 1100 passed, 1 skipped; ruff check, ruff format --check, mypy clean; docs/first-pca.md lists .spa.",
-      "notes": "Settled against the files: title at 30, a 16-byte directory from 304, key 2 header (points, x and y unit, first and last x as float32), key 3 float32 intensities; the axis is even, in the file's descending order. A zip goes to SPA only when every member is .spa; otherwise OPUS. Source: 10.5281/zenodo.17691644 (CC-BY-4.0, with CSV exports to cross-check) and 10.5281/zenodo.21396092 (CC-BY-4.0); local copies in dataset/spa/."
-    },
-    {
-      "id": "reader-asd",
-      "priority": 20,
-      "area": "backend",
-      "issue": 287,
-      "title": "ASD FieldSpec reader",
-      "depends_on": [],
-      "user_visible_behavior": "An ASD file imports, as reflectance where the white reference is stored.",
-      "verification": [
-        "uv run pytest tests/test_readers_asd.py - real fixtures with licence; reflectance checked against the vendor's own export where available",
-        "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first"
-      ],
-      "status": "passing",
-      "evidence": "2026-10-05: uv run pytest tests/test_readers_asd.py - 9 passed on four real CC-BY-4.0 files (tests/fixtures/readers/asd/LICENSE.md), FieldSpec 4, as7, 2151 channels 350 to 2500 nm, reflectance computed as target over the stored white reference. The record's published reflectance (Terraspec) divided by the reader's is one curve, identical for all four samples over 1001 to 2500 nm (rtol 1e-8; the white panel's calibration, 0.94 to 0.99), and that curve times one constant per sample over 350 to 1000 nm (rtol 1e-8; the VNIR splice). Before fixtures were chosen this held over all 82 mapped samples (spread 1e-9 SWIR, 4e-9 VNIR). A zip of the four is one 4 x 2151 dataset; a zip mixing data types, a non-ASD file and files cut in the header, the spectrum and the white reference are refused by name; a raw file is read as stored. tests/test_server.py imports SP_00019.asd over HTTP as 1 x 2151 wavelength_nm. With asd.py removed and src/ stashed all 10 ASD tests fail. uv run pytest - 1110 passed, 1 skipped; ruff check, ruff format --check, mypy clean; mkdocs build --strict clean; docs/first-pca.md lists .asd.",
-      "notes": "No splice correction and no panel calibration: neither is in the file, and ViewSpec shows the plain ratio. Other data types (raw, radiance...) are read as stored. Only version 7 is verified on a real file; version 1 (no reference block) and 2 to 8 follow the published layout. The zip loop SPA had is now readers.spectrum_files, shared by both. Source: Eaton Fire ash field spectroscopy, 10.5281/zenodo.16538735 (CC-BY-4.0), with a measurements CSV to cross-check; local copy in dataset/asd/."
-    },
-    {
-      "id": "docs-phase-5",
-      "priority": 21,
-      "area": "docs",
-      "issue": 288,
-      "title": "Phase 5 documentation: algorithm pages, a classification example, outlier and selection how-tos",
-      "depends_on": [
-        "plsda-multiclass",
-        "simca",
-        "lda",
-        "knn",
-        "exclude-flagged",
-        "vip-selection",
-        "ipls",
-        "cars",
-        "pcr",
-        "smoothing-filters"
-      ],
-      "user_visible_behavior": "The docs site covers every Phase 5 method, with a worked classification example.",
-      "verification": [
-        "uv run mkdocs build --strict",
-        "uv run pytest tests/test_examples.py - every number the new example quotes recomputed",
-        "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; docs-examples spec walks the new page"
-      ],
-      "status": "passing",
-      "evidence": "2026-10-05: docs/examples/classification.md (Quadram meat set: stratified K-fold 10, PLS-DA, LDA, kNN, SIMCA), docs/how-to/outliers.md and docs/how-to/variable-selection.md (both continuing the Tecator PLS example), docs/examples/meat.csv with docs/examples/meat-source.md (CC0, citation, the four changes: duplicates averaged, samples in rows on a descending axis, label columns, pork D1's mislabelled run paired by position); nav and index.md link them. The algorithm pages already existed. uv run pytest tests/test_examples.py - 7 passed: test_every_number_the_classification_example_quotes (60 x 448, 1868 to 1005 cm-1, lowest at A = 5, CV diagonal 20/20/20, accuracy CV PLS-DA 1.000, LDA 0.967, kNN 0.983, SIMCA sensitivity 0.750 specificity 0.983, 15 of 60 accepted by none), test_every_number_the_outliers_how_to_quotes (67 of 216, 55 robust-only, C018, C022, E1007 with their rules, 237 samples, RMSECV 2.46 to 2.38), test_every_number_the_selection_how_to_quotes (VIP 22 of 100 RMSECV 2.56; iPLS 901 to 909 nm, 5 of 100, 2.51; CARS 7 of 100, 2.28), and the meat.csv shape test; changing one number in each page fails its test. uv run mkdocs build --strict - exit 0. uv run pytest - 1114 passed, 1 skipped; ruff, mypy clean. pnpm typecheck && pnpm lint && pnpm test (161 passed) && pnpm build && pnpm exec playwright test - 89 passed, including e2e/docs-classification.spec.ts on a new 'classification' server (8770), which walks the page and takes ex-meat-import, ex-meat-pipeline, ex-plsda, ex-simca; the CI docs job runs it.",
-      "notes": "Each meat sample was measured twice; meat.csv averages the pair because the workbench has no grouped cross-validation, and splitting a pair across folds would leak. The step list offers no splits or classifiers, so the page builds the chain by dragging from Source. The docs specs share e2e/docs-helpers.ts. The how-tos have no screenshots of their own."
-    },
-    {
-      "id": "phase-5-exit-run",
-      "priority": 22,
       "area": "process",
-      "issue": 289,
-      "title": "The exit criterion: classification, outliers and selection on the Quadram meat set, and every new format imported",
+      "issue": 341,
+      "title": "The exit criterion: grouped, nested and permutation-tested validation on the raw meat set, and a final model that exports",
       "depends_on": [
-        "docs-phase-5",
-        "reader-mat",
-        "reader-spc",
-        "reader-spa",
-        "reader-asd",
-        "stratified-splits"
+        "docs-phase-6",
+        "axis-correction",
+        "step-list-parity"
       ],
       "user_visible_behavior": "Recorded, not built: the exit criterion run end to end over HTTP.",
       "verification": [
-        "uv run python -m tests.exit_run_phase5 - writes docs/phase-5/exit-run.md with both claims met, and reports not met when a tolerance is tightened",
-        "dev merged to main and v1.1.0 tagged"
+        "uv run python -m tests.exit_run_phase6 - writes docs/phase-6/exit-run.md with every claim met, and reports not met when a tolerance is tightened",
+        "dev merged to main and v1.2.0 tagged"
       ],
       "status": "in_progress",
-      "evidence": "2026-10-05: uv run python -m tests.exit_run_phase5 - exit 0, docs/phase-5/exit-run.md 'Met', 15 checks pass, 0 fail. Claim 1 on docs/examples/meat.csv: a 5-component PCA flagged 22 of 60; the run's stated rule (3 or more rules) excluded PA02 (T\u00b2, leverage, robust distance) into a derived 59-sample version; PLS-DA VIP >= 1 selected 129 of 448 variables as a select_variables step (validation warned selection_shares_samples, recorded); under one 10-fold CV stratified by meat, seed 42, the served cross-validated confusion tables of PLS-DA, LDA and kNN and SIMCA's acceptance and none counts equal the scikit-learn 1.9.0 / SciPy 1.18.1 references on the experiment's resolved folds; PLS-DA RMSECV curve within 1.3e-10, SIMCA reduced distances within 5.3e-12. Claim 2: MAT, SPC, SPA and ASD fixtures each imported on their own project and read back through /spectra/source match their sources' exports within the float32-store tolerance (1e-6 rel). uv run python -m tests.exit_run_phase5 --tighten 1e-9 - NOT MET, 9 checks fail (every continuous one; the count tables stay equal). uv run pytest - 1114 passed, 1 skipped; ruff, mypy clean; mkdocs --strict clean. Version bumped to 1.1.0 (pyproject.toml, uv.lock); README and CLAUDE.md say so. Not yet run: dev merged to main and v1.1.0 tagged.",
-      "notes": "Data: see decision 0006. The reference PLSRegression runs with tol=1e-14: at its default 1e-6 its NIPALS stops early on a three-column response and is about 1e-5 off the converged fit, which the first run reported as a failure of the reference, not of the application. Next step: merge dev into main and tag v1.1.0 (release.yml publishes it), then mark this passing."
+      "evidence": "2026-10-11, branch feature/341_phase-6-exit-run. `uv run python -m tests.exit_run_phase6` printed \"met\" and wrote docs/phase-6/exit-run.md: claim 1 (raw meat set grouped by sample, 13 checks) and claim 2 (Tecator, 6 checks) all pass. No sample split across a fold; PLS-DA and SVM cross-validated confusions equal scikit-learn 1.9.0 on the served folds; the 100-permutation null and p (0.0099) equal permutation_test_score handed the same permutations (max abs 1.1e-16); the final PLS-DA's 120 assignments equal PLSRegression on all 120; nested VIP outer RMSECV within metrics tolerance (2.4e-9) with equal per-fold counts; the JSON model and the snippet assign all 120 as the application does; Tecator's exported coefficients (5e-14) and its 200-resample bootstrap VIP and coefficient bands (6e-14) match. `--tighten 1e-9` printed \"NOT MET\" with seven failing rows. Version 1.2.0 in pyproject.toml. ruff, mypy clean; `uv run pytest` green. Release: pending the dev-into-main merge and the v1.2.0 tag.",
+      "notes": "Signed packages are not in the criterion: they depend on certificates. Next: merge this, then dev into main and tag v1.2.0; mark passing with the release run."
+    },
+    {
+      "id": "one-class-training-fold",
+      "priority": 14,
+      "area": "backend",
+      "issue": 343,
+      "title": "A classifier refuses a training fold holding one class, by name",
+      "depends_on": [
+        "grouped-splits"
+      ],
+      "user_visible_behavior": "A PLS-DA, SIMCA, LDA or kNN below a split whose training fold holds a single class fails naming the fold, the class column and the class present, instead of 'X and y have no covariance'.",
+      "verification": [
+        "uv run pytest - a grouped split by the class column refuses with the fold and class named, for every classifier; failing on the unfixed code first",
+        "uv run pytest, uv run ruff check, uv run mypy - green"
+      ],
+      "status": "passing",
+      "evidence": "2026-10-09. `uv run pytest`: 1196 passed, 1 skipped. New test_executor.py::test_a_classifier_refuses_a_training_fold_of_one_class_by_name [plsda, simca, lda, knn] groups a two-fold K-fold by fat_class and asserts \"node 'model' (<kind>) cannot be fitted: training fold 1 of 2 holds only 'high'|'low' in 'fat_class' ... Stratify the split by 'fat_class'\"; with src/ stashed all four failed (e.g. lda: \"class 'low' has no calibration samples\"). `uv run ruff check .`: All checks passed; `ruff format --check`: 145 files already formatted; `uv run mypy`: no issues in 87 files.",
+      "notes": "One check, `_refuse_one_class_folds` in executor._estimator, for any spec with a class_column, so SVM inherits it. The optional inspector warning for group_by set to the class column was not built."
+    },
+    {
+      "id": "docs-without-decisions",
+      "priority": 15,
+      "area": "docs",
+      "issue": 346,
+      "title": "Remove the Decisions section from the documentation site",
+      "depends_on": [],
+      "user_visible_behavior": "The docs site no longer lists or builds docs/decisions/; the files stay in the repository.",
+      "verification": [
+        "uv run mkdocs build --strict - green, and site/ holds no decisions/ directory",
+        "CI docs job green"
+      ],
+      "status": "passing",
+      "evidence": "2026-10-10, branch feature/346_docs-without-decisions. mkdocs.yml: the Decisions block left the nav and `decisions/` joined `exclude_docs`; no published page linked into docs/decisions/. `uv run mkdocs build --strict` built with no warning; `ls site | grep -c decisions` printed 0. The files stay in docs/decisions/. CI docs job: on the pull request.",
+      "notes": "Asked by the maintainer on 2026-10-05."
+    },
+    {
+      "id": "windows-scores-plot-flake",
+      "priority": 16,
+      "area": "frontend",
+      "issue": 351,
+      "title": "Windows e2e: the PCA tab's scores plot is not found",
+      "depends_on": [],
+      "user_visible_behavior": "None; analysis.spec.ts's openResults passes on the Windows runner.",
+      "verification": [
+        "Read the job log for a console error first; fix the cause; e2e (windows-latest) green"
+      ],
+      "status": "passing",
+      "evidence": "2026-10-09. Job log read first: trace of job 111909342941 shows console 'Failed to load resource: net::ERR_NO_BUFFER_SPACE' on http://127.0.0.1:8765/api/projects and the page snapshot 'No project' + 'The workbench server is not answering'. Fix verified: `pnpm typecheck && pnpm lint`: clean; `pnpm test`: 168 passed (3 new client.test.ts cases); `pnpm exec playwright test`: 97 passed (3.7m). New shell.spec.ts test aborts the first /api/projects with route.abort('failed'); on the unfixed bundle it failed (getByText('Tecator meat study') not found). PR #359 CI on 005ccf8: e2e (windows-latest) success (job 113960221061), e2e ubuntu and macOS success, all 10 checks green.",
+      "notes": "api/client.ts `send` retries a GET twice (100 ms, 200 ms) on a network failure; never an HTTP status, never a write. #255's index.html guard still covers the bundle's own LINK/SCRIPT loads."
+    },
+    {
+      "id": "macos-train-test-note-timeout",
+      "priority": 17,
+      "area": "frontend",
+      "issue": 354,
+      "title": "macOS e2e: the train/test run's results note is not found within 5 s",
+      "depends_on": [],
+      "user_visible_behavior": "None; runs.spec.ts's train/test test passes on a slow macOS runner.",
+      "verification": [
+        "Read the job log for a console error first; fix the cause or size the timeout with its reason; e2e (macos-latest) green"
+      ],
+      "status": "passing",
+      "evidence": "2026-10-10, branch fix/354_train-test-note-timeout. The job log needs auth; its public annotations (`curl .../check-runs/111918116712/annotations`) carry only the Playwright summary - 1 failed, 94 passed in 7.1m - and no console error, so no cause beyond the slow runner was found. Measured locally with a temporary response listener: `GET /api/results/pls_d` is 1,042,247 bytes (3,000 rows of scores and predictions), the payload the note waits on; at about 1 MB it is not worth reducing for a localhost application. The expect is given a 30 s timeout with its reason in a comment. `pnpm build` then `pnpm exec playwright test e2e/runs.spec.ts`: 9 passed (45.5s). e2e (macos-latest): on the pull request.",
+      "notes": "Seen once on #353 (job 111918116712), a 7.1-minute run under runner capacity constraints."
+    },
+    {
+      "id": "small-set-spectra-view",
+      "priority": 18,
+      "area": "frontend",
+      "issue": 355,
+      "title": "The spectra view goes blank for a dataset of sixty samples or fewer",
+      "depends_on": [],
+      "user_visible_behavior": "Opening the spectra of a node whose dataset has 60 or fewer samples draws them, with a caption that says there is no band.",
+      "verification": [
+        "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; an e2e test opens the spectra of a small dataset, failing on the unfixed code first"
+      ],
+      "status": "passing",
+      "evidence": "2026-10-09. `pnpm typecheck && pnpm lint`: clean; `pnpm test`: 165 passed (new: bandTraces is [] without a band); `pnpm build`: built; `pnpm exec playwright test`: 96 passed (4.0m). empty.spec.ts's axis-kind test now imports the 4-sample file, opens Source's spectra and sees 'every spectrum drawn (4)'; on the unfixed bundle the same test failed (spectra-plot not found: the page threw on primary.band.n_spectra).",
+      "notes": "SpectraPayload.band is optional; bandTraces returns nothing without it and the caption says every spectrum is drawn. #336's 70-sample workaround is removed."
+    },
+    {
+      "id": "test-suite-shrink",
+      "priority": 19,
+      "area": "tests",
+      "issue": 362,
+      "title": "Shrink and speed up the Python test suite",
+      "depends_on": [],
+      "user_visible_behavior": "None for a user; the Python suite has fewer test functions and runs faster, with every parity claim still checked.",
+      "verification": [
+        "Test count and local wall time of `uv run pytest` recorded before and after",
+        "uv run pytest, uv run ruff check, uv run mypy - green; test_parity_coverage.py green",
+        "uv run python -m tests.parity_report regenerates docs/parity-report.md with the same claims"
+      ],
+      "status": "passing",
+      "evidence": "2026-10-10, branch feature/362_test-suite-shrink, on an 8-core Linux machine. Before (dev at 612c229): `uv run pytest` 1218 passed, 1 skipped (1,219 collected), real 1m23s. After: 983 passed, real 22s. Where it came from: pytest-xdist (`-n auto --dist loadfile`; loadfile because module-level RNGs make some tests order-dependent - `test_a_full_rank_model_reproduces_the_least_squares_fit` failed under `--dist load`), one BLAS thread per process in conftest (eight workers of eight threads ran no faster than one process), and each worker handing its parity comparisons to the controller (`pytest_testnodedown`), which writes the one parity-results.json. Count: `@every_dataset` in test_parity.py replaces 47 dataset parametrisations (170 tests to 60); every dataset's `parity.check` still runs when an earlier one fails, checked by calling a decorated function that fails on corn (all three ran, the failure named corn). The gasoline SPE-limit case returns instead of skipping, which would have skipped tecator. The transformer conventions (6 tests x 12) are one test per transformer; grouped-split seeds, reference-value coverage and the feature-list check loop inside one test. The iPLS one-hot rebuild uses four intervals, three folds and two components: 11.1 s to 2.9 s. `uv run ruff check`, `ruff format --check`, `uv run mypy` clean; test_parity_coverage.py passes in the run. `uv run python -m tests.parity_report` wrote 192 claims and `git diff docs/parity-report.md` is empty.",
+      "notes": "Found during #338: 1,219 collected on 2026-10-10. About 67 s in test bodies and 15 s in setup; one iPLS rebuild alone is 11.5 s. Not done: removing unit/API duplicates by judgement - the merges above got the count and the time down without dropping an assertion."
     }
   ]
 }

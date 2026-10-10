@@ -33,6 +33,14 @@ application on a project of its own and read back through `/spectra/source`.
 Each is compared with its source's own export where the source has one, and
 with the nearest independent reading where it does not; the record says which.
 
+**Claim 3, PCR and a selected PLS on Tecator**, which issue #289 asks for
+beside the two: SNV, Savitzky-Golay, a ten-fold split, centring, PCR and PLS on
+`fat`; then the variables with PLS VIP at least 1, as a `select_variables` step
+above a second PLS. Both RMSECV curves are rebuilt with scikit-learn on the
+served folds. Claim 1 also reads lineage back: the cleaning run and the
+comparison run name different source versions, and the derived one names its
+parent and the rows it left out.
+
 **The store is float32** (`PROPOSAL.md` §13), so the served arrays are
 float32-rounded at every node. The reference rounds at the same points - the
 source, the centred matrix - and fits in float64. That is why it can demand
@@ -48,7 +56,7 @@ Run it:
     uv run python -m tests.exit_run_phase5
     uv run python -m tests.exit_run_phase5 --tighten 1e-9
 
-It exits 0 when both claims are met and 1 when either is not, and rewrites the
+It exits 0 when every claim is met and 1 when any is not, and rewrites the
 record either way, because a failed run is a result too. `--tighten` scales
 every numeric tolerance by the factor given, to show the comparison can fail.
 """
@@ -77,10 +85,12 @@ from scipy import stats
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.decomposition import PCA
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+from sklearn.linear_model import LinearRegression
 from sklearn.neighbors import KNeighborsClassifier
 
 from tests import parity
-from tests.exit_run import Served, _ok
+from tests.exit_run import Served, _csv_matrix, _ok, _savgol, _snv
+from tests.seed_e2e import tecator_csv
 
 ROOT = Path(__file__).resolve().parents[1]
 RECORD = ROOT / "docs" / "phase-5" / "exit-run.md"
@@ -92,6 +102,7 @@ N_SPLITS, SEED = 10, 42
 A_CLEAN, RULES_TO_EXCLUDE = 5, 3
 A_PLSDA, A_LDA, A_KNN, K, A_SIMCA = 5, 5, 5, 5, 3
 VIP_CUT = 1.0
+TARGET, A_REGRESSION = "fat", 5
 ALPHA = 0.05
 #: The outlier table's names for its rules.
 RULES = {
@@ -225,6 +236,7 @@ def drive_workflow(client: httpx.Client) -> dict[str, Any]:
         "spec": {"kind": "pca", "n_components": A_CLEAN},
     }
     _run(client, [source, centre_all, pca])
+    cleaning = _ok(client.get("/experiments/current"))
     pca_result = _ok(client.get("/results/pca"))
     outliers = _ok(client.get("/results/pca/outliers"))
     flagged = [
@@ -297,6 +309,7 @@ def drive_workflow(client: httpx.Client) -> dict[str, Any]:
         "job": job,
         "results": {node: _ok(client.get(f"/results/{node}")) for node in _names()},
         "experiment": _ok(client.get("/experiments/current")),
+        "cleaning": _ok(client.get(f"/experiments/{cleaning['experiment_id']}")),
     }
 
 
@@ -499,6 +512,7 @@ def compare_workflow(served: dict[str, Any], ref: dict[str, Any], tighten: float
             "the same",
         ),
     ]
+    checks.extend(_lineage(served))
     distances = sets.get("distances")
     if distances is not None:
         checks.append(
@@ -509,6 +523,180 @@ def compare_workflow(served: dict[str, Any], ref: dict[str, Any], tighten: float
                 np.asarray(distances, dtype=np.float64),
                 ref["simca_h"],
                 "the same",
+                tighten,
+            )
+        )
+    return checks
+
+
+def _source_version(experiment: dict[str, Any]) -> str:
+    nodes = experiment["pipeline_snapshot"]["nodes"]
+    return str(next(node for node in nodes if node["type"] == "source")["version_id"])
+
+
+def _lineage(served: dict[str, Any]) -> list[Check]:
+    """The exclusion is in lineage: the cleaning run read the imported
+    version, the comparison runs read the derived one, and the derived one
+    names its parent and the rows it left out."""
+    first, cleaned = served["first"], served["cleaned"]
+    rows = sorted(flag["row"] for flag in served["excluded"])
+    same = [
+        (_source_version(served["cleaning"]), first["version_id"]),
+        (_source_version(served["experiment"]), cleaned["version_id"]),
+        (str(cleaned.get("derived_from")), first["version_id"]),
+    ]
+    return [
+        Check(
+            1,
+            "Lineage: source version of the cleaning run, then of the comparison run, "
+            "then the derived version's parent",
+            None,
+            np.asarray([float(ours == theirs) for ours, theirs in same]),
+            np.ones(len(same)),
+            "the imported and derived version ids",
+        ),
+        Check(
+            1,
+            "Lineage: rows the derived version left out",
+            None,
+            np.asarray(sorted(cleaned.get("excluded_samples", [])), dtype=np.float64),
+            np.asarray(rows, dtype=np.float64),
+            "the rows the stated rule excluded",
+        ),
+    ]
+
+
+# --------------------------------------------------------------------------
+# claim 3: PCR and a selected PLS on Tecator
+# --------------------------------------------------------------------------
+
+
+def drive_tecator(client: httpx.Client) -> dict[str, Any]:
+    imported = _import(client, "tecator.csv", tecator_csv())
+    source = _source(client)
+    nodes = [
+        source,
+        {"id": "snv", "type": "preprocess", "inputs": [source["id"]], "step": {"kind": "snv"}},
+        {
+            "id": "savgol",
+            "type": "preprocess",
+            "inputs": ["snv"],
+            "step": {"kind": "savgol", "window_length": 11, "polyorder": 2, "deriv": 1},
+        },
+        {
+            "id": "kfold",
+            "type": "split",
+            "inputs": ["savgol"],
+            "spec": {"kind": "kfold", "n_splits": N_SPLITS, "shuffle": True, "seed": SEED},
+        },
+        {
+            "id": "centre",
+            "type": "preprocess",
+            "inputs": ["kfold"],
+            "step": {"kind": "mean_centre"},
+        },
+        {
+            "id": "pcr",
+            "type": "estimator",
+            "inputs": ["centre"],
+            "spec": {"kind": "pcr", "n_components": A_REGRESSION, "target": TARGET},
+        },
+        {
+            "id": "pls",
+            "type": "estimator",
+            "inputs": ["centre"],
+            "spec": {
+                "kind": "pls",
+                "n_components": A_REGRESSION,
+                "algorithm": "nipals",
+                "target": TARGET,
+            },
+        },
+    ]
+    _run(client, nodes)
+    vip = _ok(client.get("/results/pls"))["regression"]["vip"]
+    selected = [index for index, value in enumerate(vip) if value >= VIP_CUT]
+    nodes += [
+        {
+            "id": "select",
+            "type": "preprocess",
+            "inputs": ["centre"],
+            "step": {"kind": "select_variables", "indices": selected, "chosen_by": "vip"},
+        },
+        {
+            "id": "pls_selected",
+            "type": "estimator",
+            "inputs": ["select"],
+            "spec": {
+                "kind": "pls",
+                "n_components": min(A_REGRESSION, len(selected)),
+                "algorithm": "nipals",
+                "target": TARGET,
+            },
+        },
+    ]
+    _run(client, nodes)
+    return {
+        "version": imported["entry"]["versions"][0],
+        "selected": selected,
+        "n_variables": len(vip),
+        "pcr": _ok(client.get("/results/pcr")),
+        "pls_selected": _ok(client.get("/results/pls_selected")),
+        "experiment": _ok(client.get("/experiments/current")),
+    }
+
+
+def reference_tecator(served: dict[str, Any]) -> dict[str, NDArray[np.float64]]:
+    """SNV, Savitzky-Golay and the per-fold centring, each narrowed to float32
+    where the store narrows; then scikit-learn on the served folds."""
+    spectra, response = _csv_matrix()
+    values = _f32(_savgol(_f32(_snv(_f32(spectra)))))
+    columns = np.asarray(served["selected"], dtype=np.intp)
+    a_selected = served["pls_selected"]["n_components"]
+    split = next(
+        one for one in served["experiment"]["resolved_splits"] if one["node_id"] == "kfold"
+    )
+    pcr = np.zeros((A_REGRESSION, response.size))
+    pls = np.zeros((a_selected, response.size))
+    for train_list, test_list in zip(split["train_indices"], split["test_indices"], strict=True):
+        train, test = np.asarray(train_list), np.asarray(test_list)
+        centred = _f32(values - values[train].mean(axis=0))
+        for a in range(1, A_REGRESSION + 1):
+            pca = PCA(n_components=a, svd_solver="full").fit(centred[train])
+            fit = LinearRegression().fit(pca.transform(centred[train]), response[train])
+            pcr[a - 1][test] = fit.predict(pca.transform(centred[test]))
+        x = centred[:, columns]
+        for a in range(1, a_selected + 1):
+            model = PLSRegression(n_components=a, scale=False).fit(x[train], response[train])
+            pls[a - 1][test] = np.asarray(model.predict(x[test])).ravel()
+
+    def curve(predicted: NDArray[np.float64]) -> NDArray[np.float64]:
+        return np.sqrt(np.mean((predicted - response) ** 2, axis=1))
+
+    return {"pcr": curve(pcr), "pls_selected": curve(pls)}
+
+
+def compare_tecator(
+    served: dict[str, Any], ref: dict[str, NDArray[np.float64]], tighten: float
+) -> list[Check]:
+    sklearn_ = f"scikit-learn {sklearn.__version__}"
+    against = {
+        "pcr": f"{sklearn_} `PCA(svd_solver='full')` then `LinearRegression()`",
+        "pls_selected": f"{sklearn_} `PLSRegression(scale=False)` on the selected columns",
+    }
+    labels = {"pcr": "PCR", "pls_selected": "PLS on the VIP-selected variables"}
+    checks = []
+    for node in ("pcr", "pls_selected"):
+        metrics = served[node]["metrics"]
+        n = len(ref[node])
+        checks.append(
+            Check(
+                3,
+                f"{labels[node]}: RMSECV curve, A = 1…{n}",
+                "metrics",
+                np.asarray([metrics[f"rmsecv_a{a}"] for a in range(1, n + 1)]),
+                ref[node],
+                against[node],
                 tighten,
             )
         )
@@ -675,6 +863,7 @@ def _matrix(names: list[str], table: Any, columns: list[str]) -> list[str]:
 
 def record(
     workflow: dict[str, Any],
+    tecator: dict[str, Any],
     formats: list[tuple[Format, dict[str, Any]]],
     checks: list[Check],
     started: datetime,
@@ -682,18 +871,20 @@ def record(
 ) -> tuple[str, bool]:
     first_met = all(check.passed for check in checks if check.claim == 1)
     second_met = all(check.passed for check in checks if check.claim == 2)
-    met = first_met and second_met
+    third_met = all(check.passed for check in checks if check.claim == 3)
+    met = first_met and second_met and third_met
     results = workflow["results"]
     env = workflow["experiment"]["environment"]
     classes = results["plsda"]["classification"]["classes"]
     n = workflow["cleaned"]["n_samples"]
     warnings = [w for w in workflow["validation"].get("warnings", [])]
     verdict = (
-        "**Met.** Both claims hold at the stated tolerances."
+        "**Met.** All three claims hold at the stated tolerances."
         if met
         else "**Not met.** "
         + ("Claim 1 fails. " if not first_met else "")
         + ("Claim 2 fails. " if not second_met else "")
+        + ("Claim 3 fails. " if not third_met else "")
         + "The failing rows are marked below."
     )
     excluded = (
@@ -715,8 +906,9 @@ def record(
         "`PROPOSAL.md` §16, Phase 5: *an open multi-class spectral dataset is cleaned, its "
         "variables selected, and PLS-DA, SIMCA, LDA and kNN compared under the same stratified "
         "cross-validation, each matching its reference within stated tolerance; a file of each "
-        "new format imports and matches its source.* Decision 0006 splits it into two claims, "
-        "and this is the run of both, over HTTP against the served application.",
+        "new format imports and matches its source.* Decision 0006 splits it into two claims. "
+        "Issue #289 adds a third: PCR and variable-selected PLS on Tecator match their "
+        "references. This is the run of all three, over HTTP against the served application.",
         "",
         f"## Verdict: {verdict}",
         "",
@@ -808,6 +1000,30 @@ def record(
         "",
         *_table([check for check in checks if check.claim == 2]),
         "",
+        "## Claim 3: PCR and a selected PLS on Tecator",
+        "",
+        f"Tecator ({tecator['version']['n_samples']} × {tecator['version']['n_variables']}, "
+        f"`{TARGET}`), on a project of its own: SNV, Savitzky-Golay (11, 2, first "
+        f"derivative), {N_SPLITS}-fold cross-validation with seed {SEED}, mean centring, then "
+        f"PCR and PLS with {A_REGRESSION} components. PLS's VIP ≥ {VIP_CUT:g} kept "
+        f"{len(tecator['selected'])} of {tecator['n_variables']} variables, applied as a "
+        "`select_variables` step above a second PLS with "
+        f"{tecator['pls_selected']['n_components']} components. The reference is "
+        "rebuilt on the experiment's resolved folds, narrowed to float32 after SNV, "
+        "Savitzky-Golay and the per-fold centring, where the store narrows. As in claim 1, "
+        "the selection saw every sample, so the selected PLS's RMSECV is optimistic as an "
+        "estimate of a new sample's error; the comparison is unaffected.",
+        "",
+        "| Model | RMSECV (served) | Q² (served) |",
+        "| --- | --- | --- |",
+        *(
+            f"| {label} | {tecator[node]['metrics']['rmsecv']:.4f} "
+            f"| {tecator[node]['metrics']['q2']:.4f} |"
+            for node, label in (("pcr", "PCR"), ("pls_selected", "PLS, VIP-selected"))
+        ),
+        "",
+        *_table([check for check in checks if check.claim == 3]),
+        "",
     ]
     return "\n".join(lines), met
 
@@ -820,14 +1036,17 @@ def main(argv: list[str] | None = None) -> int:
     with tempfile.TemporaryDirectory() as directory:
         with Served(Path(directory) / "workflow") as client:
             workflow = drive_workflow(client)
+        with Served(Path(directory) / "tecator") as client:
+            tecator = drive_tecator(client)
         formats = []
         for index, one in enumerate(FORMATS):
             with Served(Path(directory) / f"format_{index}") as client:
                 formats.append((one, drive_format(client, one)))
     checks = compare_workflow(workflow, reference(workflow), args.tighten)
+    checks.extend(compare_tecator(tecator, reference_tecator(tecator), args.tighten))
     for one, served in formats:
         checks.extend(compare_format(one, served, args.tighten))
-    text, met = record(workflow, formats, checks, started, args.tighten)
+    text, met = record(workflow, tecator, formats, checks, started, args.tighten)
     RECORD.parent.mkdir(parents=True, exist_ok=True)
     RECORD.write_text(text, encoding="utf-8")
     for check in checks:

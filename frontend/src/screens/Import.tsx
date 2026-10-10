@@ -34,6 +34,10 @@ const LABELS: Record<string, string> = {
   ScSm: "ScSm · sample single channel",
   ScRf: "ScRf · reference single channel",
   none: "none · numbered",
+  wavelength_nm: "nm · wavelength",
+  "wavenumber_cm-1": "cm⁻¹ · wavenumber",
+  "raman_shift_cm-1": "cm⁻¹ · Raman shift",
+  index: "index · numbered",
 };
 
 const label = (value: string) => LABELS[value] ?? value;
@@ -140,7 +144,14 @@ function Preview({
   // A MAT-file's reader does recount on an orientation (its axis and targets
   // follow), so there that one is asked again too.
   const first = preview.detected;
-  const rereads = ["matrix", "axis_variable", "block", ...(first.matrix ? ["orientation"] : [])];
+  // An axis kind asks again too, so the range is shown in the unit chosen.
+  const rereads = [
+    "matrix",
+    "axis_variable",
+    "block",
+    "axis_kind",
+    ...(first.matrix ? ["orientation"] : []),
+  ];
   const refresh = useImportPreview();
   const asked = JSON.stringify(
     Object.fromEntries(Object.entries(corrections).filter(([key]) => rereads.includes(key))),
@@ -157,7 +168,7 @@ function Preview({
   // still reads as one after the preview has been asked again.
 
   const value = (
-    key: "delimiter" | "decimal" | "orientation" | "block" | "matrix" | "axis_variable",
+    key: "delimiter" | "decimal" | "orientation" | "block" | "matrix" | "axis_variable" | "axis_kind",
   ) => corrections[key] ?? detected[key]?.value ?? "";
 
   // Reading a file the other way round is the common wrong guess, and it
@@ -281,10 +292,21 @@ function Preview({
           <div className="ilabel" style={{ padding: "12px 12px 4px" }}>
             Variable axis
           </div>
-          <div className="kv">
-            <b>Kind</b>
-            <span>{detected.axis.kind}</span>
-          </div>
+          {first.axis_kind ? (
+            // Guessed from the numbers alone, so an ascending FT-IR file reads
+            // as nanometres until the user says otherwise (#336).
+            <Choice
+              name="Kind"
+              detected={first.axis_kind}
+              value={value("axis_kind")}
+              onChange={(next) => setCorrections({ ...corrections, axis_kind: next })}
+            />
+          ) : (
+            <div className="kv">
+              <b>Kind</b>
+              <span>{detected.axis.kind}</span>
+            </div>
+          )}
           <div className="kv">
             <b>Range</b>
             <span>

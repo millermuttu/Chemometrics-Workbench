@@ -1418,6 +1418,183 @@ def test_ipls_runs_on_a_pls_under_a_split_and_refuses_one_without(client: TestCl
     refused = client.get("/api/results/flat/cars", headers=AUTH)
     assert refused.json()["error"]["code"] == "needs_cross_validation"
 
+    # #331: the same selections, validated in an outer loop.
+    for query in ("method=vip", "method=ipls&n_intervals=3", "method=cars&n_runs=5&seed=3"):
+        nested = client.get(f"/api/results/pls/nested?{query}&inner_splits=3", headers=AUTH)
+        assert nested.status_code == 200, nested.text
+        body = nested.json()
+        assert body["n_outer_folds"] == 4 and len(body["selected_per_fold"]) == 4
+        assert body["outer_rmsecv"] > 0 and body["inner_rmsecv"] > 0
+    missing = client.get("/api/results/pls/nested?method=b", headers=AUTH)
+    assert missing.status_code == 422 and "needs its cut" in missing.text
+    refused = client.get("/api/results/flat/nested", headers=AUTH)
+    assert refused.json()["error"]["code"] == "needs_cross_validation"
+
+
+def test_the_selections_run_from_a_pls_da_on_its_dummy_response(client: TestClient) -> None:
+    """#332, variable-selection.md section 9: iPLS, CARS and the nested loop
+    from a two-class PLS-DA, on the seeded Tecator's fat_class."""
+    from tests.seed_e2e import tecator_csv
+
+    response = client.post(
+        "/api/import", files={"file": ("tecator.csv", tecator_csv())}, headers=AUTH
+    )
+    assert response.status_code == 200, response.text
+    source = client.get("/api/pipelines/current", headers=AUTH).json()["nodes"][0]
+    nodes = [
+        source,
+        {
+            "id": "split",
+            "type": "split",
+            "inputs": ["source"],
+            "spec": {"kind": "kfold", "n_splits": 4},
+        },
+        {
+            "id": "plsda",
+            "type": "estimator",
+            "inputs": ["split"],
+            "spec": {"kind": "plsda", "n_components": 3, "class_column": "fat_class"},
+        },
+    ]
+    assert (
+        client.put("/api/pipelines/current", json={"nodes": nodes}, headers=AUTH).status_code == 200
+    )
+    job = client.post("/api/experiments/current/run", headers=AUTH).json()
+    assert wait_for(client, job["job_id"], seconds=120)["status"] == "succeeded"
+
+    for path in ("ipls?n_intervals=5", "cars?n_runs=5&seed=2", "nested?method=vip&inner_splits=3"):
+        served = client.get(f"/api/results/plsda/{path}", headers=AUTH)
+        assert served.status_code == 200, (path, served.text)
+    assert client.get("/api/results/plsda/ipls?n_intervals=5", headers=AUTH).json()["selected"]
+
+    # #335: a PLS-DA is diagnosed class by class, each sample against its own
+    # class's limits, and the flags come most rules first.
+    block = client.get("/api/results/plsda/outliers", headers=AUTH).json()
+    wise = block["classwise"]
+    assert wise["classes"] == ["high", "low"] and len(wise["t2"]) == 240
+    for flag in block["flags"]:
+        i = flag["index"]
+        broken = [
+            rule
+            for rule, value, limit in (
+                ("t2", wise["t2"][i], wise["t2_limit"][i]),
+                ("q", wise["q"][i], wise["q_limit"][i]),
+                ("leverage", block["leverage"][i], wise["leverage_limit"][i]),
+            )
+            if value > limit
+        ]
+        assert flag["rules"] == broken and flag["n_rules"] == len(broken)
+    counts = [flag["n_rules"] for flag in block["flags"]]
+    assert counts == sorted(counts, reverse=True) and block["flags"]
+
+    # #333: the permutation test is a job, and its result is read once it is done.
+    job = client.post("/api/results/plsda/permutation?n_permutations=5&seed=3", headers=AUTH)
+    assert job.status_code == 200, job.text
+    job_id = job.json()["job_id"]
+    assert wait_for(client, job_id, seconds=120)["status"] == "succeeded"
+    found = client.get(f"/api/permutations/{job_id}", headers=AUTH).json()
+    assert found["node_id"] == "plsda" and len(found["null"]) == 5 and found["seed"] == 3
+    assert found["greater_is_better"] and 0 < found["p_value"] <= 1
+    assert client.get("/api/permutations/nope", headers=AUTH).status_code == 404
+    refused = client.post("/api/results/plsda/permutation?n_permutations=0", headers=AUTH)
+    assert refused.status_code == 422
+
+
+def test_bootstrap_intervals_match_an_independent_rebuild_on_the_same_resamples(
+    client: TestClient,
+) -> None:
+    """#334, pls-regression.md section 16: every resample refits the centring
+    and the PLS; scikit-learn's PLSRegression, on the same rows drawn from the
+    same stream, gives the same percentile intervals for VIP and coefficients."""
+    import io
+
+    import numpy as np
+    from sklearn.cross_decomposition import PLSRegression
+
+    from tests.seed_e2e import tecator_csv
+
+    raw_csv = tecator_csv()
+    assert (
+        client.post(
+            "/api/import", files={"file": ("tecator.csv", raw_csv)}, headers=AUTH
+        ).status_code
+        == 200
+    )
+    source = client.get("/api/pipelines/current", headers=AUTH).json()["nodes"][0]
+    nodes = [
+        source,
+        {
+            "id": "split",
+            "type": "split",
+            "inputs": ["source"],
+            "spec": {"kind": "kfold", "n_splits": 4},
+        },
+        {
+            "id": "centre",
+            "type": "preprocess",
+            "inputs": ["split"],
+            "step": {"kind": "mean_centre"},
+        },
+        {
+            "id": "pls",
+            "type": "estimator",
+            "inputs": ["centre"],
+            "spec": {"kind": "pls", "n_components": 3, "algorithm": "nipals", "target": "fat"},
+        },
+        {
+            "id": "pcr",
+            "type": "estimator",
+            "inputs": ["centre"],
+            "spec": {"kind": "pcr", "n_components": 3, "target": "fat"},
+        },
+    ]
+    assert (
+        client.put("/api/pipelines/current", json={"nodes": nodes}, headers=AUTH).status_code == 200
+    )
+    job = client.post("/api/experiments/current/run", headers=AUTH).json()
+    assert wait_for(client, job["job_id"], seconds=120)["status"] == "succeeded"
+
+    # A PCR has no VIP (pcr.md section 6); its coefficients still get a band.
+    pcr = client.get("/api/results/pcr/bootstrap?n_resamples=5", headers=AUTH).json()
+    assert pcr["vip"] is None and len(pcr["coefficients"]["lower"]) == 100
+
+    served = client.get("/api/results/pls/bootstrap?n_resamples=25&level=0.9&seed=5", headers=AUTH)
+    assert served.status_code == 200, served.text
+    body = served.json()
+    assert (
+        client.get(
+            "/api/results/pls/bootstrap?n_resamples=25&level=0.9&seed=5", headers=AUTH
+        ).json()
+        == body
+    )
+
+    # The rebuild: the stored spectra are float32, the response as written.
+    table = np.genfromtxt(io.BytesIO(raw_csv), delimiter=",", skip_header=1, dtype=str)
+    x = table[:, 1:101].astype(np.float32).astype(np.float64)
+    header = raw_csv.decode().splitlines()[0].split(",")
+    y = table[:, header.index("fat")].astype(np.float64)
+    rng = np.random.default_rng(5)
+    vips, coefficients = [], []
+    for _ in range(25):
+        rows = rng.integers(0, len(y), len(y))
+        xb, yb = x[rows], y[rows]
+        centred = xb - xb.mean(axis=0)
+        model = PLSRegression(3, scale=False).fit(centred - centred.mean(axis=0), yb - yb.mean())
+        w, t = model.x_weights_, model.x_scores_
+        q = np.asarray(model.y_loadings_).ravel()
+        explained = q**2 * np.sum(t**2, axis=0)
+        vips.append(
+            np.sqrt(
+                w.shape[0] * ((w / np.linalg.norm(w, axis=0)) ** 2 @ explained) / explained.sum()
+            )
+        )
+        coefficients.append(np.asarray(model.coef_).ravel())
+    for name, draws in (("vip", vips), ("coefficients", coefficients)):
+        lower, upper = np.quantile(np.asarray(draws), [0.05, 0.95], axis=0)
+        np.testing.assert_allclose(body[name]["lower"], lower, rtol=1e-6, atol=1e-9)
+        np.testing.assert_allclose(body[name]["upper"], upper, rtol=1e-6, atol=1e-9)
+    assert all(lo <= hi for lo, hi in zip(body["vip"]["lower"], body["vip"]["upper"], strict=True))
+
 
 def test_a_mat_file_previews_with_its_choices_and_imports(client: TestClient) -> None:
     """#284: the preview takes corrections, so choosing the derivative matrix

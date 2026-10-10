@@ -174,6 +174,18 @@ TOLERANCES: dict[str, Tolerance] = {
             "conditioned; this is the coefficient tolerance carried through."
         ),
     ),
+    "float32_kernel": Tolerance(
+        rtol=1e-5,
+        atol=1e-4,
+        reason=(
+            "SVM decision values, both solvers run to a KKT gap of 1e-9 (svm.md section 7). "
+            "LIBSVM caches the kernel matrix in float32, about seven significant digits, "
+            "and its gradient accumulates that rounding over every SMO step; ours holds "
+            "the kernel in float64. The largest difference observed on the parity sets "
+            "is 3e-5, on Tecator's linear kernel, whose kernel values reach 1e2 and "
+            "whose solve takes about thirty thousand steps."
+        ),
+    ),
     "transcribed": Tolerance(
         rtol=5e-3,
         atol=0.0,
@@ -244,6 +256,8 @@ QUANTITY_CLASS: dict[str, str] = {
     "assigned_class": "metrics",
     # kNN (knn.md section 7): vote fractions are counts over k, exact or wrong.
     "class_votes": "metrics",
+    # SVM (svm.md section 7): one-vs-one decision values from an SMO solve.
+    "svm_decision": "float32_kernel",
     # Outliers (outliers.md section 7): once both searches reach the same
     # support, a distance is a covariance inverse applied to scores.
     "robust_distance": "decomposition",
@@ -251,6 +265,9 @@ QUANTITY_CLASS: dict[str, str] = {
     # metric; the forward path is a list of interval indices, exact or wrong.
     "interval_rmsecv": "metrics",
     "forward_path": "metrics",
+    # Grouped splits (metrics-and-validation.md §8.8): a fold index per
+    # sample, exact or wrong.
+    "fold_of_sample": "metrics",
 }
 
 # Quantities whose sign is arbitrary per component and must be aligned before

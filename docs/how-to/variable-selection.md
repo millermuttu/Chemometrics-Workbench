@@ -57,6 +57,30 @@ is optimistic. VIP and iPLS have the same problem in smaller measure: they also 
 variables from every sample.
 
 The workbench says so. After you apply any of these selections, **Validate** reports a warning on
-the **Select** step that the variables were chosen on the samples that validate the model. To get
-an honest error for a selected model, test it on samples the selection never saw, such as a new
-batch measured after the selection was made.
+the **Select** step that the variables were chosen on the samples that validate the model.
+
+## Validate the selection (nested)
+
+To get an honest error for a selection, it has to be scored on samples it never saw. **Validate
+(nested)**, beside **Apply selection**, does that without a new batch: it reruns the selection
+inside each of the ten outer folds, on that fold's training samples only, with an inner five-fold
+cross-validation of its own, and scores each fold's selected model on the fold's held-out samples.
+
+With **Select by** on CARS and 50 runs, click **Validate (nested)**. The note reads
+**Nested RMSECV 2.385 · selected on every sample 2.285 · 10 outer × 5 inner folds**. The ten
+outer folds kept between 6 and 11 wavelengths each: CARS does not pick the same ones twice. So
+2.28 was optimistic by about 0.1. The honest 2.38 is still below the full spectrum's 2.46, so the
+selection is worth something, just less than it first appeared.
+
+The same check on VIP ≥ 1 gives the opposite: VIP's nested RMSECV is 2.473, below the 2.56 its
+copy reported. A threshold on VIP is a much smaller search than CARS, so it has less room to
+flatter itself.
+
+## How sure is a VIP?
+
+A VIP is computed from one model on one set of samples. **Bootstrap**, in the **Variable
+importance** panel's header, refits the whole chain on 200 resamples of the samples, drawn with
+replacement, and draws a 95% band around each wavelength's VIP. **21 of the 22** wavelengths with a
+VIP of at least 1 have the bottom of their band at or above 1 as well, so the selection is stable.
+**7** wavelengths have bands that straddle 1. Whether those are in or out depends on which samples
+were measured.

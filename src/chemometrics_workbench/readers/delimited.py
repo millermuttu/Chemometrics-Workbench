@@ -47,6 +47,7 @@ from chemometrics_workbench.readers import (
     Detection,
     Imported,
     ReaderError,
+    axis_kind_choice,
     grid,
     source_file,
 )
@@ -112,6 +113,7 @@ def _row_detection(
         axis=axis,
         axis_reconstructed=reconstructed,
         axis_note=note,
+        axis_kind=axis_kind_choice(axis),
         metadata_columns=tuple(columns["metadata_names"]),
         targets=tuple(columns["target_names"]),
         discarded=tuple(columns["discarded"]),
@@ -147,6 +149,7 @@ def _transposed_detection(
         axis=axis,
         axis_reconstructed=reconstructed,
         axis_note=note,
+        axis_kind=axis_kind_choice(axis),
         private={"header": header, "sample_names": sample_names},
     )
 

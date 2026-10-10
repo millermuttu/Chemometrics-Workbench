@@ -19,10 +19,15 @@ decide the tolerance, the sign handling and the claim tier.
 
 from __future__ import annotations
 
+import functools
+import inspect
 import math
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 import pytest
+from numpy.typing import NDArray
 from scipy.stats import norm
 
 from chemometrics_workbench.datasets import load_corn, load_gasoline, load_tecator
@@ -51,6 +56,7 @@ from chemometrics_workbench.regression import (
 )
 from chemometrics_workbench.validation import (
     Fold,
+    by_group,
     folds_from_indices,
     k_fold,
     leave_one_out,
@@ -65,6 +71,33 @@ pytestmark = pytest.mark.parity
 DATASETS = ("corn", "gasoline", "tecator")
 
 LOADERS = {"corn": load_corn, "gasoline": load_gasoline, "tecator": load_tecator}
+
+
+def every_dataset(test: Callable[..., None]) -> Callable[..., None]:
+    """One test function for a claim made on each dataset (#362).
+
+    Every dataset's comparison still runs and is recorded when an earlier one
+    fails, because each is a row in the parity report, and the failure names
+    each dataset that failed. The test's other parameters - fixtures and other
+    parametrisations - pass through.
+    """
+    signature = inspect.signature(test)
+
+    @functools.wraps(test)
+    def run(**kwargs: Any) -> None:
+        failures = []
+        for dataset in DATASETS:
+            try:
+                test(dataset=dataset, **kwargs)
+            except AssertionError as error:
+                failures.append(f"{dataset}: {error}")
+        assert not failures, "\n".join(failures)
+
+    del run.__wrapped__
+    run.__signature__ = signature.replace(  # type: ignore[attr-defined]
+        parameters=[p for p in signature.parameters.values() if p.name != "dataset"]
+    )
+    return run
 
 
 @pytest.fixture(scope="module")
@@ -125,13 +158,13 @@ def _centred(name: str) -> np.ndarray:
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_mean_centring_matches_the_reference(dataset: str) -> None:
     ours = MeanCentreTransformer().fit_transform(_block(dataset))
     assert parity.check(f"{dataset}.preprocess.mean_centred.sklearn", ours).passed
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_autoscaling_matches_the_reference_at_its_ddof(dataset: str) -> None:
     """`ddof=0` is passed explicitly, because StandardScaler offers no choice.
 
@@ -146,14 +179,14 @@ def test_autoscaling_matches_the_reference_at_its_ddof(dataset: str) -> None:
     assert parity.check(f"{dataset}.preprocess.autoscaled_ddof0.sklearn", ours).passed
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 @pytest.mark.parametrize("norm", ["l1", "l2", "max"])
 def test_normalisation_matches_the_reference(dataset: str, norm: str) -> None:
     ours = NormaliseTransformer(norm).fit_transform(_block(dataset))  # type: ignore[arg-type]
     assert parity.check(f"{dataset}.preprocess.normalised_{norm}.sklearn", ours).passed
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 @pytest.mark.parametrize("deriv", [0, 1, 2])
 def test_savitzky_golay_matches_the_reference(dataset: str, deriv: int) -> None:
     """Smoothing and both derivatives, against SciPy at `mode="interp"`.
@@ -174,7 +207,7 @@ def test_savitzky_golay_matches_the_reference(dataset: str, deriv: int) -> None:
     assert parity.check(f"{dataset}.preprocess.savgol_deriv{deriv}.scipy", ours).passed
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 @pytest.mark.parametrize("deriv", [0, 1, 2])
 def test_savitzky_golay_agrees_with_the_reference_at_the_first_and_last_variable(
     dataset: str, deriv: int, fixture_entries: dict[str, dict[str, object]]
@@ -214,7 +247,7 @@ def test_savitzky_golay_agrees_with_the_reference_at_the_first_and_last_variable
 # cannot give: that our arithmetic matches somebody else's.
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_snv_matches_the_reference_at_its_ddof(dataset: str) -> None:
     """`ddof=0` is passed explicitly, exactly as for autoscaling.
 
@@ -230,7 +263,7 @@ def test_snv_matches_the_reference_at_its_ddof(dataset: str) -> None:
     assert result.tier is parity.Tier.IDENTICAL
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_msc_matches_the_reference(dataset: str) -> None:
     """The same estimator by a differently conditioned route.
 
@@ -246,7 +279,7 @@ def test_msc_matches_the_reference(dataset: str) -> None:
     assert parity.check(f"{dataset}.preprocess.msc.chemotools", ours).passed
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_asls_baseline_matches_the_reference(dataset: str) -> None:
     """Two independent implementations of Eilers and Boelens, and two solvers.
 
@@ -265,7 +298,7 @@ def test_asls_baseline_matches_the_reference(dataset: str) -> None:
     assert parity.check(f"{dataset}.preprocess.baseline_asls.chemotools", ours).passed
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_rubberband_baseline_matches_the_reference(dataset: str) -> None:
     """Bit-identical, and it should be.
 
@@ -281,7 +314,7 @@ def test_rubberband_baseline_matches_the_reference(dataset: str) -> None:
     assert result.max_abs_diff == 0.0
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_polynomial_baseline_matches_the_reference(dataset: str) -> None:
     """The evidence that mapping the index onto [-1, 1] changes nothing.
 
@@ -309,7 +342,7 @@ GAUSSIAN_SIGMA = 1.5
 WHITTAKER_LAM = 100.0
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_window_smoothers_match_their_references_away_from_the_ends(dataset: str) -> None:
     """The interior only: the references pad at the ends and ours shrinks the
     window (section 10.1). The ends are tested by their own property in
@@ -326,7 +359,7 @@ def test_window_smoothers_match_their_references_away_from_the_ends(dataset: str
     assert parity.check(f"{dataset}.preprocess.gaussian.scipy", gaussian).passed
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_whittaker_matches_the_reference_everywhere(dataset: str) -> None:
     """A dense inverse against a banded solve, the same penalised system."""
     ours = WhittakerTransformer(WHITTAKER_LAM).fit_transform(_baseline_block(dataset))
@@ -338,7 +371,7 @@ def test_whittaker_matches_the_reference_everywhere(dataset: str) -> None:
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_knn_matches_pca_then_k_neighbours(dataset: str) -> None:
     """`knn.md` section 7: assignments and vote fractions, both exact."""
     from chemometrics_workbench.classification import KNN
@@ -359,11 +392,78 @@ def test_knn_matches_pca_then_k_neighbours(dataset: str) -> None:
 
 
 # --------------------------------------------------------------------------
+# SVM (#338)
+# --------------------------------------------------------------------------
+
+
+def _tercile_codes(dataset: str) -> NDArray[np.intp]:
+    data = LOADERS[dataset]()
+    target = np.asarray(data.targets[parity.load_fixture()["targets"][dataset]])
+    low, high = np.quantile(target, [1 / 3, 2 / 3])
+    labels = np.where(target < low, "low", np.where(target < high, "mid", "high"))
+    classes = sorted(set(labels.tolist()))
+    return np.asarray([classes.index(label) for label in labels], dtype=np.intp)
+
+
+@pytest.mark.parametrize("kernel", ["linear", "rbf"])
+@every_dataset
+def test_svm_matches_pca_then_svc(dataset: str, kernel: str) -> None:
+    """`svm.md` section 7: assignments identical at the default tolerance, and
+    decision values within float32's precision once both solvers converge."""
+    from chemometrics_workbench.classification import SVM
+
+    spectra = LOADERS[dataset]().spectra
+    codes = _tercile_codes(dataset)
+    model = SVM(N_COMPONENTS, kernel).fit(spectra, codes, 3)
+    assigned = parity.check(
+        f"{dataset}.svm.predictions_{kernel}.sklearn", model.predict(spectra).astype(float)
+    )
+    assert assigned.passed and assigned.max_abs_diff == 0.0
+
+    converged = SVM(N_COMPONENTS, kernel, tol=1e-9).fit(spectra, codes, 3)
+    assert parity.check(
+        f"{dataset}.svm.decision_{kernel}_converged.sklearn",
+        converged.decision_function(spectra),
+    ).passed
+
+
+@pytest.mark.parametrize("kernel", ["linear", "rbf"])
+@every_dataset
+def test_svm_decision_values_at_the_default_tolerance_differ_by_the_stopping_rule(
+    dataset: str, kernel: str, fixture_entries: dict[str, dict[str, object]]
+) -> None:
+    """Both solvers stop at a KKT gap of 1e-3, not at the optimum, so their
+    values agree to about that gap. Checked within ten times it before the
+    divergence is recorded, so a real disagreement cannot hide behind it."""
+    from chemometrics_workbench.classification import SVM
+
+    spectra = LOADERS[dataset]().spectra
+    model = SVM(N_COMPONENTS, kernel).fit(spectra, _tercile_codes(dataset), 3)
+    entry_id = f"{dataset}.svm.decision_{kernel}.sklearn"
+    theirs = np.asarray(fixture_entries[entry_id]["value"])
+    assert np.abs(model.decision_function(spectra) - theirs).max() < 10 * model.tol
+
+    result = parity.record_divergence(
+        entry_id,
+        reason=(
+            "Both solvers are LIBSVM's SMO with second-order working-set selection, and "
+            "both stop once the largest KKT violation falls below tol = 1e-3 rather than "
+            "at the optimum. Where each stops depends on its arithmetic: LIBSVM caches the "
+            "kernel in float32, ours is float64. The decision values therefore agree only "
+            "to about tol (within 1e-2 here, checked), while the assignments are identical "
+            "and, solved to 1e-9, the values agree to float32's precision (svm.md "
+            "section 3)."
+        ),
+    )
+    assert result.passed
+
+
+# --------------------------------------------------------------------------
 # LDA (#276)
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_lda_matches_pca_then_linear_discriminant_analysis(dataset: str) -> None:
     """`lda.md` section 7: the decision function and the assignments."""
     from chemometrics_workbench.classification import LDA
@@ -390,7 +490,7 @@ def test_lda_matches_pca_then_linear_discriminant_analysis(dataset: str) -> None
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_pls2_matches_nipals_at_its_fixed_point(dataset: str) -> None:
     """`pls-regression.md` section 10.4: every response the dataset has, one model."""
     data = LOADERS[dataset]()
@@ -411,7 +511,7 @@ def test_pls2_matches_nipals_at_its_fixed_point(dataset: str) -> None:
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_pcr_matches_pca_then_least_squares(dataset: str) -> None:
     """`pcr.md` section 8: coefficients and predictions, sign-invariant."""
     data = LOADERS[dataset]()
@@ -452,7 +552,7 @@ def pca_models() -> dict[str, PCA]:
     return {name: PCA(N_COMPONENTS).fit(_centred(name)) for name in DATASETS}
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_pca_loadings_match_the_reference(dataset: str, pca_models: dict[str, PCA]) -> None:
     """`pca.md` §4 and §5. Our sign rule is the largest-magnitude loading;
     scikit-learn's is decided from U, so the harness aligns before comparing."""
@@ -461,7 +561,7 @@ def test_pca_loadings_match_the_reference(dataset: str, pca_models: dict[str, PC
     assert result.sign_aligned, "loadings are sign-invariant and must be aligned"
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_pca_scores_match_the_reference(dataset: str, pca_models: dict[str, PCA]) -> None:
     """`pca.md` §4: T = XP, computed through the same path a new sample takes."""
     result = parity.check(f"{dataset}.pca.scores.sklearn", pca_models[dataset].scores_)
@@ -469,7 +569,7 @@ def test_pca_scores_match_the_reference(dataset: str, pca_models: dict[str, PCA]
     assert result.sign_aligned, "scores are sign-invariant and must be aligned"
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_pca_eigenvalues_match_the_reference(dataset: str, pca_models: dict[str, PCA]) -> None:
     """`pca.md` §4: lambda_k = sigma_k^2/(n-1), the sample-variance convention.
 
@@ -485,7 +585,7 @@ def test_pca_eigenvalues_match_the_reference(dataset: str, pca_models: dict[str,
     assert not result.sign_aligned
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_pca_explained_variance_ratio_matches_the_reference(
     dataset: str, pca_models: dict[str, PCA]
 ) -> None:
@@ -501,7 +601,7 @@ def test_pca_explained_variance_ratio_matches_the_reference(
     assert ratio.sum() < 1.0, "five components explaining everything means the wrong denominator"
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_pca_cumulative_explained_variance_matches_the_reference(
     dataset: str, pca_models: dict[str, PCA]
 ) -> None:
@@ -519,7 +619,7 @@ def test_pca_cumulative_explained_variance_matches_the_reference(
     assert cumulative[-1] < 1.0
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_hotelling_t2_matches_the_reference(dataset: str, pca_models: dict[str, PCA]) -> None:
     """`pca.md` §7, on the calibration samples.
 
@@ -533,7 +633,7 @@ def test_hotelling_t2_matches_the_reference(dataset: str, pca_models: dict[str, 
     assert not result.sign_aligned, "T^2 squares every score, so it carries no sign"
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_spe_matches_the_reference(dataset: str, pca_models: dict[str, PCA]) -> None:
     """`pca.md` §8: the sum of squares of the residual, not its mean or root."""
     result = parity.check(f"{dataset}.pca.spe.sklearn", pca_models[dataset].spe(_centred(dataset)))
@@ -541,7 +641,7 @@ def test_spe_matches_the_reference(dataset: str, pca_models: dict[str, PCA]) -> 
     assert not result.sign_aligned
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_the_spe_limit_matches_the_reference(dataset: str, pca_models: dict[str, PCA]) -> None:
     """`pca.md` §8, and the claim #11 could not make when it landed.
 
@@ -559,7 +659,7 @@ def test_the_spe_limit_matches_the_reference(dataset: str, pca_models: dict[str,
     assert result.tier is parity.Tier.IDENTICAL
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_the_t2_limit_differs_from_the_reference_by_exactly_one_over_n(
     dataset: str, pca_models: dict[str, PCA], fixture_entries: dict[str, dict[str, object]]
 ) -> None:
@@ -617,7 +717,7 @@ def test_the_t2_limit_differs_from_the_reference_by_exactly_one_over_n(
 _H0_CLAMPED_IN_MDATOOLS = "gasoline"
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_the_spe_limit_matches_r_mdatools(dataset: str, pca_models: dict[str, PCA]) -> None:
     """An implementation in another language, on the formula pca.md §8 names.
 
@@ -627,7 +727,7 @@ def test_the_spe_limit_matches_r_mdatools(dataset: str, pca_models: dict[str, PC
     hidden inside a tolerance.
     """
     if dataset == _H0_CLAMPED_IN_MDATOOLS:
-        pytest.skip("gasoline diverges by a documented convention; see the test below")
+        return  # a documented convention; see the test below
 
     result = parity.check(
         f"{dataset}.pca.spe_limit.r_mdatools", pca_models[dataset].spe_limit(LIMIT_ALPHA)
@@ -697,7 +797,7 @@ def test_the_gasoline_spe_limit_differs_because_mdatools_clamps_h0(
     assert result.tier is parity.Tier.DOCUMENTED_DIVERGENCE
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_the_t2_limit_differs_from_r_mdatools_by_exactly_one_over_n(
     dataset: str, pca_models: dict[str, PCA], fixture_entries: dict[str, dict[str, object]]
 ) -> None:
@@ -769,7 +869,7 @@ def _predictions(dataset: str, models: dict[str, PLS]) -> np.ndarray:
     return models[dataset].predict(_centred(dataset)) + _target(dataset).mean()
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_pls_coefficients_match_the_reference(dataset: str, pls_models: dict[str, PLS]) -> None:
     """`pls-regression.md` §5: b = Rq, on the centred matrix so there is no intercept.
 
@@ -784,7 +884,7 @@ def test_pls_coefficients_match_the_reference(dataset: str, pls_models: dict[str
     assert not result.sign_aligned, "b = Rq is already sign-invariant (§5)"
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_pls_coefficients_match_simpls_in_r(dataset: str, pls_models: dict[str, PLS]) -> None:
     """`pls-regression.md` §2's claim, checked against a different algorithm.
 
@@ -804,7 +904,7 @@ def test_pls_coefficients_match_simpls_in_r(dataset: str, pls_models: dict[str, 
     assert result.passed
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_pls_predictions_match_the_reference(dataset: str, pls_models: dict[str, PLS]) -> None:
     """`pls-regression.md` §5: y_hat = Xb, un-centred back to original units (§2)."""
     result = parity.check(f"{dataset}.pls.predictions.sklearn", _predictions(dataset, pls_models))
@@ -812,7 +912,7 @@ def test_pls_predictions_match_the_reference(dataset: str, pls_models: dict[str,
     assert not result.sign_aligned
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_rmsec_follows_from_the_predictions(dataset: str, pls_models: dict[str, PLS]) -> None:
     """`metrics-and-validation.md` §4: the divisor is n, not n - A - 1.
 
@@ -824,7 +924,7 @@ def test_rmsec_follows_from_the_predictions(dataset: str, pls_models: dict[str, 
     assert parity.check(f"{dataset}.pls.rmsec.sklearn", ours).passed
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_r2_is_the_residual_form(dataset: str, pls_models: dict[str, PLS]) -> None:
     """`metrics-and-validation.md` §6: residual form, not squared correlation.
 
@@ -836,7 +936,7 @@ def test_r2_is_the_residual_form(dataset: str, pls_models: dict[str, PLS]) -> No
     assert parity.check(f"{dataset}.pls.r2.sklearn", ours).passed
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_vip_matches_the_reference(dataset: str, pls_models: dict[str, PLS]) -> None:
     """`pls-regression.md` §8, Wold's form.
 
@@ -855,7 +955,7 @@ def test_vip_matches_the_reference(dataset: str, pls_models: dict[str, PLS]) -> 
     assert float((vip**2).sum()) == pytest.approx(vip.size)
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_rmsecv_curve_matches_the_reference(dataset: str) -> None:
     """The claim the whole cross-validation protocol rests on.
 
@@ -877,7 +977,7 @@ def test_rmsecv_curve_matches_the_reference(dataset: str) -> None:
     assert parity.check(f"{dataset}.pls.rmsecv_curve.sklearn", curve).passed
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_q2_matches_scikit_learns_own_metric_over_held_out_predictions(dataset: str) -> None:
     """`metrics-and-validation.md` §6, and the denominator packages differ on.
 
@@ -897,7 +997,7 @@ def test_q2_matches_scikit_learns_own_metric_over_held_out_predictions(dataset: 
     assert parity.check(f"{dataset}.pls.q2.sklearn", q2(y, held_out)).passed
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_folded_coefficients_match_a_model_fitted_on_the_raw_matrix(
     dataset: str, pls_models: dict[str, PLS]
 ) -> None:
@@ -925,7 +1025,7 @@ def test_folded_coefficients_match_a_model_fitted_on_the_raw_matrix(
     assert parity.check(f"{dataset}.pls.intercept_original_units.sklearn", intercept).passed
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_the_folded_model_predicts_what_the_pipeline_predicts(
     dataset: str, pls_models: dict[str, PLS]
 ) -> None:
@@ -951,7 +1051,7 @@ def test_the_folded_model_predicts_what_the_pipeline_predicts(
     )
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_our_splitter_reproduces_the_recorded_folds(dataset: str) -> None:
     """The other half of the case above: the recorded indices are *ours*.
 
@@ -1090,7 +1190,7 @@ def plsda_models() -> dict[str, tuple[PLS, np.ndarray]]:
     return models
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_plsda_is_pls1_on_the_dummy_response(
     dataset: str, plsda_models: dict[str, tuple[PLS, np.ndarray]]
 ) -> None:
@@ -1103,7 +1203,7 @@ def test_plsda_is_pls1_on_the_dummy_response(
     assert parity.check(f"{dataset}.plsda.dummy_predictions.sklearn", predictions).passed
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_plsda_assignment_and_tally_match_an_independent_count(
     dataset: str, plsda_models: dict[str, tuple[PLS, np.ndarray]]
 ) -> None:
@@ -1118,7 +1218,7 @@ def test_plsda_assignment_and_tally_match_an_independent_count(
     assert parity.check(f"{dataset}.plsda.accuracy.sklearn", (tp + tn) / y.size).passed
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_plsda_cross_validated_tally_matches_on_the_stored_folds(dataset: str) -> None:
     """`pls-da.md` §7: the pooled held-out predictions, assigned, on the
     fixture's own fold indices - never reseeded (§8.2)."""
@@ -1138,7 +1238,7 @@ def test_plsda_cross_validated_tally_matches_on_the_stored_folds(dataset: str) -
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_robust_distance_matches_mcd_at_its_minimum(dataset: str) -> None:
     """`outliers.md` section 7: scikit-learn's C-steps, correction and
     reweighting from the minimum-determinant support. A distance does not
@@ -1157,7 +1257,7 @@ def test_robust_distance_matches_mcd_at_its_minimum(dataset: str) -> None:
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
+@every_dataset
 def test_ipls_matches_interval_models_fitted_by_scikit_learn(dataset: str) -> None:
     """`variable-selection.md` section 5: every interval's best RMSECV, and the
     intervals forward selection adds, in order, on the PLS entries' folds."""
@@ -1171,3 +1271,60 @@ def test_ipls_matches_interval_models_fitted_by_scikit_learn(dataset: str) -> No
     path = parity.check(f"{dataset}.ipls.forward_path.sklearn", [float(k) for k, _ in result.steps])
     assert per_interval.passed
     assert path.passed and path.max_abs_diff == 0.0
+
+
+# --------------------------------------------------------------------------
+# grouped splits, metrics-and-validation.md §8.8 (#329)
+# --------------------------------------------------------------------------
+
+
+def _grouped_fold_of_sample(folds: list[Fold], n: int) -> np.ndarray:
+    fold = np.full(n, -1.0)
+    for k, each in enumerate(folds):
+        fold[each.test] = k
+    return fold
+
+
+def _triplets(n: int) -> list[str]:
+    """The fixture's groups: repeated from the generator, as the blocks above are."""
+    return [str(i // 3) for i in range(n)]
+
+
+@every_dataset
+def test_leave_one_group_out_matches_scikit_learn(dataset: str) -> None:
+    """Deterministic and in the same group order, so it is the same split exactly."""
+    n = LOADERS[dataset]().spectra.shape[0]
+    ours = _grouped_fold_of_sample(by_group(_triplets(n), leave_one_out), n)
+    result = parity.check(f"{dataset}.split.leave_one_group_out.sklearn", ours)
+    assert result.tier is parity.Tier.IDENTICAL
+
+
+@every_dataset
+def test_a_grouped_k_fold_keeps_groups_whole_but_deals_them_unlike_group_kfold(
+    dataset: str, fixture_entries: dict[str, dict[str, object]]
+) -> None:
+    entry_id = f"{dataset}.split.group_kfold.sklearn"
+    n = LOADERS[dataset]().spectra.shape[0]
+    groups = np.asarray(_triplets(n))
+    ours = _grouped_fold_of_sample(by_group(list(groups), lambda m: k_fold(m, 5)), n)
+    theirs = parity.as_array(fixture_entries[entry_id]["value"])
+
+    # Both are grouped splits - every group lies in one fold on either side -
+    # and they disagree only on which fold that is.
+    for assignment in (ours, theirs):
+        assert all(np.unique(assignment[groups == g]).size == 1 for g in np.unique(groups))
+    assert not np.array_equal(ours, theirs)
+
+    result = parity.record_divergence(
+        entry_id,
+        reason=(
+            "Both keep every group in one fold. GroupKFold's default deals groups without "
+            "a seed, largest first, each to the fold with the fewest samples so far. "
+            "metrics-and-validation.md §8.8 permutes the groups with the split's seed and "
+            "slices them by the K-fold size rule (§8.3) - which is GroupKFold(shuffle=True)'s "
+            "rule, but drawn from NumPy's default_rng rather than a legacy RandomState, so "
+            "the folds differ either way. A cross-validated claim passes our resolved folds "
+            "to the reference instead (§8.2)."
+        ),
+    )
+    assert result.tier is parity.Tier.DOCUMENTED_DIVERGENCE

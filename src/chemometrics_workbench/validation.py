@@ -34,7 +34,7 @@ these are arrays in, arrays out, as in `preprocessing.py` and
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -43,11 +43,16 @@ from numpy.typing import NDArray
 from chemometrics_workbench.arrays import as_float64_vector
 
 __all__ = [
+    "BootstrapResult",
     "Fold",
+    "PermutationResult",
     "bias",
+    "bootstrap",
+    "by_group",
     "folds_from_indices",
     "k_fold",
     "leave_one_out",
+    "permutation_test",
     "q2",
     "r2",
     "rmse",
@@ -324,6 +329,119 @@ def stratified_train_test(labels: Sequence[str], test_size: float, *, seed: int 
         held.append(members[:take])
     test = np.sort(np.concatenate(held))
     return [Fold(train=np.setdiff1d(np.arange(len(labels)), test), test=test)]
+
+
+def by_group(groups: Sequence[str], split: Callable[[int], list[Fold]]) -> list[Fold]:
+    """§8.8: run a splitter over the distinct groups, then expand each to its rows.
+
+    `split` is any of the splitters above, called with the number of groups
+    instead of the number of samples: the groups, in Unicode order, are what
+    it permutes, slices or leaves out one at a time. A group therefore lands
+    whole in one validation set, and every guarantee the splitter makes about
+    its items - a partition, the seed, the size rule - holds for the groups.
+    """
+    levels, codes = np.unique(np.asarray([str(group) for group in groups]), return_inverse=True)
+    try:
+        folds = split(levels.size)
+    except ValueError as error:
+        raise ValueError(f"over the {levels.size} groups: {error}") from error
+    every = np.arange(len(groups), dtype=np.intp)
+    return [
+        Fold(train=every[np.isin(codes, fold.train)], test=every[np.isin(codes, fold.test)])
+        for fold in folds
+    ]
+
+
+@dataclass(frozen=True)
+class PermutationResult:
+    """§14: the observed score, its null distribution and the p-value."""
+
+    observed: float
+    null: list[float]
+    p_value: float
+    seed: int
+    greater_is_better: bool
+
+
+def permutation_test(
+    score: Callable[[NDArray[np.intp]], float],
+    n_samples: int,
+    n_permutations: int,
+    *,
+    seed: int = 0,
+    greater_is_better: bool,
+    on_progress: Callable[[int], None] | None = None,
+) -> PermutationResult:
+    """§14: score the unpermuted response, then `n_permutations` permutations of it.
+
+    `score(order)` reruns the whole cross-validation with the response taken
+    in `order` - `numpy.arange(n)` for the observed score - and returns its
+    cross-validated score. The orders are drawn from one
+    `numpy.random.default_rng(seed)`, so a seed always gives the same null.
+
+    The p-value counts the permutations that score at least as well as the
+    observed one, plus one for the observed itself, over `n_permutations + 1`:
+    never zero, because the observed labelling is one of the labellings the
+    null could have produced.
+
+    `on_progress` is told how many permutations are done; a caller that wants
+    to stop raises from it.
+    """
+    if n_permutations < 1:
+        raise ValueError(f"a permutation test needs at least one permutation, got {n_permutations}")
+    observed = float(score(np.arange(n_samples, dtype=np.intp)))
+    rng = np.random.default_rng(seed)
+    null: list[float] = []
+    for i in range(n_permutations):
+        null.append(float(score(rng.permutation(n_samples))))
+        if on_progress is not None:
+            on_progress(i + 1)
+    values = np.asarray(null)
+    as_good = values >= observed if greater_is_better else values <= observed
+    p_value = (int(as_good.sum()) + 1) / (n_permutations + 1)
+    return PermutationResult(observed, null, p_value, seed, greater_is_better)
+
+
+@dataclass(frozen=True)
+class BootstrapResult:
+    """`pls-regression.md` §16: a percentile interval per element of a statistic."""
+
+    lower: NDArray[np.float64]
+    upper: NDArray[np.float64]
+    level: float
+    n_resamples: int
+    seed: int
+
+
+def bootstrap(
+    statistic: Callable[[NDArray[np.intp]], NDArray[np.float64]],
+    n_samples: int,
+    n_resamples: int,
+    *,
+    level: float = 0.95,
+    seed: int = 0,
+) -> BootstrapResult:
+    """Percentile intervals of `statistic` over `n_resamples` bootstrap resamples.
+
+    Each resample is `n_samples` row indices drawn with replacement by
+    `numpy.random.default_rng(seed).integers(0, n_samples, n_samples)`, one
+    generator for every resample in turn, so a seed always gives the same
+    intervals. `statistic(rows)` refits whatever it measures on those rows.
+    The interval is the `(1 - level) / 2` and `(1 + level) / 2` quantiles of
+    the resampled values, by NumPy's default linear interpolation.
+    """
+    if n_resamples < 2:
+        raise ValueError(f"a bootstrap needs at least two resamples, got {n_resamples}")
+    if not 0 < level < 1:
+        raise ValueError(f"the level must be between 0 and 1, got {level}")
+    rng = np.random.default_rng(seed)
+    values = np.asarray(
+        [statistic(rng.integers(0, n_samples, n_samples)) for _ in range(n_resamples)],
+        dtype=np.float64,
+    )
+    tail = (1 - level) / 2
+    lower, upper = np.quantile(values, [tail, 1 - tail], axis=0)
+    return BootstrapResult(lower, upper, level, n_resamples, seed)
 
 
 def folds_from_indices(

@@ -5,8 +5,8 @@
 #
 # Screenshots are not committed: e2e/docs-screens.spec.ts writes them into
 # docs/images/screens/ from the running application, so they cannot drift from
-# it. The phase records under docs/phase-*/ are history, not documentation,
-# and are left out.
+# it. The phase records under docs/phase-*/ and the decision records under
+# docs/decisions/ are history, not documentation, and are left out.
 site_name: Chemometrics Workbench
 site_description: Open-source, local-first chemometrics workbench
 site_url: https://millermuttu.github.io/Chemometrics-Workbench/
@@ -32,6 +32,7 @@ theme:
 
 exclude_docs: |
   phase-*/
+  decisions/
 
 markdown_extensions:
   - admonition
@@ -52,6 +53,7 @@ nav:
       - Exploring a dataset with PCA: examples/pca.md
       - A calibration with PLS: examples/pls.md
       - Classifying meat: examples/classification.md
+      - Validating a classifier honestly: examples/validation.md
   - How-to:
       - Find and exclude outliers: how-to/outliers.md
       - Select variables: how-to/variable-selection.md
@@ -69,16 +71,10 @@ nav:
           - SIMCA: algorithms/simca.md
           - LDA: algorithms/lda.md
           - kNN: algorithms/knn.md
+          - SVM: algorithms/svm.md
           - Outlier diagnostics: algorithms/outliers.md
           - Variable selection: algorithms/variable-selection.md
           - Smoothing and baselines: algorithms/smoothing-and-baselines.md
           - Metrics and validation: algorithms/metrics-and-validation.md
       - Model artifact: model-artifact.md
       - Model export format: model-export.md
-      - Decisions:
-          - 0001 chemotools: decisions/0001-chemotools.md
-          - 0002 Phase 1 shape: decisions/0002-phase-1-shape.md
-          - 0003 Fixture centre: decisions/0003-fixture-centre-d.md
-          - 0004 Rank tolerance: decisions/0004-rank-tolerance-precision.md
-          - 0005 Overloaded state coverage: decisions/0005-overloaded-state-coverage.md
-          - 0006 Phase 5 data sources: decisions/0006-phase-5-data-sources.md

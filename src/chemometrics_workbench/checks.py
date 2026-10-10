@@ -237,9 +237,10 @@ def _selection_shares_samples(
             message=(
                 f"The variables at {node.id!r} were chosen by {method} on these samples, and "
                 f"{named} is validated on the same samples. Its cross-validated error is "
-                "optimistic: the folds that score it also chose its variables. An honest "
-                "estimate needs samples the selection never saw, such as a held-out set kept "
-                "out of the selection."
+                "optimistic: the folds that score it also chose its variables. For an honest "
+                f"estimate, run Validate (nested) on the estimator {method} was run from: it "
+                "repeats the selection inside each outer fold and scores it on samples that "
+                "selection never saw (variable-selection.md section 8)."
             ),
         )
     ]

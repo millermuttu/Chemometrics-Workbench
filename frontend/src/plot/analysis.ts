@@ -4,6 +4,7 @@ import type {
   ContributionsPayload,
   IplsPayload,
   PcaPayload,
+  PermutationPayload,
 } from "@/api/queries";
 
 import type { PlotTheme } from "./theme";
@@ -290,6 +291,8 @@ function limitLine(x: number[], y: number[], theme: PlotTheme, name: string) {
 /** The influence plot: T² against Q, each sample named on hover, a flagged
  * one in `stale`, and both limits as the lines it is judged against. */
 export function influenceTraces(pca: PcaPayload, theme: PlotTheme) {
+  const wise = pca.outliers?.classwise;
+  if (wise) return classwiseInfluenceTraces(pca, wise, theme);
   const { hotelling_t2: t2, spe, hotelling_t2_limit: t2Limit, spe_limit: qLimit } = pca.diagnostics;
   const marked = flagged(pca);
   const xMax = Math.max(t2Limit, ...t2) * 1.05;
@@ -439,5 +442,108 @@ export function carsTraces(payload: CarsPayload, theme: PlotTheme) {
       marker: { size: 9, color: "transparent", line: { width: 1.5, color: theme.stale } },
       hoverinfo: "skip",
     },
+  ];
+}
+
+/** The null distribution as twenty bins, with the observed score as a line
+ * (#333). Counted here rather than by a histogram trace: the bins are a
+ * drawing decision and the counts the reader sees should be the ones drawn. */
+export function permutationFigure(payload: PermutationPayload, theme: PlotTheme) {
+  const values = payload.null;
+  const low = Math.min(...values, payload.observed);
+  const high = Math.max(...values, payload.observed);
+  const bins = 20;
+  const width = (high - low) / bins || 1;
+  const counts = new Array<number>(bins).fill(0);
+  for (const value of values) counts[Math.min(bins - 1, Math.floor((value - low) / width))] += 1;
+  return {
+    data: [
+      {
+        type: "bar",
+        x: counts.map((_, k) => low + (k + 0.5) * width),
+        y: counts,
+        width: width,
+        marker: { color: theme.band },
+        hovertemplate: "%{x:.4g} · %{y} permutations<extra></extra>",
+        name: "permuted",
+      },
+    ],
+    shapes: [
+      {
+        type: "line",
+        yref: "paper",
+        x0: payload.observed,
+        x1: payload.observed,
+        y0: 0,
+        y1: 1,
+        line: { width: 1.5, color: theme.series[0] },
+      },
+    ],
+  };
+}
+
+/** A bootstrap percentile band (#334): the lower bound, then the upper filled
+ * down to it. Drawn beneath the line it belongs to, in the band colour, so a
+ * stable variable reads as a narrow ribbon and an unstable one as a wide one. */
+export function bandTraces(
+  x: number[],
+  band: { lower: number[]; upper: number[] },
+  label: string,
+  theme: PlotTheme,
+) {
+  return [
+    {
+      type: "scattergl",
+      mode: "lines",
+      name: `${label} lower`,
+      x,
+      y: band.lower,
+      line: { width: 0, color: theme.band },
+      hoverinfo: "skip",
+      showlegend: false,
+    },
+    {
+      type: "scattergl",
+      mode: "lines",
+      name: label,
+      x,
+      y: band.upper,
+      fill: "tonexty",
+      fillcolor: theme.band,
+      line: { width: 0, color: theme.band },
+      hoverinfo: "skip",
+      showlegend: false,
+    },
+  ];
+}
+
+/** A classifier's influence plot (#335, outliers.md section 8): each sample's
+ * T² and Q as a ratio to its own class's limit, so one line at 1 serves every
+ * class, and one trace per class so the legend says which is which. */
+function classwiseInfluenceTraces(
+  pca: PcaPayload,
+  wise: NonNullable<NonNullable<PcaPayload["outliers"]>["classwise"]>,
+  theme: PlotTheme,
+) {
+  const t2 = wise.t2.map((value, i) => value / wise.t2_limit[i]);
+  const q = wise.q.map((value, i) => value / wise.q_limit[i]);
+  const xMax = Math.max(1, ...t2) * 1.05;
+  const yMax = Math.max(1, ...q) * 1.05;
+  return [
+    limitLine([1, 1], [0, yMax], theme, "T² limit"),
+    limitLine([0, xMax], [1, 1], theme, "Q limit"),
+    ...wise.classes.map((name, code) => {
+      const rows = wise.class_of.flatMap((c, i) => (c === code ? [i] : []));
+      return {
+        type: "scattergl",
+        mode: "markers",
+        name,
+        x: rows.map((i) => t2[i]),
+        y: rows.map((i) => q[i]),
+        text: rows.map((i) => pca.samples[i].sample_id),
+        marker: { size: 5, color: theme.series[code % theme.series.length] },
+        hovertemplate: `%{text} · ${name}<br>T² / limit %{x:.3f} · Q / limit %{y:.3g}<extra></extra>`,
+      };
+    }),
   ];
 }

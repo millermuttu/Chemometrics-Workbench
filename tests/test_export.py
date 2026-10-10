@@ -53,6 +53,7 @@ from chemometrics_workbench.models import (
     SIMCASpec,
     SourceNode,
     SplitNode,
+    SVMSpec,
     WhittakerSmooth,
 )
 from chemometrics_workbench.project import create_project, write_array
@@ -355,6 +356,33 @@ def test_a_knn_with_nothing_to_fold_carries_no_map(
     assert predicted[np.asarray(result.rows)].tolist() == expected
 
 
+@pytest.mark.parametrize("kernel", ["linear", "rbf"])
+def test_an_svm_exports_its_pairs_behind_an_affine_map(
+    project: tuple[Path, DatasetVersion], tecator: Any, kernel: str
+) -> None:
+    """#338, svm.md section 6: the snippet votes as the application did,
+    through a folded smoother."""
+    directory, version = project
+    version = _grades(version, tecator)
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(id="smooth", inputs=("source",), step=MovingAverage(window_length=5)),
+        EstimatorNode(
+            id="svm",
+            inputs=("smooth",),
+            spec=SVMSpec(kernel=kernel, n_components=5, class_column="grade"),
+        ),
+    )
+    result = _run(directory, version, pipeline, "svm")
+    model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
+
+    assert model["model"]["assignment"] == "svm" and model["svm"]["kernel"] == kernel
+    assert model["affine"] is not None
+    predicted = _predict(python_snippet(model), tecator.spectra)
+    expected = [result.classes[k] for k in result.predicted_class]
+    assert predicted[np.asarray(result.rows)].tolist() == expected
+
+
 def test_an_lda_exports_its_discriminant_and_assigns_by_argmax(
     project: tuple[Path, DatasetVersion], tecator: Any
 ) -> None:
@@ -498,11 +526,12 @@ def test_a_classification_exports_its_classes_and_its_threshold(
     assert list(labels[np.asarray(result.rows)]) == served
 
 
-def test_a_model_below_a_split_exports_the_fold_it_was_fitted_on(
+def test_a_model_below_a_split_exports_the_all_sample_model(
     project: tuple[Path, DatasetVersion], tecator: Any
 ) -> None:
-    """The model the application serves is fold zero's, so the export is too -
-    fitted on its training rows, and reproducing its predictions on them."""
+    """#330: the model the application serves below a split is refitted on every
+    sample through a chain refitted on every sample, and the export is that model,
+    reproducing its predictions on every row."""
     directory, version = project
     pipeline = _pipeline(
         version.version_id,
@@ -514,17 +543,11 @@ def test_a_model_below_a_split_exports_the_fold_it_was_fitted_on(
         ),
     )
     result = _run(directory, version, pipeline, "pls")
+    assert result.all_samples and result.rows == list(range(version.n_samples))
     model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
 
     predicted = _predict(python_snippet(model), tecator.spectra)
-    np.testing.assert_allclose(
-        predicted[np.asarray(result.rows)], result.predicted, rtol=RTOL, atol=ATOL
-    )
-    # And on the rows it never saw, against what the application predicted for
-    # them through the same fitted model.
-    np.testing.assert_allclose(
-        predicted[np.asarray(result.held_out)], result.held_out_predicted, rtol=RTOL, atol=ATOL
-    )
+    np.testing.assert_allclose(predicted, result.predicted, rtol=RTOL, atol=ATOL)
 
 
 # --------------------------------------------------------------------------

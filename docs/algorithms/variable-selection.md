@@ -21,6 +21,8 @@ Three methods produce positions:
 
 **A selection made on every sample leaks.** iPLS chooses its intervals by cross-validated error, and the cross-validated error of the model built on those intervals is then optimistic, because the same folds chose them. This is the same leak `metrics-and-validation.md` §9 describes for preprocessing, moved one level up. The honest estimate of a selected model's error comes from samples the selection never saw: a held-out set, or a selection repeated inside an outer loop.
 
+**The application measures it** (§8): *Validate (nested)* repeats the selection inside an outer loop and reports the honest error beside the optimistic one.
+
 **The pipeline says so.** *Apply selection* records the method in the step's `chosen_by`. When an estimator below such a step is validated, that is, has a split anywhere above it, `checks.py` raises `selection_shares_samples` on the step and names the estimator. A step written by hand, with no `chosen_by`, is not warned about, and an unset `chosen_by` leaves a step's JSON, and so its content hash, as it was before the field existed.
 
 ---
@@ -93,7 +95,7 @@ Competitive adaptive reweighted sampling (Li, Liang, Xu and Cao, 2009, *Anal. Ch
    - Cross-validate a PLS on the retained variables as in §2, and record its RMSECV and component count.
 3. The selection is the retained set of the run with the lowest RMSECV, the earliest one on a tie.
 
-**Randomness.** Both the samples drawn and the reweighted sampling come from one `numpy.random.default_rng(seed)`, with seed 0 unless one is given. A seed always gives the same runs. Every fit is cross-validated on the stored per-fold matrices, as iPLS's are. The sampling fits use fold zero's matrix, which is the matrix the estimator itself was fitted on.
+**Randomness.** Both the samples drawn and the reweighted sampling come from one `numpy.random.default_rng(seed)`, with seed 0 unless one is given. A seed always gives the same runs. Every fit is cross-validated on the stored per-fold matrices, as iPLS's are. The sampling fits use the first fold's matrix it is given, every row of it. Run from an estimator, that is fold zero's matrix; inside the nested loop of §8, it is the outer fold's own training rows.
 
 **Reported quantities.** Per run: the retained count, the RMSECV and the component count. Also the best run, the seed and the selected positions.
 
@@ -110,3 +112,41 @@ Competitive adaptive reweighted sampling (Li, Liang, Xu and Cao, 2009, *Anal. Ch
 | Direction | Forward only | `mdatools` also offers backward elimination |
 | CARS components | Capped at $A_{\max}$, chosen per run at the RMSECV curve's first minimum | The original fixes $A$, and chooses it by its own cross-validation |
 | CARS sampling | 80% of the samples per run, one seeded generator | The original's fraction is also 80%; its runs are not reproducible across implementations |
+
+---
+
+## 8. Nested validation
+
+[#331](https://github.com/millermuttu/Chemometrics-Workbench/issues/331). A selection made on every sample and then cross-validated on the same folds is scored by the folds that chose it (§0). Nested validation scores it on samples it never saw:
+
+1. **The outer folds** are the split above the estimator, and each outer fold's matrix is its own, as in §2.
+2. In each outer fold, the **inner folds** are a K-fold of that fold's training rows, $K = 5$ unless set, shuffled with the given seed (default 0) by `metrics-and-validation.md` §8.3. Under a grouped split (§8.8 there) they are grouped by the same column, so replicates stay together inside as well as outside.
+3. **The selection is rerun** on the outer training rows alone, with the inner folds where the method cross-validates: iPLS and CARS as §2-§6, VIP and the coefficient threshold from a PLS fitted on those rows with the estimator's component count, at the same cut.
+4. **The selected model** is a PLS on the selected columns with the estimator's component count, capped at the column count, centred on the outer training rows. It predicts the outer held-out rows.
+5. The held-out predictions are pooled (`metrics-and-validation.md` §7) into the **outer RMSECV**.
+
+Beside it is the **inner RMSECV**: the same method run on every sample with the outer folds, as *Apply selection* runs it, and the selected model cross-validated on those folds at the estimator's component count. That is the number the applied model will report, and the one §0 calls optimistic.
+
+The inner folds see one outer fold's preprocessing, fitted on all of its training rows; only the estimator's own centring is refitted per inner fold. The outer score is not affected: the outer held-out rows took no part in any of it.
+
+**The outer error is not always the larger.** A method that chooses by cross-validated error (iPLS, CARS) flatters that error, and on Tecator its outer RMSECV is the higher. A VIP or $\lvert b \rvert$ threshold chooses from the fitted model and never looks at a cross-validated error, so its inner number has no built-in optimism, and on Tecator its outer RMSECV comes out slightly lower.
+
+**Reported quantities.** The outer and inner RMSECV, the outer fold count, the inner fold count, the size of the selection made on every sample, and the size of each outer fold's selection.
+
+**Parity.** No library offers this loop as one call. `tests/test_selection.py` rebuilds it with scikit-learn's `PLSRegression`, VIP computed from its weights and iPLS restated with its fits, on the same outer folds, and the selections and outer predictions agree.
+
+---
+
+## 9. From a PLS-DA
+
+[#332](https://github.com/millermuttu/Chemometrics-Workbench/issues/332). Every method above runs from a PLS-DA as well as from a PLS regression, on the PLS-DA's **dummy response** (`pls-da.md` §3): the $\{0, 1\}$ codes for two classes, which is PLS1, and the one-hot $n \times N$ matrix for three or more, which is PLS2 (`pls-regression.md` §10).
+
+- **VIP** is the PLS-DA's own (`pls-regression.md` §8). For PLS2 its per-component weights sum the response sum of squares over every column.
+- **iPLS and CARS** score a subset by the dummy RMSECV `pls-da.md` §7 defines: one RMSE pooled over every element of the held-out one-hot predictions, so every class counts in proportion to its samples. Two classes give PLS1's RMSECV exactly.
+- **CARS's weights** for PLS2 are each variable's $\lvert b_{jc} \rvert$ summed over the classes, normalised as in §6.
+- **The coefficient threshold** needs one coefficient vector, so it is offered for two classes and refused for three or more.
+- **Nested validation** (§8) scores the outer held-out rows by the same pooled RMSE.
+
+*Apply selection* writes the same `select_variables` step above a copy of the PLS-DA, as it does for a regression.
+
+**Parity.** `tests/test_selection.py` compares iPLS on a one-hot response with a rebuild in which every fit is scikit-learn's multi-target `PLSRegression`, iterated to its fixed point, on Tecator split into fat terciles. The interval RMSECVs agree and the forward path is identical. `tests/test_regression.py` compares the pooled curve the same way.

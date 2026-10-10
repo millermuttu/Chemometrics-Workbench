@@ -1,22 +1,39 @@
 """Variable selection kernels, per `docs/algorithms/variable-selection.md`.
 
-iPLS (#282) and CARS (#283) are here. A selection is never applied by the kernel: it returns
-the positions, and the user applies them as a `select_variables` step (#280),
-so what was selected is part of the recipe and its lineage.
+iPLS (#282) and CARS (#283) are here, and the nested loop that validates any
+selection honestly (#331, §8). A selection is never applied by the kernel: it
+returns the positions, and the user applies them as a `select_variables` step
+(#280), so what was selected is part of the recipe and its lineage.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 import numpy as np
 from numpy.typing import NDArray
 
-from chemometrics_workbench.arrays import as_float64_vector
-from chemometrics_workbench.regression import PLS, _fold_matrices, rmsecv_curve
-from chemometrics_workbench.validation import Fold
+from chemometrics_workbench.regression import PLS, PLS2, _fold_matrices, _response, rmsecv_curve
+from chemometrics_workbench.validation import Fold, by_group, k_fold, rmse, validate_partition
 
-__all__ = ["CARSResult", "CARSRun", "IPLSResult", "Interval", "cars", "interval_bounds", "ipls"]
+__all__ = [
+    "CARSResult",
+    "CARSRun",
+    "IPLSResult",
+    "Interval",
+    "NestedResult",
+    "Selector",
+    "cars",
+    "cars_selector",
+    "coefficient_selector",
+    "interval_bounds",
+    "ipls",
+    "ipls_selector",
+    "nested",
+    "selected_rmsecv",
+    "vip_selector",
+]
 
 
 @dataclass(frozen=True)
@@ -179,9 +196,9 @@ def cars(
     if len(folds) < 2:
         raise ValueError("CARS compares cross-validated errors, and needs at least two folds")
     matrices = _fold_matrices(X, folds)
-    response = as_float64_vector(y, "y")
-    # The sampling fits use fold zero's matrix, every row of it: the matrix
-    # the estimator itself was fitted from.
+    response = _response(y)
+    # The sampling fits use fold zero's matrix, every row of it
+    # (`variable-selection.md` §6; #331 revisits it).
     values = matrices[0]
     n, p = values.shape
     if p < 3:
@@ -198,10 +215,12 @@ def cars(
         rows = rng.choice(n, size=take, replace=False)
         block = values[np.ix_(rows, retained)]
         target = response[rows]
-        model = PLS(min(max_components, retained.size, take - 1)).fit(
-            block - block.mean(axis=0), target - target.mean()
+        model = _model(response)(min(max_components, retained.size, take - 1)).fit(
+            block - block.mean(axis=0), target - target.mean(axis=0)
         )
-        weights = np.abs(np.asarray(model.coefficients_, dtype=np.float64).ravel())
+        # §9: a one-hot response weighs a variable by its |b| summed over classes.
+        b = np.abs(np.asarray(model.coefficients_, dtype=np.float64))
+        weights = b.sum(axis=1) if b.ndim == 2 else b.ravel()
         if not weights.sum() > 0:
             weights = np.ones_like(weights)
         keep = max(2, round(a * np.exp(-k * i) * p))
@@ -218,3 +237,133 @@ def cars(
         runs.append(CARSRun([int(v) for v in retained], float(curve[best_a]), best_a + 1))
     best = int(np.argmin([run.rmsecv for run in runs]))
     return CARSResult(runs, best)
+
+
+# --------------------------------------------------------------------------
+# nested validation, section 8
+# --------------------------------------------------------------------------
+
+Selector = Callable[[NDArray[np.float64], NDArray[np.float64], list[Fold]], list[int]]
+"""A selection method as §8 runs it: a matrix, its response and folds over its
+rows in, the column positions it keeps out."""
+
+
+def _model(response: NDArray[np.float64]) -> type[PLS]:
+    """PLS1 for a response vector, PLS2 for a one-hot matrix (§9)."""
+    return PLS2 if response.ndim == 2 else PLS
+
+
+def _centred_pls(x: NDArray[np.float64], y: NDArray[np.float64], n_components: int) -> PLS:
+    return _model(y)(min(n_components, x.shape[1])).fit(x - x.mean(axis=0), y - y.mean(axis=0))
+
+
+def vip_selector(n_components: int, cut: float = 1.0) -> Selector:
+    """§0's VIP threshold: VIP at or above `cut` from an `n_components` PLS."""
+    return lambda x, y, _: [
+        int(j) for j in np.flatnonzero(_centred_pls(x, y, n_components).vip() >= cut)
+    ]
+
+
+def coefficient_selector(n_components: int, cut: float) -> Selector:
+    """§0's coefficient threshold: |b| at or above `cut`."""
+
+    def select(x: NDArray[np.float64], y: NDArray[np.float64], _: list[Fold]) -> list[int]:
+        if y.ndim == 2:
+            raise ValueError("a |b| cut needs one coefficient vector; this model has one per class")
+        b = np.asarray(_centred_pls(x, y, n_components).coefficients_, dtype=np.float64).ravel()
+        return [int(j) for j in np.flatnonzero(np.abs(b) >= cut)]
+
+    return select
+
+
+def ipls_selector(n_intervals: int, max_components: int) -> Selector:
+    """§3's forward iPLS, cross-validated on the folds it is given."""
+    return lambda x, y, folds: ipls(x, y, folds, n_intervals, max_components).selected
+
+
+def cars_selector(max_components: int, *, n_runs: int = 50, seed: int = 0) -> Selector:
+    """§6's CARS, cross-validated on the folds it is given."""
+    return lambda x, y, folds: cars(x, y, folds, max_components, n_runs=n_runs, seed=seed).selected
+
+
+@dataclass(frozen=True)
+class NestedResult:
+    """§8: the honest error of a selection, and what each outer fold chose."""
+
+    outer_rmsecv: float
+    predicted: list[float]
+    """One outer held-out prediction per sample, pooled over the outer folds."""
+    selected: list[list[int]]
+    """The positions each outer fold's selection kept, in outer-fold order."""
+
+
+def nested(
+    X: object,
+    y: object,
+    folds: list[Fold],
+    select: Selector,
+    n_components: int,
+    *,
+    inner_splits: int = 5,
+    seed: int = 0,
+    groups: Sequence[str] | None = None,
+) -> NestedResult:
+    """§8: rerun the selection inside each outer training fold, score the
+    selected model on that fold's held-out rows, and pool.
+
+    `X` is one matrix or one per outer fold, as `rmsecv_curve` takes it, so
+    each outer fold selects and fits on its own preprocessed matrix. The inner
+    folds are a K-fold of the outer training rows, grouped when `groups` is
+    given, so a grouped outer split stays grouped inside.
+    """
+    matrices = _fold_matrices(X, folds)
+    response = _response(y)
+    n = matrices[0].shape[0]
+    if response.shape[0] != n:
+        raise ValueError(f"X has {n} samples and y has {response.shape[0]}")
+    if len(folds) < 2:
+        raise ValueError("a nested validation needs an outer split of at least two folds")
+    validate_partition(folds, n)
+
+    predicted = np.empty(response.shape, dtype=np.float64)
+    chosen_per_fold: list[list[int]] = []
+    for index, (fold, values) in enumerate(zip(folds, matrices, strict=True)):
+        train = fold.train
+        x, target = values[train], response[train]
+        try:
+            inner = (
+                k_fold(train.size, inner_splits, seed=seed)
+                if groups is None
+                else by_group(
+                    [groups[i] for i in train], lambda m: k_fold(m, inner_splits, seed=seed)
+                )
+            )
+            chosen = np.asarray(select(x, target, inner), dtype=np.intp)
+        except ValueError as error:
+            raise ValueError(f"outer fold {index}: {error}") from error
+        if chosen.size == 0:
+            raise ValueError(f"outer fold {index}'s selection kept no variable")
+        block = x[:, chosen]
+        mean, y_mean = block.mean(axis=0), target.mean(axis=0)
+        model = _model(response)(min(n_components, chosen.size)).fit(block - mean, target - y_mean)
+        predicted[fold.test] = model.predict(values[np.ix_(fold.test, chosen)] - mean) + y_mean
+        chosen_per_fold.append([int(j) for j in chosen])
+    # Pooled over every element for a one-hot response (§9, pls-da.md §7).
+    return NestedResult(
+        rmse(response.ravel(), predicted.ravel()),
+        [float(v) for v in predicted.ravel()],
+        chosen_per_fold,
+    )
+
+
+def selected_rmsecv(
+    X: object, y: object, folds: list[Fold], selected: Sequence[int], n_components: int
+) -> float:
+    """§8's inner number: the RMSECV of a selection made on every sample, at
+    the estimator's component count, on the same folds - the optimistic one."""
+    columns = np.asarray(selected, dtype=np.intp)
+    matrices = _fold_matrices(X, folds)
+    curve = rmsecv_curve(
+        [m[:, columns] for m in matrices], y, folds, min(n_components, columns.size)
+    )
+    return float(curve[-1])

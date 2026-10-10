@@ -52,12 +52,27 @@ ALGORITHM_TITLES = {
     "pls2": "PLS2 (several responses)",
     "lda": "LDA (PCA-LDA)",
     "knn": "kNN (PCA-kNN)",
+    "svm": "SVM (PCA-SVM, one-vs-one)",
     "mcd": "Robust distance (FastMCD)",
     "ipls": "iPLS (interval PLS)",
+    "split": "Grouped splits",
     "plsda": "PLS-DA (two-class)",
     "preprocess": "Preprocessing",
 }
-ALGORITHM_ORDER = ["preprocess", "pca", "pls", "pls2", "pcr", "plsda", "lda", "knn", "mcd", "ipls"]
+ALGORITHM_ORDER = [
+    "preprocess",
+    "pca",
+    "pls",
+    "pls2",
+    "pcr",
+    "plsda",
+    "lda",
+    "knn",
+    "svm",
+    "mcd",
+    "ipls",
+    "split",
+]
 DATASET_ORDER = ["corn", "gasoline", "tecator"]
 
 TIER_LABELS = {
@@ -111,6 +126,18 @@ COVERAGE: tuple[Coverage, ...] = (
     Coverage("LDA", ("LDA",), ("lda.decision_function", "lda.predictions")),
     Coverage("kNN", ("KNN",), ("knn.predictions", "knn.votes")),
     Coverage(
+        "SVM",
+        ("SVM",),
+        (
+            "svm.predictions_linear",
+            "svm.predictions_rbf",
+            "svm.decision_linear",
+            "svm.decision_rbf",
+            "svm.decision_linear_converged",
+            "svm.decision_rbf_converged",
+        ),
+    ),
+    Coverage(
         "Robust distance (FastMCD)",
         ("min_cov_det", "RobustCovariance", "robust_distance_limit"),
         ("mcd.robust_distance",),
@@ -128,6 +155,24 @@ COVERAGE: tuple[Coverage, ...] = (
         "meaningless unless both sides draw the same numbers. Determinism for a seed, the "
         "shrinking schedule and recovery of the informative variables on a synthetic set are "
         "tested in tests/test_selection.py (variable-selection.md section 6).",
+    ),
+    Coverage(
+        "Nested validation of a selection",
+        (
+            "nested",
+            "NestedResult",
+            "selected_rmsecv",
+            "Selector",
+            "vip_selector",
+            "coefficient_selector",
+            "ipls_selector",
+            "cars_selector",
+        ),
+        not_compared="No library offers nested selection as one call, so there is no fixture "
+        "value. tests/test_selection.py rebuilds the loop with scikit-learn's PLSRegression on "
+        "the served outer folds, for VIP and iPLS selection, and the outer predictions and "
+        "selections agree; the outer error is at least the inner on Tecator "
+        "(variable-selection.md section 8).",
     ),
     Coverage(
         "Leverage and studentised residuals",
@@ -270,6 +315,35 @@ COVERAGE: tuple[Coverage, ...] = (
         "to the reference instead. The fold structure is unit-tested in "
         "`tests/test_validation.py`. Stratified folds also deal each level into folds by "
         "§8.7's own rule, which is not scikit-learn's `StratifiedKFold` assignment either.",
+    ),
+    Coverage(
+        "Grouped splits",
+        ("by_group",),
+        ("split.leave_one_group_out", "split.group_kfold"),
+    ),
+    Coverage(
+        "Class-wise outlier diagnostics",
+        ("class_diagnostics", "ClassDiagnostics"),
+        not_compared="Each class's T² and Q are a PCA's, already compared above; "
+        "tests/test_outliers.py checks every class against scikit-learn's PCA of that class's "
+        "centred rows, and the leverage against the hat diagonal (`outliers.md` section 8).",
+    ),
+    Coverage(
+        "Bootstrap intervals",
+        ("bootstrap", "BootstrapResult"),
+        not_compared="A procedure over a fitted model rather than a value: tests/test_server.py "
+        "rebuilds the intervals with scikit-learn's PLSRegression on the same resampled rows, "
+        "drawn from the same stream, and they agree to rtol 1e-6 (`pls-regression.md` section "
+        "16).",
+    ),
+    Coverage(
+        "Permutation test",
+        ("permutation_test", "PermutationResult"),
+        not_compared="Compared in tests/test_permutation.py rather than through the fixture, "
+        "because it is a procedure over a fitted model rather than a value: scikit-learn's "
+        "`permutation_test_score`, handed our permutations and our folds, gives the same null "
+        "distribution and p-value for a PLS RMSECV and a PLS-DA accuracy "
+        "(`metrics-and-validation.md` section 14).",
     ),
     Coverage(
         "Model export: JSON model and prediction snippet",

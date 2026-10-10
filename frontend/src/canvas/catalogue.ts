@@ -2,7 +2,9 @@
  *
  * Shared by the side list and by the menu that opens when a connector is
  * dropped on empty canvas: two ways in to the same set, so a kind added here
- * appears in both rather than in whichever one someone remembered.
+ * appears in both rather than in whichever one someone remembered. Until #337
+ * the list took only `STEPS`, so splits and every estimator but PCA were
+ * reachable from a port alone; both now take `stepMenu`.
  *
  * The parameters are the defaults `models.py` already carries, written out
  * rather than left implicit: what is sent is what the canvas shows, and a
@@ -18,20 +20,10 @@
  */
 import type { DraftStep } from "@/canvas/graph";
 
-/** A step the canvas can create.
- *
- * `type` is wider than `DraftStep`'s, which knows only about the two kinds the
- * side list can draw as a draft chain. A node added from the menu is created
- * directly rather than drafted, so it may also be a split.
- */
-export type CatalogueStep = Omit<Pick<DraftStep, "kind" | "type" | "parameters" | "payload">, "type"> & {
-  type: DraftStep["type"] | "split";
-};
+/** A step the canvas can create, from the list or from the menu. */
+export type CatalogueStep = Pick<DraftStep, "kind" | "type" | "parameters" | "payload">;
 
-/** The subset the side list can draft, which is everything but a split. */
-export type DraftableStep = Pick<DraftStep, "kind" | "type" | "parameters" | "payload">;
-
-export const STEPS: DraftableStep[] = [
+export const STEPS: CatalogueStep[] = [
   {
     kind: "SNV",
     type: "preprocess",
@@ -157,6 +149,14 @@ export function stepMenu(targets: string[], classColumns: string[] = []): Catalo
             type: "estimator" as const,
             parameters: `k 5 · 5 components · ${classColumn}`,
             payload: { spec: { kind: "knn", k: 5, n_components: 5, class_column: classColumn } },
+          },
+          {
+            kind: "SVM rbf 5 PC",
+            type: "estimator" as const,
+            parameters: `rbf · C 1 · 5 components · ${classColumn}`,
+            payload: {
+              spec: { kind: "svm", kernel: "rbf", C: 1, n_components: 5, class_column: classColumn },
+            },
           },
           {
             kind: "SIMCA 3 PC",

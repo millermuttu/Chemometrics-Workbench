@@ -132,7 +132,7 @@ test("a regression tab draws what a decomposition has no counterpart for", async
   // The header says what the model is and leads with the two numbers that say
   // whether it generalises, rather than PC1 and cumulative variance.
   const header = page.getByTestId("analysis-header");
-  await expect(header).toContainText("PLS on fat 5 components · 216 × 100");
+  await expect(header).toContainText("PLS on fat 5 components · 240 × 100");
   await expect(header).toContainText("RMSECV");
   await expect(header).toContainText("Q²");
 
@@ -186,7 +186,7 @@ test("a classification tab tallies its classes, and is read by accuracy", async 
       );
     return { calibration: sum("calibration"), cv: sum("cross_validation") };
   });
-  expect(totals).toEqual({ calibration: 216, cv: 240 });
+  expect(totals).toEqual({ calibration: 240, cv: 240 });
   // #269: each set's per-class table, one row per class, read from its matrix.
   const perClass = page.getByTestId("class-metrics-cross_validation").locator("tbody tr");
   await expect(perClass).toHaveCount(2);
@@ -338,6 +338,43 @@ test("a kNN tab reads as a classification, and exports its JSON model", async ({
   }
 });
 
+test("an SVM tab reads as a classification, and exports its JSON model", async ({ page }) => {
+  // #338. As the kNN test does: added beside the seeded PLS-DA, then removed.
+  const auth = { Authorization: "Bearer e2e-token" };
+  await page.goto("/?token=e2e-token");
+  const original = (await (await page.request.get("/api/pipelines/current", { headers: auth })).json())
+    .nodes as { id: string; inputs: string[] }[];
+  const plsda = original.find((node) => node.id === "plsda_d")!;
+  const put = (body: unknown[]) =>
+    page.request.put("/api/pipelines/current", {
+      headers: { ...auth, "Content-Type": "application/json" },
+      data: { nodes: body },
+    });
+  const svm = {
+    id: "svm_d",
+    type: "estimator",
+    inputs: plsda.inputs,
+    spec: { kind: "svm", kernel: "rbf", C: 1, n_components: 5, class_column: "fat_class" },
+  };
+  expect((await put([...original, svm])).status()).toBe(200);
+  try {
+    await page.reload();
+    await page.getByRole("button", { name: "Run pipeline" }).click();
+    await expect(page.locator(".status")).toContainText("Done", { timeout: 120_000 });
+    const outline = page.getByRole("complementary", { name: "Project outline" });
+    await outline.getByRole("button", { name: /SVM rbf 5 PC · fat_class/ }).dblclick();
+    await expect(page.getByTestId("analysis-header")).toContainText("SVM on fat_class 5 components");
+    await expect(page.getByTestId("confusion-cross_validation")).toBeVisible();
+    const [file] = await Promise.all([page.waitForEvent("download"), page.getByTestId("export-json").click()]);
+    expect(file.suggestedFilename()).toBe("svm_d_model.json");
+    const model = JSON.parse(await readFile((await file.path())!, "utf8"));
+    expect(model.model.assignment).toBe("svm");
+    expect(model.svm.pairs).toHaveLength(1);
+  } finally {
+    expect((await put(original)).status()).toBe(200);
+  }
+});
+
 /** Hover a plot's point by its data coordinates, through Plotly's own axes. */
 async function hoverPoint(page: Page, testId: string, x: number, y: number) {
   const plot = page.getByTestId(testId);
@@ -401,6 +438,22 @@ test("an outlier row flags samples by rule, and hovering one names it", async ({
   await expect(page.getByTestId("flag-row").first()).toHaveAttribute("aria-pressed", "true");
 });
 
+test("a PLS-DA is diagnosed class by class, its flags most rules first", async ({ page }) => {
+  // #335, outliers.md section 8. Read-only.
+  const auth = { Authorization: "Bearer e2e-token" };
+  await page.goto("/?token=e2e-token");
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /PLS-DA 5 LV/ }).first().dblclick();
+  const row = page.getByTestId("outliers-row");
+  await expect(row.getByText("Influence, by class")).toBeVisible({ timeout: 60_000 });
+  const served = await (
+    await page.request.get("/api/results/plsda_d/outliers", { headers: auth })
+  ).json();
+  const expected = (served.flags as { n_rules: number }[]).map((flag) => String(flag.n_rules));
+  await expect(row.getByTestId("flag-count")).toHaveText(expected);
+  expect(expected.map(Number)).toEqual([...expected.map(Number)].sort((a, b) => b - a));
+});
+
 test("a PCA's outlier row has no residual plot", async ({ page }) => {
   await openResults(page);
   const row = page.getByTestId("outliers-row");
@@ -453,6 +506,133 @@ test("a VIP selection is applied as a step above a copy of the PLS, which runs",
       ).status(),
     ).toBe(200);
   }
+});
+
+test("an iPLS selection from a PLS-DA is applied above a copy of the PLS-DA, which runs", async ({
+  page,
+}) => {
+  // #332: the same panel on a classification, scored on its dummy response.
+  test.setTimeout(180_000);
+  const auth = { Authorization: "Bearer e2e-token" };
+  await page.goto("/?token=e2e-token");
+  const original = (await (await page.request.get("/api/pipelines/current", { headers: auth })).json())
+    .nodes as unknown[];
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /PLS-DA 5 LV/ }).first().dblclick();
+  await page.getByLabel("Variable importance view").selectOption("selection");
+  await page.getByLabel("Select by").selectOption("ipls");
+  await page.getByLabel("Intervals").fill("10");
+  await page.getByRole("button", { name: "Run iPLS" }).click();
+
+  const served = await (
+    await page.request.get("/api/results/plsda_d/ipls?n_intervals=10", { headers: auth })
+  ).json();
+  const kept = (served.selected as number[]).length;
+  await expect(page.getByTestId("selection-count")).toHaveText(`${kept} of 100`);
+
+  try {
+    await page.getByRole("button", { name: "Apply selection" }).click();
+    await expect
+      .poll(
+        async () => {
+          const response = await page.request.get("/api/results/plsda_d_selected", {
+            headers: auth,
+          });
+          return response.ok() ? (await response.json()).n_variables : 0;
+        },
+        { timeout: 120_000 },
+      )
+      .toBe(kept);
+    const copy = await (
+      await page.request.get("/api/results/plsda_d_selected", { headers: auth })
+    ).json();
+    expect(copy.task).toBe("classification");
+  } finally {
+    expect(
+      (
+        await page.request.put("/api/pipelines/current", {
+          headers: { ...auth, "Content-Type": "application/json" },
+          data: { nodes: original },
+        })
+      ).status(),
+    ).toBe(200);
+  }
+});
+
+test("bootstrap bands are drawn under the PLS's VIP", async ({ page }) => {
+  // #334. Read-only. The seeded chain has an SNV, so the coefficients cannot be
+  // folded and only VIP gets a band.
+  test.setTimeout(120_000);
+  const auth = { Authorization: "Bearer e2e-token" };
+  await page.goto("/?token=e2e-token");
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /PLS 5 LV/ }).first().dblclick();
+  await page.getByRole("button", { name: "Bootstrap" }).click();
+  await expect(page.getByRole("button", { name: "95% bands · 200 resamples" })).toBeVisible({
+    timeout: 90_000,
+  });
+  const served = await (
+    await page.request.get("/api/results/pls_d/bootstrap?n_resamples=200", { headers: auth })
+  ).json();
+  expect(served.coefficients).toBeNull();
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const plot = document.querySelector("[data-testid=vip-plot]") as HTMLElement & {
+          data?: { y?: number[] }[];
+        };
+        return plot.data?.[1]?.y ?? [];
+      }),
+    )
+    .toEqual(served.vip.upper);
+});
+
+test("a permutation test runs as a job and places the PLS in its null", async ({ page }) => {
+  // #333. Read-only. Tecator's fat is no accident, so no permutation should
+  // match the real RMSECV and p is its floor, 1 / (N + 1).
+  test.setTimeout(180_000);
+  await page.goto("/?token=e2e-token");
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /PLS 5 LV/ }).first().dblclick();
+  await page.getByLabel("Permutations").fill("20");
+  await page.getByRole("button", { name: "Run permutation test" }).click();
+  await expect(page.getByText("p = 0.0476 · 20 permutations · seed 0")).toBeVisible({
+    timeout: 150_000,
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const plot = document.querySelector("[data-testid=permutation-plot]") as HTMLElement & {
+          data?: { y?: number[] }[];
+        };
+        return (plot.data?.[0]?.y ?? []).reduce((total, n) => total + n, 0);
+      }),
+    )
+    .toBe(20);
+});
+
+test("a VIP selection is validated in an outer loop, beside its optimistic error", async ({
+  page,
+}) => {
+  // #331. Read-only: nothing is applied, so nothing needs restoring.
+  test.setTimeout(120_000);
+  const auth = { Authorization: "Bearer e2e-token" };
+  await page.goto("/?token=e2e-token");
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /PLS 5 LV/ }).first().dblclick();
+  await page.getByLabel("Variable importance view").selectOption("selection");
+  await page.getByLabel("Select by").selectOption("vip");
+  await page.getByRole("button", { name: "Validate (nested)" }).click();
+
+  const served = await (
+    await page.request.get("/api/results/pls_d/nested?method=vip&cut=1", { headers: auth })
+  ).json();
+  const result = page.getByTestId("nested-result");
+  await expect(result).toContainText(`Nested RMSECV ${served.outer_rmsecv.toPrecision(4)}`, {
+    timeout: 60_000,
+  });
+  await expect(result).toContainText(`selected on every sample ${served.inner_rmsecv.toPrecision(4)}`);
+  await expect(result).toContainText("10 outer × 5 inner folds");
 });
 
 test("iPLS runs on the PLS's folds, draws its intervals, and its selection is applied", async ({

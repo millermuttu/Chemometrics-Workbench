@@ -30,6 +30,7 @@ from chemometrics_workbench.executor import (
     execute,
     experiment_for,
     node_keys,
+    permutation_test_for,
     result_path,
 )
 from chemometrics_workbench.models import (
@@ -55,6 +56,7 @@ from chemometrics_workbench.models import (
     SIMCASpec,
     SourceNode,
     SplitNode,
+    SVMSpec,
     TrainTestSplit,
 )
 from chemometrics_workbench.preprocessing import SNVTransformer
@@ -68,12 +70,15 @@ from chemometrics_workbench.project import (
 from chemometrics_workbench.regression import PLS
 from chemometrics_workbench.validation import (
     bias,
+    by_group,
     k_fold,
+    leave_one_out,
     r2,
     rmse,
     sec,
     stratified_k_fold,
     stratified_train_test,
+    train_test,
 )
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "contract"
@@ -754,7 +759,7 @@ def test_stratifying_by_a_column_the_dataset_lacks_is_refused_by_name(
             id="holdout", inputs=("source",), spec=KFoldSplit(n_splits=5, stratify_by="batch")
         ),
     )
-    with pytest.raises(ExecutorError, match="stratifies by 'batch', which this dataset does not"):
+    with pytest.raises(ExecutorError, match="splits by 'batch', which this dataset does not"):
         execute(directory, pipeline, version)
 
 
@@ -779,6 +784,67 @@ def test_an_unstratified_kfold_keeps_the_cache_key_it_had_before_stratification(
     assert KFoldSplit(n_splits=10).model_dump_json() == (
         '{"kind":"kfold","n_splits":10,"shuffle":true,"seed":42}'
     )
+
+
+def _pairs(version: DatasetVersion) -> DatasetVersion:
+    """Tecator as if every sample had been scanned twice: rows 2i and 2i+1 are one sample."""
+    return version.model_copy(
+        update={"metadata_columns": {"sample": [f"s{i // 2}" for i in range(version.n_samples)]}}
+    )
+
+
+@pytest.mark.parametrize(
+    ("spec", "expected"),
+    [
+        (KFoldSplit(n_splits=5, group_by="sample"), lambda n: k_fold(n, 5)),
+        (TrainTestSplit(test_size=0.25, group_by="sample"), lambda n: train_test(n, 0.25)),
+        (LeaveOneOut(group_by="sample"), leave_one_out),
+    ],
+)
+def test_a_grouped_split_resolves_to_the_kernel_s_folds_and_keeps_pairs_together(
+    project: tuple[Path, DatasetVersion], spec: Any, expected: Any
+) -> None:
+    """§8.8 (#329): replicates never straddle training and held-out rows."""
+    directory, version = project
+    version = _pairs(version)
+    pipeline = _pipeline(version.version_id, SplitNode(id="s", inputs=("source",), spec=spec))
+    run = execute(directory, pipeline, version)
+    [resolved] = run.resolved_splits
+    groups = version.metadata_columns["sample"]
+    assert resolved.test_indices == [f.test.tolist() for f in by_group(groups, expected)]
+    for train, test in zip(resolved.train_indices, resolved.test_indices, strict=True):
+        assert not {groups[i] for i in train} & {groups[i] for i in test}
+        assert all(i ^ 1 in test for i in test)
+
+
+def test_too_few_groups_is_refused_naming_the_split_and_the_column(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    directory, version = project
+    version = version.model_copy(
+        update={"metadata_columns": {"batch": ["x", "y"] * (version.n_samples // 2)}}
+    )
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="s", inputs=("source",), spec=KFoldSplit(n_splits=5, group_by="batch")),
+    )
+    with pytest.raises(
+        ExecutorError, match=r"kfold grouped by 'batch'\) failed: over the 2 groups: 5 folds"
+    ):
+        execute(directory, pipeline, version)
+
+
+def test_an_ungrouped_split_keeps_the_cache_key_it_had_before_grouping() -> None:
+    """#329: `group_by` is left out of the dump when unset, so no stored run is orphaned."""
+    assert LeaveOneOut().model_dump_json() == '{"kind":"loo"}'
+    assert TrainTestSplit(test_size=0.2).model_dump_json() == (
+        '{"kind":"train_test","test_size":0.2,"seed":42,"stratify_by":null}'
+    )
+
+
+def test_a_split_cannot_be_both_grouped_and_stratified() -> None:
+    with pytest.raises(ValueError, match="either grouped or stratified, not both"):
+        KFoldSplit(n_splits=5, group_by="sample", stratify_by="grade")
 
 
 def test_leave_one_out_is_the_other_splitter_that_does_work(
@@ -862,21 +928,32 @@ def test_the_pca_branches_reproduce_the_fixtures_numbers(
         )
 
 
-def test_a_pca_below_a_split_is_fitted_on_fold_zeros_training_rows(
+def test_a_pca_below_a_split_is_fitted_on_every_sample_with_fold_zeros_held_out_view(
     project: tuple[Path, DatasetVersion],
 ) -> None:
+    """#330: the model is the all-sample one; fold zero's held-out rows stay as its view."""
     directory, version = project
     run = execute(directory, fixture_pipeline(version.version_id), version)
     result = run.results["pca_d"]
 
     folds = validation.k_fold(version.n_samples, 10, seed=42)
-    assert result.fold == 0
-    assert result.rows == folds[0].train.tolist()
+    assert result.all_samples and result.fold == 0
+    assert result.rows == list(range(240))
+    assert result.n_samples == len(result.scores) == 240
     assert result.held_out == folds[0].test.tolist()
-    assert result.n_samples == len(folds[0].train) == 216
-    assert len(result.scores) == 216
     assert len(result.held_out_scores) == len(folds[0].test) == 24
     assert len(result.held_out_hotelling_t2) == len(result.held_out_spe) == 24
+
+    # A fit on every row, through a centring fitted on every row.
+    savgol = run.displays["snv_savgol"]
+    centred = _as_stored(preprocessing.MeanCentreTransformer().fit_transform(savgol))
+    reference = PCA(5, data_eps=PCA.STORED_EPS).fit(centred)
+    np.testing.assert_allclose(
+        result.explained_variance_ratio, reference.explained_variance_ratio(), rtol=1e-9
+    )
+    np.testing.assert_allclose(
+        result.hotelling_t2_limit, reference.hotelling_t2_limit(executor_module.ALPHA), rtol=1e-12
+    )
 
 
 def test_pca_d_diverges_from_the_fixture_for_the_reason_centre_d_does(
@@ -907,12 +984,9 @@ def test_pca_d_diverges_from_the_fixture_for_the_reason_centre_d_does(
     ours = np.asarray(run.results["pca_d"].explained_variance_ratio)
     assert np.abs(ours - np.asarray(expected["explained_variance_ratio"])).max() > 1e-6
 
-    # The limits depend only on n and a, so they agree whatever the input was.
-    np.testing.assert_allclose(
-        run.results["pca_d"].hotelling_t2_limit,
-        expected["diagnostics"]["hotelling_t2_limit"],
-        rtol=1e-12,
-    )
+    # The fixture's model is fold zero's; ours is fitted on every sample (#330),
+    # so even the limits, which depend only on n and a, now differ.
+    assert run.results["pca_d"].n_samples == 240 != len(folds[0].train)
 
 
 def test_a_result_is_stored_keyed_the_way_its_node_is(
@@ -1127,10 +1201,11 @@ def test_the_executor_computes_nothing_the_kernels_do_not(
     assert result.metrics["sec"] == pytest.approx(sec(y, predicted, n_components=5))
 
 
-def test_below_a_split_the_curve_is_every_folds_and_the_model_is_fold_zeros(
-    project: tuple[Path, DatasetVersion],
+def test_below_a_split_the_curve_is_every_folds_and_the_model_is_every_samples(
+    project: tuple[Path, DatasetVersion], tecator: Any
 ) -> None:
-    """The one design call in #142, asserted rather than left in a docstring."""
+    """#142's design call, revised by #330: the curve is every fold's, and the
+    model is refitted on every sample through a centring fitted on every sample."""
     directory, version = project
     pipeline = _pipeline(
         version.version_id,
@@ -1143,11 +1218,38 @@ def test_below_a_split_the_curve_is_every_folds_and_the_model_is_fold_zeros(
     run = execute(directory, pipeline, version)
     result = run.results["pls"]
 
-    # The model is fold zero's: its rows are that fold's training rows.
-    assert result.fold == 0
+    assert result.all_samples and result.fold == 0
     folds = k_fold(version.n_samples, 5, seed=42)
-    assert result.rows == [int(row) for row in folds[0].train]
+    assert result.rows == list(range(version.n_samples))
     assert result.held_out == [int(row) for row in folds[0].test]
+
+    # The all-sample model equals a fit on all rows.
+    spectra = _as_stored(tecator.spectra)
+    centred = _as_stored(spectra - spectra.mean(axis=0))
+    y = np.asarray(tecator.targets["fat"], dtype=np.float64)
+    x_mean, y_mean = centred.mean(axis=0), float(y.mean())
+    reference = PLS(4).fit(centred - x_mean, y - y_mean)
+    assert reference.coefficients_ is not None
+    np.testing.assert_allclose(
+        np.asarray(result.coefficients), reference.coefficients_, rtol=1e-9, atol=1e-12
+    )
+    np.testing.assert_allclose(
+        result.predicted, reference.predict(centred - x_mean) + y_mean, rtol=1e-9
+    )
+
+    # The held-out view is fold zero's model's, which never saw those rows.
+    train = folds[0].train
+    view_x = _as_stored(spectra - spectra[train].mean(axis=0))
+    view_mean = view_x[train].mean(axis=0)
+    view = PLS(4).fit(view_x[train] - view_mean, y[train] - y[train].mean())
+    np.testing.assert_allclose(
+        result.held_out_predicted,
+        view.predict(view_x[folds[0].test] - view_mean) + y[train].mean(),
+        rtol=1e-9,
+    )
+    assert result.metrics["rmsep"] == pytest.approx(
+        rmse(y[folds[0].test], np.asarray(result.held_out_predicted))
+    )
 
     # The curve is every fold's, one entry per component count, and the
     # reported RMSECV is the curve's last point rather than its minimum.
@@ -1211,6 +1313,44 @@ def _with_classes(
     fat = np.asarray(tecator.targets["fat"])
     labels = ["high" if value > np.median(fat) else "low" for value in fat]
     return version.model_copy(update={"metadata_columns": {column: labels}})
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        PLSDASpec(n_components=2, class_column="fat_class"),
+        SIMCASpec(n_components=2, class_column="fat_class"),
+        LDASpec(n_components=2, class_column="fat_class"),
+        KNNSpec(k=3, n_components=2, class_column="fat_class"),
+        SVMSpec(n_components=2, class_column="fat_class"),
+    ],
+    ids=lambda spec: spec.kind,
+)
+def test_a_classifier_refuses_a_training_fold_of_one_class_by_name(
+    project: tuple[Path, DatasetVersion], tecator: Any, spec: Any
+) -> None:
+    """#343: grouped by the class column, two folds each train on one class.
+
+    PLS-DA said "X and y have no covariance", which is true and says nothing
+    about why. Every classifier now refuses, naming the fold and the class."""
+    directory, version = project
+    version = _with_classes(version, tecator)
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(
+            id="split",
+            inputs=("source",),
+            spec=KFoldSplit(n_splits=2, seed=42, group_by="fat_class"),
+        ),
+        PreprocessNode(id="centre", inputs=("split",), step=MeanCentre()),
+        EstimatorNode(id="model", inputs=("centre",), spec=spec),
+    )
+    with pytest.raises(
+        ExecutorError,
+        match=rf"node 'model' \({spec.kind}\) cannot be fitted: training fold 1 of 2 holds "
+        r"only '(high|low)' in 'fat_class'.*Stratify the split by 'fat_class'",
+    ):
+        execute(directory, pipeline, version)
 
 
 def test_a_plsda_node_is_the_regression_on_a_dummy_response_and_tallies_it(
@@ -1344,9 +1484,7 @@ def test_three_classes_are_pls2_on_a_one_hot_response_assigned_by_argmax(
     spectra = _as_stored(tecator.spectra)
     [resolved] = run.resolved_splits
     assigned = np.empty(version.n_samples, dtype=int)
-    for index, (train, test) in enumerate(
-        zip(resolved.train_indices, resolved.test_indices, strict=True)
-    ):
+    for train, test in zip(resolved.train_indices, resolved.test_indices, strict=True):
         mean = spectra[train].mean(axis=0)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", ConvergenceWarning)
@@ -1354,9 +1492,12 @@ def test_three_classes_are_pls2_on_a_one_hot_response_assigned_by_argmax(
                 spectra[train] - mean, onehot[train]
             )
         assigned[test] = reference.predict(spectra[test] - mean).argmax(axis=1)
-        if index == 0:
-            calibration = reference.predict(spectra[train] - mean).argmax(axis=1)
-            assert result.predicted_class == calibration.tolist()
+    # #330: the calibration assignments are the all-sample model's.
+    mean = spectra.mean(axis=0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ConvergenceWarning)
+        final = PLSRegression(6, scale=False, tol=0.0, max_iter=2000).fit(spectra - mean, onehot)
+    assert result.predicted_class == final.predict(spectra - mean).argmax(axis=1).tolist()
     expected = [[int(np.sum((codes == j) & (assigned == k))) for k in range(3)] for j in range(3)]
     assert result.confusion["cross_validation"] == expected
 
@@ -1664,3 +1805,114 @@ def test_a_knn_asked_for_more_neighbours_than_samples_is_refused(
     )
     with pytest.raises(ExecutorError, match="k = 500 neighbours were asked of 240"):
         execute(directory, pipeline, version)
+
+
+@pytest.mark.parametrize("kernel", ["linear", "rbf"])
+def test_an_svm_node_classifies_as_svc_does_on_its_folds_own_scores(
+    project: tuple[Path, DatasetVersion], tecator: Any, kernel: str
+) -> None:
+    """#338, svm.md: every cross-validated assignment equals scikit-learn's
+    PCA then SVC on the run's own resolved folds, gamma the fold's own."""
+    from sklearn.decomposition import PCA as SkPCA
+    from sklearn.svm import SVC
+
+    directory, version = project
+    version = _terciles(version, tecator)
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=5, stratify_by="grade")),
+        PreprocessNode(id="snv", inputs=("split",), step=SNV()),
+        EstimatorNode(
+            id="svm",
+            inputs=("snv",),
+            spec=SVMSpec(kernel=kernel, n_components=6, class_column="grade"),
+        ),
+    )
+    run = execute(directory, pipeline, version)
+    result = run.results["svm"]
+    assert (result.task, result.method) == ("classification", "svm")
+    assert [pair["classes"] for pair in result.svm["pairs"]] == [[0, 1], [0, 2], [1, 2]]
+
+    codes = np.asarray([result.classes.index(label) for label in version.metadata_columns["grade"]])
+    corrected = _as_stored(SNVTransformer().fit_transform(_as_stored(tecator.spectra)))
+    [resolved] = run.resolved_splits
+    assigned = np.empty(version.n_samples, dtype=int)
+    for train, test in zip(resolved.train_indices, resolved.test_indices, strict=True):
+        mean = corrected[train].mean(axis=0)
+        pca = SkPCA(6, svd_solver="full").fit(corrected[train] - mean)
+        svc = SVC(kernel=kernel, shrinking=False).fit(
+            pca.transform(corrected[train] - mean), codes[train]
+        )
+        assigned[test] = svc.predict(pca.transform(corrected[test] - mean))
+    expected = [[int(np.sum((codes == j) & (assigned == k))) for k in range(3)] for j in range(3)]
+    assert result.confusion["cross_validation"] == expected
+
+
+def test_an_svm_is_permutation_tested_like_any_classifier(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """metrics-and-validation.md section 14 holds for an SVM (#338)."""
+    directory, version = project
+    version = _terciles(version, tecator)
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=4, seed=42)),
+        EstimatorNode(
+            id="svm", inputs=("split",), spec=SVMSpec(n_components=4, class_column="grade")
+        ),
+    )
+    run = execute(directory, pipeline, version)
+    svm = permutation_test_for(directory, pipeline, version, "svm", 5, seed=1)
+    assert svm.observed == pytest.approx(run.results["svm"].metrics["accuracy_cv"], rel=1e-12)
+    assert svm.greater_is_better and max(svm.null) < svm.observed
+
+
+# --------------------------------------------------------------------------
+# the permutation test (#333)
+# --------------------------------------------------------------------------
+
+
+def test_a_permutation_test_reruns_the_stored_cross_validation(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """metrics-and-validation.md section 14: the observed score is the run's own
+    CV score, the null follows from the seed, and a real model beats it."""
+    directory, version = project
+    version = _terciles(version, tecator)
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=4, seed=42)),
+        PreprocessNode(id="centre", inputs=("split",), step=MeanCentre()),
+        EstimatorNode(
+            id="pls", inputs=("centre",), spec=PLSRegressionSpec(n_components=4, target="fat")
+        ),
+        EstimatorNode(
+            id="knn", inputs=("centre",), spec=KNNSpec(k=3, n_components=4, class_column="grade")
+        ),
+    )
+    run = execute(directory, pipeline, version)
+
+    pls = permutation_test_for(directory, pipeline, version, "pls", 10, seed=1)
+    assert pls.observed == pytest.approx(run.results["pls"].metrics["rmsecv"], rel=1e-12)
+    assert not pls.greater_is_better and min(pls.null) > pls.observed
+    assert pls.p_value == pytest.approx(1 / 11)
+    assert pls == permutation_test_for(directory, pipeline, version, "pls", 10, seed=1)
+
+    knn = permutation_test_for(directory, pipeline, version, "knn", 5, seed=1)
+    assert knn.observed == pytest.approx(run.results["knn"].metrics["accuracy_cv"], rel=1e-12)
+    assert knn.greater_is_better and max(knn.null) < knn.observed
+
+
+def test_a_permutation_test_without_a_split_is_refused_by_name(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        EstimatorNode(
+            id="pls", inputs=("source",), spec=PLSRegressionSpec(n_components=2, target="fat")
+        ),
+    )
+    execute(directory, pipeline, version)
+    with pytest.raises(ExecutorError, match="needs a K-fold or leave-one-out split"):
+        permutation_test_for(directory, pipeline, version, "pls", 5)

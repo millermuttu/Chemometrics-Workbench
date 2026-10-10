@@ -214,7 +214,7 @@ CLASSIFIERS: list[dict[str, Any]] = [
         )
     ),
 ]
-WORDS = {3: "three", 4: "four", 5: "five"}
+WORDS = {2: "two", 3: "three", 4: "four", 5: "five"}
 RULES = {
     "t2": "T²",
     "q": "Q",
@@ -318,7 +318,6 @@ def test_every_number_the_outliers_how_to_quotes(client: TestClient) -> None:  #
     quoted = [
         f"**{len(flags)} of {pls['n_samples']}**",
         f"fitted on the {pls['n_samples']} samples",
-        f"the other {240 - pls['n_samples']} are",
         f"{sum(f['rules'] == ['robust'] for f in flags)} of the {len(flags)} are flagged only",
         f"Three break {WORDS[len(worst[0]['rules'])]} each",
         f"**Exclude {len(worst)} and rerun**",
@@ -384,3 +383,180 @@ def test_every_number_the_selection_how_to_quotes(client: TestClient) -> None:  
     text = " ".join((HOW_TO / "variable-selection.md").read_text(encoding="utf-8").split())
     missing = [number for number in quoted if number not in text]
     assert missing == [], f"docs/how-to/variable-selection.md should quote these: {missing}"
+
+
+# --------------------------------------------------------------------------
+# Phase 6 (#340): the validation example, on the raw meat set grouped by
+# sample, and the how-tos' nested, bootstrap and class-wise sections.
+# --------------------------------------------------------------------------
+
+
+def grouped(group_by: str | None) -> list[dict[str, Any]]:
+    spec: dict[str, Any] = {"kind": "kfold", "n_splits": 10, "shuffle": True, "seed": 42}
+    if group_by:
+        spec["group_by"] = group_by
+    return [
+        {"id": "kfold", "type": "split", "inputs": ["source"], "spec": spec},
+        {
+            "id": "centre",
+            "type": "preprocess",
+            "inputs": ["kfold"],
+            "step": {"kind": "mean_centre"},
+        },
+        {
+            "id": "plsda",
+            "type": "estimator",
+            "inputs": ["centre"],
+            "spec": {
+                "kind": "plsda",
+                "n_components": 5,
+                "algorithm": "nipals",
+                "class_column": "meat",
+            },
+        },
+        {
+            "id": "svm",
+            "type": "estimator",
+            "inputs": ["centre"],
+            "spec": {
+                "kind": "svm",
+                "kernel": "rbf",
+                "C": 1,
+                "n_components": 5,
+                "class_column": "meat",
+            },
+        },
+    ]
+
+
+def import_raw_meat(http: TestClient) -> dict[str, Any]:
+    csv = (EXAMPLES / "meat-raw.csv").read_bytes()
+    response = http.post(
+        "/api/import",
+        files={"file": ("meat-raw.csv", csv)},
+        data={"corrections": "{}"},
+        headers=AUTH,
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["versions"][0]  # type: ignore[no-any-return]
+
+
+def misassigned(http: TestClient, node: str, n: int) -> int:
+    table = result(http, node)["classification"]["confusion"]["cross_validation"]
+    return n - int(sum(table[i][i] for i in range(len(table))))
+
+
+def test_the_raw_meat_download_averages_to_the_one_row_per_sample_file() -> None:
+    """`meat-source.md`'s claim: `meat-raw.csv` holds both runs of each of the 60
+    samples, and the mean of each pair is `meat.csv`'s row for that sample."""
+    raw = [line.split(",") for line in (EXAMPLES / "meat-raw.csv").read_text().splitlines()]
+    mean = [line.split(",") for line in (EXAMPLES / "meat.csv").read_text().splitlines()]
+    assert raw[0][:5] == ["spectrum", "meat", "supplier", "sample", "run"]
+    assert raw[0][5:] == mean[0][3:]
+    assert len(raw) - 1 == 120 and len({row[0] for row in raw[1:]}) == 120
+    pairs: dict[str, list[list[str]]] = {}
+    for row in raw[1:]:
+        pairs.setdefault(row[3], []).append(row)
+    for row in mean[1:]:
+        a, b = pairs[row[0]]
+        assert [a[4], b[4]] == ["A", "B"] and a[1:3] == b[1:3] == row[1:3]
+        averaged = [(float(x) + float(y)) / 2 for x, y in zip(a[5:], b[5:], strict=True)]
+        assert all(
+            abs(m - float(v)) <= 1e-8 * abs(float(v))
+            for m, v in zip(averaged, row[3:], strict=True)
+        ), row[0]
+
+
+def test_every_number_the_validation_example_quotes(client: TestClient) -> None:  # noqa: F811
+    version = import_raw_meat(client)
+    n = version["n_samples"]
+    run(client, grouped(None))
+    loose = result(client, "plsda")["metrics"]
+    run(client, grouped("sample"))
+    plsda, svm = result(client, "plsda"), result(client, "svm")
+    held = plsda["validation"]["samples"]
+    # Grouped folds keep both runs of a sample on one side, in every fold.
+    pairs = {sample["sample_id"][:-1] for sample in held}
+    assert len(held) == 2 * len(pairs)
+
+    job = client.post("/api/results/plsda/permutation?n_permutations=100", headers=AUTH).json()
+    assert wait_for(client, job["job_id"], seconds=300)["status"] == "succeeded"
+    permutation = client.get(f"/api/permutations/{job['job_id']}", headers=AUTH).json()
+    vip = [v for v in plsda["regression"]["vip"] if v >= 1]
+    nested = client.get("/api/results/plsda/nested?method=vip&cut=1", headers=AUTH).json()
+
+    quoted = [
+        f"**{n} × {version['n_variables']}**",
+        f"**Accuracy (held out) {plsda['metrics']['accuracy_p']:.3f}**",
+        f"{len(held)} spectra, {len(pairs)} samples",
+        f"**{sum(map(sum, plsda['classification']['confusion']['calibration']))}**",
+        f"**Accuracy (CV) {plsda['metrics']['accuracy_cv']:.3f}**",
+        f"**{misassigned(client, 'plsda', n)} of {n}**",
+        f"RMSECV is **{plsda['metrics']['rmsecv']:.3f}**",
+        f"{loose['rmsecv']:.3f} without grouping",
+        f"accuracy is {loose['accuracy_cv']:.3f} either way",
+        f"p = {permutation['p_value']:#.3g}",
+        f"1/{permutation['n_permutations'] + 1}",
+        f"SVM's **Accuracy (CV)** is **{svm['metrics']['accuracy_cv']:.3f}**",
+        f"{misassigned(client, 'svm', n)} of {n} misassigned",
+        f"**{len(vip)} of {plsda['n_variables']}**",
+        f"Nested RMSECV {nested['outer_rmsecv']:#.4g}",
+        f"selected on every sample {nested['inner_rmsecv']:#.4g}",
+    ]
+    assert permutation["p_value"] == 1 / (permutation["n_permutations"] + 1)
+    assert nested["outer_rmsecv"] > nested["inner_rmsecv"]
+    text = " ".join(page("validation.md").split())
+    missing = [number for number in quoted if number not in text]
+    assert missing == [], f"docs/examples/validation.md should quote these, and does not: {missing}"
+
+
+def test_every_number_the_selection_how_to_quotes_for_nested_and_bootstrap(
+    client: TestClient,  # noqa: F811
+) -> None:
+    import_the_download(client)
+    run(client, [SNV, SAVGOL, *PCA, *pls_branch(4)])
+    pls = result(client, "pls")
+    vip = pls["regression"]["vip"]
+    chosen = [i for i, value in enumerate(vip) if value >= 1]
+    cars = client.get("/api/results/pls/nested?method=cars&n_runs=50", headers=AUTH).json()
+    by_vip = client.get("/api/results/pls/nested?method=vip&cut=1", headers=AUTH).json()
+    bands = client.get("/api/results/pls/bootstrap?n_resamples=200", headers=AUTH).json()
+    lower, upper = bands["vip"]["lower"], bands["vip"]["upper"]
+    sure = sum(lower[i] >= 1 for i in chosen)
+    straddle = sum(lower[i] < 1 <= upper[i] for i in range(len(vip)))
+    per_fold = cars["selected_per_fold"]
+    selection = [
+        f"Nested RMSECV {cars['outer_rmsecv']:#.4g}",
+        f"selected on every sample {cars['inner_rmsecv']:#.4g}",
+        f"{cars['n_outer_folds']} outer × {cars['inner_splits']} inner folds",
+        f"between {min(per_fold)} and {max(per_fold)} wavelengths",
+        f"VIP's nested RMSECV is {by_vip['outer_rmsecv']:#.4g}",
+        f"**{sure} of the {len(chosen)}**",
+        f"**{straddle}** wavelengths",
+    ]
+    assert cars["outer_rmsecv"] > cars["inner_rmsecv"]
+    text = " ".join((HOW_TO / "variable-selection.md").read_text(encoding="utf-8").split())
+    missing = [number for number in selection if number not in text]
+    assert missing == [], f"docs/how-to/variable-selection.md should quote these: {missing}"
+
+
+def test_every_number_the_outliers_how_to_quotes_for_a_classifier(
+    client: TestClient,  # noqa: F811
+) -> None:
+    version = import_raw_meat(client)
+    run(client, grouped("sample"))
+    block = client.get("/api/results/plsda/outliers", headers=AUTH).json()
+    flags = block["flags"]
+    ids = [sample["sample_id"] for sample in result(client, "plsda")["samples"]]
+    most = max(flag["n_rules"] for flag in flags)
+    worst = [ids[flag["index"]] for flag in flags if flag["n_rules"] == most]
+    outliers = [
+        f"**{len(flags)} of {version['n_samples']}**",
+        f"{sum(flag['rules'] == ['q'] for flag in flags)} of them only on Q",
+        f"{len(worst)} break {WORDS.get(most, most)}",
+        ", ".join(f"**{sample}**" for sample in worst),
+    ]
+    assert block["classwise"]["classes"] == ["chicken", "pork", "turkey"]
+    text = " ".join((HOW_TO / "outliers.md").read_text(encoding="utf-8").split())
+    missing = [number for number in outliers if number not in text]
+    assert missing == [], f"docs/how-to/outliers.md should quote these: {missing}"

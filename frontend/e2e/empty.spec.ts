@@ -76,11 +76,38 @@ test("the preview states what was read, and a correction changes what would be",
   await expect(page.getByRole("button", { name: "Import 6 × 4" })).toBeVisible();
 });
 
+/** #336. The axis kind is guessed from the numbers, so it is offered as a
+ * correction like the delimiter, and the plot carries the unit chosen. This
+ * file's 1000-1500 header reads as nanometres; the user says wavenumbers. It
+ * is the project's first import, so the pipeline starts on it. */
+test("a corrected axis kind is the unit the spectra are plotted in", async ({ page }) => {
+  await page.goto("/?token=e2e-token");
+  await page.getByRole("button", { name: "Import data" }).click();
+  await choose(page, "ftir.csv", SPECTRA);
+
+  await expect(page.getByLabel("Kind")).toHaveValue("wavelength_nm");
+  await page.getByLabel("Kind").selectOption("wavenumber_cm-1");
+  await expect(page.getByText("corrected")).toBeVisible();
+  await expect(page.getByText("1000–1500 cm-1")).toBeVisible();
+  await page.getByRole("button", { name: "Import 4 × 6" }).click();
+  await expect(page.getByRole("tab", { name: /ftir/ })).toBeVisible();
+
+  // The source has spectra to show once it has run.
+  await page.getByRole("button", { name: "Run pipeline" }).click();
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await expect(outline.getByRole("button", { name: "Run 1 succeeded" })).toBeVisible();
+  await outline.getByRole("button", { name: /^Source/ }).first().dblclick();
+  await expect(page.getByTestId("spectra-plot")).toContainText("wavenumber_cm-1 (cm-1)");
+  // Four samples are drawn whole, with no band: this view went blank on a set
+  // that small until #355.
+  await expect(page.getByText("every spectrum drawn (4)")).toBeVisible();
+});
+
 test("confirming the preview opens the dataset, and nothing is committed before", async ({
   page,
 }) => {
   await page.goto("/?token=e2e-token");
-  await page.getByRole("button", { name: "Import data" }).click();
+  await page.getByRole("button", { name: "Import…" }).click();
   await choose(page, "spectra.csv", SPECTRA);
 
   await expect(page.getByRole("tab", { name: /spectra/ })).toHaveCount(0);

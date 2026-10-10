@@ -7,6 +7,11 @@ import {
   useExcludeSamples,
   useIpls,
   useCars,
+  useNested,
+  useBootstrap,
+  useJob,
+  usePermutation,
+  useStartPermutation,
   usePipeline,
   useSavePipeline,
   useOutliers,
@@ -30,6 +35,8 @@ import {
   scoresTrace,
   selectionTraces,
   thresholdSelection,
+  bandTraces,
+  permutationFigure,
   varianceFigure,
   vipFigure,
 } from "@/plot/analysis";
@@ -184,17 +191,26 @@ function VariableImportance({ pca, onRun }: { pca: PcaPayload; onRun?: () => voi
   const hasVip = (pca.regression?.vip.length ?? 0) > 0;
   const [view, setView] = useState<ImportanceView>(hasVip ? "vip" : "coefficients");
   // #281: a selection is made on a regression's own axis, over the mean
-  // spectrum its estimator saw. A result served before x_mean was kept, and a
-  // classification's dummy response, are not offered one.
-  const selectable = pca.task === "regression" && (pca.regression?.x_mean?.length ?? 0) > 0;
+  // spectrum its estimator saw; #332 extends it to a PLS-DA, on its dummy
+  // response. A result served before x_mean was kept is not offered one.
+  const selectable =
+    (pca.task === "regression" || pca.regression?.method === "plsda") &&
+    (pca.regression?.x_mean?.length ?? 0) > 0;
   const coefficients = useCoefficients(pca.node_id);
   const folded = coefficients.data;
+  // #334: bootstrap bands, a PLS's or PCR's, computed when asked.
+  const bootstrappable = ["pls", "pcr"].includes(pca.regression?.method ?? "");
+  const [resamples, setResamples] = useState<number | null>(null);
+  const bands = useBootstrap(pca.node_id, bootstrappable ? resamples : null).data;
 
   const vipHost = usePlot(
     (theme) => {
       const figure = vipFigure(pca, theme);
       return {
-        data: figure.data,
+        data: [
+          ...(bands?.vip ? bandTraces(pca.loadings.axis.values, bands.vip, "VIP band", theme) : []),
+          ...figure.data,
+        ],
         layout: {
           shapes: figure.shapes,
           xaxis: axisLayout(theme, `${pca.loadings.axis.kind} (${pca.loadings.axis.unit ?? ""})`),
@@ -203,13 +219,17 @@ function VariableImportance({ pca, onRun }: { pca: PcaPayload; onRun?: () => voi
         },
       };
     },
-    [pca, view],
+    [pca, view, bands],
   );
   const coefficientHost = usePlot(
     (theme) => {
       const trace = folded ? coefficientTrace(folded, theme) : null;
+      const band =
+        folded?.axis && bands?.coefficients
+          ? bandTraces(folded.axis.values, bands.coefficients, "b band", theme)
+          : [];
       return {
-        data: trace ? [trace] : [],
+        data: trace ? [...band, trace] : [],
         layout: {
           xaxis: axisLayout(
             theme,
@@ -220,7 +240,7 @@ function VariableImportance({ pca, onRun }: { pca: PcaPayload; onRun?: () => voi
         },
       };
     },
-    [folded, view],
+    [folded, view, bands],
   );
 
   const choose = (
@@ -244,9 +264,25 @@ function VariableImportance({ pca, onRun }: { pca: PcaPayload; onRun?: () => voi
       {selectable ? <option value="selection">Select variables</option> : null}
     </select>
   );
+  const note = (
+    <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
+      {choose}
+      {bootstrappable && view !== "selection" ? (
+        <button
+          type="button"
+          className="btn"
+          style={{ fontSize: 9.5, height: 18 }}
+          onClick={() => setResamples(200)}
+          title="Seeded bootstrap percentile bands, 200 resamples, 95% (pls-regression.md section 16)"
+        >
+          {bands ? `95% bands · ${bands.n_resamples} resamples` : "Bootstrap"}
+        </button>
+      ) : null}
+    </span>
+  );
 
   return (
-    <Panel title="Variable importance" note={choose}>
+    <Panel title="Variable importance" note={note}>
       {view === "selection" && selectable ? (
         <SelectVariables pca={pca} hasVip={hasVip} onRun={onRun} />
       ) : view === "vip" && hasVip ? (
@@ -311,6 +347,16 @@ function SelectVariables({
   const [runs, setRuns] = useState<string>("50");
   const [carsRequested, setCarsRequested] = useState<number | null>(null);
   const carsQuery = useCars(pca.node_id, basis === "cars" ? carsRequested : null);
+  // #331: the same selection, rerun inside each outer fold. The query string
+  // is what the current settings ask for; `validated` is what was asked.
+  const nestedQuery =
+    basis === "vip" || basis === "b"
+      ? `method=${basis}&cut=${encodeURIComponent(threshold)}`
+      : basis === "ipls"
+        ? `method=ipls&n_intervals=${encodeURIComponent(intervals)}`
+        : `method=cars&n_runs=${encodeURIComponent(runs)}`;
+  const [validated, setValidated] = useState<string | null>(null);
+  const nested = useNested(pca.node_id, validated === nestedQuery ? validated : null);
 
   // An empty or unreadable box selects nothing rather than everything.
   const cut = threshold.trim() === "" ? Number.NaN : Number(threshold);
@@ -377,7 +423,9 @@ function SelectVariables({
       ? ipls.error.message
       : basis === "cars" && carsQuery.isError
         ? carsQuery.error.message
-        : null);
+        : nested.isError
+          ? nested.error.message
+          : null);
   return (
     <>
       <div
@@ -394,7 +442,8 @@ function SelectVariables({
           }}
         >
           {hasVip ? <option value="vip">VIP ≥</option> : null}
-          <option value="b">|b| ≥</option>
+          {/* A PLS-DA of three or more classes has a coefficient vector per class. */}
+          {regression.coefficients.length > 0 ? <option value="b">|b| ≥</option> : null}
           {/* iPLS fits PLS models (variable-selection.md section 2). */}
           {hasVip ? <option value="ipls">iPLS</option> : null}
           {hasVip ? <option value="cars">CARS</option> : null}
@@ -452,7 +501,22 @@ function SelectVariables({
         >
           Apply selection
         </button>
+        <button
+          type="button"
+          className="btn"
+          disabled={nested.isFetching}
+          onClick={() => setValidated(nestedQuery)}
+        >
+          {nested.isFetching ? "Validating…" : "Validate (nested)"}
+        </button>
       </div>
+      {nested.data ? (
+        <p data-testid="nested-result" className="mono" style={{ margin: "2px 10px", fontSize: 10 }}>
+          Nested RMSECV {nested.data.outer_rmsecv.toPrecision(4)} · selected on every sample{" "}
+          {nested.data.inner_rmsecv.toPrecision(4)} · {nested.data.n_outer_folds} outer ×{" "}
+          {nested.data.inner_splits} inner folds
+        </p>
+      ) : null}
       {problem ? (
         <p role="alert" className="mono" style={{ margin: "2px 10px", fontSize: 10, color: "var(--fail)" }}>
           {problem}
@@ -686,19 +750,22 @@ const RULE_LABELS: Record<OutlierRule, string> = {
 };
 
 function Influence({ pca }: { pca: PcaPayload }) {
+  // #335: a classifier's samples are measured against their own class's limits.
+  const wise = Boolean(pca.outliers?.classwise);
   const host = usePlot(
     (theme) => ({
       data: influenceTraces(pca, theme),
       layout: {
-        xaxis: axisLayout(theme, "Hotelling T²"),
-        yaxis: axisLayout(theme, "Q (SPE)"),
+        xaxis: axisLayout(theme, wise ? "T² / own class's limit" : "Hotelling T²"),
+        yaxis: axisLayout(theme, wise ? "Q / own class's limit" : "Q (SPE)"),
+        showlegend: wise,
         margin: { l: 52, r: 12, t: 8, b: 38 },
       },
     }),
     [pca],
   );
   return (
-    <Panel title="Influence" note={`α = ${pca.diagnostics.alpha}`}>
+    <Panel title={wise ? "Influence, by class" : "Influence"} note={`α = ${pca.diagnostics.alpha}`}>
       <div ref={host} data-testid="influence-plot" style={{ flex: 1, minHeight: 0 }} />
     </Panel>
   );
@@ -810,6 +877,7 @@ function Flags({
             <tr>
               <th style={{ width: 26 }} aria-label="Exclude" />
               <th style={{ width: 74 }}>Sample</th>
+              <th style={{ width: 22 }} title="Rules broken">#</th>
               <th>Rules</th>
             </tr>
           </thead>
@@ -844,6 +912,9 @@ function Flags({
                   </td>
                   <td className="mono" style={{ color: "var(--ink)" }}>
                     {sample.sample_id}
+                  </td>
+                  <td className="mono" data-testid="flag-count">
+                    {flag.n_rules}
                   </td>
                   <td className="mono" style={{ color: "var(--stale)" }}>
                     {flag.rules.map((rule) => RULE_LABELS[rule]).join(" · ")}
@@ -915,7 +986,9 @@ function PredictedVsMeasured({ pca }: { pca: PcaPayload }) {
   return (
     <Panel
       title="Predicted vs measured"
-      note={held ? `${pca.n_samples} calibration · ${held} held out` : `${pca.n_samples} samples`}
+      // #330: the model is fitted on every sample; the held-out points are
+      // fold 0's model's, which never saw them.
+      note={held ? `${pca.n_samples} fitted · ${held} held out (fold 0)` : `${pca.n_samples} samples`}
     >
       <div ref={host} data-testid="predicted-plot" style={{ flex: 1, minHeight: 0 }} />
     </Panel>
@@ -942,6 +1015,76 @@ function RmsecvCurve({ pca }: { pca: PcaPayload }) {
   return (
     <Panel title="RMSECV" note={best ? `lowest at A = ${best}` : "needs a split"} width={340}>
       <div ref={host} data-testid="rmsecv-plot" style={{ flex: 1, minHeight: 0 }} />
+    </Panel>
+  );
+}
+
+/** `metrics-and-validation.md` section 14 (#333): is the model better than
+ * chance? The response is permuted N times, the whole cross-validation rerun
+ * on each, and the observed score placed in that null. A job, because it is
+ * the cross-validation N times over. */
+function PermutationTest({ pca }: { pca: PcaPayload }) {
+  const [count, setCount] = useState("100");
+  const [jobId, setJobId] = useState<string | null>(null);
+  const start = useStartPermutation(pca.node_id);
+  const job = useJob(jobId);
+  const done = job.data?.status === "succeeded";
+  const result = usePermutation(jobId, done);
+  const host = usePlot(
+    (theme) => {
+      if (!result.data) return { data: [], layout: { margin: { l: 48, r: 12, t: 8, b: 38 } } };
+      const figure = permutationFigure(result.data, theme);
+      return {
+        data: figure.data,
+        layout: {
+          shapes: figure.shapes,
+          xaxis: axisLayout(theme, result.data.greater_is_better ? "CV accuracy" : "RMSECV"),
+          yaxis: axisLayout(theme, "Permutations"),
+          margin: { l: 48, r: 12, t: 8, b: 38 },
+          showlegend: false,
+        },
+      };
+    },
+    [result.data],
+  );
+  const running = job.data?.status === "queued" || job.data?.status === "running";
+  const failed = job.data?.status === "failed" ? job.data.message : null;
+  return (
+    <Panel
+      title="Permutation test"
+      note={
+        result.data
+          ? `p = ${result.data.p_value.toPrecision(3)} · ${result.data.n_permutations} permutations · seed ${result.data.seed}`
+          : "is it better than chance?"
+      }
+    >
+      <div
+        className="mono"
+        style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", fontSize: 10 }}
+      >
+        <input
+          aria-label="Permutations"
+          value={count}
+          onChange={(event) => setCount(event.target.value)}
+          style={{ width: 48 }}
+        />
+        <button
+          type="button"
+          className="btn"
+          disabled={running || start.isPending}
+          onClick={() =>
+            start.mutate(Number(count), { onSuccess: (submitted) => setJobId(submitted.job_id) })
+          }
+        >
+          {running ? `Running… ${Math.round((job.data?.progress ?? 0) * 100)}%` : "Run permutation test"}
+        </button>
+      </div>
+      {failed || start.error ? (
+        <p role="alert" className="mono" style={{ margin: "2px 10px", fontSize: 10, color: "var(--fail)" }}>
+          {failed ?? start.error?.message}
+        </p>
+      ) : null}
+      <div ref={host} data-testid="permutation-plot" style={{ flex: 1, minHeight: 0 }} />
     </Panel>
   );
 }
@@ -1377,7 +1520,7 @@ export function AnalysisResults({
             style={{ fontSize: 11, color: "var(--ink3)", overflow: "hidden", textOverflow: "ellipsis" }}
           >
             {classification
-              ? `${{ lda: "LDA", knn: "kNN" }[pca.regression?.method ?? ""] ?? "PLS-DA"} on ${pca.classification?.class_column ?? "?"}`
+              ? `${{ lda: "LDA", knn: "kNN", svm: "SVM" }[pca.regression?.method ?? ""] ?? "PLS-DA"} on ${pca.classification?.class_column ?? "?"}`
               : regression
                 ? `${pca.regression?.method === "pcr" ? "PCR" : "PLS"} on ${pca.regression?.target ?? "?"}`
                 : "PCA"}{" "}
@@ -1482,9 +1625,17 @@ export function AnalysisResults({
             <RegressionMetrics pca={pca} />
           </div>
         )}
+        {/* #333: a permutation test, for an estimator with a cross-validated score. */}
+        {["pls", "pcr", "plsda", "lda", "knn", "svm"].includes(pca.regression?.method ?? "") &&
+        (pca.metrics?.rmsecv !== undefined || pca.metrics?.accuracy_cv !== undefined) ? (
+          <div style={ROW}>
+            <PermutationTest pca={pca} />
+          </div>
+        ) : null}
         {/* #278: the outlier diagnostics, a row of their own, for a PCA, PLS
             or PCR (outliers.md section 1). */}
-        {pca.task === "decomposition" || ["pls", "pcr"].includes(pca.regression?.method ?? "") ? (
+        {pca.task === "decomposition" ||
+        ["pls", "pcr", "plsda", "lda", "knn", "svm"].includes(pca.regression?.method ?? "") ? (
           <OutlierRow
             pca={pca}
             nodeId={nodeId}

@@ -10,12 +10,15 @@ than against another implementation.
 
 from __future__ import annotations
 
+import functools
+
 import numpy as np
 import pytest
 
 from chemometrics_workbench.validation import (
     Fold,
     bias,
+    by_group,
     folds_from_indices,
     k_fold,
     leave_one_out,
@@ -383,3 +386,107 @@ def test_a_level_with_one_member_is_refused_by_name() -> None:
 def test_a_test_size_that_empties_a_level_is_refused_by_name() -> None:
     with pytest.raises(ValueError, match="all 2 samples of the level 'small'"):
         stratified_train_test(["small"] * 2 + ["big"] * 20, 0.6)
+
+
+# --- grouping, §8.8 -------------------------------------------------------
+
+
+def _random_groups(seed: int) -> list[str]:
+    """Uneven groups, labels that sort differently as text than as numbers."""
+    rng = np.random.default_rng(seed)
+    sizes = rng.integers(1, 5, size=int(rng.integers(6, 30)))
+    labels = np.repeat([str(g) for g in range(sizes.size)], sizes)
+    return [str(label) for label in labels[rng.permutation(labels.size)]]
+
+
+def _splitters(n_groups: int) -> list[tuple[str, object]]:
+    return [
+        ("kfold", lambda n: k_fold(n, min(5, n_groups))),
+        ("kfold unshuffled", lambda n: k_fold(n, min(3, n_groups), shuffle=False)),
+        ("loo", leave_one_out),
+    ]
+
+
+def test_a_grouped_split_never_splits_a_group_and_still_partitions() -> None:
+    """The property #329 exists for: a replicate never validates its twin's model."""
+    for seed in range(20):
+        groups = _random_groups(seed)
+        n_groups = len(set(groups))
+        for name, splitter in _splitters(n_groups):
+            folds = by_group(groups, splitter)  # type: ignore[arg-type]
+            validate_partition(folds, len(groups))
+            for fold in folds:
+                train, test = {groups[i] for i in fold.train}, {groups[i] for i in fold.test}
+                assert not train & test, f"seed {seed}, {name}"
+        [held] = by_group(groups, functools.partial(train_test, test_size=0.3, seed=seed))
+        assert not {groups[i] for i in held.train} & {groups[i] for i in held.test}, f"seed {seed}"
+        everything = np.sort(np.concatenate([held.train, held.test]))
+        assert np.array_equal(everything, np.arange(len(groups))), f"seed {seed}"
+
+
+def test_a_grouped_split_follows_from_its_seed() -> None:
+    for seed in range(5):
+        groups = _random_groups(seed)
+
+        def tests(split_seed: int, groups: list[str] = groups) -> list[list[int]]:
+            folds = by_group(groups, lambda n: k_fold(n, 3, seed=split_seed))
+            return [f.test.tolist() for f in folds]
+
+        assert tests(seed) == tests(seed) != tests(seed + 100), f"seed {seed}"
+
+
+def test_groups_are_the_splitter_s_items_in_unicode_order() -> None:
+    """§8.8's worked example: '10' sorts before '2', and LOGO follows that order."""
+    groups = ["2", "10", "2", "1", "10", "1"]
+    folds = by_group(groups, leave_one_out)
+    assert [f.test.tolist() for f in folds] == [[3, 5], [1, 4], [0, 2]]
+    assert folds[0].train.tolist() == [0, 1, 2, 4]
+
+
+def test_a_grouped_k_fold_slices_the_permuted_groups_by_the_k_fold_size_rule() -> None:
+    """§8.8: K-fold over the groups is §8.3 over group indices, expanded to rows."""
+    groups = [f"g{i // 2}" for i in range(20)]  # ten pairs, g0..g9 in order
+    folds = by_group(groups, lambda n: k_fold(n, 3, seed=42))
+    # §8.3's worked example: groups 0,5,6,7 | 2,3,4 | 1,8,9.
+    assert [sorted({groups[i] for i in f.test}) for f in folds] == [
+        ["g0", "g5", "g6", "g7"],
+        ["g2", "g3", "g4"],
+        ["g1", "g8", "g9"],
+    ]
+
+
+def test_more_folds_than_groups_is_refused_naming_the_group_count() -> None:
+    with pytest.raises(ValueError, match="over the 3 groups: 4 folds were asked of 3"):
+        by_group(["a", "a", "b", "b", "c", "c"], lambda n: k_fold(n, 4))
+    with pytest.raises(ValueError, match="over the 1 groups: leave-one-out needs at least 2"):
+        by_group(["a", "a"], leave_one_out)
+
+
+# --- the bootstrap (#334) -------------------------------------------------
+
+
+def test_a_bootstrap_follows_from_its_seed_and_takes_the_percentiles() -> None:
+    from chemometrics_workbench.validation import bootstrap
+
+    values = np.arange(10, dtype=np.float64)
+
+    def mean(rows: np.ndarray) -> np.ndarray:
+        return np.array([values[rows].mean()])
+
+    first = bootstrap(mean, 10, 50, level=0.9, seed=4)
+    again = bootstrap(mean, 10, 50, level=0.9, seed=4)
+    assert (first.lower, first.upper) == (again.lower, again.upper)
+    assert bootstrap(mean, 10, 50, level=0.9, seed=5).lower != first.lower
+
+    rng = np.random.default_rng(4)
+    draws = [values[rng.integers(0, 10, 10)].mean() for _ in range(50)]
+    assert first.lower[0] == pytest.approx(np.quantile(draws, 0.05))
+    assert first.upper[0] == pytest.approx(np.quantile(draws, 0.95))
+
+
+@pytest.mark.parametrize(("resamples", "level"), [(1, 0.95), (10, 1.0), (10, 0.0)])
+def test_a_bootstrap_it_cannot_run_is_refused(resamples: int, level: float) -> None:
+    from chemometrics_workbench.validation import bootstrap
+
+    with pytest.raises(ValueError, match=r"at least two resamples|between 0 and 1"):
+        bootstrap(lambda rows: rows.astype(float), 5, resamples, level=level)

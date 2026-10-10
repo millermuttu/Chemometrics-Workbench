@@ -143,3 +143,21 @@ test("a bundle asset that fails to load is fetched again by one reload", async (
   expect(failed).toBe(true);
   expect((await page.locator(".tbar").boundingBox())?.height).toBe(40);
 });
+
+/** #351. On a Windows runner one loopback request failed with
+ * `net::ERR_NO_BUFFER_SPACE`, and the shell put "the server is not answering"
+ * over a server that was answering everything else. A read that fails before
+ * any response is tried again, so a single failure leaves no trace. */
+test("one read that fails at the network is tried again, not reported as a dead server", async ({
+  page,
+}) => {
+  let failed = false;
+  await page.route("**/api/projects", (route) => {
+    if (failed) return route.continue();
+    failed = true;
+    return route.abort("failed");
+  });
+  await open(page);
+  expect(failed).toBe(true);
+  await expect(page.getByText("The workbench server is not answering")).toHaveCount(0);
+});

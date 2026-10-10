@@ -120,7 +120,7 @@ export default defineConfig({
   projects: [
     {
       name: "seeded",
-      testIgnore: /(empty|runs|walkthrough|docs-examples|docs-classification)\.spec\.ts/,
+      testIgnore: /(empty|runs|walkthrough|docs-examples|docs-classification|docs-validation)\.spec\.ts/,
       use: { baseURL: "http://127.0.0.1:8765" },
     },
     { name: "empty", testMatch: /empty\.spec\.ts/, use: { baseURL: "http://127.0.0.1:8766" } },
@@ -148,6 +148,12 @@ export default defineConfig({
       testMatch: /docs-classification\.spec\.ts/,
       use: { baseURL: "http://127.0.0.1:8770" },
     },
+    {
+      // The validation example's (#340): the raw meat set, its own project.
+      name: "validation",
+      testMatch: /docs-validation\.spec\.ts/,
+      use: { baseURL: "http://127.0.0.1:8771" },
+    },
   ],
   webServer: [
     serve("seeded", "8765", ""),
@@ -156,5 +162,6 @@ export default defineConfig({
     serve("walkthrough", "8768", "--empty"),
     serve("examples", "8769", "--empty"),
     serve("classification", "8770", "--empty"),
+    serve("validation", "8771", "--empty"),
   ],
 });

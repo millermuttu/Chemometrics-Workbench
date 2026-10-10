@@ -2,27 +2,55 @@
 
 Compact state for the next session. **Overwrite this file at the end of every session** — it is a snapshot, not a log. Read it first, then `feature_list.json`, `git log` on `dev`, and the open issues.
 
-**Updated:** 2026-10-05
+**Updated:** 2026-10-10 (after #360 and #361)
 
 ---
 
 ## Where things stand
 
-**`v1.0.0` is released** (2026-10-01). Phase 4's list is archived at `docs/phase-4/feature_list.json`;
-its timed exit run stays `blocked` there, closed on the maintainer's decision, and is not carried forward.
+**`v1.1.0` is released** (2026-10-05), closing Phase 5; its list is archived at
+`docs/phase-5/feature_list.json` and its exit run at `docs/phase-5/exit-run.md`.
 
-**Phase 5, methods breadth, is open** (2026-10-02). `feature_list.json` is its list: 22 entries, issues
-#268 to #289, and a `decisions` block. In short:
-- Classifiers: multi-class PLS-DA (on a new PLS2 kernel), SIMCA, LDA, kNN. SVM deferred.
-- Outliers are flagged; the user excludes. An exclusion is a derived `DatasetVersion`
-  (`excluded_samples`, `derived_from` already exist in `models.py` but nothing honours them yet).
-- Variable selection: VIP threshold, iPLS, CARS, each applied as an explicit `select_variables` step.
-- Readers: MATLAB `.mat`, SPC, SPA, ASD, each with a real licensed fixture.
-- Smoothing: moving average, median, Gaussian, Whittaker.
-- One release, `v1.1.0`, at the end.
+**Phase 6, validation integrity, is open.** `feature_list.json` is its list. Merged on `dev`, each
+through a green pull request:
 
-`PROPOSAL.md` §16 has the Phase 5 row and §6 marks the four formats Phase 5. `AGENTS.md`, `.agents/`,
-`.codex/` and the root `tecator.csv` are now gitignored.
+| Feature | Issue | PR |
+| --- | --- | --- |
+| Grouped splits: `group_by`, leave-one-group-out (`metrics-and-validation.md` §8.8) | #329 | #344 |
+| The model below a split refitted on every sample; artifact schema 2 | #330 | #347 |
+| Nested validation of a variable selection (`variable-selection.md` §8) | #331 | #348 |
+| Variable selection from a PLS-DA, on its dummy response (§9) | #332 | #349 |
+| Seeded y-permutation test, run as a job (`metrics-and-validation.md` §14) | #333 | #350 |
+| Bootstrap intervals for PLS/PCR coefficients and VIP (`pls-regression.md` §16) | #334 | #352 |
+| Class-wise outlier diagnostics; flags sorted by rules broken (`outliers.md` §8) | #335 | #353 |
+| The axis kind a correctable choice in the import preview; corrections in provenance | #336 | #356 |
+| The spectra view draws a set of 60 or fewer (no band) instead of going blank | #355 | #357 |
+| A classifier refuses a one-class training fold, naming fold, column and class | #343 | #358 |
+| A GET that fails at the network is tried again (Windows `ERR_NO_BUFFER_SPACE`) | #351 | #359 |
+| The Step list offers the port menu's splits and estimators | #337 | #360 |
+| SVM: hand-written PCA-SVM (SMO), linear or RBF, one-vs-one | #338 | #361 |
+
+Not started, in priority order: docs (#340, every dependency now passing), exit run (#341).
+Signed packages (#339) are `blocked` on certificates, and must be resolved or deferred before
+`v1.2.0`. One release, `v1.2.0`, at the end.
+
+**Found during the phase, each with a `feature_list.json` entry:**
+- **#346** - remove the Decisions section from the docs site (maintainer's request).
+- **#362** - shrink and speed up the Python suite (maintainer, 2026-10-10: "1218 test cases is
+  insane"). 1,219 collected; most are dataset parametrisations. No parity claim may be dropped.
+- **#354** - macOS e2e once timed out on the train/test results note (#353's first run, a 7-minute
+  run under runner capacity limits). Passed on a re-run; its log has not been read yet. Job logs
+  and artifacts need auth: ask the maintainer to download the `playwright-report-<os>` artifact
+  (kept 7 days) and read `test-results/*/trace.zip` - that is how #351 was found.
+
+`PROPOSAL.md` §16 has the Phase 6 row.
+
+**GitHub attribution:** the maintainer said on 2026-10-05 not to put "Generated with Claude"
+footers, session links or Claude `Co-Authored-By` trailers anywhere on GitHub - PRs, issues,
+comments or commits. Two earlier commits (`28cd7ec`, `51b8b7e`) carry them and were left as they are.
+
+**Handoffs go straight to `dev`**, no branch and no pull request (maintainer, 2026-10-05; also in
+CLAUDE.md).
 
 ## Development data
 
@@ -48,6 +76,9 @@ reset its form on every pipeline refetch, so the refetch after an Apply put the 
 a newly typed one. The form now resets on node id and kind only, and `inspector.spec.ts` holds the
 app's refetch back with `page.route` so the race runs every time.
 
+**#351, fixed in #359**: the same `ERR_NO_BUFFER_SPACE` on one `GET /api/projects` showed "server
+is not answering". `api/client.ts` `send` now retries a GET twice on a network failure.
+
 **#255, explained and fixed in #262.** The Windows trace showed `net::ERR_NO_BUFFER_SPACE` on the
 bundle's CSS: the page rendered unstyled and the canvas div had no size. #221's red had the same
 signature. `frontend/index.html` now reloads once on a LINK or SCRIPT load error (sessionStorage
@@ -71,7 +102,11 @@ that moves a quoted number fails the suite until the page is updated.
 so a user's pan survives), React Flow's `Controls` give a fit-view button, and the add-step menu
 opens away from the nearer window edge. `docs-examples.spec.ts` no longer reloads or drops upward.
 
-**Merging:** the maintainer gave a standing "merge when CI is green" on 2026-09-29, for that session.
+**Merging:** on 2026-10-10 the maintainer said to merge #360 and #361 once green; done. On 2026-10-05 the maintainer set a goal of finishing five issues by the process, which
+covered merging #347-#353 once CI was green. No standing approval carries into a new session.
+
+**CI polling:** the unauthenticated `api.github.com` is rate-limited (60 requests an hour) and a
+30-second poll exhausts it; read check runs through `mcp__github__pull_request_read` instead.
 
 **#247, `ui-export-buttons`, is done.** `download()` in `api/client.ts` fetches with the token and
 saves through a blob URL; `screens/DownloadButton.tsx` shows the server's refusal beside the button.
@@ -116,7 +151,7 @@ the served application end to end and rewrite their phase's `docs/phase-N/exit-r
 `uv run python -m tests.memory_probe 6000 1200` prints the peak resident memory of a ten-fold branch,
 which is the number #176 is judged by.
 
-## Phase 5 so far
+## Phase 5, for reference
 
 Merged through green pull requests on `dev`:
 
@@ -148,7 +183,39 @@ Merged through green pull requests on `dev`:
 | Thermo OMNIC SPA reader (single file, or a zip of them) | #286 | #322 |
 | ASD FieldSpec reader (reflectance against the stored white reference) | #287 | #323 |
 | Phase 5 docs: classification example, outlier and selection how-tos | #288 | #324 |
-| Phase 5 exit run, met; version 1.1.0 | #289 | #325 (open) |
+| Phase 5 exit run, met; version 1.1.0 | #289 | #325 |
+| dev into main, `v1.1.0` released | #289 | #326 |
+| Exit run: Tecator PCR and selected PLS, lineage (asked by #289, missed at first) | #289 | #328 |
+
+## What Phase 6 has left behind so far, worth knowing
+
+- **The all-sample model (#330).** Every node below a split carries `_State.full`, stored under
+  `<key>#all`; the estimator is fitted on it and `_with_held_out` merges fold zero's held-out view.
+  Estimator keys include `RESULT_FORMAT`, so a result stored before #330 is a cache miss. Exports and
+  folded coefficients refit the chain on `result.rows` (every row). Artifact schema is 2.
+- **A dummy response (#332).** `regression.rmsecv_curve`, `selection.ipls/cars/nested` and the VIP
+  selector take a 1-D response or a one-hot matrix (PLS2, pooled RMSE); `regression._response`
+  decides which. `api._selection_inputs` builds a PLS-DA's dummy from `result.classes`.
+- **Permutation jobs (#333)** use `JOBS.submit("permutation:<node>", ...)` so the canvas's running
+  check ignores them; the result is `GET /api/permutations/{job_id}`, in memory only.
+  `executor.permutation_test_for` reruns `_fitted` on stored fold matrices with a permuted version.
+- **Bootstrap (#334)** is synchronous (`GET /results/{id}/bootstrap`); `api._fit_chain` is shared with
+  `folded_coefficients`.
+- **One-class folds (#343)**: `executor._refuse_one_class_folds` runs in `_estimator` for any spec
+  with a `class_column`, so SVM (#338) inherits it.
+- **Axis kind (#336)**: `Detection.axis_kind` is offered by the CSV and XLSX readers whenever the
+  axis is not an index, and is correctable without being in `correctable`; `readers.read` reapplies
+  it to the axis the reader rebuilds. `SourceFile.corrections` holds the fields changed from the sniff.
+- **SVM (#338)**: `classification.SVM`, LIBSVM's WSS2 SMO without shrinking, kernel in float64,
+  refuses after 1e6 iterations. `gamma=None` is sklearn's "scale". kNN and SVM share
+  `executor._scores_classifier`; the result's `svm` dict holds per-pair support positions into
+  `scores`, `dual` (a y) and `rho`. Parity adds the `float32_kernel` tolerance class (frozen in
+  `test_parity_report.py`). Linear kernel with large C on unscaled scores is slow (Tecator C=100,
+  12 s a fit).
+- **Class-wise outliers (#335)**: `outliers.class_diagnostics`, `api.classwise_payload`; flags carry
+  `n_rules` and are sorted by it for every model, so a test reading the first flag gets the worst.
+- **New parity-style claims** that are tests rather than fixture entries have a `Coverage` row with
+  `not_compared` naming the test (nested selection, permutation, bootstrap, class-wise).
 
 ## What these left behind, worth knowing
 
@@ -181,17 +248,17 @@ Merged through green pull requests on `dev`:
   test factors both out. A splice-correction step would be a preprocessing feature, not a reader one.
 
 - **The classification example** runs on `docs/examples/meat.csv` (Quadram, CC0), which averages each
-  sample's two runs: the workbench has no grouped CV. Its walk is `e2e/docs-classification.spec.ts`
+  sample's two runs: the workbench had no grouped CV until #329 (the exit run, #341, uses the raw set). Its walk is `e2e/docs-classification.spec.ts`
   on a sixth Playwright server (8770, `classification`); the docs specs share `e2e/docs-helpers.ts`.
   The outlier and selection how-tos (`docs/how-to/`) continue the Tecator PLS example and quote
   numbers `tests/test_examples.py` recomputes.
-- **The Step list offers only preprocessing and PCA.** Splits and estimators come from dragging off
-  a node's port. A page that tells a reader otherwise is wrong.
+- **The Step list and the port menu are one list** since #337: both take `stepMenu(targets,
+  classColumns)`, and a draft may be a split. Neither sets `stratify_by`; the inspector does.
 
 ## Next action
 
-**Phase 5's exit run is met** (`docs/phase-5/exit-run.md`; `--tighten 1e-9` shows it can fail).
-The version is 1.1.0. `phase-5-exit-run` stays `in_progress` only for its last verification step,
-the release: once #325 is merged into `dev`, open a pull request from `dev` into `main`, merge it,
-then `git tag -a v1.1.0 -m "notes"` and push the tag (release.yml builds and publishes). Then mark
-the feature `passing`, archive `feature_list.json` to `docs/phase-5/`, and open Phase 6.
+Start `docs-phase-6` (#340): every dependency is passing. Read the issue body as well as its entry:
+algorithm pages exist for SVM (`svm.md`); the rest of the Phase 6 methods need pages, the worked
+example on the raw grouped meat set, how-to updates, numbers recomputed by `tests/test_examples.py`,
+and a Playwright docs spec. #354's report artifact expires around 2026-10-12; #346 and #362 are
+independent.

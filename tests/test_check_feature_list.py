@@ -109,9 +109,9 @@ def test_one_feature_in_progress_is_fine() -> None:
     assert problems(document(feature(status="in_progress", evidence=""))) == []
 
 
-@pytest.mark.parametrize("path", LISTS, ids=lambda p: p.parent.name)
-def test_every_list_in_the_repository_is_consistent(path: Path) -> None:
-    assert problems(json.loads(path.read_text(encoding="utf-8"))) == []
+def test_every_list_in_the_repository_is_consistent() -> None:
+    found = {str(p): problems(json.loads(p.read_text(encoding="utf-8"))) for p in LISTS}
+    assert not {path: listed for path, listed in found.items() if listed}
 
 
 def test_main_prints_the_sentence_the_checklist_names(capsys: pytest.CaptureFixture[str]) -> None:
