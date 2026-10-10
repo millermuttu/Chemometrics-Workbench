@@ -2,7 +2,7 @@
 
 Compact state for the next session. **Overwrite this file at the end of every session** — it is a snapshot, not a log. Read it first, then `feature_list.json`, `git log` on `dev`, and the open issues.
 
-**Updated:** 2026-10-10 (after #359)
+**Updated:** 2026-10-10 (after #360 and #361)
 
 ---
 
@@ -27,13 +27,17 @@ through a green pull request:
 | The spectra view draws a set of 60 or fewer (no band) instead of going blank | #355 | #357 |
 | A classifier refuses a one-class training fold, naming fold, column and class | #343 | #358 |
 | A GET that fails at the network is tried again (Windows `ERR_NO_BUFFER_SPACE`) | #351 | #359 |
+| The Step list offers the port menu's splits and estimators | #337 | #360 |
+| SVM: hand-written PCA-SVM (SMO), linear or RBF, one-vs-one | #338 | #361 |
 
-Not started, in priority order: a complete Step list (#337), SVM
-(#338), docs (#340), exit run (#341). Signed packages (#339) are `blocked` on certificates. One
-release, `v1.2.0`, at the end.
+Not started, in priority order: docs (#340, every dependency now passing), exit run (#341).
+Signed packages (#339) are `blocked` on certificates, and must be resolved or deferred before
+`v1.2.0`. One release, `v1.2.0`, at the end.
 
 **Found during the phase, each with a `feature_list.json` entry:**
 - **#346** - remove the Decisions section from the docs site (maintainer's request).
+- **#362** - shrink and speed up the Python suite (maintainer, 2026-10-10: "1218 test cases is
+  insane"). 1,219 collected; most are dataset parametrisations. No parity claim may be dropped.
 - **#354** - macOS e2e once timed out on the train/test results note (#353's first run, a 7-minute
   run under runner capacity limits). Passed on a re-run; its log has not been read yet. Job logs
   and artifacts need auth: ask the maintainer to download the `playwright-report-<os>` artifact
@@ -98,7 +102,7 @@ that moves a quoted number fails the suite until the page is updated.
 so a user's pan survives), React Flow's `Controls` give a fit-view button, and the add-step menu
 opens away from the nearer window edge. `docs-examples.spec.ts` no longer reloads or drops upward.
 
-**Merging:** on 2026-10-05 the maintainer set a goal of finishing five issues by the process, which
+**Merging:** on 2026-10-10 the maintainer said to merge #360 and #361 once green; done. On 2026-10-05 the maintainer set a goal of finishing five issues by the process, which
 covered merging #347-#353 once CI was green. No standing approval carries into a new session.
 
 **CI polling:** the unauthenticated `api.github.com` is rate-limited (60 requests an hour) and a
@@ -202,6 +206,12 @@ Merged through green pull requests on `dev`:
 - **Axis kind (#336)**: `Detection.axis_kind` is offered by the CSV and XLSX readers whenever the
   axis is not an index, and is correctable without being in `correctable`; `readers.read` reapplies
   it to the axis the reader rebuilds. `SourceFile.corrections` holds the fields changed from the sniff.
+- **SVM (#338)**: `classification.SVM`, LIBSVM's WSS2 SMO without shrinking, kernel in float64,
+  refuses after 1e6 iterations. `gamma=None` is sklearn's "scale". kNN and SVM share
+  `executor._scores_classifier`; the result's `svm` dict holds per-pair support positions into
+  `scores`, `dual` (a y) and `rho`. Parity adds the `float32_kernel` tolerance class (frozen in
+  `test_parity_report.py`). Linear kernel with large C on unscaled scores is slow (Tecator C=100,
+  12 s a fit).
 - **Class-wise outliers (#335)**: `outliers.class_diagnostics`, `api.classwise_payload`; flags carry
   `n_rules` and are sorted by it for every model, so a test reading the first flag gets the worst.
 - **New parity-style claims** that are tests rather than fixture entries have a `Coverage` row with
@@ -242,11 +252,13 @@ Merged through green pull requests on `dev`:
   on a sixth Playwright server (8770, `classification`); the docs specs share `e2e/docs-helpers.ts`.
   The outlier and selection how-tos (`docs/how-to/`) continue the Tecator PLS example and quote
   numbers `tests/test_examples.py` recomputes.
-- **The Step list offers only preprocessing and PCA.** Splits and estimators come from dragging off
-  a node's port. A page that tells a reader otherwise is wrong.
+- **The Step list and the port menu are one list** since #337: both take `stepMenu(targets,
+  classColumns)`, and a draft may be a split. Neither sets `stratify_by`; the inspector does.
 
 ## Next action
 
-Start `step-list-parity` (#337): no dependencies. Read the issue body as well as its entry. #354
-(macOS e2e flake) needs its report artifact read first - #353's run was 2026-10-05, so it expires
-around 2026-10-12; #346 (drop the docs Decisions section) is small.
+Start `docs-phase-6` (#340): every dependency is passing. Read the issue body as well as its entry:
+algorithm pages exist for SVM (`svm.md`); the rest of the Phase 6 methods need pages, the worked
+example on the raw grouped meat set, how-to updates, numbers recomputed by `tests/test_examples.py`,
+and a Playwright docs spec. #354's report artifact expires around 2026-10-12; #346 and #362 are
+independent.
