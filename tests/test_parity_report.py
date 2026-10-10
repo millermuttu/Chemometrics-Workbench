@@ -336,6 +336,7 @@ def test_the_published_tolerances_are_the_ones_the_project_agreed_to() -> None:
         "coefficients": (1e-6, 1e-9),
         "predictions": (1e-6, 1e-9),
         "metrics": (1e-6, 1e-9),
+        "float32_kernel": (1e-5, 1e-4),
         "transcribed": (5e-3, 0.0),
     }
     assert all(tolerance.reason.strip() for tolerance in parity.TOLERANCES.values())

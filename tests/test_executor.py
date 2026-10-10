@@ -56,6 +56,7 @@ from chemometrics_workbench.models import (
     SIMCASpec,
     SourceNode,
     SplitNode,
+    SVMSpec,
     TrainTestSplit,
 )
 from chemometrics_workbench.preprocessing import SNVTransformer
@@ -1321,6 +1322,7 @@ def _with_classes(
         SIMCASpec(n_components=2, class_column="fat_class"),
         LDASpec(n_components=2, class_column="fat_class"),
         KNNSpec(k=3, n_components=2, class_column="fat_class"),
+        SVMSpec(n_components=2, class_column="fat_class"),
     ],
     ids=lambda spec: spec.kind,
 )
@@ -1803,6 +1805,66 @@ def test_a_knn_asked_for_more_neighbours_than_samples_is_refused(
     )
     with pytest.raises(ExecutorError, match="k = 500 neighbours were asked of 240"):
         execute(directory, pipeline, version)
+
+
+@pytest.mark.parametrize("kernel", ["linear", "rbf"])
+def test_an_svm_node_classifies_as_svc_does_on_its_folds_own_scores(
+    project: tuple[Path, DatasetVersion], tecator: Any, kernel: str
+) -> None:
+    """#338, svm.md: every cross-validated assignment equals scikit-learn's
+    PCA then SVC on the run's own resolved folds, gamma the fold's own."""
+    from sklearn.decomposition import PCA as SkPCA
+    from sklearn.svm import SVC
+
+    directory, version = project
+    version = _terciles(version, tecator)
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=5, stratify_by="grade")),
+        PreprocessNode(id="snv", inputs=("split",), step=SNV()),
+        EstimatorNode(
+            id="svm",
+            inputs=("snv",),
+            spec=SVMSpec(kernel=kernel, n_components=6, class_column="grade"),
+        ),
+    )
+    run = execute(directory, pipeline, version)
+    result = run.results["svm"]
+    assert (result.task, result.method) == ("classification", "svm")
+    assert [pair["classes"] for pair in result.svm["pairs"]] == [[0, 1], [0, 2], [1, 2]]
+
+    codes = np.asarray([result.classes.index(label) for label in version.metadata_columns["grade"]])
+    corrected = _as_stored(SNVTransformer().fit_transform(_as_stored(tecator.spectra)))
+    [resolved] = run.resolved_splits
+    assigned = np.empty(version.n_samples, dtype=int)
+    for train, test in zip(resolved.train_indices, resolved.test_indices, strict=True):
+        mean = corrected[train].mean(axis=0)
+        pca = SkPCA(6, svd_solver="full").fit(corrected[train] - mean)
+        svc = SVC(kernel=kernel, shrinking=False).fit(
+            pca.transform(corrected[train] - mean), codes[train]
+        )
+        assigned[test] = svc.predict(pca.transform(corrected[test] - mean))
+    expected = [[int(np.sum((codes == j) & (assigned == k))) for k in range(3)] for j in range(3)]
+    assert result.confusion["cross_validation"] == expected
+
+
+def test_an_svm_is_permutation_tested_like_any_classifier(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """metrics-and-validation.md section 14 holds for an SVM (#338)."""
+    directory, version = project
+    version = _terciles(version, tecator)
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=4, seed=42)),
+        EstimatorNode(
+            id="svm", inputs=("split",), spec=SVMSpec(n_components=4, class_column="grade")
+        ),
+    )
+    run = execute(directory, pipeline, version)
+    svm = permutation_test_for(directory, pipeline, version, "svm", 5, seed=1)
+    assert svm.observed == pytest.approx(run.results["svm"].metrics["accuracy_cv"], rel=1e-12)
+    assert svm.greater_is_better and max(svm.null) < svm.observed
 
 
 # --------------------------------------------------------------------------

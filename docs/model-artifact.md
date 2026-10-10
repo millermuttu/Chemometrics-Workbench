@@ -78,6 +78,7 @@ Every field is required unless it is marked optional. `null` means *this quantit
 | `classes` | array of string or null | `pls-da.md` §3's `[C_0, C_1]`, for a classification |
 | `y_mean` | number or null | The response mean the estimator subtracted before fitting and adds back to every prediction (`pls-regression.md` §3). `null` for a decomposition |
 | `k` | int or null | A kNN's neighbour count; `null` otherwise |
+| `svm` | object or null | An SVM's `kernel`, `C`, the `gamma` used, and per pair of classes its `classes` and `rho` (#338, `svm.md` §6); `null` otherwise |
 | `simca` | array or null | For a SIMCA, one `{class, n_samples, t2_limit, q_limit}` per class in `classes` order (`simca.md` §3); `null` otherwise |
 | `alpha` | number | The confidence level the limits are quoted at |
 | `hotelling_t2_limit` | number | |
@@ -128,6 +129,7 @@ Which arrays are present depends on the task. A reader must not assume any of th
 | `coefficient_matrix` | `(n_variables, N)` | classification of three or more classes | `B = RQ'`, one column per class (#274) |
 | `y_means` | `(N,)` | classification of three or more classes | The one-hot response's column means, added back to every prediction |
 | `knn_scores`, `knn_classes` | `(n, A)`, `(n,)` | kNN | The neighbours: the calibration rows' scores and their classes as indices into `classes` (#277, `knn.md` §6). With `x_mean` and `loadings` they are the whole model |
+| `svm_<k>_support_vectors`, `svm_<k>_dual` | `(m, A)`, `(m,)` | SVM | Pair `k`'s support vectors in score space and their $a y$, pairs in the manifest's order (#338, `svm.md` §6). With `x_mean`, `loadings` and the manifest's `rho` they are the whole model |
 | `simca_<k>_mean`, `simca_<k>_loadings`, `simca_<k>_eigenvalues` | `(p,)`, `(A, p)`, `(A,)` | SIMCA | Class `classes[k]`'s centre, PCA loadings and retained eigenvalues (#275, `simca.md` §7). Its limits are in `model.simca` |
 | `y_loadings` | `(A,)` | regression, classification | |
 | `vip` | `(n_variables,)` | regression, classification | `pls-regression.md` §8 |

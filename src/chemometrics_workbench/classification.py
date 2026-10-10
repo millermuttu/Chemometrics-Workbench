@@ -8,7 +8,7 @@ arithmetic `simca.md` §3 to §5 states.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Self
+from typing import Any, Self
 
 import numpy as np
 from numpy.typing import NDArray
@@ -16,7 +16,15 @@ from numpy.typing import NDArray
 from chemometrics_workbench.arrays import as_float64
 from chemometrics_workbench.decomposition import PCA
 
-__all__ = ["KNN", "LDA", "SIMCA", "acceptance_table", "simca_class_metrics", "simca_metrics"]
+__all__ = [
+    "KNN",
+    "LDA",
+    "SIMCA",
+    "SVM",
+    "acceptance_table",
+    "simca_class_metrics",
+    "simca_metrics",
+]
 
 
 @dataclass(frozen=True)
@@ -282,5 +290,214 @@ class KNN:
 
     def predict(self, X: object) -> NDArray[np.intp]:
         """The majority class, a tied vote to the first class (`knn.md` §3)."""
+        assigned: NDArray[np.intp] = self.votes(X).argmax(axis=1)
+        return assigned
+
+
+#: LIBSVM's floor for a non-positive curvature in the two-variable step.
+_TAU = 1e-12
+
+
+def _smo(
+    kernel: NDArray[np.float64], y: NDArray[np.float64], c: float, tol: float, max_iter: int
+) -> tuple[NDArray[np.float64], float]:
+    """The C-SVM dual by SMO with LIBSVM's second-order working-set selection
+    and without shrinking (`svm.md` §3). `y` is +1/-1. Returns the multipliers
+    and `rho`, the decision being `sum_i a_i y_i K(x_i, x) - rho`.
+
+    Ties in both selections go to the later index, as LIBSVM's `>=` and `<=`
+    make them, so the two solvers take the same steps.
+    """
+    a = np.zeros(y.size)
+    gradient = -np.ones(y.size)
+    diagonal = np.diag(kernel).copy()
+    for _ in range(max_iter):
+        up = np.flatnonzero(np.where(y > 0, a < c, a > 0))
+        low = np.flatnonzero(np.where(y > 0, a > 0, a < c))
+        if up.size == 0 or low.size == 0:
+            break
+        ascent = -y[up] * gradient[up]
+        i = int(up[ascent.size - 1 - np.argmax(ascent[::-1])])
+        g_max = -y[i] * gradient[i]
+        descent = y[low] * gradient[low]
+        if g_max + descent.max() < tol:
+            break
+        gap = g_max + descent
+        curvature = diagonal[i] + diagonal[low] - 2.0 * kernel[i, low]
+        curvature = np.where(curvature > 0, curvature, _TAU)
+        gain = np.where(gap > 0, -(gap**2) / curvature, np.inf)
+        if not np.isfinite(gain).any():
+            break
+        j = int(low[gain.size - 1 - np.argmin(gain[::-1])])
+
+        q_i = y * y[i] * kernel[i]
+        q_j = y * y[j] * kernel[j]
+        old_i, old_j = a[i], a[j]
+        if y[i] != y[j]:
+            quad = diagonal[i] + diagonal[j] + 2.0 * q_i[j]
+            delta = (-gradient[i] - gradient[j]) / (quad if quad > 0 else _TAU)
+            diff = old_i - old_j
+            new_i, new_j = old_i + delta, old_j + delta
+            if diff > 0:
+                if new_j < 0:
+                    new_j, new_i = 0.0, diff
+                if new_i > c:
+                    new_i, new_j = c, c - diff
+            else:
+                if new_i < 0:
+                    new_i, new_j = 0.0, -diff
+                if new_j > c:
+                    new_j, new_i = c, c + diff
+        else:
+            quad = diagonal[i] + diagonal[j] - 2.0 * q_i[j]
+            delta = (gradient[i] - gradient[j]) / (quad if quad > 0 else _TAU)
+            total = old_i + old_j
+            new_i, new_j = old_i - delta, old_j + delta
+            if total > c:
+                if new_i > c:
+                    new_i, new_j = c, total - c
+                if new_j > c:
+                    new_j, new_i = c, total - c
+            else:
+                if new_j < 0:
+                    new_j, new_i = 0.0, total
+                if new_i < 0:
+                    new_i, new_j = 0.0, total
+        gradient += q_i * (new_i - old_i) + q_j * (new_j - old_j)
+        a[i], a[j] = new_i, new_j
+    else:
+        raise ValueError(
+            f"the solver did not reach its stopping tolerance in {max_iter} iterations; "
+            "a smaller C converges faster (svm.md section 3)"
+        )
+
+    signed = y * gradient
+    upper, lower = a >= c, a <= 0
+    free = ~upper & ~lower
+    if free.any():
+        rho = float(signed[free].mean())
+    else:
+        # No multiplier strictly inside the box: the midpoint of the interval
+        # the KKT conditions leave rho in, as LIBSVM takes it.
+        above = signed[(upper & (y < 0)) | (lower & (y > 0))]
+        below = signed[(upper & (y > 0)) | (lower & (y < 0))]
+        rho = float((above.min(initial=np.inf) + below.max(initial=-np.inf)) / 2.0)
+    return a, rho
+
+
+class SVM:
+    """PCA-SVM, per `svm.md`: centre X, project it on `n_components`
+    principal components, and fit a C-SVM to the scores for every pair of
+    classes (one-vs-one), assigning by majority vote.
+
+    `gamma=None` is scikit-learn's `"scale"`, `1 / (A var(T))` over the
+    training scores. Ties are LIBSVM's: a pair's decision of exactly zero
+    votes for its second class, and a tied vote goes to the first class.
+    """
+
+    x_mean_: NDArray[np.float64] | None = None
+    scores_: NDArray[np.float64] | None = None
+    gamma_: float = 0.0
+
+    def __init__(
+        self,
+        n_components: int,
+        kernel: str = "rbf",
+        c: float = 1.0,
+        gamma: float | None = None,
+        tol: float = 1e-3,
+        max_iter: int = 1_000_000,
+    ) -> None:
+        if kernel not in ("linear", "rbf"):
+            raise ValueError(f"kernel must be 'linear' or 'rbf', got {kernel!r}")
+        if c <= 0:
+            raise ValueError(f"C must be positive, got {c}")
+        if gamma is not None and gamma <= 0:
+            raise ValueError(f"gamma must be positive, got {gamma}")
+        self.n_components = int(n_components)
+        self.kernel = kernel
+        self.c = float(c)
+        self.gamma = gamma
+        self.tol = float(tol)
+        self.max_iter = int(max_iter)
+        self.pca_ = PCA(self.n_components)
+        self.n_classes = 0
+        #: One per pair `(i, j)`, `i < j`: the support rows (indices into the
+        #: training rows), their `a y`, and `rho`.
+        self.pairs_: list[dict[str, Any]] = []
+
+    def _kernel(self, a: NDArray[np.float64], b: NDArray[np.float64]) -> NDArray[np.float64]:
+        if self.kernel == "linear":
+            linear: NDArray[np.float64] = a @ b.T
+            return linear
+        squared = (a**2).sum(axis=1)[:, None] - 2.0 * a @ b.T + (b**2).sum(axis=1)[None, :]
+        rbf: NDArray[np.float64] = np.exp(-self.gamma_ * np.maximum(squared, 0.0))
+        return rbf
+
+    def fit(self, X: object, codes: object, n_classes: int) -> Self:
+        values = as_float64(X, "X")
+        labels = np.asarray(codes, dtype=np.intp)
+        if labels.shape != (values.shape[0],):
+            raise ValueError(f"X has {values.shape[0]} rows and codes has {labels.size}")
+        counts = np.bincount(labels, minlength=n_classes)
+        if (counts == 0).any():
+            empty = int(np.flatnonzero(counts == 0)[0])
+            raise ValueError(f"class {empty} has no calibration samples (svm.md section 2)")
+        self.x_mean_ = values.mean(axis=0)
+        self.pca_.fit(values - self.x_mean_)
+        scores = self.pca_.transform(values - self.x_mean_)
+        self.scores_ = scores
+        variance = float(scores.var())
+        self.gamma_ = (
+            self.gamma
+            if self.gamma is not None
+            else 1.0 / (scores.shape[1] * variance)
+            if variance > 0
+            else 1.0
+        )
+        self.n_classes = int(n_classes)
+        self.pairs_ = []
+        for i in range(n_classes):
+            for j in range(i + 1, n_classes):
+                rows = np.flatnonzero((labels == i) | (labels == j))
+                y = np.where(labels[rows] == i, 1.0, -1.0)
+                block = scores[rows]
+                a, rho = _smo(self._kernel(block, block), y, self.c, self.tol, self.max_iter)
+                support = a > 0
+                self.pairs_.append(
+                    {
+                        "classes": (i, j),
+                        "support": rows[support],
+                        "dual": a[support] * y[support],
+                        "rho": rho,
+                    }
+                )
+        return self
+
+    def decision_function(self, X: object) -> NDArray[np.float64]:
+        """`n x N(N-1)/2`, one column per pair in `(0, 1), (0, 2), ..., (1, 2)`
+        order; positive is a vote for the pair's first class (`svm.md` §4)."""
+        if self.x_mean_ is None or self.scores_ is None:
+            raise RuntimeError("SVM has not been fitted")
+        projected = self.pca_.transform(as_float64(X, "X") - self.x_mean_)
+        columns = [
+            self._kernel(projected, self.scores_[pair["support"]]) @ pair["dual"] - pair["rho"]
+            for pair in self.pairs_
+        ]
+        decisions: NDArray[np.float64] = np.column_stack(columns)
+        return decisions
+
+    def votes(self, X: object) -> NDArray[np.intp]:
+        """`n x N`: how many pairs voted for each class."""
+        decisions = self.decision_function(X)
+        counts = np.zeros((decisions.shape[0], self.n_classes), dtype=np.intp)
+        everyone = np.arange(decisions.shape[0])
+        for column, pair in enumerate(self.pairs_):
+            i, j = pair["classes"]
+            np.add.at(counts, (everyone, np.where(decisions[:, column] > 0, i, j)), 1)
+        return counts
+
+    def predict(self, X: object) -> NDArray[np.intp]:
+        """The most votes, a tied vote to the first class (`svm.md` §4)."""
         assigned: NDArray[np.intp] = self.votes(X).argmax(axis=1)
         return assigned

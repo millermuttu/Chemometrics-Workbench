@@ -44,6 +44,7 @@ from chemometrics_workbench.models import (
     SIMCASpec,
     SourceNode,
     SplitNode,
+    SVMSpec,
 )
 from chemometrics_workbench.project import create_project, write_array
 
@@ -530,3 +531,38 @@ def test_a_knn_carries_its_neighbours(
     np.testing.assert_array_equal(read.arrays["knn_scores"], np.asarray(result.scores))
     np.testing.assert_array_equal(read.arrays["knn_classes"], np.asarray(result.training_classes))
     assert read.manifest["model"]["k"] == 4
+
+
+def test_an_svm_carries_its_support_vectors(
+    fitted: tuple[Path, DatasetVersion, Pipeline, object], tecator: object
+) -> None:
+    """#338, svm.md section 6: each pair's support vectors, a y and rho."""
+    directory, version, _, _ = fitted
+    fat = np.asarray(tecator.targets["fat"])  # type: ignore[attr-defined]
+    labels = ["high" if value > np.median(fat) else "low" for value in fat]
+    version = version.model_copy(update={"metadata_columns": {"grade": labels}})
+    pipeline = _pipeline(
+        version.version_id,
+        EstimatorNode(
+            id="svm", inputs=("source",), spec=SVMSpec(n_components=3, class_column="grade")
+        ),
+    )
+    result = execute(directory, pipeline, version).results["svm"]
+    path = directory / "svm.cwmodel"
+    write_artifact(
+        path,
+        result,
+        pipeline=pipeline,
+        version=version,
+        node_axis=np.asarray(version.axis.values, dtype=np.float64),
+        split=None,
+        environment=capture_environment(),
+    )
+    read = read_artifact(path)
+    [pair] = result.svm["pairs"]
+    np.testing.assert_array_equal(
+        read.arrays["svm_0_support_vectors"], np.asarray(result.scores)[pair["support"]]
+    )
+    np.testing.assert_array_equal(read.arrays["svm_0_dual"], np.asarray(pair["dual"]))
+    assert read.manifest["model"]["svm"]["pairs"] == [{"classes": [0, 1], "rho": pair["rho"]}]
+    assert read.manifest["model"]["svm"]["gamma"] == result.svm["gamma"]

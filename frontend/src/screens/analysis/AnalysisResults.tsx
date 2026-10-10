@@ -1520,7 +1520,7 @@ export function AnalysisResults({
             style={{ fontSize: 11, color: "var(--ink3)", overflow: "hidden", textOverflow: "ellipsis" }}
           >
             {classification
-              ? `${{ lda: "LDA", knn: "kNN" }[pca.regression?.method ?? ""] ?? "PLS-DA"} on ${pca.classification?.class_column ?? "?"}`
+              ? `${{ lda: "LDA", knn: "kNN", svm: "SVM" }[pca.regression?.method ?? ""] ?? "PLS-DA"} on ${pca.classification?.class_column ?? "?"}`
               : regression
                 ? `${pca.regression?.method === "pcr" ? "PCR" : "PLS"} on ${pca.regression?.target ?? "?"}`
                 : "PCA"}{" "}
@@ -1626,7 +1626,7 @@ export function AnalysisResults({
           </div>
         )}
         {/* #333: a permutation test, for an estimator with a cross-validated score. */}
-        {["pls", "pcr", "plsda", "lda", "knn"].includes(pca.regression?.method ?? "") &&
+        {["pls", "pcr", "plsda", "lda", "knn", "svm"].includes(pca.regression?.method ?? "") &&
         (pca.metrics?.rmsecv !== undefined || pca.metrics?.accuracy_cv !== undefined) ? (
           <div style={ROW}>
             <PermutationTest pca={pca} />
@@ -1635,7 +1635,7 @@ export function AnalysisResults({
         {/* #278: the outlier diagnostics, a row of their own, for a PCA, PLS
             or PCR (outliers.md section 1). */}
         {pca.task === "decomposition" ||
-        ["pls", "pcr", "plsda", "lda", "knn"].includes(pca.regression?.method ?? "") ? (
+        ["pls", "pcr", "plsda", "lda", "knn", "svm"].includes(pca.regression?.method ?? "") ? (
           <OutlierRow
             pca={pca}
             nodeId={nodeId}

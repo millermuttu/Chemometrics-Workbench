@@ -90,6 +90,15 @@ it("offers kNN beside PLS-DA on a class column, labelled alike (#277)", () => {
   expect(parameterLine(node)).toBe(knn.parameters);
 });
 
+it("offers an SVM beside kNN on a class column, labelled alike (#338)", () => {
+  const svm = stepMenu([], ["grade"]).find((step) => step.kind === "SVM rbf 5 PC")!;
+  expect(svm.payload.spec).toEqual({ kind: "svm", kernel: "rbf", C: 1, n_components: 5, class_column: "grade" });
+  const node = { id: "svm", type: "estimator", inputs: ["snv"], ...svm.payload } as PipelineNode;
+  expect(nodeLabel(node)).toBe("SVM rbf 5 PC · grade");
+  expect(parameterLine(node)).toBe(svm.parameters);
+  expect(stepMenu(["fat"]).map((step) => step.kind)).not.toContain("SVM rbf 5 PC");
+});
+
 it("offers in the Step list what the port menu offers, splits and estimators included (#337)", () => {
   const menu = stepMenu(["fat"], ["fat_class"]);
   const markup = renderToStaticMarkup(

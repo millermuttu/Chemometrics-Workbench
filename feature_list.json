@@ -181,9 +181,9 @@
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-10, branch feature/338_svm. docs/algorithms/svm.md written (in mkdocs nav; `uv run mkdocs build --strict` built). Parity: `uv run pytest tests/test_parity.py -k svm` 12 passed - corn, gasoline and tecator terciles, linear and RBF, C=1, gamma scale: assignments identical to sklearn 1.9.0 SVC(shrinking=False) at tol 1e-3; decision values at tol 1e-9 within the new float32_kernel class (rtol 1e-5, atol 1e-4; largest observed 3e-5, tecator linear); default-tol decision values a recorded divergence after a check that they lie within 10 tol. New tests (parity, executor CV against SVC on the run's own folds for both kernels, permutation, one-class fold, artifact, snippet export for both kernels) fail at collection with src/ stashed. `uv run pytest` 1218 passed, 1 skipped; `uv run ruff check` and `ruff format --check` clean; `uv run mypy` no issues in 87 files. In frontend/: `pnpm typecheck`, `pnpm lint` clean; `pnpm test` 169 passed (19 files); `pnpm build` built; `pnpm exec playwright test` 98 passed, including 'an SVM tab reads as a classification, and exports its JSON model'.",
+      "notes": "SMO with LIBSVM's second-order working-set selection, no shrinking, kernel in float64; refuses after 1e6 iterations. A linear kernel with large C on unscaled scores converges slowly (tecator C=100: 12 s per fit). kNN and SVM share executor._scores_classifier. No probability output: SVC's Platt scaling is randomised (svm.md section 4)."
     },
     {
       "id": "signed-packages",
@@ -325,6 +325,23 @@
       "status": "passing",
       "evidence": "2026-10-09. `pnpm typecheck && pnpm lint`: clean; `pnpm test`: 165 passed (new: bandTraces is [] without a band); `pnpm build`: built; `pnpm exec playwright test`: 96 passed (4.0m). empty.spec.ts's axis-kind test now imports the 4-sample file, opens Source's spectra and sees 'every spectrum drawn (4)'; on the unfixed bundle the same test failed (spectra-plot not found: the page threw on primary.band.n_spectra).",
       "notes": "SpectraPayload.band is optional; bandTraces returns nothing without it and the caption says every spectrum is drawn. #336's 70-sample workaround is removed."
+    },
+    {
+      "id": "test-suite-shrink",
+      "priority": 19,
+      "area": "tests",
+      "issue": 362,
+      "title": "Shrink and speed up the Python test suite",
+      "depends_on": [],
+      "user_visible_behavior": "None for a user; the Python suite has fewer test functions and runs faster, with every parity claim still checked.",
+      "verification": [
+        "Test count and local wall time of `uv run pytest` recorded before and after",
+        "uv run pytest, uv run ruff check, uv run mypy - green; test_parity_coverage.py green",
+        "uv run python -m tests.parity_report regenerates docs/parity-report.md with the same claims"
+      ],
+      "status": "not_started",
+      "evidence": "",
+      "notes": "Found during #338: 1,219 collected on 2026-10-10. About 67 s in test bodies and 15 s in setup; one iPLS rebuild alone is 11.5 s."
     }
   ]
 }

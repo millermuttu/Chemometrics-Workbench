@@ -53,6 +53,7 @@ from chemometrics_workbench.models import (
     SIMCASpec,
     SourceNode,
     SplitNode,
+    SVMSpec,
     WhittakerSmooth,
 )
 from chemometrics_workbench.project import create_project, write_array
@@ -350,6 +351,33 @@ def test_a_knn_with_nothing_to_fold_carries_no_map(
     result = _run(directory, version, pipeline, "knn")
     model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
     assert model["affine"] is None
+    predicted = _predict(python_snippet(model), tecator.spectra)
+    expected = [result.classes[k] for k in result.predicted_class]
+    assert predicted[np.asarray(result.rows)].tolist() == expected
+
+
+@pytest.mark.parametrize("kernel", ["linear", "rbf"])
+def test_an_svm_exports_its_pairs_behind_an_affine_map(
+    project: tuple[Path, DatasetVersion], tecator: Any, kernel: str
+) -> None:
+    """#338, svm.md section 6: the snippet votes as the application did,
+    through a folded smoother."""
+    directory, version = project
+    version = _grades(version, tecator)
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(id="smooth", inputs=("source",), step=MovingAverage(window_length=5)),
+        EstimatorNode(
+            id="svm",
+            inputs=("smooth",),
+            spec=SVMSpec(kernel=kernel, n_components=5, class_column="grade"),
+        ),
+    )
+    result = _run(directory, version, pipeline, "svm")
+    model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
+
+    assert model["model"]["assignment"] == "svm" and model["svm"]["kernel"] == kernel
+    assert model["affine"] is not None
     predicted = _predict(python_snippet(model), tecator.spectra)
     expected = [result.classes[k] for k in result.predicted_class]
     assert predicted[np.asarray(result.rows)].tolist() == expected

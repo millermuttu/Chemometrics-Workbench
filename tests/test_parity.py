@@ -23,6 +23,7 @@ import math
 
 import numpy as np
 import pytest
+from numpy.typing import NDArray
 from scipy.stats import norm
 
 from chemometrics_workbench.datasets import load_corn, load_gasoline, load_tecator
@@ -357,6 +358,73 @@ def test_knn_matches_pca_then_k_neighbours(dataset: str) -> None:
     votes = parity.check(f"{dataset}.knn.votes.sklearn", model.votes(data.spectra))
     assert assigned.passed and assigned.max_abs_diff == 0.0
     assert votes.passed and votes.max_abs_diff == 0.0
+
+
+# --------------------------------------------------------------------------
+# SVM (#338)
+# --------------------------------------------------------------------------
+
+
+def _tercile_codes(dataset: str) -> NDArray[np.intp]:
+    data = LOADERS[dataset]()
+    target = np.asarray(data.targets[parity.load_fixture()["targets"][dataset]])
+    low, high = np.quantile(target, [1 / 3, 2 / 3])
+    labels = np.where(target < low, "low", np.where(target < high, "mid", "high"))
+    classes = sorted(set(labels.tolist()))
+    return np.asarray([classes.index(label) for label in labels], dtype=np.intp)
+
+
+@pytest.mark.parametrize("kernel", ["linear", "rbf"])
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_svm_matches_pca_then_svc(dataset: str, kernel: str) -> None:
+    """`svm.md` section 7: assignments identical at the default tolerance, and
+    decision values within float32's precision once both solvers converge."""
+    from chemometrics_workbench.classification import SVM
+
+    spectra = LOADERS[dataset]().spectra
+    codes = _tercile_codes(dataset)
+    model = SVM(N_COMPONENTS, kernel).fit(spectra, codes, 3)
+    assigned = parity.check(
+        f"{dataset}.svm.predictions_{kernel}.sklearn", model.predict(spectra).astype(float)
+    )
+    assert assigned.passed and assigned.max_abs_diff == 0.0
+
+    converged = SVM(N_COMPONENTS, kernel, tol=1e-9).fit(spectra, codes, 3)
+    assert parity.check(
+        f"{dataset}.svm.decision_{kernel}_converged.sklearn",
+        converged.decision_function(spectra),
+    ).passed
+
+
+@pytest.mark.parametrize("kernel", ["linear", "rbf"])
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_svm_decision_values_at_the_default_tolerance_differ_by_the_stopping_rule(
+    dataset: str, kernel: str, fixture_entries: dict[str, dict[str, object]]
+) -> None:
+    """Both solvers stop at a KKT gap of 1e-3, not at the optimum, so their
+    values agree to about that gap. Checked within ten times it before the
+    divergence is recorded, so a real disagreement cannot hide behind it."""
+    from chemometrics_workbench.classification import SVM
+
+    spectra = LOADERS[dataset]().spectra
+    model = SVM(N_COMPONENTS, kernel).fit(spectra, _tercile_codes(dataset), 3)
+    entry_id = f"{dataset}.svm.decision_{kernel}.sklearn"
+    theirs = np.asarray(fixture_entries[entry_id]["value"])
+    assert np.abs(model.decision_function(spectra) - theirs).max() < 10 * model.tol
+
+    result = parity.record_divergence(
+        entry_id,
+        reason=(
+            "Both solvers are LIBSVM's SMO with second-order working-set selection, and "
+            "both stop once the largest KKT violation falls below tol = 1e-3 rather than "
+            "at the optimum. Where each stops depends on its arithmetic: LIBSVM caches the "
+            "kernel in float32, ours is float64. The decision values therefore agree only "
+            "to about tol (within 1e-2 here, checked), while the assignments are identical "
+            "and, solved to 1e-9, the values agree to float32's precision (svm.md "
+            "section 3)."
+        ),
+    )
+    assert result.passed
 
 
 # --------------------------------------------------------------------------

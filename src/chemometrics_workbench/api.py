@@ -656,13 +656,13 @@ def results_payload(
 
 def diagnosed(result: EstimatorResult) -> bool:
     """`outliers.md` section 1: PCA, PLS and PCR on their own model, and since
-    #335 PLS-DA, LDA and kNN class by class (section 8). SIMCA's class models
+    #335 PLS-DA, LDA, kNN and SVM class by class (section 8). SIMCA's class models
     are its decision, not a diagnostic."""
     return result.task == "decomposition" or result.method in ("pls", "pcr", *CLASSWISE)
 
 
 #: `outliers.md` section 8: the classifiers diagnosed against their own class.
-CLASSWISE = ("plsda", "lda", "knn")
+CLASSWISE = ("plsda", "lda", "knn", "svm")
 
 
 def outliers_payload(result: EstimatorResult, version: DatasetVersion) -> dict[str, Any]:
@@ -1806,7 +1806,7 @@ def get_outliers(node_id: str) -> Any:
             422,
             "not_diagnosed",
             f"node {node_id!r} is a {result.method or result.task}, which outliers.md does not "
-            "diagnose: a PCA, PLS or PCR on its own model, or a PLS-DA, LDA or kNN class by "
+            "diagnose: a PCA, PLS or PCR on its own model, or a PLS-DA, LDA, kNN or SVM class by "
             "class (sections 1 and 8).",
             node_id=node_id,
         )
