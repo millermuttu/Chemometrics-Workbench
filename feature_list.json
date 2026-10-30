@@ -296,6 +296,21 @@
       "notes": ""
     },
     {
+      "id": "pin-python",
+      "priority": 16,
+      "area": "ci",
+      "issue": 386,
+      "title": "macOS CI fails at uv sync: no Python pinned",
+      "depends_on": [],
+      "user_visible_behavior": "Every uv command - CI, the package build, ./run.sh - uses Python 3.12 unless --python says otherwise, so the macOS jobs sync again.",
+      "verification": [
+        "PR #387's CI - e2e (macos-latest) and package (macos-latest) past uv sync and green"
+      ],
+      "status": "passing",
+      "evidence": "2026-10-30, fix/386_pin-python, PR #387 (merged). Before: on #384 and #385, e2e (macos-latest) and package (macos-latest) failed at step 'Sync the server's environment' / 'Sync environment' (uv sync --locked), every other check green. After: #387's 11 checks green, e2e (macos-latest) completed success 06:42:01Z and package (macos-latest) 06:35:14Z. Locally uv sync --locked resolved and audited; uv run python -V 3.12.3.",
+      "notes": "Found while opening Phase 7 (#384). The cause was inferred from uv.lock (no macOS arm64 wheel past cp313 for watchdog, past cp314 for pydantic-core and others); the job log needs authentication, so it was confirmed by the fix's own run, not read."
+    },
+    {
       "id": "signed-packages",
       "priority": 15,
       "area": "packaging",
