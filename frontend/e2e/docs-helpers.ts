@@ -59,7 +59,7 @@ export async function branch(
 
 export async function apply(page: Page, fields: Record<string, string>) {
   for (const [label, value] of Object.entries(fields)) {
-    const field = inspector(page).getByLabel(label);
+    const field = inspector(page).getByLabel(label, { exact: true });
     if ((await field.evaluate((element) => element.tagName)) === "SELECT") {
       await field.selectOption(value);
     } else {

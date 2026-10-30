@@ -54,9 +54,11 @@ nav:
       - A calibration with PLS: examples/pls.md
       - Classifying meat: examples/classification.md
       - Validating a classifier honestly: examples/validation.md
+      - Comparing models: examples/model-comparison.md
   - How-to:
       - Find and exclude outliers: how-to/outliers.md
       - Select variables: how-to/variable-selection.md
+      - Change a column's role: how-to/column-roles.md
   - Contributing:
       - How to add an algorithm: adding-a-step.md
       - CONTRIBUTING.md: https://github.com/millermuttu/Chemometrics-Workbench/blob/dev/CONTRIBUTING.md

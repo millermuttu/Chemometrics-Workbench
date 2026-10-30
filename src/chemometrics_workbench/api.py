@@ -1078,8 +1078,8 @@ def folded_coefficients(
         return {
             "node_id": node_id,
             "available": False,
-            "reason": f"a {result.method or result.task} has no coefficient vector: it predicts "
-            "from its support vectors through a kernel, so there is nothing to fold.",
+            "reason": "This model has no coefficient vector: it predicts from its support "
+            "vectors through a kernel, so there is nothing to fold.",
         }
     chain, source_id = _preprocess_chain(pipeline, node_id)
     if source_id not in {node.id for node in pipeline.nodes}:  # pragma: no cover - defensive
