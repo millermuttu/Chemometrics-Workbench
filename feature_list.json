@@ -322,9 +322,9 @@
       "verification": [
         "This pull request's CI (base dev): the e2e jobs reported as skipped, every other job green"
       ],
-      "status": "in_progress",
-      "evidence": "",
-      "notes": "2026-10-30: job-level if: on e2e in ci.yml; waiting on this PR's CI to show the skip."
+      "status": "passing",
+      "evidence": "2026-10-30, PR #393 (base dev), head c99eb06: check runs - 'e2e (${{ matrix.os }})' completed skipped (one skipped entry, the matrix not expanded); check (py3.12), check (py3.13), frontend, docs, package ubuntu/macos/windows completed success; pages skipped as before.",
+      "notes": "The skipped job shows under its unexpanded name. On the dev-into-main pull request it expands to the three platforms as before."
     },
     {
       "id": "signed-packages",
