@@ -244,9 +244,9 @@
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; an e2e test adds it from its menu group and runs it"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-30, feature/381_qda. docs/algorithms/qda.md written, in the nav; model-export.md and model-artifact.md gain qda rows; mkdocs build --strict built. Parity: test_qda_matches_pca_then_quadratic_discriminant_analysis at reg 0 and 0.1 on gasoline and tecator and 0.1 on corn (every case sklearn 1.9 fits): decision values in the predictions class, assignments exact - 10 claims; fixture diff only those; parity report 280/280. tests/test_executor.py: tercile classes under a stratified 4-fold, accuracy_cv equal to the kernel on the run's folds; a 10-sample class on 10 components refused 'training fold 1 of 4, class 'rare' has N training samples ... positive reg_param', and fitted with reg_param 0.2. tests/test_export.py: snippet reproduces the assignments. New tests fail at import with src stashed. uv run pytest 1049 passed; ruff, mypy clean. In frontend/: typecheck, lint clean; pnpm test 186 passed; pnpm build; changed spec analysis.spec.ts 26 passed incl. 'a QDA tab reads as a classification on the PCA front's scores'.",
+      "notes": "Each class's covariance is decomposed whole (A x A), so with reg_param > 0 a class with n_k <= A still fits, where sklearn's SVD solver refuses. Singularity is tested relative to the largest scaling (decision 0004), not sklearn's absolute 1e-4, which refuses corn at reg 0."
     },
     {
       "id": "docs-phase-7",

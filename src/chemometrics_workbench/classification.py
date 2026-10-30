@@ -21,9 +21,11 @@ from chemometrics_workbench.decomposition import PCA
 __all__ = [
     "KNN",
     "LDA",
+    "QDA",
     "SIMCA",
     "SVM",
     "LogisticRegression",
+    "SingularCovariance",
     "acceptance_table",
     "simca_class_metrics",
     "simca_metrics",
@@ -625,4 +627,97 @@ class LogisticRegression:
     def predict(self, X: object) -> NDArray[np.intp]:
         """The most probable class; a tie goes to the first (§4)."""
         assigned: NDArray[np.intp] = self.predict_proba(X).argmax(axis=1)
+        return assigned
+
+
+class SingularCovariance(ValueError):
+    """A class whose covariance is singular on the scores (`qda.md` §3), with
+    which class and how many samples it had, so a caller can name them."""
+
+    def __init__(self, class_index: int, count: int, n_components: int) -> None:
+        self.class_index = class_index
+        self.count = count
+        super().__init__(
+            f"class {class_index} has {count} training samples, and its covariance on "
+            f"{n_components} scores is singular; use fewer components or a positive "
+            "reg_param (qda.md section 3)"
+        )
+
+
+class QDA:
+    """PCA-QDA, per `qda.md` (#381): centre X, project it on `n_components`
+    principal components, and fit one Gaussian per class to the scores - LDA
+    with a covariance per class - with scikit-learn's `reg_param` shrinkage of
+    each class's eigenvalues toward one.
+
+    Each class's covariance is decomposed whole, `A x A` (§2): where a class
+    has more samples than components that is scikit-learn's SVD solution
+    exactly, and with fewer it stays defined once `reg_param` is positive,
+    where scikit-learn's SVD solver refuses.
+    """
+
+    x_mean_: NDArray[np.float64] | None = None
+
+    def __init__(self, n_components: int, reg_param: float = 0.0) -> None:
+        if n_components < 1:
+            raise ValueError(f"n_components must be at least 1, got {n_components}")
+        if not 0.0 <= reg_param <= 1.0:
+            raise ValueError(f"reg_param must be in [0, 1], got {reg_param}")
+        self.n_components = int(n_components)
+        self.reg_param = float(reg_param)
+        self.pca_ = PCA(self.n_components)
+        #: Per class: `mean` (A), `rotation` (A x A), `scalings` (A), `prior`.
+        self.classes_: list[dict[str, Any]] = []
+
+    def fit(self, X: object, codes: object, n_classes: int) -> Self:
+        values = as_float64(X, "X")
+        labels = np.asarray(codes, dtype=np.intp)
+        if labels.shape != (values.shape[0],):
+            raise ValueError(f"X has {values.shape[0]} rows and codes has {labels.size}")
+        self.x_mean_ = values.mean(axis=0)
+        self.pca_.fit(values - self.x_mean_)
+        scores = self.pca_.transform(values - self.x_mean_)
+        self.classes_ = []
+        for k in range(n_classes):
+            block = scores[labels == k]
+            if block.shape[0] < 2:
+                raise SingularCovariance(k, block.shape[0], self.n_components)
+            mean = block.mean(axis=0)
+            centred = block - mean
+            eigenvalues, rotation = np.linalg.eigh(centred.T @ centred / (block.shape[0] - 1))
+            scalings = (1.0 - self.reg_param) * eigenvalues + self.reg_param
+            # §3: singular when a scaling is negligible beside the largest - a
+            # relative test, as decision 0004's rank tolerance is, not
+            # scikit-learn's absolute 1e-4, which depends on the scores' units.
+            eps = self.n_components * float(np.finfo(np.float64).eps) + PCA.STORED_EPS
+            if (scalings <= eps * float(scalings.max())).any():
+                raise SingularCovariance(k, block.shape[0], self.n_components)
+            self.classes_.append(
+                {
+                    "mean": mean,
+                    "rotation": rotation,
+                    "scalings": scalings,
+                    "prior": block.shape[0] / scores.shape[0],
+                }
+            )
+        return self
+
+    def decision_function(self, X: object) -> NDArray[np.float64]:
+        """`n x N` log posteriors up to a constant, scikit-learn's form (§4)."""
+        if self.x_mean_ is None:
+            raise RuntimeError("QDA has not been fitted")
+        projected = self.pca_.transform(as_float64(X, "X") - self.x_mean_)
+        columns = []
+        for one in self.classes_:
+            whitened = (projected - one["mean"]) @ one["rotation"] / np.sqrt(one["scalings"])
+            columns.append(
+                -0.5 * ((whitened**2).sum(axis=1) + np.log(one["scalings"]).sum())
+                + np.log(one["prior"])
+            )
+        decisions: NDArray[np.float64] = np.column_stack(columns)
+        return decisions
+
+    def predict(self, X: object) -> NDArray[np.intp]:
+        """The largest decision, a tie to the first class (§4)."""
+        assigned: NDArray[np.intp] = self.decision_function(X).argmax(axis=1)
         return assigned

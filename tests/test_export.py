@@ -51,6 +51,7 @@ from chemometrics_workbench.models import (
     PLSDASpec,
     PLSRegressionSpec,
     PreprocessNode,
+    QDASpec,
     RangeSelect,
     RidgeSpec,
     SavitzkyGolay,
@@ -384,6 +385,30 @@ def test_a_logistic_regression_exports_and_assigns_as_the_application_does(
     model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
     assert model["model"]["assignment"] == "logistic"
     assert len(model["logistic"]["coefficients"]) == (1 if k == 2 else k)
+    predicted = _predict(python_snippet(model), tecator.spectra)
+    expected = [result.classes[i] for i in result.predicted_class]
+    assert predicted[np.asarray(result.rows)].tolist() == expected
+
+
+def test_a_qda_exports_its_gaussians_and_assigns_as_the_application_does(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#381, qda.md section 5: the chain to the scores, then each class's mean,
+    rotation, scalings and prior."""
+    directory, version = project
+    version = _grades(version, tecator)
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(id="snv", inputs=("source",), step=SNV()),
+        EstimatorNode(
+            id="qda",
+            inputs=("snv",),
+            spec=QDASpec(n_components=4, reg_param=0.05, class_column="grade"),
+        ),
+    )
+    result = _run(directory, version, pipeline, "qda")
+    model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
+    assert model["model"]["assignment"] == "qda" and len(model["qda"]["classes"]) == 3
     predicted = _predict(python_snippet(model), tecator.spectra)
     expected = [result.classes[i] for i in result.predicted_class]
     assert predicted[np.asarray(result.rows)].tolist() == expected

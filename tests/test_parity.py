@@ -633,6 +633,37 @@ def test_mlr_on_a_selected_subset_matches_least_squares(dataset: str) -> None:
 
 
 # --------------------------------------------------------------------------
+# QDA (#381)
+# --------------------------------------------------------------------------
+
+QDA_CASES = [
+    ("corn", 0.1),
+    ("gasoline", 0.0),
+    ("gasoline", 0.1),
+    ("tecator", 0.0),
+    ("tecator", 0.1),
+]
+
+
+@pytest.mark.parametrize(("dataset", "reg"), QDA_CASES)
+def test_qda_matches_pca_then_quadratic_discriminant_analysis(dataset: str, reg: float) -> None:
+    """`qda.md` section 6: the decision values and the assignments, at each
+    reg_param scikit-learn fits."""
+    from chemometrics_workbench.classification import QDA
+
+    spectra = LOADERS[dataset]().spectra
+    model = QDA(N_COMPONENTS, reg).fit(spectra, _tercile_codes(dataset), 3)
+    label = str(reg).replace(".", "")
+    assert parity.check(
+        f"{dataset}.qda.decision_reg{label}.sklearn", model.decision_function(spectra)
+    ).passed
+    assigned = parity.check(
+        f"{dataset}.qda.predictions_reg{label}.sklearn", model.predict(spectra).astype(float)
+    )
+    assert assigned.passed and assigned.max_abs_diff == 0.0
+
+
+# --------------------------------------------------------------------------
 # Logistic regression (#380)
 # --------------------------------------------------------------------------
 

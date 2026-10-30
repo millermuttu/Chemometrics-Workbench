@@ -38,6 +38,7 @@ ALGORITHMS = (
     "opls",
     "oplsda",
     "logistic",
+    "qda",
     "plsda",
     "lda",
     "knn",

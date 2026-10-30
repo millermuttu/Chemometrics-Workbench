@@ -134,9 +134,11 @@ from chemometrics_workbench import preprocessing, validation
 from chemometrics_workbench.classification import (
     KNN,
     LDA,
+    QDA,
     SIMCA,
     SVM,
     LogisticRegression,
+    SingularCovariance,
     acceptance_table,
     simca_metrics,
 )
@@ -164,6 +166,7 @@ from chemometrics_workbench.models import (
     PipelineNode,
     PLSDASpec,
     PLSRegressionSpec,
+    QDASpec,
     RangeSelect,
     ResolvedSplit,
     RidgeSpec,
@@ -268,6 +271,7 @@ _FITTED: tuple[type, ...] = (
     SIMCASpec,
     LDASpec,
     LogisticSpec,
+    QDASpec,
     KNNSpec,
     SVMSpec,
 )
@@ -531,6 +535,8 @@ class EstimatorResult:
     regression's (#380, `logistic-regression.md` §4); empty for every other model."""
     held_out_probabilities: list[list[float]] = field(default_factory=list)
     logistic: dict[str, Any] = field(default_factory=dict)
+    qda: dict[str, Any] = field(default_factory=dict)
+    """A QDA's `reg_param` and per class `mean`, `rotation`, `scalings`, `prior` (#381)."""
     """A logistic regression's `C`, `coefficients` (rows x A) and `intercept`."""
 
     s_plot: dict[str, list[float]] = field(default_factory=dict)
@@ -1395,6 +1401,9 @@ def _fitted(
 
     if isinstance(node.spec, SVMSpec):
         return _svm(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
+
+    if isinstance(node.spec, QDASpec):
+        return _qda(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
 
     if isinstance(node.spec, LogisticSpec):
         return _logistic(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
@@ -2534,6 +2543,79 @@ def _svm(
     return replace(result, svm=svm)
 
 
+def _qda(
+    node: PipelineNode,
+    spec: QDASpec,
+    parent: _State,
+    key: str,
+    matrix: NDArray[np.float64],
+    rows: NDArray[np.intp],
+    held_out: NDArray[np.intp],
+    fold: int | None,
+    version: DatasetVersion,
+) -> EstimatorResult:
+    """`qda.md`: PCA-QDA, tallied by `classification.md`. A class whose
+    covariance is singular is refused in every training fold first, naming the
+    fold, the class and its count, as a one-class fold is (#343)."""
+    classes, codes = _class_labels(version, node, spec.class_column, kind="qda")
+
+    def refused(error: SingularCovariance, where: str) -> ExecutorError:
+        return ExecutorError(
+            f"node {node.id!r} (qda) cannot be fitted: {where}class "
+            f"{classes[error.class_index]!r} has {error.count} training samples, and its "
+            f"covariance on {spec.n_components} scores is singular. Use fewer components, "
+            "or a positive reg_param.",
+            node.id,
+        )
+
+    if parent.folds is not None:
+        for number, (one, values) in enumerate(zip(parent.folds, parent.arrays, strict=True), 1):
+            try:
+                QDA(spec.n_components, spec.reg_param).fit(
+                    values[one.train], codes[one.train], len(classes)
+                )
+            except SingularCovariance as error:
+                raise refused(
+                    error, f"in training fold {number} of {len(parent.folds)}, "
+                ) from error
+    try:
+        model, result = _scores_classifier(
+            node,
+            "qda",
+            spec.class_column,
+            spec.n_components,
+            lambda: QDA(spec.n_components, spec.reg_param),
+            parent,
+            key,
+            matrix,
+            rows,
+            held_out,
+            fold,
+            version,
+        )
+    except ExecutorError as error:
+        if isinstance(error.__cause__, SingularCovariance):
+            raise refused(error.__cause__, "") from error
+        raise
+    assert isinstance(model, QDA)
+    # qda.md section 5: each class's model on the scores, in class order.
+    return replace(
+        result,
+        qda={
+            "reg_param": spec.reg_param,
+            "classes": [
+                {
+                    "mean": _values(one["mean"]),
+                    "rotation": _rows(one["rotation"]),
+                    "scalings": _values(one["scalings"]),
+                    "prior": float(one["prior"]),
+                }
+                for one in model.classes_
+            ],
+        },
+    )
+
+
 def _logistic(
     node: PipelineNode,
     spec: LogisticSpec,
@@ -2582,7 +2664,7 @@ def _scores_classifier(
     kind: str,
     class_column: str,
     n_components: int,
-    build: Callable[[], KNN | SVM | LogisticRegression],
+    build: Callable[[], KNN | SVM | LogisticRegression | QDA],
     parent: _State,
     key: str,
     matrix: NDArray[np.float64],
@@ -2590,14 +2672,16 @@ def _scores_classifier(
     held_out: NDArray[np.intp],
     fold: int | None,
     version: DatasetVersion,
-) -> tuple[KNN | SVM | LogisticRegression, EstimatorResult]:
+) -> tuple[KNN | SVM | LogisticRegression | QDA, EstimatorResult]:
     """A classifier on the PCA front's scores, kNN's or SVM's: fitted on the
     calibration rows and on every fold, tallied by `classification.md`, with
     the PCA front's panels (`knn.md` §4, `svm.md` §5)."""
     classes, codes = _class_labels(version, node, class_column, kind=kind)
     n_classes = len(classes)
 
-    def fit(values: NDArray[np.float64], train: NDArray[np.intp]) -> KNN | SVM | LogisticRegression:
+    def fit(
+        values: NDArray[np.float64], train: NDArray[np.intp]
+    ) -> KNN | SVM | LogisticRegression | QDA:
         try:
             return build().fit(values[train], codes[train], n_classes)
         except ValueError as error:

@@ -21,11 +21,11 @@ strong the agreement is** rather than a bare pass or fail:
 
 | Claim | Count | Meaning |
 | --- | --- | --- |
-| identical within floating point | 167 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
-| agrees within stated tolerance | 68 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
+| identical within floating point | 175 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
+| agrees within stated tolerance | 70 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
 | differs by documented convention | 35 | Not compared numerically at all. The two quantities are not the same thing, and the reason is given in full below. |
 
-**270 comparisons, 270 passed, 0 failed.**
+**280 comparisons, 280 passed, 0 failed.**
 
 Three things a reader should hold on to, because the agreement column cannot
 show them:
@@ -82,6 +82,7 @@ those listed under *Gaps* or *Documented divergences* below.
 | MLR | `MLR` | 6 claims |
 | OPLS | `OPLS` | 6 claims |
 | OPLS-DA (two-class) | `OPLS` | 6 claims |
+| QDA | `QDA` | 10 claims |
 | Logistic regression | `LogisticRegression` | 24 claims |
 | SVR | `SVR` | 12 claims |
 | Elastic Net and Lasso | `ElasticNet`, `elastic_net_path` | 18 claims |
@@ -471,6 +472,21 @@ those listed under *Gaps* or *Documented divergences* below.
 | tecator | `class_probabilities` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 720 values, worst Δ < 1e-6 |
 | tecator | `logistic_coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 6 values, worst Δ < 1e-7 |
 | tecator | `logistic_coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 18 values, worst Δ < 1e-5 |
+
+### QDA (PCA-QDA)
+
+| Dataset | Quantity | Reference | Claim | Ours vs reference |
+| --- | --- | --- | --- | --- |
+| corn | `assigned_class` | scikit-learn 1.9.0 | identical | 80 values, worst Δ 0, exactly |
+| corn | `decision_function` | scikit-learn 1.9.0 | identical | 240 values, worst Δ < 1e-13 |
+| gasoline | `assigned_class` | scikit-learn 1.9.0 | identical | 60 values, worst Δ 0, exactly |
+| gasoline | `assigned_class` | scikit-learn 1.9.0 | identical | 60 values, worst Δ 0, exactly |
+| gasoline | `decision_function` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 180 values, worst Δ < 1e-11 |
+| gasoline | `decision_function` | scikit-learn 1.9.0 | identical | 180 values, worst Δ < 1e-14 |
+| tecator | `assigned_class` | scikit-learn 1.9.0 | identical | 240 values, worst Δ 0, exactly |
+| tecator | `assigned_class` | scikit-learn 1.9.0 | identical | 240 values, worst Δ 0, exactly |
+| tecator | `decision_function` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 720 values, worst Δ < 1e-10 |
+| tecator | `decision_function` | scikit-learn 1.9.0 | identical | 720 values, worst Δ < 1e-13 |
 
 ### Robust distance (FastMCD)
 

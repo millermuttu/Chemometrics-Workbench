@@ -73,6 +73,7 @@ nav:
           - Classification metrics: algorithms/classification.md
           - SIMCA: algorithms/simca.md
           - LDA: algorithms/lda.md
+          - QDA: algorithms/qda.md
           - kNN: algorithms/knn.md
           - Logistic regression: algorithms/logistic-regression.md
           - SVM: algorithms/svm.md
