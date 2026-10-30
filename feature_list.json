@@ -292,9 +292,9 @@
         "uv run python -m tests.exit_run_phase7 - met, docs/phase-7/exit-run.md written",
         "issue #383 read against the run before calling it done"
       ],
-      "status": "not_started",
+      "status": "in_progress",
       "evidence": "",
-      "notes": ""
+      "notes": "2026-10-30: tests/exit_run_phase7.py written and run: NOT MET, waiting on the maintainer. Holds: every exact regression's CV predictions and RMSECV (1e-11..1e-14, the reference through the app's own SNV and derivative), Elastic Net's and SVR's RMSECV at a solver-stop tolerance (rtol 1e-3), every meat confusion and exported assignment exact, all of claim 3. Fails: the Ridge (alpha 3e-5), MLR (22 VIP variables) and SVR exports against the served predictions at the stored tolerance (rtol 1e-6, atol 1e-12): max abs 2.7e-5, 4.3e-3 and 4.2e-6. Cause: the store is float32 (PROPOSAL.md section 13) and those models' condition numbers are ~1.8e5, so one rounding of an intermediate array moves a prediction ~1e5 times its relative size; the export itself is the application's model, computed in float64. A condition-derived tolerance was tried and rejected as too loose (atol 1.2 % fat for Ridge). Also: the criterion's 'grouped, stratified' is impossible (section 8.8), so the meat split is grouped. Decision needed: accept a stated tolerance for ill-conditioned exports, change the criterion, or change the store."
     },
     {
       "id": "pin-python",

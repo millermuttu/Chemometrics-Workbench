@@ -625,6 +625,9 @@ def results_payload(
             "target": result.target,
             "observed": result.observed,
             "predicted": result.predicted,
+            # #383: each row's prediction by the fold model that did not see it;
+            # empty above a split.
+            "cross_validated": result.cross_validated_predicted,
             # On the node's own axis, like `loadings` — #134. Folding the
             # preprocessing back out to the raw axis is #144.
             "coefficients": result.coefficients,
