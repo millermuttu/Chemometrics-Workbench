@@ -64,4 +64,16 @@ test("the classification example, step by step", async ({ page }) => {
   await expect(page.getByTestId("acceptance-cross_validation")).toBeVisible({ timeout: 120_000 });
   await expect(page.getByTestId("confusion-matrix")).toHaveCount(0);
   await shoot(page, "ex-simca");
+
+  // docs/examples/model-comparison.md section 4 (#382): two more classifiers
+  // beside PLS-DA, from the Classification heading.
+  await canvas(page);
+  await branch(page, node(page, "Mean centre"), "Logistic 5 PC", { dx: 420, dy: 110 });
+  await branch(page, node(page, "Mean centre"), "QDA 5 PC", { dx: 560, dy: 110 });
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("button", { name: "Run pipeline" }).click();
+  await expect(page.getByTestId("node-complete")).toHaveCount(9, { timeout: 120_000 });
+  await outline(page).getByRole("button", { name: /Logistic 5 PC/ }).first().dblclick();
+  await expect(page.getByTestId("class-probabilities")).toBeVisible({ timeout: 120_000 });
+  await shoot(page, "ex-compare-logistic");
 });

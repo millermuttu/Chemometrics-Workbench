@@ -14,6 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 from tests.seed_e2e import tecator_csv
@@ -569,3 +570,121 @@ def test_every_number_the_outliers_how_to_quotes_for_a_classifier(
     text = " ".join((HOW_TO / "outliers.md").read_text(encoding="utf-8").split())
     missing = [number for number in outliers if number not in text]
     assert missing == [], f"docs/how-to/outliers.md should quote these: {missing}"
+
+
+# --------------------------------------------------------------------------
+# Phase 7 (#382): comparing models, on Tecator and on the meat set.
+# --------------------------------------------------------------------------
+
+#: The comparison's split and centring, below the derivative the PLS example uses.
+COMPARE = [
+    {
+        "id": "kfold",
+        "type": "split",
+        "inputs": ["savgol"],
+        "spec": {"kind": "kfold", "n_splits": 10, "shuffle": True, "seed": 42},
+    },
+    {"id": "centre", "type": "preprocess", "inputs": ["kfold"], "step": {"kind": "mean_centre"}},
+]
+
+#: Each regression the page adds from the Regression group, as the page sets it.
+REGRESSIONS: list[tuple[str, str, dict[str, Any]]] = [
+    ("pls", "PLS 5 LV", {"kind": "pls", "n_components": 5, "algorithm": "nipals"}),
+    ("ridge", "Ridge α 3e-5", {"kind": "ridge", "alpha": 3e-5}),
+    ("enet", "Elastic Net α 0.001", {"kind": "elastic_net", "alpha": 0.001, "l1_ratio": 0.5}),
+    (
+        "svr",
+        "SVR rbf, C 50",
+        {"kind": "svr", "kernel": "rbf", "C": 50, "epsilon": 0.1, "n_components": 5},
+    ),
+    ("opls", "OPLS 1+4", {"kind": "opls", "n_orthogonal": 4}),
+]
+
+
+def _regression(node: str, spec: dict[str, Any], inputs: str = "centre") -> dict[str, Any]:
+    return {"id": node, "type": "estimator", "inputs": [inputs], "spec": {**spec, "target": "fat"}}
+
+
+def test_every_number_the_model_comparison_example_quotes(client: TestClient) -> None:  # noqa: F811
+    import_the_download(client)
+    models = [_regression(node, spec) for node, _, spec in REGRESSIONS]
+    run(client, [SNV, SAVGOL, *COMPARE, *models])
+    vip = result(client, "pls")["regression"]["vip"]
+    # The selection the page applies: VIP of at least 1, the screen's default.
+    kept = [index for index, value in enumerate(vip) if value >= 1]
+    selection = {
+        "id": "pls_select",
+        "type": "preprocess",
+        "inputs": ["centre"],
+        "step": {"kind": "select_variables", "indices": kept, "chosen_by": "vip"},
+    }
+    run(
+        client,
+        [
+            SNV,
+            SAVGOL,
+            *COMPARE,
+            *models,
+            selection,
+            _regression("mlr", {"kind": "mlr"}, "pls_select"),
+        ],
+    )
+
+    quoted = []
+    for node, label, _ in [*REGRESSIONS, ("mlr", f"MLR on {len(kept)} VIP variables", {})]:
+        metrics = result(client, node)["metrics"]
+        quoted.append(f"| {label} | **{metrics['rmsecv']:.2f}** | {metrics['q2']:.3f} |")
+    enet = result(client, "enet")["regression"]["coefficients"]
+    quoted.append(f"keeps **{sum(1 for b in enet if b != 0)} of {len(enet)}** variables")
+    svr = result(client, "svr")["tuning_curve"]
+    fitted = [score for score in svr["scores"] if score is not None]
+    best = svr["values"][svr["scores"].index(min(fitted))]
+    quoted.append(f"lowest at C = {best:.1f}")
+    assert result(client, "opls")["metrics"]["rmsecv"] == pytest.approx(
+        result(client, "pls")["metrics"]["rmsecv"], rel=1e-9
+    )
+
+    text = " ".join(page("model-comparison.md").split())
+    missing = [number for number in quoted if number not in text]
+    assert missing == [], (
+        f"docs/examples/model-comparison.md should quote these, and does not: {missing}"
+    )
+
+
+def test_every_number_the_model_comparison_example_quotes_for_classifiers(
+    client: TestClient,  # noqa: F811
+) -> None:
+    csv = (EXAMPLES / "meat.csv").read_bytes()
+    response = client.post(
+        "/api/import", files={"file": ("meat.csv", csv)}, data={"corrections": "{}"}, headers=AUTH
+    )
+    assert response.status_code == 200, response.text
+    classifiers = [
+        *CLASSIFIERS[:3],
+        {
+            "id": "logistic",
+            "type": "estimator",
+            "inputs": ["centre"],
+            "spec": {"kind": "logistic", "C": 1, "n_components": 5, "class_column": "meat"},
+        },
+        {
+            "id": "qda",
+            "type": "estimator",
+            "inputs": ["centre"],
+            "spec": {"kind": "qda", "n_components": 5, "reg_param": 0, "class_column": "meat"},
+        },
+    ]
+    run(client, classifiers)
+    quoted = [
+        f"| {label} | **{result(client, node)['metrics']['accuracy_cv']:.3f}** |"
+        for node, label in (
+            ("plsda", "PLS-DA 5 LV"),
+            ("logistic", "Logistic 5 PC"),
+            ("qda", "QDA 5 PC"),
+        )
+    ]
+    text = " ".join(page("model-comparison.md").split())
+    missing = [number for number in quoted if number not in text]
+    assert missing == [], (
+        f"docs/examples/model-comparison.md should quote these, and does not: {missing}"
+    )

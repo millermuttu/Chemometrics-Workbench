@@ -271,9 +271,9 @@
         "pnpm exec playwright test - the example's docs e2e spec walks it and takes its screenshots",
         "uv run mkdocs build --strict - built"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-30, feature/382_docs-phase-7. docs/examples/model-comparison.md (Tecator: PLS, Ridge, Elastic Net, SVR, OPLS, MLR on 22 VIP variables; meat: PLS-DA, logistic, QDA) and docs/how-to/column-roles.md, both in the nav; the new algorithm pages were already in it; adding-a-step.md names the menu group (#370). uv run pytest tests/test_examples.py -k model_comparison: 2 passed - every quoted number recomputed over HTTP (RMSECV/Q2 table, 91 of 100 kept, lowest at C = 57.6, accuracies 1.000/0.967/0.967; OPLS = PLS asserted). pnpm exec playwright test docs-comparison, docs-examples, docs-classification, docs-validation (projects comparison, examples, classification, validation): 4 passed (1.9m) - the new walk on its own 8772 server, the classifiers' step at the end of the classification walk; screenshots ex-compare-pipeline, ex-compare-svr, ex-compare-logistic written. uv run mkdocs build --strict built. uv run pytest 1051 passed; ruff clean.",
+      "notes": "docs-helpers.apply now matches inspector labels exactly ('C' matched two fields). CI's docs job runs the new spec. Seen in the SVR screenshot and left: a tab opened before an Apply keeps its old title ('· moisture'); the outline is right. The SVR folding message now reads 'This model has no coefficient vector'."
     },
     {
       "id": "phase-7-exit-run",
