@@ -47,3 +47,21 @@ There is no scikit-learn OPLS. The predictions are compared through the identity
 ## 7. Export
 
 Predictions are $X b$ plus the intercept, a fixed vector, so OPLS exports as a PLS does ([`model-export.md`](../model-export.md)).
+
+## 8. OPLS-DA
+
+[#379](https://github.com/millermuttu/Chemometrics-Workbench/issues/379). OPLS on two-class PLS-DA's dummy response ([`pls-da.md`](pls-da.md) §2 and §3: the classes in Unicode order, the second coded 1), assigned at 0.5 and tallied by [`classification.md`](classification.md) exactly as two-class PLS-DA is. By §4's identity, OPLS-DA with $1 + A$ components predicts the dummy, and so assigns and tallies, **exactly as PLS-DA with $1 + A$**; what it adds is the separation of what predicts the class from the largest variation that does not.
+
+**Two classes only.** A class column with three or more classes is refused, naming PLS-DA, which models them. Multi-class OPLS-DA - an OPLS2 on the one-hot response - is not specified here and is left for a later phase. A training fold with one class is refused as for every classifier ([#343](https://github.com/millermuttu/Chemometrics-Workbench/issues/343)).
+
+**The S-plot.** For each variable $j$ of the estimator's input, over the rows the model was fitted on, the covariance and the correlation with the predictive score $t$:
+
+$$\mathrm{cov}_j = \frac{t^\top x_j}{n - 1}, \qquad \mathrm{corr}_j = \frac{\mathrm{cov}_j}{s_t\, s_{x_j}},$$
+
+$x_j$ centred, $s$ the standard deviations with $n - 1$. Plotted covariance against correlation, the variables that both vary a lot and vary with the class sit at the two far corners; a variable with no spread has correlation 0.
+
+**Parity.** Through the identity: the dummy predictions and the calibration confusion matrix against scikit-learn's `PLSRegression(5)` on the dummy coding PLS-DA's fixture uses, `<dataset>.oplsda.dummy_predictions.sklearn_pls_identity` and `.confusion`.
+
+## 9. OPLS-DA export
+
+As two-class PLS-DA's: one folded coefficient vector, cut at 0.5.

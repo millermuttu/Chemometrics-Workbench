@@ -34,6 +34,7 @@ import {
   chosenLine,
   parameterSymbol,
   rmsecvTrace,
+  sPlotTrace,
   scoresTrace,
   selectionTraces,
   thresholdSelection,
@@ -186,7 +187,7 @@ function Loadings({ pca }: { pca: PcaPayload }) {
  * VIP arrives in the result and the folded vector from its own endpoint,
  * which answers with a sentence when a step in the chain - SNV, MSC, a
  * baseline - is not a fixed linear map and cannot be folded. */
-type ImportanceView = "vip" | "coefficients" | "selection";
+type ImportanceView = "vip" | "coefficients" | "selection" | "splot";
 
 function VariableImportance({ pca, onRun }: { pca: PcaPayload; onRun?: () => void }) {
   // A PCR has no VIP (pcr.md section 6), so its panel is the coefficients.
@@ -222,6 +223,18 @@ function VariableImportance({ pca, onRun }: { pca: PcaPayload; onRun?: () => voi
       };
     },
     [pca, view, bands],
+  );
+  // #379: an OPLS-DA's S-plot, covariance against correlation with t pred.
+  const sPlotHost = usePlot(
+    (theme) => ({
+      data: pca.s_plot ? [sPlotTrace(pca, theme)] : [],
+      layout: {
+        xaxis: axisLayout(theme, "Covariance with t pred"),
+        yaxis: { ...axisLayout(theme, "Correlation with t pred"), range: [-1.05, 1.05] },
+        margin: { l: 48, r: 12, t: 8, b: 38 },
+      },
+    }),
+    [pca, view],
   );
   const coefficientHost = usePlot(
     (theme) => {
@@ -264,6 +277,7 @@ function VariableImportance({ pca, onRun }: { pca: PcaPayload; onRun?: () => voi
       {hasVip ? <option value="vip">VIP</option> : null}
       <option value="coefficients">Coefficients, raw axis</option>
       {selectable ? <option value="selection">Select variables</option> : null}
+      {pca.s_plot ? <option value="splot">S-plot</option> : null}
     </select>
   );
   const note = (
@@ -287,6 +301,8 @@ function VariableImportance({ pca, onRun }: { pca: PcaPayload; onRun?: () => voi
     <Panel title="Variable importance" note={note}>
       {view === "selection" && selectable ? (
         <SelectVariables pca={pca} hasVip={hasVip} onRun={onRun} />
+      ) : view === "splot" && pca.s_plot ? (
+        <div ref={sPlotHost} data-testid="s-plot" style={{ flex: 1, minHeight: 0 }} />
       ) : view === "vip" && hasVip ? (
         <div ref={vipHost} data-testid="vip-plot" style={{ flex: 1, minHeight: 0 }} />
       ) : folded?.available ? (
@@ -1494,7 +1510,7 @@ const METHODS: Record<string, string> = {
 /** A score column's name: an OPLS's predictive one first, then its orthogonal
  * ones (opls.md section 3, #378); a principal component for everything else. */
 export function componentName(pca: PcaPayload, index: number): string {
-  if (pca.regression?.method !== "opls") return `PC ${index + 1}`;
+  if (!["opls", "oplsda"].includes(pca.regression?.method ?? "")) return `PC ${index + 1}`;
   return index === 0 ? "t pred" : `t orth ${index}`;
 }
 
@@ -1562,7 +1578,7 @@ export function AnalysisResults({
             style={{ fontSize: 11, color: "var(--ink3)", overflow: "hidden", textOverflow: "ellipsis" }}
           >
             {classification
-              ? `${{ lda: "LDA", knn: "kNN", svm: "SVM" }[pca.regression?.method ?? ""] ?? "PLS-DA"} on ${pca.classification?.class_column ?? "?"}`
+              ? `${{ lda: "LDA", knn: "kNN", svm: "SVM", oplsda: "OPLS-DA" }[pca.regression?.method ?? ""] ?? "PLS-DA"} on ${pca.classification?.class_column ?? "?"}`
               : regression
                 ? `${METHODS[pca.regression?.method ?? ""] ?? "PLS"} on ${pca.regression?.target ?? "?"}`
                 : "PCA"}{" "}

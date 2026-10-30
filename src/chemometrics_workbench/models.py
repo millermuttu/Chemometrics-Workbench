@@ -476,6 +476,16 @@ class RidgeSpec(Frozen):
     target: str = Field(description="Which target column in the dataset is being modelled.")
 
 
+class OPLSDASpec(Frozen):
+    """`opls.md` §8: OPLS on a two-class dummy, assigned as two-class PLS-DA is."""
+
+    kind: Literal["oplsda"] = "oplsda"
+    n_orthogonal: int = Field(
+        default=1, ge=0, description="Orthogonal components, removed before the predictive one."
+    )
+    class_column: str
+
+
 class OPLSSpec(Frozen):
     """`opls.md`: one predictive component and `n_orthogonal` orthogonal ones."""
 
@@ -572,6 +582,7 @@ EstimatorSpec = Annotated[
     | MLRSpec
     | SVRSpec
     | OPLSSpec
+    | OPLSDASpec
     | PLSDASpec
     | SIMCASpec
     | LDASpec

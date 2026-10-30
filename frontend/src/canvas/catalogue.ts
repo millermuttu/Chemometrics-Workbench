@@ -233,6 +233,14 @@ export function stepMenu(targets: string[], classColumns: string[] = []): Catalo
         },
       },
       {
+        // #379: two classes only; refused on three or more.
+        kind: "OPLS-DA 1+1",
+        group: "Classification" as const,
+        type: "estimator" as const,
+        parameters: `1 predictive + 1 orthogonal · ${classColumn}`,
+        payload: { spec: { kind: "oplsda", n_orthogonal: 1, class_column: classColumn } },
+      },
+      {
         kind: "LDA 5 PC",
         group: "Classification" as const,
         type: "estimator" as const,

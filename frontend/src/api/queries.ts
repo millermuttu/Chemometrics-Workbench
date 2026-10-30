@@ -308,6 +308,8 @@ export interface PcaPayload {
   metrics?: Partial<Record<string, number>>;
   /** RMSECV against component count, one point per `A`. Empty above a split. */
   rmsecv_curve?: number[];
+  /** An OPLS-DA's S-plot (#379): each variable's covariance and correlation with t pred. */
+  s_plot?: { covariance: number[]; correlation: number[] };
   /** The same curve against its named parameter (#373); absent with no curve. */
   tuning_curve?: TuningCurve;
 }

@@ -21,11 +21,11 @@ strong the agreement is** rather than a bare pass or fail:
 
 | Claim | Count | Meaning |
 | --- | --- | --- |
-| identical within floating point | 157 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
-| agrees within stated tolerance | 54 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
+| identical within floating point | 161 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
+| agrees within stated tolerance | 56 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
 | differs by documented convention | 29 | Not compared numerically at all. The two quantities are not the same thing, and the reason is given in full below. |
 
-**240 comparisons, 240 passed, 0 failed.**
+**246 comparisons, 246 passed, 0 failed.**
 
 Three things a reader should hold on to, because the agreement column cannot
 show them:
@@ -81,6 +81,7 @@ those listed under *Gaps* or *Documented divergences* below.
 | Ridge | `Ridge` | 6 claims |
 | MLR | `MLR` | 6 claims |
 | OPLS | `OPLS` | 6 claims |
+| OPLS-DA (two-class) | `OPLS` | 6 claims |
 | SVR | `SVR` | 12 claims |
 | Elastic Net and Lasso | `ElasticNet`, `elastic_net_path` | 18 claims |
 | PLS2 | `PLS2` | 9 claims |
@@ -384,6 +385,17 @@ those listed under *Gaps* or *Documented divergences* below.
 | tecator | `confusion` | scikit-learn 1.9.0 | identical | 4 values, worst Δ 0, exactly |
 | tecator | `confusion_cv` | scikit-learn 1.9.0 | identical | 4 values, worst Δ 0, exactly |
 | tecator | `dummy_predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 240 values, worst Δ < 1e-13 |
+
+### OPLS-DA (two-class, through the PLS-DA identity)
+
+| Dataset | Quantity | Reference | Claim | Ours vs reference |
+| --- | --- | --- | --- | --- |
+| corn | `confusion` | scikit-learn 1.9.0 | identical | 4 values, worst Δ 0, exactly |
+| corn | `dummy_predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 80 values, worst Δ < 1e-11 |
+| gasoline | `confusion` | scikit-learn 1.9.0 | identical | 4 values, worst Δ 0, exactly |
+| gasoline | `dummy_predictions` | scikit-learn 1.9.0 | identical | 60 values, worst Δ < 1e-14 |
+| tecator | `confusion` | scikit-learn 1.9.0 | identical | 4 values, worst Δ 0, exactly |
+| tecator | `dummy_predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 240 values, worst Δ < 1e-11 |
 
 ### LDA (PCA-LDA)
 

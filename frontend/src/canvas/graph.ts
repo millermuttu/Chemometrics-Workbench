@@ -86,6 +86,8 @@ export function parameterLine(node: PipelineNode): string {
       return `${spec!.n_components} components · ${spec!.target}`;
     case "ridge":
       return `alpha ${spec!.alpha} · ${spec!.target}`;
+    case "oplsda":
+      return `1 predictive + ${spec!.n_orthogonal} orthogonal · ${spec!.class_column}`;
     case "opls":
       return `1 predictive + ${spec!.n_orthogonal} orthogonal · ${spec!.target}`;
     case "svr":

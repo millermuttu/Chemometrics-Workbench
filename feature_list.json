@@ -206,9 +206,9 @@
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; an e2e test adds it from its menu group and runs it"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-30, feature/379_opls-da. opls.md sections 8 and 9 written; mkdocs build --strict built. Parity through the PLS-DA identity: test_oplsda_predicts_and_assigns_as_plsda_with_as_many_components, corn/gasoline/tecator, OPLS 1+4 on the dummy vs sklearn PLSRegression(5): dummy predictions and confusion, 6 claims passed; fixture diff only those entries; parity report 246/246. tests/test_executor.py: beside PLS-DA(3) on one split, the same dummy predictions, assignments, confusion matrices, accuracy, accuracy_cv and RMSECV; the S-plot's covariance and correlation equal x'j t/(n-1) and corrcoef; three classes refused naming PLS-DA. tests/test_export.py: one folded vector cut at 0.5 reproduces the assignments. New tests fail at import with src stashed. uv run pytest 1034 passed; ruff, mypy clean. In frontend/: typecheck, lint clean; pnpm test 184 passed; pnpm build; changed specs analysis.spec.ts + walkthrough.spec.ts 36 passed incl. 'an OPLS-DA tab reads as PLS-DA's tally with its own scores and an S-plot' (seeded Tecator fat_class).",
+      "notes": "Two-class PLS-DA's classification wrap is now executor._dummy_classifier, shared with OPLS-DA. Multi-class OPLS-DA left for later (opls.md section 8). The permutation test and class-wise outliers are not offered for OPLS-DA (not in the issue)."
     },
     {
       "id": "logistic-regression",

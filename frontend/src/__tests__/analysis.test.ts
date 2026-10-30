@@ -28,6 +28,7 @@ import {
   chosenLine,
   parameterSymbol,
   rmsecvTrace,
+  sPlotTrace,
   scoresTrace,
   selectionTraces,
   thresholdSelection,
@@ -210,6 +211,15 @@ describe("a regression's own panels", () => {
 
   it("draws nothing at all for a decomposition", () => {
     expect(predictedTraces(pca, theme)).toEqual([]);
+  });
+
+  it("draws an OPLS-DA's S-plot, one point per variable named by its axis value (#379)", () => {
+    const withSPlot = { ...pls, s_plot: { covariance: [0.2, -0.1], correlation: [0.9, -0.4] } };
+    expect(sPlotTrace(withSPlot, theme)).toMatchObject({
+      x: [0.2, -0.1],
+      y: [0.9, -0.4],
+      text: withSPlot.loadings.axis.values.map((value) => value.toFixed(1)),
+    });
   });
 
   it("plots RMSECV against component count starting at one", () => {
