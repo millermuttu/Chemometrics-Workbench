@@ -8,7 +8,8 @@
     "2026-10-30. A column's role can be changed after import; the change derives a new dataset version, as sample exclusion does. Included so the disabled-model hint points at a control that exists.",
     "2026-10-30. The tuning curve generalises to any complexity parameter before the penalised models land; PLS and PCR numbers must not move.",
     "2026-10-30. Signed packages (#339) carry over from Phase 6, blocked on certificates, and are not in the exit criterion.",
-    "2026-10-30. Unchanged: scikit-learn and chemotools stay development dependencies; SciPy is already a runtime one. One release, v1.3.0, at the end of the phase. Read each feature's issue, not only this list, before calling it done."
+    "2026-10-30. Unchanged: scikit-learn and chemotools stay development dependencies; SciPy is already a runtime one. One release, v1.3.0, at the end of the phase. Read each feature's issue, not only this list, before calling it done.",
+    "2026-10-30. The e2e CI jobs run only on the dev-into-main pull request and on pushes to main (#392, maintainer); feature and fix pull requests into dev skip them. The full Playwright suite is the gate before a release."
   ],
   "status_values": [
     "not_started",
@@ -309,6 +310,21 @@
       "status": "passing",
       "evidence": "2026-10-30, fix/386_pin-python, PR #387 (merged). Before: on #384 and #385, e2e (macos-latest) and package (macos-latest) failed at step 'Sync the server's environment' / 'Sync environment' (uv sync --locked), every other check green. After: #387's 11 checks green, e2e (macos-latest) completed success 06:42:01Z and package (macos-latest) 06:35:14Z. Locally uv sync --locked resolved and audited; uv run python -V 3.12.3.",
       "notes": "Found while opening Phase 7 (#384). The cause was inferred from uv.lock (no macOS arm64 wheel past cp313 for watchdog, past cp314 for pydantic-core and others); the job log needs authentication, so it was confirmed by the fix's own run, not read."
+    },
+    {
+      "id": "e2e-on-main-only",
+      "priority": 17,
+      "area": "ci",
+      "issue": 392,
+      "title": "Run the e2e CI jobs only when dev is merged into main",
+      "depends_on": [],
+      "user_visible_behavior": "Feature and fix pull requests into dev run check, frontend, package and docs; the three e2e jobs run on a pull request into main and a push to main.",
+      "verification": [
+        "This pull request's CI (base dev): the e2e jobs reported as skipped, every other job green"
+      ],
+      "status": "passing",
+      "evidence": "2026-10-30, PR #393 (base dev), head c99eb06: check runs - 'e2e (${{ matrix.os }})' completed skipped (one skipped entry, the matrix not expanded); check (py3.12), check (py3.13), frontend, docs, package ubuntu/macos/windows completed success; pages skipped as before.",
+      "notes": "The skipped job shows under its unexpanded name. On the dev-into-main pull request it expands to the three platforms as before."
     },
     {
       "id": "signed-packages",

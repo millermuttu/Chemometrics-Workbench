@@ -130,8 +130,17 @@ jobs:
   # behind, and the fix for that is the assertion, not another attempt. If
   # environmental flakiness ever appears that is genuinely not ours, this is
   # the decision to revisit.
+  #
+  # Only when dev is merged into main (#392, maintainer 2026-10-30): a pull
+  # request whose base is main, or a push to main. Feature and fix pull
+  # requests into dev skip it - a job skipped by its `if:` reports as skipped,
+  # which a required check treats as passing - and the full suite is the gate
+  # on the phase's dev-into-main pull request.
   e2e:
     name: e2e (${{ matrix.os }})
+    if: >-
+      (github.event_name == 'pull_request' && github.base_ref == 'main') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ${{ matrix.os }}
     strategy:
       # Never fail-fast: a failure on one platform is a fact about that
