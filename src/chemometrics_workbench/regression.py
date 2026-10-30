@@ -82,6 +82,7 @@ __all__ = [
     "PCR",
     "PLS",
     "PLS2",
+    "Ridge",
     "coefficients_original_units",
     "cross_validated_predictions",
     "rmsecv_curve",
@@ -786,6 +787,49 @@ class PCR:
 
     def spe_limit_caveat(self) -> str | None:
         return self._pca.spe_limit_caveat()
+
+
+class Ridge:
+    """Ridge regression, per `penalised-regression.md` §2: least squares with a
+    penalty `alpha ||b||^2` on the coefficients, solved through the SVD.
+
+    `b = V diag(s / (s^2 + alpha)) U' y` for `X = U S V'`, which is the
+    solution of `(X'X + alpha I) b = X'y` without forming `X'X` - so many more
+    variables than samples, the normal case for a spectrum, costs an `n x n`
+    problem rather than a `p x p` one. Like `PLS` it centres nothing: X is
+    centred by the executor (and by a pipeline node, if there is one) and y
+    by the executor, as scikit-learn's `Ridge(fit_intercept=True)` does.
+    """
+
+    coefficients_: NDArray[np.float64] | None = None
+    effective_degrees_of_freedom_: float | None = None
+
+    def __init__(self, alpha: float) -> None:
+        if not alpha > 0:
+            raise ValueError(f"alpha must be positive, got {alpha}")
+        self.alpha = float(alpha)
+
+    def fit(self, X: object, y: object) -> Self:
+        values = as_float64(X, "X")
+        response = as_float64_vector(y, "y")
+        if response.size != values.shape[0]:
+            raise ValueError(
+                f"X has {values.shape[0]} samples and y has {response.size}. Arrays are "
+                "n_samples x n_variables and are never silently transposed."
+            )
+        u, s, vt = np.linalg.svd(values, full_matrices=False)
+        self.coefficients_ = vt.T @ (s / (s**2 + self.alpha) * (u.T @ response))
+        # §4: the trace of the hat matrix, the model's size in the units SEC
+        # and the information criteria count parameters in.
+        self.effective_degrees_of_freedom_ = float(np.sum(s**2 / (s**2 + self.alpha)))
+        return self
+
+    def predict(self, X: object) -> NDArray[np.float64]:
+        """`y_hat = X b` on the centred scale the model was fitted on, as `PLS.predict`."""
+        if self.coefficients_ is None:
+            raise RuntimeError("Ridge has not been fitted")
+        predicted: NDArray[np.float64] = as_float64(X, "X") @ self.coefficients_
+        return predicted
 
 
 def cross_validated_predictions(

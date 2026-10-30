@@ -49,6 +49,7 @@ from chemometrics_workbench.models import (
     PLSRegressionSpec,
     PreprocessNode,
     RangeSelect,
+    RidgeSpec,
     SavitzkyGolay,
     SIMCASpec,
     SourceNode,
@@ -224,6 +225,27 @@ def test_a_pcr_exports_as_a_bare_coefficient_vector(
     result = _run(directory, version, pipeline, "pcr")
     model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
     assert model["preprocessing"] == []
+    predicted = _predict(python_snippet(model), tecator.spectra)
+    np.testing.assert_allclose(
+        predicted[np.asarray(result.rows)], result.predicted, rtol=RTOL, atol=ATOL
+    )
+
+
+def test_a_ridge_exports_as_a_bare_coefficient_vector_through_a_residual_step(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#374, `penalised-regression.md` section 7: b is a fixed vector, so a
+    ridge exports as a PLS does - here behind SNV, which is carried, not folded."""
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(id="snv", inputs=("source",), step=SNV()),
+        EstimatorNode(id="ridge", inputs=("snv",), spec=RidgeSpec(alpha=0.01, target="fat")),
+    )
+    result = _run(directory, version, pipeline, "ridge")
+    model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
+    assert [step["kind"] for step in model["preprocessing"]] == ["snv"]
+    assert model["model"]["task"] == "regression"
     predicted = _predict(python_snippet(model), tecator.spectra)
     np.testing.assert_allclose(
         predicted[np.asarray(result.rows)], result.predicted, rtol=RTOL, atol=ATOL

@@ -104,9 +104,9 @@
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; an e2e test adds it from its menu group and runs it"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-30, feature/374_ridge. docs/algorithms/penalised-regression.md written, in the mkdocs nav; uv run mkdocs build --strict built. Parity: tests/test_parity.py test_ridge_matches_the_reference on corn, gasoline, tecator - 6 claims (ridge.coefficients, ridge.predictions vs sklearn 1.9 Ridge alpha=1, solver svd) passed, IDENTICAL tier; fixture regenerated, diff only the 6 entries and generated_at; parity report 198/198. tests/test_executor.py: RMSECV, 5 curve points and the final model's predictions equal sklearn Ridge on the run's own folds to rtol 1e-9. tests/test_export.py: JSON model behind SNV, snippet reproduces predictions. tests/test_api.py: payload (method ridge, no scores, tuning_curve over 25 log alphas, chosen 0.1), folded coefficients, export.json/.py, report.html, save 201; outliers and bootstrap refused 422. All new tests fail at import with src stashed. uv run pytest 999 passed; ruff, mypy clean. In frontend/: typecheck, lint clean; pnpm test 178 passed; pnpm build; pnpm exec playwright test 103 passed (4.4m, clean run on the committed code) incl. walkthrough 'a ridge runs below a split, draws its curve over alpha and no X model'.",
+      "notes": "No X model: scores/loadings/T2/SPE empty, the screen hides those rows; SEC absent (fractional dof). ponytail note in executor._ridge: one SVD per fold per grid value, reuse per-fold SVDs if large data makes the curve slow. Permutation test not offered for ridge (not in the issue)."
     },
     {
       "id": "elastic-net",

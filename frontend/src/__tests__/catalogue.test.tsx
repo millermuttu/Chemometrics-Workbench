@@ -135,7 +135,7 @@ it("puts every step under a heading, the models under Regression and Classificat
   const menu = stepMenu(["fat"], ["fat_class"]);
   const headings = Object.fromEntries(grouped(menu).map(([group, steps]) => [group, steps.map((s) => s.kind)]));
   expect(Object.keys(headings)).toEqual([...GROUPS]);
-  expect(headings.Regression).toEqual(["PLS 5 LV", "PCR 5 PC"]);
+  expect(headings.Regression).toEqual(["PLS 5 LV", "PCR 5 PC", "Ridge α1"]);
   expect(headings.Classification).toEqual(["PLS-DA 5 LV", "LDA 5 PC", "kNN k5", "SVM rbf 5 PC", "SIMCA 3 PC"]);
   expect(headings.Validation).toEqual(["K-fold 10", "Train/test 25%"]);
   expect(headings.Explore).toEqual(["PCA"]);
@@ -200,4 +200,14 @@ it("draws a disabled model as a disabled option, and its reason under the list (
   expect(markup).toContain(NO_TARGET);
   expect(markup).toContain(NO_CLASS);
   expect(markup).toContain("Open Dataset view");
+});
+
+it("offers Ridge beside PLS when the dataset has a target, labelled alike (#374)", () => {
+  const ridge = stepMenu(["fat"]).find((step) => step.kind === "Ridge α1")!;
+  expect(ridge.group).toBe("Regression");
+  expect(ridge.payload.spec).toEqual({ kind: "ridge", alpha: 1, target: "fat" });
+  const node = { id: "ridge", type: "estimator", inputs: ["snv"], ...ridge.payload } as PipelineNode;
+  expect(nodeLabel(node)).toBe("Ridge α1 · fat");
+  expect(parameterLine(node)).toBe(ridge.parameters);
+  expect(stepMenu([]).find((step) => step.kind === "Ridge α1")!.disabled).toBe(NO_TARGET);
 });

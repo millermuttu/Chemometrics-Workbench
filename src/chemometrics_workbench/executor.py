@@ -160,6 +160,7 @@ from chemometrics_workbench.models import (
     PLSRegressionSpec,
     RangeSelect,
     ResolvedSplit,
+    RidgeSpec,
     SelectVariables,
     SIMCASpec,
     SVMSpec,
@@ -177,8 +178,10 @@ from chemometrics_workbench.regression import (
     PCR,
     PLS,
     PLS2,
+    Ridge,
     cross_validated_predictions,
     rmsecv_curve,
+    tuning_curve,
 )
 from chemometrics_workbench.validation import (
     Fold,
@@ -243,6 +246,7 @@ _FITTED: tuple[type, ...] = (
     PCASpec,
     PLSRegressionSpec,
     PCRSpec,
+    RidgeSpec,
     PLSDASpec,
     SIMCASpec,
     LDASpec,
@@ -503,6 +507,11 @@ class EstimatorResult:
     RMSECV and Q² are missing entirely when the node is not under a split, and
     SEC is missing when `n - A - 1 <= 0` rather than falling back to a
     denominator that would silently produce something that is not SEC."""
+
+    tuning: dict[str, Any] = field(default_factory=dict)
+    """`metrics-and-validation.md` §15 (#373) for a model tuned by something
+    other than components: `parameter`, `metric`, `values`, `scores`, `log`
+    and `chosen`. Empty for PLS and PCR, whose curve is the `rmsecv_a<A>` keys."""
 
     def as_json(self) -> dict[str, Any]:
         return asdict(self)
@@ -1324,6 +1333,9 @@ def _fitted(
             estimator=PCR,
         )
 
+    if isinstance(node.spec, RidgeSpec):
+        return _ridge(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
+
     if isinstance(node.spec, SVMSpec):
         return _svm(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
 
@@ -1594,6 +1606,146 @@ def _fit_regression(
             _values(model.hotelling_t2(held_x - x_mean)) if held_out.size else []
         ),
         held_out_spe=_values(model.spe(held_x - x_mean)) if held_out.size else [],
+    )
+
+
+#: penalised-regression.md section 5: the grid a penalty's curve is drawn over.
+PENALTY_POINTS = 25
+PENALTY_DECADES = 6
+
+
+def _ridge(
+    node: PipelineNode,
+    spec: RidgeSpec,
+    parent: _State,
+    key: str,
+    matrix: NDArray[np.float64],
+    rows: NDArray[np.intp],
+    held_out: NDArray[np.intp],
+    fold: int | None,
+    version: DatasetVersion,
+) -> EstimatorResult:
+    """Ridge on the node's input (`penalised-regression.md`), with the regression
+    half of `pls-regression.md` §13's quantities and none of the X model's.
+
+    A ridge model has no components, so it has no scores, loadings, T2 or SPE
+    to report; those fields are empty and the screen leaves their panels out.
+    SEC is absent too: §5's `n - A - 1` needs a whole number of parameters,
+    and a ridge model's effective degrees of freedom are not one.
+    """
+    response = _response(version, node, spec.target)
+    if response.size != matrix.shape[0]:
+        raise ExecutorError(
+            f"node {node.id!r} (ridge) has {matrix.shape[0]} samples and target "
+            f"{spec.target!r} has {response.size} values.",
+            node.id,
+        )
+
+    def fit_predict(
+        train_x: NDArray[np.float64],
+        train_y: NDArray[np.float64],
+        test_x: NDArray[np.float64],
+        alpha: float,
+    ) -> NDArray[np.float64]:
+        x_mean, y_mean = train_x.mean(axis=0), float(train_y.mean())
+        return (
+            Ridge(alpha).fit(train_x - x_mean, train_y - y_mean).predict(test_x - x_mean) + y_mean
+        )
+
+    train_x, train_y = matrix[rows], response[rows]
+    x_mean = train_x.mean(axis=0)
+    y_mean = float(train_y.mean())
+    model = Ridge(spec.alpha).fit(train_x - x_mean, train_y - y_mean)
+    predicted = model.predict(train_x - x_mean) + y_mean
+    metrics: dict[str, float] = {
+        "rmsec": validation.rmse(train_y, predicted),
+        "r2": validation.r2(train_y, predicted),
+        "bias": validation.bias(train_y, predicted),
+    }
+    with np.errstate(invalid="ignore", divide="ignore"):
+        pearson = float(np.corrcoef(train_y, predicted)[0, 1] ** 2)
+    if np.isfinite(pearson):
+        metrics["r2_pearson"] = pearson
+
+    held_y = response[held_out]
+    held_predicted = (
+        fit_predict(train_x, train_y, matrix[held_out], spec.alpha)
+        if held_out.size
+        else np.array([], dtype=np.float64)
+    )
+    if held_out.size:
+        metrics["rmsep"] = validation.rmse(held_y, held_predicted)
+        metrics["sep"] = validation.sep(held_y, held_predicted)
+
+    # §9 and §15 as for PLS: one fold assignment, each fold on its own
+    # preprocessed array (#173), the curve over a log grid whose top is the
+    # largest squared singular value of the centred matrix - a penalty that
+    # size shrinks every direction to near nothing.
+    cross_validated = np.array([], dtype=np.float64)
+    tuning: dict[str, Any] = {}
+    if parent.folds is not None and len(parent.folds) > 1:
+        folds = parent.folds
+        top = float(np.linalg.norm(train_x - x_mean, ord=2) ** 2)
+        grid = top * np.logspace(-PENALTY_DECADES, 0, PENALTY_POINTS)
+        # ponytail: one SVD per fold per grid value; reuse each fold's SVD
+        # across the grid if a large dataset makes the curve slow.
+        curve = tuning_curve(parent.arrays, response, folds, list(grid), fit_predict)
+        tuning = {
+            "parameter": "alpha",
+            "metric": "rmsecv",
+            "values": _values(grid),
+            "scores": _values(curve),
+            "log": True,
+            "chosen": spec.alpha,
+        }
+        cross_validated = np.empty_like(response)
+        for one, values in zip(folds, parent.arrays, strict=True):
+            cross_validated[one.test] = fit_predict(
+                values[one.train], response[one.train], values[one.test], spec.alpha
+            )
+        metrics["rmsecv"] = validation.rmse(response, cross_validated)
+        metrics["q2"] = validation.q2(response, cross_validated)
+        for index, one in enumerate(folds):
+            metrics[f"rmsecv_fold_{index}"] = validation.rmse(
+                response[one.test], cross_validated[one.test]
+            )
+        per_fold = [metrics[f"rmsecv_fold_{i}"] for i in range(len(folds))]
+        metrics["rmsecv_std"] = float(np.std(per_fold, ddof=1))
+
+    return EstimatorResult(
+        node_id=node.id,
+        key=key,
+        task="regression",
+        n_components=0,
+        n_samples=int(train_x.shape[0]),
+        n_variables=int(train_x.shape[1]),
+        rank=0,
+        fold=fold,
+        rows=[int(row) for row in rows],
+        scores=[],
+        loadings=[],
+        eigenvalues=[],
+        explained_variance_ratio=[],
+        cumulative_explained_variance=[],
+        hotelling_t2=[],
+        # No X model, so no limits; the fields are required and the screen
+        # draws no diagnostics for a model without scores.
+        hotelling_t2_limit=0.0,
+        spe=[],
+        spe_limit=0.0,
+        target=spec.target,
+        method="ridge",
+        observed=_values(train_y),
+        predicted=_values(predicted),
+        coefficients=_values(model.coefficients_),
+        x_mean=_values(x_mean),
+        y_mean=y_mean,
+        cross_validated_predicted=_values(cross_validated),
+        metrics=metrics,
+        held_out=[int(row) for row in held_out],
+        held_out_observed=_values(held_y) if held_out.size else [],
+        held_out_predicted=_values(held_predicted) if held_out.size else [],
+        tuning=tuning,
     )
 
 

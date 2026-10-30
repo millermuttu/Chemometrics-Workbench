@@ -9,7 +9,7 @@ report green in CI against published reference values* — means in practice. Th
 committed copy is not byte-compared: the last bits of a difference depend on the
 machine's BLAS (#38), so the suite checks its coverage and its tolerances instead.
 
-Fixture schema 1, generated 2026-10-10.
+Fixture schema 1, generated 2026-10-30.
 
 ---
 
@@ -21,11 +21,11 @@ strong the agreement is** rather than a bare pass or fail:
 
 | Claim | Count | Meaning |
 | --- | --- | --- |
-| identical within floating point | 143 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
+| identical within floating point | 149 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
 | agrees within stated tolerance | 32 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
 | differs by documented convention | 17 | Not compared numerically at all. The two quantities are not the same thing, and the reason is given in full below. |
 
-**192 comparisons, 192 passed, 0 failed.**
+**198 comparisons, 198 passed, 0 failed.**
 
 Three things a reader should hold on to, because the agreement column cannot
 show them:
@@ -78,6 +78,7 @@ those listed under *Gaps* or *Documented divergences* below.
 | Gaussian smoothing | `GaussianTransformer` | 3 claims |
 | Whittaker smoothing | `WhittakerTransformer` | 3 claims |
 | PCR | `PCR` | 6 claims |
+| Ridge | `Ridge` | 6 claims |
 | PLS2 | `PLS2` | 9 claims |
 | LDA | `LDA` | 6 claims |
 | kNN | `KNN` | 6 claims |

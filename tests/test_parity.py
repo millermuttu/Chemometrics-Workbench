@@ -50,6 +50,7 @@ from chemometrics_workbench.regression import (
     PCR,
     PLS,
     PLS2,
+    Ridge,
     coefficients_original_units,
     cross_validated_predictions,
     rmsecv_curve,
@@ -524,6 +525,25 @@ def test_pcr_matches_pca_then_least_squares(dataset: str) -> None:
     )
     assert coefficients.passed and not coefficients.sign_aligned
     assert predictions.passed
+
+
+# --------------------------------------------------------------------------
+# Ridge (#374)
+# --------------------------------------------------------------------------
+
+
+@every_dataset
+def test_ridge_matches_the_reference(dataset: str) -> None:
+    """`penalised-regression.md` section 6: coefficients and predictions at one alpha."""
+    data = LOADERS[dataset]()
+    centred = data.spectra - data.spectra.mean(axis=0)
+    y = np.asarray(data.targets[parity.load_fixture()["targets"][dataset]])
+    model = Ridge(1.0).fit(centred, y - y.mean())
+    coefficients = parity.check(f"{dataset}.ridge.coefficients.sklearn", model.coefficients_)
+    predictions = parity.check(
+        f"{dataset}.ridge.predictions.sklearn", model.predict(centred) + y.mean()
+    )
+    assert coefficients.passed and predictions.passed
 
 
 # --------------------------------------------------------------------------

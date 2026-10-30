@@ -1511,6 +1511,8 @@ export function AnalysisResults({
   // section 2), so every regression panel applies; only what it is called and
   // which panel sits first differ.
   const regression = pca.task === "regression" || classification;
+  // Whether the model has components and so an X model to draw (#374).
+  const latent = pca.scores.length > 0;
   return (
     <div className="pane">
       <div
@@ -1538,10 +1540,10 @@ export function AnalysisResults({
             {classification
               ? `${{ lda: "LDA", knn: "kNN", svm: "SVM" }[pca.regression?.method ?? ""] ?? "PLS-DA"} on ${pca.classification?.class_column ?? "?"}`
               : regression
-                ? `${pca.regression?.method === "pcr" ? "PCR" : "PLS"} on ${pca.regression?.target ?? "?"}`
+                ? `${{ pcr: "PCR", ridge: "Ridge" }[pca.regression?.method ?? ""] ?? "PLS"} on ${pca.regression?.target ?? "?"}`
                 : "PCA"}{" "}
-            {pca.n_components}{" "}
-            components · {pca.n_samples} × {pca.n_variables}
+            {latent ? `${pca.n_components} components · ` : ""}
+            {pca.n_samples} × {pca.n_variables}
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "center" }}>
@@ -1620,16 +1622,21 @@ export function AnalysisResults({
           overflowY: "auto",
         }}
       >
+        {/* #374: a model with no components - a ridge - has no scores,
+            loadings, variances or X diagnostics, so those panels are left out
+            rather than drawn empty. */}
         <div style={ROW}>
-          <Scores pca={pca} />
-          <Loadings pca={pca} />
+          {latent && <Scores pca={pca} />}
+          {latent && <Loadings pca={pca} />}
           {regression && <VariableImportance pca={pca} onRun={onRun} />}
         </div>
-        <div style={ROW}>
-          <Variance pca={pca} />
-          <Diagnostics pca={pca} picked={picked} onPick={setPicked} />
-          <Contributions pca={pca} sample={picked} />
-        </div>
+        {latent && (
+          <div style={ROW}>
+            <Variance pca={pca} />
+            <Diagnostics pca={pca} picked={picked} onPick={setPicked} />
+            <Contributions pca={pca} sample={picked} />
+          </div>
+        )}
         {/* The row this comment reserved in Phase 1.1, now filled. It arrives
             beside the two above rather than replacing them, exactly as the
             layout was drawn for - and only for a regression, because these

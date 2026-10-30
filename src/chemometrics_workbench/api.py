@@ -655,6 +655,8 @@ def results_payload(
                 "log": False,
                 "chosen": result.n_components,
             }
+        elif result.tuning:
+            payload["tuning_curve"] = result.tuning
     if result.simca:
         # simca.md section 5: no single X model and no confusion matrix, so
         # its own block - the class models' sizes and limits and, per set, the

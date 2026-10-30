@@ -299,6 +299,53 @@ test("a PCR runs on the dataset's target and reads as a regression without VIP",
   await expect(page.getByRole("region", { name: "Predicted vs measured" })).toBeVisible();
 });
 
+test("a ridge runs below a split, draws its curve over alpha and no X model", async ({ page }) => {
+  // #374. On its own split beside the walkthrough's PCA, written through the
+  // PUT as the PCR above is; the Step list's Regression group offering it is
+  // catalogue.test.tsx's.
+  await page.goto("/?token=e2e-token");
+  const auth = { Authorization: "Bearer e2e-token" };
+  const pipeline = await (await page.request.get("/api/pipelines/current", { headers: auth })).json();
+  const nodes = pipeline.nodes as { id: string; type: string; inputs: string[] }[];
+  const pca = nodes.find((node) => node.type === "estimator")!;
+  nodes.push(
+    {
+      id: "ridge_split",
+      type: "split",
+      inputs: pca.inputs,
+      spec: { kind: "kfold", n_splits: 5, shuffle: true, seed: 42 },
+    } as (typeof nodes)[number],
+    {
+      id: "ridge",
+      type: "estimator",
+      inputs: ["ridge_split"],
+      spec: { kind: "ridge", alpha: 1, target: "moisture" },
+    } as (typeof nodes)[number],
+  );
+  const saved = await page.request.put("/api/pipelines/current", {
+    headers: { ...auth, "Content-Type": "application/json" },
+    data: { nodes },
+  });
+  expect(saved.status()).toBe(200);
+
+  await page.reload();
+  await page.getByRole("button", { name: "Run pipeline" }).click();
+  await expect(page.locator(".status")).toContainText("Done", { timeout: 60_000 });
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /Ridge α1 · moisture/ }).dblclick();
+  await expect(page.getByTestId("analysis-header")).toContainText("Ridge on moisture 30 × 24");
+  await expect(page.getByRole("region", { name: "RMSECV" })).toContainText(
+    /fitted at alpha = 1 · lowest at alpha = [\d.e+-]+/,
+  );
+  await expect(page.getByRole("region", { name: "Predicted vs measured" })).toBeVisible();
+  // No components: no scores, loadings or X diagnostics drawn empty.
+  await expect(page.getByRole("region", { name: "Scores" })).toHaveCount(0);
+  await expect(page.getByLabel("Variable importance view").locator("option")).toHaveText([
+    "Coefficients, raw axis",
+    "Select variables",
+  ]);
+});
+
 test("a flagged sample is excluded from the outlier table, rerun, and named in lineage", async ({
   page,
 }) => {

@@ -122,6 +122,7 @@ COVERAGE: tuple[Coverage, ...] = (
     Coverage("Gaussian smoothing", ("GaussianTransformer",), ("preprocess.gaussian",)),
     Coverage("Whittaker smoothing", ("WhittakerTransformer",), ("preprocess.whittaker",)),
     Coverage("PCR", ("PCR",), ("pcr.coefficients", "pcr.predictions")),
+    Coverage("Ridge", ("Ridge",), ("ridge.coefficients", "ridge.predictions")),
     Coverage("PLS2", ("PLS2",), ("pls2.coefficients", "pls2.predictions", "pls2.scores")),
     Coverage("LDA", ("LDA",), ("lda.decision_function", "lda.predictions")),
     Coverage("kNN", ("KNN",), ("knn.predictions", "knn.votes")),

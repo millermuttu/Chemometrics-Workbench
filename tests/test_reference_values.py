@@ -30,6 +30,7 @@ ALGORITHMS = (
     "pls",
     "pls2",
     "pcr",
+    "ridge",
     "plsda",
     "lda",
     "knn",

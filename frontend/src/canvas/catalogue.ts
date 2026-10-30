@@ -170,6 +170,14 @@ export function stepMenu(targets: string[], classColumns: string[] = []): Catalo
         parameters: `5 components · ${target}`,
         payload: { spec: { kind: "pcr", n_components: 5, target } },
       },
+      {
+        // #374: no components, so the default is the schema's alpha.
+        kind: "Ridge α1",
+        group: "Regression" as const,
+        type: "estimator" as const,
+        parameters: `alpha 1 · ${target}`,
+        payload: { spec: { kind: "ridge", alpha: 1, target } },
+      },
     ].map(needs(targets.length > 0, NO_TARGET)),
     // Enabled when the dataset has a metadata column with two or more values
     // (#185, #274, pls-da.md section 2), and it models the first.
