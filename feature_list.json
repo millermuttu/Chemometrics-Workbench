@@ -29,9 +29,9 @@
         "catalogue.test.ts pins every entry's group",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; an e2e test finds a model under its heading in both menus"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-30, feature/370_grouped-palette. In frontend/: pnpm typecheck, pnpm lint clean; pnpm test 172 passed (19 files) - catalogue.test.tsx 'puts every step under a heading, the models under Regression and Classification (#370)' and 'draws the Step list's options under one optgroup per heading (#370)' both FAIL with src/canvas stashed (TypeError: grouped is not a function; GROUPS is not iterable); pnpm build built; pnpm exec playwright test 101 passed (4.2m), including pipeline.spec.ts 'both menus show the models under Regression and Classification'. uv run mkdocs build --strict built.",
+      "notes": "Normalise moved beside SNV and MSC so the menu is already in heading order. The PR's macOS jobs were red at uv sync, not in the tests: #386."
     },
     {
       "id": "column-roles",
