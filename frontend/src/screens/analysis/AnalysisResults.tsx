@@ -1141,7 +1141,7 @@ function Probabilities({ pca }: { pca: PcaPayload }) {
   if (!classification || !probabilities) return null;
   const { classes } = classification;
   return (
-    <Panel title="Class probabilities" note={`${probabilities.length} samples`} width={340}>
+    <Panel title="Class probabilities" note={`${probabilities.length} samples`}>
       <div data-testid="class-probabilities" style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
         <table>
           <thead>
@@ -1730,11 +1730,16 @@ export function AnalysisResults({
         {regression && (
           <div style={ROW}>
             {classification ? <ConfusionMatrix pca={pca} /> : <PredictedVsMeasured pca={pca} />}
-            <Probabilities pca={pca} />
             <RmsecvCurve pca={pca} />
             <RegressionMetrics pca={pca} />
           </div>
         )}
+        {/* #380: a row of its own, so the three panels above keep their widths. */}
+        {pca.classification?.probabilities ? (
+          <div style={ROW}>
+            <Probabilities pca={pca} />
+          </div>
+        ) : null}
         {/* #333: a permutation test, for an estimator with a cross-validated score. */}
         {["pls", "pcr", "plsda", "lda", "knn", "svm"].includes(pca.regression?.method ?? "") &&
         (pca.metrics?.rmsecv !== undefined || pca.metrics?.accuracy_cv !== undefined) ? (

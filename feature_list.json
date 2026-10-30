@@ -225,9 +225,9 @@
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; an e2e test adds it from its menu group and runs it"
       ],
-      "status": "in_progress",
-      "evidence": "",
-      "notes": "2026-10-30, stopped mid-feature (usage limit). Done on feature/380_logistic-regression: kernel, parity (24 fixture entries, lbfgs tolerance class frozen), executor, payload probabilities, export/snippet, artifact, docs, frontend Probabilities panel; uv run pytest 1042 passed; pnpm test 185 passed. NEXT: analysis.spec.ts 'a logistic regression tab lists each sample's class probabilities' fails - confusion-matrix reported hidden after the new Probabilities panel was added to the row (likely the row overflows; check the panel width or drop that assertion if the confusion panel is merely scrolled). Then rerun analysis.spec + walkthrough.spec, record evidence, open the PR."
+      "status": "passing",
+      "evidence": "2026-10-30, feature/380_logistic-regression. docs/algorithms/logistic-regression.md written, in the nav; model-export.md and model-artifact.md gain the logistic rows; mkdocs build --strict built. Parity: corn/gasoline/tecator x 2 and 3 classes, both optimisers to gradient 1e-10 - coefficients and probabilities within the new lbfgs class (rtol/atol 1e-5; observed max 3e-6 coef, 3e-7 prob), default-tol assignments identical, default-tol probabilities within 10 tol and 6 divergences recorded; fixture diff only the 24 logistic entries; lbfgs frozen in test_parity_report.py; parity report 270/270. tests/test_executor.py: tercile classes under a stratified 4-fold, PCA front, probabilities sum to 1 and argmax = assignment, accuracy_cv equal to the kernel on the run's folds. tests/test_export.py: 2 and 3 classes, snippet reproduces assignments. tests/test_api.py: probabilities served. New tests fail at import with dev's src. uv run pytest 1042 passed; ruff, mypy clean. In frontend/: typecheck, lint clean; pnpm test 185 passed; pnpm build; changed specs analysis.spec.ts + walkthrough.spec.ts 37 passed incl. 'a logistic regression tab lists each sample's class probabilities' (seeded fat_class).",
+      "notes": "The Class probabilities panel has a row of its own: beside the confusion matrix it squeezed that panel to nothing (the first e2e run caught it). Permutation test and class-wise outliers not offered for logistic (not in the issue)."
     },
     {
       "id": "qda",
