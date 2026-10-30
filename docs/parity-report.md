@@ -108,6 +108,7 @@ those listed under *Gaps* or *Documented divergences* below.
 | PLS: Hotelling's T², SPE and their limits | `PLS` | **not compared.** The formulas are PCA's, compared above, applied to the PLS X scores and residuals; no reference computes them for PLS under the same definition. Unit-tested in `tests/test_regression.py`. |
 | Coefficients and intercept in original units | `coefficients_original_units` | 6 claims |
 | Cross-validation: RMSECV curve and Q² | `cross_validated_predictions`, `rmsecv_curve`, `q2` | 7 claims |
+| Tuning curve over a named parameter | `tuning_curve` | **not compared.** No fixture value of its own: it is the general form of the RMSECV curve above, fitted once per fold per value (metrics-and-validation.md section 15). tests/test_regression.py checks it equals rmsecv_curve over components to rtol 1e-10, and pools residuals as section 7 says at every value. |
 | RMSE (RMSEC here; RMSEP is the same function on held-out rows) | `rmse` | 3 claims |
 | R² | `r2` | 3 claims |
 | SEC and SEP | `sec`, `sep` | 1 claim |

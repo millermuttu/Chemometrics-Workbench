@@ -5,6 +5,7 @@ import type {
   IplsPayload,
   PcaPayload,
   PermutationPayload,
+  TuningCurve,
 } from "@/api/queries";
 
 import type { PlotTheme } from "./theme";
@@ -186,18 +187,39 @@ export function predictedTraces(pca: PcaPayload, theme: PlotTheme) {
   ];
 }
 
-/** RMSECV against component count. One trace, because §9's curve is one
- * experiment over one fold assignment rather than `A` unrelated ones. */
+/** How a curve's parameter is written: `A` for components, else its own name. */
+export function parameterSymbol(curve: TuningCurve | undefined) {
+  return !curve || curve.parameter === "components" ? "A" : curve.parameter;
+}
+
+/** The metric against its named parameter (#373, `metrics-and-validation.md`
+ * section 15). One trace, because the curve is one experiment over one fold
+ * assignment rather than one per value. */
 export function rmsecvTrace(pca: PcaPayload, theme: PlotTheme) {
-  const curve = pca.rmsecv_curve ?? [];
+  const curve = pca.tuning_curve;
+  const metric = (curve?.metric ?? "rmsecv").toUpperCase();
   return {
     type: "scattergl",
     mode: "lines+markers",
-    x: curve.map((_, index) => index + 1),
-    y: curve,
+    x: curve?.values ?? [],
+    y: curve?.scores ?? [],
     line: { width: 1.5, color: theme.series[0] },
     marker: { size: 5, color: theme.series[0] },
-    hovertemplate: "A = %{x}<br>RMSECV %{y:.4g}<extra></extra>",
+    hovertemplate: `${parameterSymbol(curve)} = %{x:.4g}<br>${metric} %{y:.4g}<extra></extra>`,
+  };
+}
+
+/** The value the node was fitted with, as a vertical line: the user's choice,
+ * which the curve's minimum is read against rather than substituted for. */
+export function chosenLine(curve: TuningCurve, theme: PlotTheme) {
+  return {
+    type: "line",
+    yref: "paper",
+    x0: curve.chosen,
+    x1: curve.chosen,
+    y0: 0,
+    y1: 1,
+    line: { width: 1, dash: "dot", color: theme.ink3 },
   };
 }
 

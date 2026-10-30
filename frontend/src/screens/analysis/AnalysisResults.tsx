@@ -31,6 +31,8 @@ import {
   loadingsTraces,
   outliers,
   predictedTraces,
+  chosenLine,
+  parameterSymbol,
   rmsecvTrace,
   scoresTrace,
   selectionTraces,
@@ -996,24 +998,38 @@ function PredictedVsMeasured({ pca }: { pca: PcaPayload }) {
 }
 
 function RmsecvCurve({ pca }: { pca: PcaPayload }) {
-  const curve = pca.rmsecv_curve ?? [];
+  const curve = pca.tuning_curve;
+  const metric = (curve?.metric ?? "rmsecv").toUpperCase();
   const host = usePlot(
     (theme) => ({
       data: [rmsecvTrace(pca, theme)],
       layout: {
-        xaxis: { ...axisLayout(theme, "Components"), dtick: 1 },
-        yaxis: { ...axisLayout(theme, "RMSECV"), rangemode: "tozero" },
+        // #373: against the model's own parameter, on a log axis when its
+        // grid is log-spaced, with the value fitted marked.
+        xaxis: {
+          ...axisLayout(theme, curve?.parameter === "components" || !curve ? "Components" : curve.parameter),
+          ...(curve?.log ? { type: "log" } : { dtick: 1 }),
+        },
+        yaxis: { ...axisLayout(theme, metric), rangemode: "tozero" },
+        shapes: curve ? [chosenLine(curve, theme)] : [],
         margin: { l: 48, r: 12, t: 8, b: 38 },
       },
     }),
     [pca],
   );
-  // The minimum is reported, never chosen: §9 says picking A there and then
-  // quoting that minimum as the model's expected error is optimistic, and that
-  // it is the user's call rather than the application's.
-  const best = curve.length ? curve.indexOf(Math.min(...curve)) + 1 : undefined;
+  // The minimum is reported, never chosen: §9 and §15 say picking the value
+  // there and then quoting that minimum as the model's expected error is
+  // optimistic, and that it is the user's call rather than the application's.
+  const symbol = parameterSymbol(curve);
+  const best = curve?.scores.length
+    ? curve.values[curve.scores.indexOf(Math.min(...curve.scores))]
+    : undefined;
+  const note =
+    curve && best !== undefined
+      ? `fitted at ${symbol} = ${curve.chosen} · lowest at ${symbol} = ${best}`
+      : "needs a split";
   return (
-    <Panel title="RMSECV" note={best ? `lowest at A = ${best}` : "needs a split"} width={340}>
+    <Panel title={metric} note={note} width={340}>
       <div ref={host} data-testid="rmsecv-plot" style={{ flex: 1, minHeight: 0 }} />
     </Panel>
   );

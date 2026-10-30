@@ -55,7 +55,7 @@ The `T^2` limit, by contrast, transfers unchanged, and is imported from
 from __future__ import annotations
 
 import warnings
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Literal, Self
 
 import numpy as np
@@ -85,6 +85,7 @@ __all__ = [
     "coefficients_original_units",
     "cross_validated_predictions",
     "rmsecv_curve",
+    "tuning_curve",
 ]
 
 #: The preprocessing steps that fold into a coefficient vector, per
@@ -905,6 +906,43 @@ def rmsecv_curve(
                 held_out[a, fold.test] = scores[:, :width] @ y_loadings[:, :width].T + y_mean
             else:
                 held_out[a, fold.test] = scores[:, :width] @ y_loadings[:width] + y_mean
+    return np.asarray([rmse(response.ravel(), predicted.ravel()) for predicted in held_out])
+
+
+def tuning_curve(
+    X: object,
+    y: object,
+    folds: list[Fold],
+    values: Sequence[float],
+    fit_predict: Callable[
+        [NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], float],
+        NDArray[np.float64],
+    ],
+) -> NDArray[np.float64]:
+    """RMSECV at every value of one complexity parameter, from one fold assignment.
+
+    `metrics-and-validation.md` §15. `fit_predict(train_x, train_y, test_x,
+    value)` fits on a fold's training rows with the parameter at `value` and
+    predicts its test rows; the residuals are pooled across folds and rooted
+    once per value (§7), as `rmsecv_curve` does for components. That one is
+    kept for PLS and PCR because their components nest and one fit per fold
+    gives every point; a penalty does not nest, so this fits once per fold
+    per value.
+    """
+    if not values:
+        raise ValueError("a tuning curve needs at least one parameter value")
+    matrices = _fold_matrices(X, folds)
+    response = _response(y)
+    n_samples = matrices[0].shape[0]
+    if response.shape[0] != n_samples:
+        raise ValueError(f"X has {n_samples} samples and y has {response.shape[0]}")
+    validate_partition(folds, n_samples)
+    held_out = np.empty((len(values), *response.shape), dtype=np.float64)
+    for fold, matrix in zip(folds, matrices, strict=True):
+        for index, value in enumerate(values):
+            held_out[index, fold.test] = fit_predict(
+                matrix[fold.train], response[fold.train], matrix[fold.test], float(value)
+            )
     return np.asarray([rmse(response.ravel(), predicted.ravel()) for predicted in held_out])
 
 

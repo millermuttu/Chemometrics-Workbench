@@ -282,6 +282,14 @@ COVERAGE: tuple[Coverage, ...] = (
         ("pls.rmsecv_curve", "pls.q2"),
     ),
     Coverage(
+        "Tuning curve over a named parameter",
+        ("tuning_curve",),
+        not_compared="No fixture value of its own: it is the general form of the RMSECV curve "
+        "above, fitted once per fold per value (metrics-and-validation.md section 15). "
+        "tests/test_regression.py checks it equals rmsecv_curve over components to rtol 1e-10, "
+        "and pools residuals as section 7 says at every value.",
+    ),
+    Coverage(
         "RMSE (RMSEC here; RMSEP is the same function on held-out rows)",
         ("rmse",),
         ("pls.rmsec",),

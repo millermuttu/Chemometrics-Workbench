@@ -335,3 +335,26 @@ It is never zero: the observed labelling is one of those the null could have dra
 **It runs as a job** (`POST /api/results/{id}/permutation`), because it is the cross-validation repeated $N$ times. It reports progress per permutation, can be cancelled, and like every job is not persisted.
 
 **Parity.** scikit-learn's `permutation_test_score` is given the same permutations, through a `RandomState` whose `permutation` draws from the same `default_rng(seed)`, and the same folds. It averages a score per fold where §7 pools, so the comparison uses folds of equal size, where the two coincide. For a regression it compares negative MSE, whose fold mean over equal folds is minus the pooled MSE. The null distributions and the p-values agree, for a PLS RMSECV and a two-class PLS-DA accuracy on Tecator (`tests/test_permutation.py`).
+
+## 15. The tuning curve
+
+[#373](https://github.com/millermuttu/Chemometrics-Workbench/issues/373). §9's curve is RMSECV against the component count. A model tuned by something else - a penalty, a margin cost - needs the same curve against its own parameter, so the curve is stated for **one named complexity parameter and a grid of its values**.
+
+**What is computed.** For each value $v$ in the grid, every fold's model is fitted on that fold's training rows with the parameter at $v$, its test rows are predicted, and the residuals are pooled across folds and rooted once (§7). One fold assignment serves every value, as §9 requires for components. `regression.tuning_curve` fits once per fold per value; PLS and PCR keep `rmsecv_curve`, whose components nest so that one fit per fold gives every point, and whose numbers are the general curve's to `rtol 1e-10` (`tests/test_regression.py`).
+
+**What is reported.** Beside the flat `rmsecv_a<A>` keys, a result carries `tuning_curve`:
+
+| Field | Meaning |
+| --- | --- |
+| `parameter` | `components`, or the name of the model's parameter as its schema spells it |
+| `metric` | `rmsecv` for a regression; a classifier's curve, where it has one, names its error rate |
+| `values` | the grid, in the order it was evaluated |
+| `scores` | the metric at each value |
+| `log` | whether the grid is log-spaced, so a screen draws it on a log axis |
+| `chosen` | the value the node was fitted with |
+
+PLS-DA's curve is RMSECV of its dummy response against components, as `pls-da.md` §7 defines it; an error-rate curve for a classifier is not computed yet.
+
+**Grid defaults.** Components run from 1 to the $A$ asked for. A penalty or a margin cost is log-spaced: 25 values over six decades, the top named by the model's own specification (for an L1 penalty, the smallest value at which every coefficient is zero). A model page states its grid; a grid is never chosen by looking at the held-out residuals.
+
+**The chosen value is the user's.** `chosen` is the parameter the node was fitted with, not the curve's minimum. The minimum is reported beside it, because picking the value there and then quoting the same curve's minimum as the expected error is optimistic (§9); choosing is the user's call, and the application does not make it for them.

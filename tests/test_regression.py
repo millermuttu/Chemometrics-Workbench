@@ -37,6 +37,7 @@ from chemometrics_workbench.regression import (
     coefficients_original_units,
     cross_validated_predictions,
     rmsecv_curve,
+    tuning_curve,
 )
 from chemometrics_workbench.validation import (
     folds_from_indices,
@@ -554,6 +555,47 @@ def test_the_curve_uses_one_fold_assignment_for_every_component_count() -> None:
 
     for a in range(1, 5):
         assert curve[a - 1] == pytest.approx(rmse(y, cross_validated_predictions(X, y, folds, a)))
+
+
+def test_the_tuning_curve_over_components_is_the_rmsecv_curve() -> None:
+    """§15 (#373): the general curve, fitted once per fold per value, gives the
+    numbers the nested one-fit curve gives for PLS, which is why PLS keeps
+    the faster one and its numbers did not move."""
+    X, y = _spectra_and_response(n=30)
+    folds = k_fold(30, 5)
+
+    def pls(train_x: np.ndarray, train_y: np.ndarray, test_x: np.ndarray, a: float) -> np.ndarray:
+        x_mean, y_mean = train_x.mean(axis=0), train_y.mean()
+        return PLS(int(a)).fit(train_x - x_mean, train_y - y_mean).predict(test_x - x_mean) + y_mean
+
+    general = tuning_curve(X, y, folds, [1, 2, 3, 4], pls)
+    np.testing.assert_allclose(general, rmsecv_curve(X, y, folds, 4), rtol=1e-10)
+
+
+def test_the_tuning_curve_pools_residuals_at_every_value() -> None:
+    """§7 per value: one root over every sample's residual, not a mean of fold
+    RMSEs, on folds of uneven size. The predictor is the training mean scaled
+    by the value, so each point can be worked by hand."""
+    X, y = _spectra_and_response(n=31)
+    folds = k_fold(31, 4)
+
+    def scaled_mean(
+        _x: np.ndarray, train_y: np.ndarray, test_x: np.ndarray, v: float
+    ) -> np.ndarray:
+        return np.full(test_x.shape[0], v * train_y.mean())
+
+    values = [0.1, 1.0, 10.0]
+    curve = tuning_curve(X, y, folds, values, scaled_mean)
+    for value, point in zip(values, curve, strict=True):
+        predicted = np.empty_like(y)
+        for fold in folds:
+            predicted[fold.test] = value * y[fold.train].mean()
+        assert point == pytest.approx(rmse(y, predicted))
+        mean_of_folds = np.mean([rmse(y[f.test], predicted[f.test]) for f in folds])
+        assert point != pytest.approx(mean_of_folds, rel=1e-6)
+
+    with pytest.raises(ValueError, match="at least one parameter value"):
+        tuning_curve(X, y, folds, [], scaled_mean)
 
 
 def test_a_cross_validated_fit_replays_from_a_stored_resolved_split_alone() -> None:
