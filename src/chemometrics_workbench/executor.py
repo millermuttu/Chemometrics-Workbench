@@ -154,6 +154,7 @@ from chemometrics_workbench.models import (
     Metrics,
     MLRSpec,
     NodeId,
+    OPLSDASpec,
     OPLSSpec,
     PCASpec,
     PCRSpec,
@@ -257,6 +258,7 @@ _FITTED: tuple[type, ...] = (
     PCRSpec,
     ElasticNetSpec,
     MLRSpec,
+    OPLSDASpec,
     OPLSSpec,
     SVRSpec,
     RidgeSpec,
@@ -520,6 +522,10 @@ class EstimatorResult:
     RMSECV and Q² are missing entirely when the node is not under a split, and
     SEC is missing when `n - A - 1 <= 0` rather than falling back to a
     denominator that would silently produce something that is not SEC."""
+
+    s_plot: dict[str, list[float]] = field(default_factory=dict)
+    """`opls.md` §8 (#379), an OPLS-DA's: each variable's `covariance` and
+    `correlation` with the predictive score. Empty for every other model."""
 
     tuning: dict[str, Any] = field(default_factory=dict)
     """`metrics-and-validation.md` §15 (#373) for a model tuned by something
@@ -1349,6 +1355,9 @@ def _fitted(
     if isinstance(node.spec, RidgeSpec):
         return _ridge(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
 
+    if isinstance(node.spec, OPLSDASpec):
+        return _oplsda(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
+
     if isinstance(node.spec, OPLSSpec):
         return _fit_regression(
             node,
@@ -1579,7 +1588,7 @@ def _fit_regression(
         # opls.md section 4: OPLS with 1 + k components predicts as PLS1 with
         # 1 + k, so PLS's one-fit-per-fold curve is OPLS's over its orthogonal
         # components; OPLS's own components do not nest, so it cannot run it.
-        curve_estimator = PLS if estimator is OPLS else estimator
+        curve_estimator = PLS if issubclass(estimator, OPLS) else estimator
         curve = rmsecv_curve(parent.arrays, response, folds, a, curve_estimator)
         for index, value in enumerate(curve, start=1):
             metrics[f"rmsecv_a{index}"] = float(value)
@@ -2205,12 +2214,82 @@ def _plsda(
         return _plsda_multiclass(
             node, spec, parent, key, matrix, rows, held_out, fold, classes, codes
         )
-    response = codes.astype(np.float64)
-    fitted = _fit_regression(
+    return _dummy_classifier(
         node,
         "plsda",
         spec.n_components,
         spec.class_column,
+        classes,
+        codes,
+        (parent, key, matrix, rows, held_out, fold),
+        PLS,
+    )
+
+
+def _oplsda(
+    node: PipelineNode,
+    spec: OPLSDASpec,
+    parent: _State,
+    key: str,
+    matrix: NDArray[np.float64],
+    rows: NDArray[np.intp],
+    held_out: NDArray[np.intp],
+    fold: int | None,
+    version: DatasetVersion,
+) -> EstimatorResult:
+    """`opls.md` §8 (#379): OPLS on PLS-DA's two-class dummy, assigned and tallied
+    as two-class PLS-DA is, with the S-plot. Three or more classes are refused:
+    multi-class OPLS-DA is not specified yet."""
+    classes, codes = _class_labels(version, node, spec.class_column, kind="oplsda")
+    if len(classes) > 2:
+        raise ExecutorError(
+            f"node {node.id!r} (oplsda) classifies by {spec.class_column!r}, which has "
+            f"{len(classes)} classes; OPLS-DA here is two-class only. Use PLS-DA, which "
+            "models three or more, or make the column two-valued.",
+            node.id,
+        )
+    result = _dummy_classifier(
+        node,
+        "oplsda",
+        1 + spec.n_orthogonal,
+        spec.class_column,
+        classes,
+        codes,
+        (parent, key, matrix, rows, held_out, fold),
+        OPLS,
+    )
+    # opls.md §8: each variable's covariance and correlation with the
+    # predictive score, over the rows the model was fitted on.
+    x = matrix[rows] - matrix[rows].mean(axis=0)
+    t = np.asarray(result.scores, dtype=np.float64)[:, 0]
+    covariance = x.T @ t / (len(t) - 1)
+    spread = x.std(axis=0, ddof=1) * t.std(ddof=1)
+    correlation = np.divide(covariance, spread, out=np.zeros_like(covariance), where=spread > 0)
+    return replace(
+        result, s_plot={"covariance": _values(covariance), "correlation": _values(correlation)}
+    )
+
+
+def _dummy_classifier(
+    node: PipelineNode,
+    kind: str,
+    n_components: int,
+    class_column: str,
+    classes: list[str],
+    codes: NDArray[np.intp],
+    where: tuple[_State, str, NDArray[np.float64], NDArray[np.intp], NDArray[np.intp], int | None],
+    estimator: type[PLS],
+) -> EstimatorResult:
+    """A regression on the {0, 1} dummy, assigned at 0.5 and tallied by
+    `classification.md` (`pls-da.md` §2 to §6): two-class PLS-DA, and since
+    #379 two-class OPLS-DA, which is the same with OPLS as the regression."""
+    parent, key, matrix, rows, held_out, fold = where
+    response = codes.astype(np.float64)
+    fitted = _fit_regression(
+        node,
+        kind,
+        n_components,
+        class_column,
         response,
         parent,
         key,
@@ -2218,6 +2297,7 @@ def _plsda(
         rows,
         held_out,
         fold,
+        estimator=estimator,
     )
 
     observed = assign_classes(fitted.observed)

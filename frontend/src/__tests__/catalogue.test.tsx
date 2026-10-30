@@ -145,7 +145,14 @@ it("puts every step under a heading, the models under Regression and Classificat
     "OPLS 1+1",
     "SVR rbf 5 PC",
   ]);
-  expect(headings.Classification).toEqual(["PLS-DA 5 LV", "LDA 5 PC", "kNN k5", "SVM rbf 5 PC", "SIMCA 3 PC"]);
+  expect(headings.Classification).toEqual([
+    "PLS-DA 5 LV",
+    "OPLS-DA 1+1",
+    "LDA 5 PC",
+    "kNN k5",
+    "SVM rbf 5 PC",
+    "SIMCA 3 PC",
+  ]);
   expect(headings.Validation).toEqual(["K-fold 10", "Train/test 25%"]);
   expect(headings.Explore).toEqual(["PCA"]);
   // The menu is already in heading order, so grouping it moves nothing.
@@ -263,4 +270,14 @@ it("offers OPLS beside PLS when the dataset has a target, labelled alike (#378)"
   const node = { id: "opls", type: "estimator", inputs: ["centre"], ...opls.payload } as PipelineNode;
   expect(nodeLabel(node)).toBe("OPLS 1+1 · fat");
   expect(parameterLine(node)).toBe(opls.parameters);
+});
+
+it("offers OPLS-DA beside PLS-DA on a class column, labelled alike (#379)", () => {
+  const oplsda = stepMenu([], ["grade"]).find((step) => step.kind === "OPLS-DA 1+1")!;
+  expect(oplsda.group).toBe("Classification");
+  expect(oplsda.payload.spec).toEqual({ kind: "oplsda", n_orthogonal: 1, class_column: "grade" });
+  const node = { id: "o", type: "estimator", inputs: ["centre"], ...oplsda.payload } as PipelineNode;
+  expect(nodeLabel(node)).toBe("OPLS-DA 1+1 · grade");
+  expect(parameterLine(node)).toBe(oplsda.parameters);
+  expect(stepMenu(["fat"]).find((step) => step.kind === "OPLS-DA 1+1")!.disabled).toBe(NO_CLASS);
 });

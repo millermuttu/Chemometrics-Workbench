@@ -43,6 +43,7 @@ from chemometrics_workbench.models import (
     MeanCentre,
     MedianFilter,
     MovingAverage,
+    OPLSDASpec,
     PCASpec,
     PCRSpec,
     Pipeline,
@@ -330,6 +331,29 @@ def test_three_classes_export_a_matrix_and_assign_by_the_largest_column(
     assert model["model"]["assignment"] == "argmax" and model["model"]["threshold"] is None
     assert np.asarray(model["coefficients"]).shape == (version.n_variables, 3)
     assert len(model["intercept"]) == 3
+    predicted = _predict(python_snippet(model), tecator.spectra)
+    expected = [result.classes[k] for k in result.predicted_class]
+    assert predicted[np.asarray(result.rows)].tolist() == expected
+
+
+def test_an_oplsda_exports_as_a_two_class_plsda_does(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#379, opls.md section 9: one folded vector, cut at 0.5."""
+    directory, version = project
+    fat = np.asarray(tecator.targets["fat"])
+    labels = np.where(fat > np.median(fat), "high", "low").tolist()
+    version = version.model_copy(update={"metadata_columns": {"grade": labels}})
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(id="centre", inputs=("source",), step=MeanCentre()),
+        EstimatorNode(
+            id="oplsda", inputs=("centre",), spec=OPLSDASpec(n_orthogonal=2, class_column="grade")
+        ),
+    )
+    result = _run(directory, version, pipeline, "oplsda")
+    model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
+    assert model["model"]["threshold"] == 0.5 and model["model"]["assignment"] is None
     predicted = _predict(python_snippet(model), tecator.spectra)
     expected = [result.classes[k] for k in result.predicted_class]
     assert predicted[np.asarray(result.rows)].tolist() == expected

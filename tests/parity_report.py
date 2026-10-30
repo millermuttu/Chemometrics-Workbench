@@ -55,6 +55,7 @@ ALGORITHM_TITLES = {
     "lasso": "Lasso",
     "mlr": "MLR (multiple linear regression)",
     "opls": "OPLS (through the PLS1 identity)",
+    "oplsda": "OPLS-DA (two-class, through the PLS-DA identity)",
     "svr": "SVR (PCA-SVR, epsilon)",
     "lda": "LDA (PCA-LDA)",
     "knn": "kNN (PCA-kNN)",
@@ -78,6 +79,7 @@ ALGORITHM_ORDER = [
     "opls",
     "svr",
     "plsda",
+    "oplsda",
     "lda",
     "knn",
     "svm",
@@ -140,6 +142,11 @@ COVERAGE: tuple[Coverage, ...] = (
         "OPLS",
         ("OPLS",),
         ("opls.predictions_2", "opls.predictions_5", "opls.orthogonal_scores"),
+    ),
+    Coverage(
+        "OPLS-DA (two-class)",
+        ("OPLS",),
+        ("oplsda.dummy_predictions", "oplsda.confusion"),
     ),
     Coverage(
         "SVR",

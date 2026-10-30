@@ -36,6 +36,7 @@ ALGORITHMS = (
     "mlr",
     "svr",
     "opls",
+    "oplsda",
     "plsda",
     "lda",
     "knn",

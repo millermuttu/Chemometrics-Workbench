@@ -46,6 +46,7 @@ from chemometrics_workbench.models import (
     LeaveOneOut,
     MeanCentre,
     MLRSpec,
+    OPLSDASpec,
     OPLSSpec,
     PCASpec,
     PCRSpec,
@@ -1877,6 +1878,62 @@ def test_an_opls_node_predicts_as_a_pls_with_as_many_components(
     scores = np.asarray(opls.scores)
     fat = np.asarray(opls.observed)
     assert abs(scores[:, 1] @ (fat - fat.mean())) < 1e-6 * abs(scores[:, 0] @ (fat - fat.mean()))
+
+
+def test_an_oplsda_node_assigns_as_plsda_and_draws_an_s_plot(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#379, `opls.md` section 8: beside a two-class PLS-DA with as many
+    components on one split, the same dummy predictions, assignments and
+    tallies; and an S-plot from the predictive score."""
+    directory, version = project
+    fat = np.asarray(tecator.targets["fat"])
+    labels = np.where(fat > np.median(fat), "high", "low").tolist()
+    version = version.model_copy(update={"metadata_columns": {"grade": labels}})
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=5, seed=42)),
+        PreprocessNode(id="centre", inputs=("split",), step=MeanCentre()),
+        EstimatorNode(
+            id="oplsda", inputs=("centre",), spec=OPLSDASpec(n_orthogonal=2, class_column="grade")
+        ),
+        EstimatorNode(
+            id="plsda", inputs=("centre",), spec=PLSDASpec(n_components=3, class_column="grade")
+        ),
+    )
+    run = execute(directory, pipeline, version)
+    opls, pls = run.results["oplsda"], run.results["plsda"]
+    assert opls.task == "classification" and opls.method == "oplsda"
+    assert opls.classes == pls.classes == ["high", "low"]
+    np.testing.assert_allclose(opls.predicted, pls.predicted, rtol=1e-9, atol=1e-12)
+    assert opls.predicted_class == pls.predicted_class
+    assert opls.confusion == pls.confusion
+    for name in ("accuracy", "accuracy_cv", "rmsecv"):
+        assert opls.metrics[name] == pytest.approx(pls.metrics[name], rel=1e-9)
+
+    x = _as_stored(tecator.spectra)
+    x = x - x.mean(axis=0)
+    t = np.asarray(opls.scores)[:, 0]
+    np.testing.assert_allclose(opls.s_plot["covariance"], x.T @ t / (len(t) - 1), rtol=1e-6)
+    expected = [np.corrcoef(x[:, j], t)[0, 1] for j in range(x.shape[1])]
+    np.testing.assert_allclose(opls.s_plot["correlation"], expected, rtol=1e-6, atol=1e-9)
+
+
+def test_an_oplsda_with_three_classes_is_refused_naming_plsda(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#379: two-class only in this phase."""
+    directory, version = project
+    version = _terciles(version, tecator)
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(id="centre", inputs=("source",), step=MeanCentre()),
+        EstimatorNode(id="oplsda", inputs=("centre",), spec=OPLSDASpec(class_column="grade")),
+    )
+    with pytest.raises(
+        ExecutorError, match=r"3 classes; OPLS-DA here is two-class only\. Use PLS-DA"
+    ):
+        execute(directory, pipeline, version)
 
 
 def test_a_simca_node_decides_every_set_with_its_folds_own_models(

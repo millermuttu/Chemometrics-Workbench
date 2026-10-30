@@ -1378,6 +1378,24 @@ def test_plsda_is_pls1_on_the_dummy_response(
 
 
 @every_dataset
+def test_oplsda_predicts_and_assigns_as_plsda_with_as_many_components(dataset: str) -> None:
+    """`opls.md` section 8 (#379): OPLS on the same dummy, 1 + 4 components,
+    against PLS-DA with 5 through the identity; the 0.5 threshold and the
+    tally are PLS-DA's."""
+    _, y = _dummy_response(dataset)
+    model = OPLS(N_COMPONENTS).fit(_centred(dataset), y - y.mean())
+    predictions = model.predict(_centred(dataset)) + y.mean()
+    assert parity.check(
+        f"{dataset}.oplsda.dummy_predictions.sklearn_pls_identity", predictions
+    ).passed
+    confusion = confusion_matrix(y.astype(int), assign_classes(predictions))
+    assert parity.check(
+        f"{dataset}.oplsda.confusion.sklearn_pls_identity",
+        np.asarray(confusion, dtype=float).ravel(),
+    ).passed
+
+
+@every_dataset
 def test_plsda_assignment_and_tally_match_an_independent_count(
     dataset: str, plsda_models: dict[str, tuple[PLS, np.ndarray]]
 ) -> None:

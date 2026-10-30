@@ -649,7 +649,7 @@ def results_payload(
         if payload["rmsecv_curve"]:
             # opls.md section 4: OPLS's curve is over its orthogonal components,
             # 0 to A - 1, the same numbers as PLS1's over 1 to A.
-            opls = result.method == "opls"
+            opls = result.method in ("opls", "oplsda")
             payload["tuning_curve"] = {
                 "parameter": "orthogonal components" if opls else "components",
                 "metric": "rmsecv",
@@ -660,6 +660,9 @@ def results_payload(
             }
         elif result.tuning:
             payload["tuning_curve"] = result.tuning
+        if result.s_plot:
+            # opls.md section 8 (#379): an OPLS-DA's S-plot, on the node's axis.
+            payload["s_plot"] = result.s_plot
     if result.simca:
         # simca.md section 5: no single X model and no confusion matrix, so
         # its own block - the class models' sizes and limits and, per set, the

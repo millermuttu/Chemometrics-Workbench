@@ -275,6 +275,46 @@ test("a SIMCA tab reads as class models: acceptance, Coomans and limits", async 
   }
 });
 
+test("an OPLS-DA tab reads as PLS-DA's tally with its own scores and an S-plot", async ({
+  page,
+}) => {
+  // #379. As the SIMCA test does: added beside the seeded PLS-DA, then removed.
+  const auth = { Authorization: "Bearer e2e-token" };
+  await page.goto("/?token=e2e-token");
+  const original = (await (await page.request.get("/api/pipelines/current", { headers: auth })).json())
+    .nodes as { id: string; inputs: string[] }[];
+  const plsda = original.find((node) => node.id === "plsda_d")!;
+  const nodes = [
+    ...original,
+    { id: "oplsda_d", type: "estimator", inputs: plsda.inputs, spec: { kind: "oplsda", n_orthogonal: 2, class_column: "fat_class" } },
+  ];
+  const put = (body: unknown[]) =>
+    page.request.put("/api/pipelines/current", {
+      headers: { ...auth, "Content-Type": "application/json" },
+      data: { nodes: body },
+    });
+  expect((await put(nodes)).status()).toBe(200);
+  try {
+    await page.reload();
+    await page.getByRole("button", { name: "Run pipeline" }).click();
+    await expect(page.locator(".status")).toContainText("Done", { timeout: 120_000 });
+    const outline = page.getByRole("complementary", { name: "Project outline" });
+    await outline.getByRole("button", { name: /OPLS-DA 1\+2 · fat_class/ }).dblclick();
+    await expect(page.getByTestId("analysis-header")).toContainText(
+      "OPLS-DA on fat_class 3 components",
+    );
+    await expect(page.getByLabel("Scores x axis").locator("option")).toHaveText([
+      "t pred",
+      "t orth 1",
+      "t orth 2",
+    ]);
+    await page.getByLabel("Variable importance view").selectOption("splot");
+    await expect(page.getByTestId("s-plot")).toBeVisible();
+  } finally {
+    expect((await put(original)).status()).toBe(200);
+  }
+});
+
 test("an LDA tab reads as a classification on the PCA front's scores", async ({ page }) => {
   // #276. As the SIMCA test does: added beside the seeded PLS-DA, then removed.
   const auth = { Authorization: "Bearer e2e-token" };

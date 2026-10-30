@@ -210,6 +210,21 @@ export function rmsecvTrace(pca: PcaPayload, theme: PlotTheme) {
   };
 }
 
+/** An OPLS-DA's S-plot (#379, opls.md section 8): one point per variable,
+ * covariance with the predictive score against correlation, the variable's
+ * axis value on hover. */
+export function sPlotTrace(pca: PcaPayload, theme: PlotTheme) {
+  return {
+    type: "scattergl",
+    mode: "markers",
+    x: pca.s_plot?.covariance ?? [],
+    y: pca.s_plot?.correlation ?? [],
+    text: pca.loadings.axis.values.map((value) => value.toFixed(1)),
+    marker: { size: 5, color: theme.series[0] },
+    hovertemplate: "%{text}<br>cov %{x:.3g} · corr %{y:.3f}<extra></extra>",
+  };
+}
+
 /** The value the node was fitted with, as a vertical line: the user's choice,
  * which the curve's minimum is read against rather than substituted for. */
 export function chosenLine(curve: TuningCurve, theme: PlotTheme) {
