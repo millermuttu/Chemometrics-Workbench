@@ -38,7 +38,12 @@ export type StepGroup = (typeof GROUPS)[number];
 /** A step the canvas can create, from the list or from the menu. */
 export type CatalogueStep = Pick<DraftStep, "kind" | "type" | "parameters" | "payload"> & {
   group: StepGroup;
+  /** Why the step cannot be added to this dataset, when it cannot (#372). */
+  disabled?: string;
 };
+
+export const NO_TARGET = "No target column. Mark one in Dataset view.";
+export const NO_CLASS = "No class column (two or more values). Mark one in Dataset view.";
 
 /** The menu under its headings, in `GROUPS` order; an empty group is left out. */
 export function grouped(menu: CatalogueStep[]): [StepGroup, CatalogueStep[]][] {
@@ -139,76 +144,76 @@ export const STEPS: CatalogueStep[] = [
  * *something*: this used to write `target: "fat"` - Tecator's column - into
  * every PLS node, so on any other dataset the node validated, ran and failed
  * by name (#182). The first target is the default and the inspector offers
- * the rest; a dataset with no targets is offered no PLS at all.
+ * the rest. A dataset with no target still lists every regression model, and
+ * one with no class column every classifier, disabled with the reason (#372):
+ * a menu without models read as a tool without them.
  */
 export function stepMenu(targets: string[], classColumns: string[] = []): CatalogueStep[] {
-  const [target] = targets;
-  const [classColumn] = classColumns;
+  const [target = "—"] = targets;
+  const [classColumn = "—"] = classColumns;
+  const needs = (present: boolean, reason: string) => (step: CatalogueStep) =>
+    present ? step : { ...step, disabled: reason };
   return [
     ...STEPS,
-    ...(target
-      ? [
-          {
-            kind: "PLS 5 LV",
-            group: "Regression" as const,
-            type: "estimator" as const,
-            parameters: `5 components · ${target}`,
-            payload: { spec: { kind: "pls", n_components: 5, algorithm: "nipals", target } },
-          },
-          {
-            kind: "PCR 5 PC",
-            group: "Regression" as const,
-            type: "estimator" as const,
-            parameters: `5 components · ${target}`,
-            payload: { spec: { kind: "pcr", n_components: 5, target } },
-          },
-        ]
-      : []),
-    // Offered when the dataset has a metadata column with two or more values
+    ...[
+      {
+        kind: "PLS 5 LV",
+        group: "Regression" as const,
+        type: "estimator" as const,
+        parameters: `5 components · ${target}`,
+        payload: { spec: { kind: "pls", n_components: 5, algorithm: "nipals", target } },
+      },
+      {
+        kind: "PCR 5 PC",
+        group: "Regression" as const,
+        type: "estimator" as const,
+        parameters: `5 components · ${target}`,
+        payload: { spec: { kind: "pcr", n_components: 5, target } },
+      },
+    ].map(needs(targets.length > 0, NO_TARGET)),
+    // Enabled when the dataset has a metadata column with two or more values
     // (#185, #274, pls-da.md section 2), and it models the first.
-    ...(classColumn
-      ? [
-          {
-            kind: "PLS-DA 5 LV",
-            group: "Classification" as const,
-            type: "estimator" as const,
-            parameters: `5 components · ${classColumn}`,
-            payload: {
-              spec: { kind: "plsda", n_components: 5, algorithm: "nipals", class_column: classColumn },
-            },
-          },
-          {
-            kind: "LDA 5 PC",
-            group: "Classification" as const,
-            type: "estimator" as const,
-            parameters: `5 components · ${classColumn}`,
-            payload: { spec: { kind: "lda", n_components: 5, class_column: classColumn } },
-          },
-          {
-            kind: "kNN k5",
-            group: "Classification" as const,
-            type: "estimator" as const,
-            parameters: `k 5 · 5 components · ${classColumn}`,
-            payload: { spec: { kind: "knn", k: 5, n_components: 5, class_column: classColumn } },
-          },
-          {
-            kind: "SVM rbf 5 PC",
-            group: "Classification" as const,
-            type: "estimator" as const,
-            parameters: `rbf · C 1 · 5 components · ${classColumn}`,
-            payload: {
-              spec: { kind: "svm", kernel: "rbf", C: 1, n_components: 5, class_column: classColumn },
-            },
-          },
-          {
-            kind: "SIMCA 3 PC",
-            group: "Classification" as const,
-            type: "estimator" as const,
-            parameters: `3 components · ${classColumn}`,
-            payload: { spec: { kind: "simca", n_components: 3, class_column: classColumn } },
-          },
-        ]
-      : []),
+    ...[
+      {
+        kind: "PLS-DA 5 LV",
+        group: "Classification" as const,
+        type: "estimator" as const,
+        parameters: `5 components · ${classColumn}`,
+        payload: {
+          spec: { kind: "plsda", n_components: 5, algorithm: "nipals", class_column: classColumn },
+        },
+      },
+      {
+        kind: "LDA 5 PC",
+        group: "Classification" as const,
+        type: "estimator" as const,
+        parameters: `5 components · ${classColumn}`,
+        payload: { spec: { kind: "lda", n_components: 5, class_column: classColumn } },
+      },
+      {
+        kind: "kNN k5",
+        group: "Classification" as const,
+        type: "estimator" as const,
+        parameters: `k 5 · 5 components · ${classColumn}`,
+        payload: { spec: { kind: "knn", k: 5, n_components: 5, class_column: classColumn } },
+      },
+      {
+        kind: "SVM rbf 5 PC",
+        group: "Classification" as const,
+        type: "estimator" as const,
+        parameters: `rbf · C 1 · 5 components · ${classColumn}`,
+        payload: {
+          spec: { kind: "svm", kernel: "rbf", C: 1, n_components: 5, class_column: classColumn },
+        },
+      },
+      {
+        kind: "SIMCA 3 PC",
+        group: "Classification" as const,
+        type: "estimator" as const,
+        parameters: `3 components · ${classColumn}`,
+        payload: { spec: { kind: "simca", n_components: 3, class_column: classColumn } },
+      },
+    ].map(needs(classColumns.length > 0, NO_CLASS)),
     {
       kind: "K-fold 10",
       group: "Validation" as const,

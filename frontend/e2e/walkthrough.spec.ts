@@ -354,10 +354,12 @@ test("a flagged sample is excluded from the outlier table, rerun, and named in l
   }
 });
 
-/** #371. A column's role was the reader's guess and could not be changed.
- * Last, on whatever version the tests above left the pipeline on: the target
- * is made a class, which writes a version the pipeline moves onto and the Step
- * list follows, and then made a target again. */
+/** #371, #372. A column's role was the reader's guess and could not be
+ * changed, and a dataset with no column for a model hid the model. Last, on
+ * whatever version the tests above left the pipeline on: the target is made a
+ * group, so every model is listed disabled with its reason; the link opens the
+ * dataset, the column is made a class and the classifiers are enabled; then it
+ * is a target again. */
 test("a column's role is changed in the dataset view, and the step menu follows", async ({
   page,
 }) => {
@@ -372,32 +374,43 @@ test("a column's role is changed in the dataset view, and the step menu follows"
     (version: { version_id: string }) => version.version_id === source.version_id,
   ).version as number;
   const next = Math.max(...entry.versions.map((version: { version: number }) => version.version)) + 1;
-
   const outline = page.getByRole("complementary", { name: "Project outline" });
-  await outline.getByRole("button", { name: new RegExp(` v${on} · `) }).dblclick();
-  await expect(page.getByLabel("Role of moisture")).toHaveValue("target");
-  await page.getByLabel("Role of moisture").selectOption("class");
-
-  await outline.getByRole("button", { name: new RegExp(` v${next} · `) }).dblclick();
-  await expect(page.getByTestId("roles-pill")).toHaveText(`1 role changed from v${on}`);
-  await expect(page.getByTestId("role-changes")).toHaveText(`Changed from v${on}: moisture → class`);
-  await expect(page.getByLabel("Role of moisture")).toHaveValue("class");
-
-  await page.getByRole("button", { name: "Pipeline", exact: true }).click();
+  const version = (n: number) => outline.getByRole("button", { name: new RegExp(` v${n} · `) });
   const list = page.getByLabel("Step", { exact: true });
-  await expect(
-    list.locator('optgroup[label="Classification"] > option', { hasText: "PLS-DA 5 LV" }),
-  ).toHaveCount(1);
-  await expect(list.locator('optgroup[label="Regression"]')).toHaveCount(0);
+  const option = (group: string, kind: string) =>
+    list.locator(`optgroup[label="${group}"] > option`, { hasText: kind });
 
-  await outline.getByRole("button", { name: new RegExp(` v${next} · `) }).dblclick();
+  await version(on).dblclick();
+  await expect(page.getByLabel("Role of moisture")).toHaveValue("target");
+  await page.getByLabel("Role of moisture").selectOption("group");
+  await expect(version(next)).toBeVisible();
+
+  // No target and no class: every model listed, disabled, with the reason.
+  await page.getByRole("button", { name: "Pipeline", exact: true }).click();
+  await expect(option("Regression", "PLS 5 LV")).toBeDisabled();
+  await expect(option("Classification", "PLS-DA 5 LV")).toBeDisabled();
+  await expect(page.getByText("No target column. Mark one in Dataset view.").first()).toBeVisible();
+  await expect(
+    page.getByText("No class column (two or more values). Mark one in Dataset view.").first(),
+  ).toBeVisible();
+
+  // The link opens the version the pipeline runs on, where the role is set.
+  await page.getByRole("button", { name: "Open Dataset view" }).first().click();
+  await expect(page.getByTestId("role-changes")).toHaveText(`Changed from v${on}: moisture → group`);
+  await page.getByLabel("Role of moisture").selectOption("class");
+  await expect(version(next + 1)).toBeVisible();
+  await page.getByRole("button", { name: "Pipeline", exact: true }).click();
+  await expect(option("Classification", "PLS-DA 5 LV")).toBeEnabled();
+  await expect(option("Regression", "PLS 5 LV")).toBeDisabled();
+
+  await page.getByRole("button", { name: "Open Dataset view" }).first().click();
+  await expect(page.getByTestId("roles-pill")).toHaveText(`1 role changed from v${next}`);
   await page.getByLabel("Role of moisture").selectOption("target");
-  await outline.getByRole("button", { name: new RegExp(` v${next + 1} · `) }).dblclick();
+  await version(next + 2).dblclick();
   await expect(page.getByTestId("role-changes")).toHaveText(
-    `Changed from v${next}: moisture → target`,
+    `Changed from v${next + 1}: moisture → target`,
   );
   await page.getByRole("button", { name: "Pipeline", exact: true }).click();
-  await expect(
-    list.locator('optgroup[label="Regression"] > option', { hasText: "PLS 5 LV" }),
-  ).toHaveCount(1);
+  await expect(option("Regression", "PLS 5 LV")).toBeEnabled();
+  await expect(page.getByText("No target column. Mark one in Dataset view.")).toHaveCount(0);
 });

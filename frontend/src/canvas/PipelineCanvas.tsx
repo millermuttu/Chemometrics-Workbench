@@ -14,7 +14,7 @@ import type { PipelineNode } from "@/api/queries";
 import { usePipeline, usePipelineState, useSaveLayout, useSavePipeline } from "@/api/queries";
 import { grouped, stepMenu } from "@/canvas/catalogue";
 import { NodeCard } from "@/canvas/NodeCard";
-import { StepList } from "@/canvas/StepList";
+import { StepList, Unavailable } from "@/canvas/StepList";
 import {
   add,
   connect,
@@ -99,11 +99,15 @@ export function withDrafts(saved: PipelineNode[], drafts: DraftStep[]): Pipeline
 
 export function PipelineCanvas({
   onOpenNode,
+  onOpenDataset,
   onCompare,
   targets = [],
   classColumns = [],
 }: {
   onOpenNode: (id: string, label: string) => void;
+  /** Opens the dataset the pipeline runs on, where a disabled model's
+   * missing column can be marked (#372). */
+  onOpenDataset?: () => void;
   /** Opens the comparison tab once two terminal estimators are picked (#51). */
   onCompare?: (left: string, right: string) => void;
   /** The dataset's target columns, which decide whether PLS is on the menu
@@ -355,10 +359,13 @@ export function PipelineCanvas({
               <div className="ilabel" style={{ padding: "6px 8px 2px" }}>
                 {group}
               </div>
+              <Unavailable steps={entries} onOpenDataset={onOpenDataset} />
               {entries.map((step) => (
                 <button
                   key={step.kind}
                   role="menuitem"
+                  disabled={step.disabled !== undefined}
+                  title={step.disabled}
                   className="srow"
                   style={{ display: "block", width: "100%", textAlign: "left", padding: "3px 8px" }}
                   onClick={() => {
@@ -384,6 +391,7 @@ export function PipelineCanvas({
 
       <StepList
         menu={menu}
+        onOpenDataset={onOpenDataset}
         steps={steps}
         saving={save.isPending}
         edited={edited !== null}

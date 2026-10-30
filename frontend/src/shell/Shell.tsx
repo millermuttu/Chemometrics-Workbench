@@ -80,6 +80,7 @@ function Pane({
   onImported,
   onCloseImport,
   onOpenNode,
+  onOpenDataset,
   onCompare,
   onCompareRuns,
   onRun,
@@ -89,6 +90,7 @@ function Pane({
   targets: string[];
   classColumns: string[];
   onOpenNode: (id: string, label: string) => void;
+  onOpenDataset?: () => void;
   onCompare: (left: string, right: string) => void;
   onCompareRuns: (left: string, right: string) => void;
   onRun: () => void;
@@ -103,6 +105,7 @@ function Pane({
     return (
       <PipelineCanvas
         onOpenNode={onOpenNode}
+        onOpenDataset={onOpenDataset}
         onCompare={onCompare}
         targets={targets}
         classColumns={classColumns}
@@ -355,6 +358,14 @@ export function Shell() {
   const source = sourceVersionOf(pipeline.data, datasets.data);
   const targets = Object.keys(source?.targets ?? {});
   const classColumns = classColumnsOf(source?.metadata_columns, source?.column_roles);
+  /** The version the recipe runs on, opened where its columns' roles are set (#372). */
+  const sourceEntry = datasets.data?.find((entry) =>
+    entry.versions.some((v) => v.version_id === source?.version_id),
+  );
+  const openSource =
+    source && sourceEntry
+      ? () => open({ id: source.version_id, kind: "dataset", title: sourceEntry.dataset.name }, false)
+      : undefined;
 
   /** The active estimator node's headline numbers, from its own result. The
    * full results table is #48; this is what fits in 292px. */
@@ -509,11 +520,11 @@ export function Shell() {
             <EmptyProject onImport={openImport} />
           ) : state.splitId ? (
             <div className="split">
-              <Pane tab={activeTab} datasets={datasets.data} targets={targets} classColumns={classColumns} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} onCompareRuns={openLineage} onRun={rerun} />
-              <Pane tab={splitTab} datasets={datasets.data} targets={targets} classColumns={classColumns} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} onCompareRuns={openLineage} onRun={rerun} />
+              <Pane tab={activeTab} datasets={datasets.data} targets={targets} classColumns={classColumns} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onOpenDataset={openSource} onCompare={openCompare} onCompareRuns={openLineage} onRun={rerun} />
+              <Pane tab={splitTab} datasets={datasets.data} targets={targets} classColumns={classColumns} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onOpenDataset={openSource} onCompare={openCompare} onCompareRuns={openLineage} onRun={rerun} />
             </div>
           ) : (
-            <Pane tab={activeTab} datasets={datasets.data} targets={targets} classColumns={classColumns} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onCompare={openCompare} onCompareRuns={openLineage} onRun={rerun} />
+            <Pane tab={activeTab} datasets={datasets.data} targets={targets} classColumns={classColumns} onImported={imported} onCloseImport={() => dispatch({ type: "close", id: "import" })} onOpenNode={openNode} onOpenDataset={openSource} onCompare={openCompare} onCompareRuns={openLineage} onRun={rerun} />
           )}
         </main>
 
