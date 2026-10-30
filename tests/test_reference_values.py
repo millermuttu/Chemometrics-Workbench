@@ -35,6 +35,7 @@ ALGORITHMS = (
     "lasso",
     "mlr",
     "svr",
+    "opls",
     "plsda",
     "lda",
     "knn",

@@ -46,6 +46,7 @@ from chemometrics_workbench.models import (
     LeaveOneOut,
     MeanCentre,
     MLRSpec,
+    OPLSSpec,
     PCASpec,
     PCRSpec,
     Pipeline,
@@ -1847,6 +1848,35 @@ def test_an_svr_node_has_the_pca_front_and_a_curve_over_c(
     for train, test in zip(resolved.train_indices, resolved.test_indices, strict=True):
         held[test] = SVR(5, c=10).fit(spectra[train], fat[train]).predict(spectra[test])
     assert result.metrics["rmsecv"] == pytest.approx(rmse(fat, held), rel=1e-9)
+
+
+def test_an_opls_node_predicts_as_a_pls_with_as_many_components(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    """#378, `opls.md`: beside a PLS with 1 + 2 components on the same split,
+    the same predictions, RMSECV and curve; its own scores, predictive first,
+    and VIP the predictive one's."""
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=5, seed=42)),
+        PreprocessNode(id="centre", inputs=("split",), step=MeanCentre()),
+        EstimatorNode(id="opls", inputs=("centre",), spec=OPLSSpec(n_orthogonal=2, target="fat")),
+        EstimatorNode(
+            id="pls", inputs=("centre",), spec=PLSRegressionSpec(n_components=3, target="fat")
+        ),
+    )
+    run = execute(directory, pipeline, version)
+    opls, pls = run.results["opls"], run.results["pls"]
+    assert opls.method == "opls" and opls.n_components == 3 and len(opls.vip) == version.n_variables
+    np.testing.assert_allclose(opls.predicted, pls.predicted, rtol=1e-9)
+    np.testing.assert_allclose(opls.coefficients, pls.coefficients, rtol=1e-6, atol=1e-9)
+    for name in ("rmsecv", "q2", "rmsecv_a1", "rmsecv_a2", "rmsecv_a3"):
+        assert opls.metrics[name] == pytest.approx(pls.metrics[name], rel=1e-9)
+    # Its own decomposition, not PLS's: the second score is orthogonal to y.
+    scores = np.asarray(opls.scores)
+    fat = np.asarray(opls.observed)
+    assert abs(scores[:, 1] @ (fat - fat.mean())) < 1e-6 * abs(scores[:, 0] @ (fat - fat.mean()))
 
 
 def test_a_simca_node_decides_every_set_with_its_folds_own_models(

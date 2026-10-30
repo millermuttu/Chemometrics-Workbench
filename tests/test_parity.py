@@ -48,6 +48,7 @@ from chemometrics_workbench.preprocessing import (
 )
 from chemometrics_workbench.regression import (
     MLR,
+    OPLS,
     PCR,
     PLS,
     PLS2,
@@ -677,6 +678,26 @@ def test_svr_at_the_default_tolerance_differs_by_the_stopping_rule(
         ),
     )
     assert result.passed
+
+
+# --------------------------------------------------------------------------
+# OPLS (#378)
+# --------------------------------------------------------------------------
+
+
+@every_dataset
+@pytest.mark.parametrize("total", [2, 5])
+def test_opls_predicts_as_pls1_with_as_many_components(dataset: str, total: int) -> None:
+    """`opls.md` section 6: 1 predictive and `total - 1` orthogonal components
+    against scikit-learn's PLSRegression(total), the identity Trygg and Wold state."""
+    data = LOADERS[dataset]()
+    centred = data.spectra - data.spectra.mean(axis=0)
+    y = np.asarray(data.targets[parity.load_fixture()["targets"][dataset]])
+    model = OPLS(total).fit(centred, y - y.mean())
+    assert parity.check(
+        f"{dataset}.opls.predictions_{total}.sklearn_pls_identity",
+        model.predict(centred) + y.mean(),
+    ).passed
 
 
 # --------------------------------------------------------------------------

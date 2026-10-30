@@ -1185,6 +1185,43 @@ def test_a_penalised_model_is_served_exported_reported_and_saved_like_a_regressi
     assert saved.status_code == 201, saved.text
 
 
+def test_an_opls_curve_is_over_its_orthogonal_components(client: TestClient) -> None:
+    """#378, opls.md section 4: 0 to A - 1 orthogonal components, marked at the
+    number fitted, and the model exported as a coefficient vector."""
+    client.post("/api/import", files=upload("tecator_subset.csv"))
+    nodes = client.get("/api/pipelines/current").json()["nodes"]
+    nodes += [
+        {
+            "id": "split",
+            "type": "split",
+            "inputs": ["source"],
+            "spec": {"kind": "kfold", "n_splits": 4},
+        },
+        {
+            "id": "centre",
+            "type": "preprocess",
+            "inputs": ["split"],
+            "step": {"kind": "mean_centre"},
+        },
+        {
+            "id": "opls",
+            "type": "estimator",
+            "inputs": ["centre"],
+            "spec": {"kind": "opls", "n_orthogonal": 1, "target": "fat"},
+        },
+    ]
+    assert client.put("/api/pipelines/current", json={"nodes": nodes}).status_code == 200
+    _run_current(client)
+    payload = client.get("/api/results/opls").json()
+    curve = payload["tuning_curve"]
+    assert curve["parameter"] == "orthogonal components"
+    assert curve["values"] == [0, 1] and curve["chosen"] == 1
+    assert curve["scores"] == payload["rmsecv_curve"]
+    assert payload["regression"]["method"] == "opls" and len(payload["scores"][0]) == 2
+    assert client.get("/api/results/opls/coefficients").json()["available"]
+    assert client.get("/api/results/opls/export.py").status_code == 200
+
+
 def test_an_mlr_below_a_selection_is_served_and_exported(client: TestClient) -> None:
     """#376: three of twelve variables, so every training fold of six rows has full rank."""
     client.post("/api/import", files=upload("tecator_subset.csv"))

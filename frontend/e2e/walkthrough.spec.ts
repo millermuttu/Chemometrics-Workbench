@@ -520,6 +520,41 @@ test("an SVR runs below a split with the PCA front and a curve over C", async ({
   await expect(page.getByRole("region", { name: "Predicted vs measured" })).toBeVisible();
 });
 
+test("an OPLS draws its predictive score against its orthogonal one", async ({ page }) => {
+  // #378. On the ridge's split, one predictive and two orthogonal components.
+  await page.goto("/?token=e2e-token");
+  const auth = { Authorization: "Bearer e2e-token" };
+  const pipeline = await (await page.request.get("/api/pipelines/current", { headers: auth })).json();
+  const nodes = pipeline.nodes as { id: string; type: string; inputs: string[] }[];
+  nodes.push({
+    id: "opls",
+    type: "estimator",
+    inputs: ["ridge_split"],
+    spec: { kind: "opls", n_orthogonal: 2, target: "moisture" },
+  } as (typeof nodes)[number]);
+  const saved = await page.request.put("/api/pipelines/current", {
+    headers: { ...auth, "Content-Type": "application/json" },
+    data: { nodes },
+  });
+  expect(saved.status()).toBe(200);
+
+  await page.reload();
+  await page.getByRole("button", { name: "Run pipeline" }).click();
+  await expect(page.locator(".status")).toContainText("Done", { timeout: 60_000 });
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /OPLS 1\+2 · moisture/ }).dblclick();
+  await expect(page.getByTestId("analysis-header")).toContainText("OPLS on moisture 3 components");
+  await expect(page.getByLabel("Scores x axis")).toHaveValue("0");
+  await expect(page.getByLabel("Scores x axis").locator("option")).toHaveText([
+    "t pred",
+    "t orth 1",
+    "t orth 2",
+  ]);
+  await expect(page.getByRole("region", { name: "RMSECV" })).toContainText(
+    /fitted at A orth = 2 · lowest at A orth = \d/,
+  );
+});
+
 /** #371, #372. A column's role was the reader's guess and could not be
  * changed, and a dataset with no column for a model hid the model. Last, on
  * whatever version the tests above left the pipeline on: the target is made a

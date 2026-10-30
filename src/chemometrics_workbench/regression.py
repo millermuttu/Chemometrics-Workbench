@@ -88,6 +88,7 @@ from chemometrics_workbench.validation import Fold, rmse, validate_partition
 __all__ = [
     "FOLDABLE",
     "MLR",
+    "OPLS",
     "PCR",
     "PLS",
     "PLS2",
@@ -842,6 +843,112 @@ class Ridge:
             raise RuntimeError("Ridge has not been fitted")
         predicted: NDArray[np.float64] = as_float64(X, "X") @ self.coefficients_
         return predicted
+
+
+class OPLS(PLS):
+    """Orthogonal PLS for one response, per `opls.md` (Trygg and Wold, 2002).
+
+    `n_components` is the total, `1 + A`: one predictive component and `A`
+    orthogonal ones. Each orthogonal component is the part of X's loading
+    that is orthogonal to the predictive weight, removed from X before the
+    next; the predictive component is then fitted on what is left (§2).
+
+    It is a `PLS` in everything after `fit`: the scores, loadings, rotations
+    (`T = X R`), coefficients and variances are set as PLS sets them - the
+    predictive component first, the orthogonal ones after - so prediction,
+    T2, SPE, explained variance and VIP are PLS's own methods. The
+    orthogonal components explain none of y, so VIP is the predictive VIP
+    (§5). Like PLS it centres nothing.
+    """
+
+    def fit(self, X: object, y: object) -> Self:
+        values = as_float64(X, "X")
+        response = as_float64_vector(y, "y")
+        n_samples, n_variables = values.shape
+        if response.size != n_samples:
+            raise ValueError(
+                f"X has {n_samples} samples and y has {response.size}. Arrays are "
+                "n_samples x n_variables and are never silently transposed."
+            )
+        ceiling = min(n_samples - 1, n_variables)
+        if self.n_components > ceiling:
+            raise ValueError(
+                f"{self.n_components} components were asked of a matrix with "
+                f"{n_samples} samples and {n_variables} variables, which supports at "
+                f"most min(n-1, p) = {ceiling}. Reduce n_components, or add samples."
+            )
+        if float(np.linalg.norm(values.T @ response)) == 0.0:
+            raise ValueError(
+                "X and y have no covariance at all: X'y is zero, so there is no "
+                "predictive direction. Check that both were centred and that the "
+                "response is not constant."
+            )
+
+        def signed(vector: NDArray[np.float64]) -> NDArray[np.float64]:
+            # pls-regression.md §6's convention: the largest-magnitude element positive.
+            unit = vector / float(np.linalg.norm(vector))
+            return -unit if unit[int(np.abs(unit).argmax())] < 0 else unit
+
+        residual = values.copy()
+        orthogonal_weights: list[NDArray[np.float64]] = []
+        orthogonal_scores: list[NDArray[np.float64]] = []
+        orthogonal_loadings: list[NDArray[np.float64]] = []
+        for _ in range(self.n_components - 1):
+            # §2: the predictive weight on what is left, its loading, and the
+            # part of that loading orthogonal to the weight.
+            weight = signed(residual.T @ response)
+            score = residual @ weight
+            loading = residual.T @ score / float(score @ score)
+            orthogonal = loading - float(weight @ loading) * weight
+            if float(np.linalg.norm(orthogonal)) == 0.0:
+                raise ValueError(
+                    f"no orthogonal variation is left after {len(orthogonal_weights)} "
+                    "orthogonal components; ask for fewer."
+                )
+            w_o = signed(orthogonal)
+            t_o = residual @ w_o
+            p_o = residual.T @ t_o / float(t_o @ t_o)
+            residual = residual - np.outer(t_o, p_o)
+            orthogonal_weights.append(w_o)
+            orthogonal_scores.append(t_o)
+            orthogonal_loadings.append(p_o)
+
+        weight = signed(residual.T @ response)
+        score = residual @ weight
+        score_ss = float(score @ score)
+        loading = residual.T @ score / score_ss
+        c = float(response @ score) / score_ss
+        residual = residual - np.outer(score, loading)
+
+        # T = X R: each component's score is X pushed through the filters
+        # before it, so its rotation is its weight pushed back through them.
+        def filtered(vector: NDArray[np.float64], upto: int) -> NDArray[np.float64]:
+            pairs = list(zip(orthogonal_weights, orthogonal_loadings, strict=True))
+            for w_o, p_o in reversed(pairs[:upto]):
+                vector = vector - w_o * float(p_o @ vector)
+            return vector
+
+        a = len(orthogonal_weights)
+        rotations = [filtered(weight, a)] + [
+            filtered(w_o, k) for k, w_o in enumerate(orthogonal_weights)
+        ]
+        self.weights_ = np.column_stack([weight, *orthogonal_weights])
+        self.x_scores_ = np.column_stack([score, *orthogonal_scores])
+        self.x_loadings_ = np.column_stack([loading, *orthogonal_loadings])
+        self.y_loadings_ = np.asarray([c] + [0.0] * a)
+        self.rotations_ = np.column_stack(rotations)
+        self.coefficients_ = self.rotations_ @ self.y_loadings_
+        self.n_components_ = 1 + a
+        self.n_orthogonal_ = a
+        score_sums = (self.x_scores_**2).sum(axis=0)
+        self.x_variance_ = score_sums * (self.x_loadings_**2).sum(axis=0)
+        self.y_variance_ = self.y_loadings_**2 * score_sums
+        self.x_total_variance_ = float((values**2).sum())
+        self.y_total_variance_ = float(response @ response)
+        self.spe_ = (residual**2).sum(axis=1)
+        self.n_samples_ = n_samples
+        self.n_variables_ = n_variables
+        return self
 
 
 class MLR:

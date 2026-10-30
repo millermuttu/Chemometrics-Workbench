@@ -54,6 +54,7 @@ ALGORITHM_TITLES = {
     "elastic_net": "Elastic Net",
     "lasso": "Lasso",
     "mlr": "MLR (multiple linear regression)",
+    "opls": "OPLS (through the PLS1 identity)",
     "svr": "SVR (PCA-SVR, epsilon)",
     "lda": "LDA (PCA-LDA)",
     "knn": "kNN (PCA-kNN)",
@@ -74,6 +75,7 @@ ALGORITHM_ORDER = [
     "elastic_net",
     "lasso",
     "mlr",
+    "opls",
     "svr",
     "plsda",
     "lda",
@@ -134,6 +136,11 @@ COVERAGE: tuple[Coverage, ...] = (
     Coverage("PCR", ("PCR",), ("pcr.coefficients", "pcr.predictions")),
     Coverage("Ridge", ("Ridge",), ("ridge.coefficients", "ridge.predictions")),
     Coverage("MLR", ("MLR",), ("mlr.coefficients", "mlr.predictions")),
+    Coverage(
+        "OPLS",
+        ("OPLS",),
+        ("opls.predictions_2", "opls.predictions_5", "opls.orthogonal_scores"),
+    ),
     Coverage(
         "SVR",
         ("SVR",),

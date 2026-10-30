@@ -202,6 +202,14 @@ export function stepMenu(targets: string[], classColumns: string[] = []): Catalo
         payload: { spec: { kind: "mlr", target } },
       },
       {
+        // #378: one predictive and one orthogonal component.
+        kind: "OPLS 1+1",
+        group: "Regression" as const,
+        type: "estimator" as const,
+        parameters: `1 predictive + 1 orthogonal · ${target}`,
+        payload: { spec: { kind: "opls", n_orthogonal: 1, target } },
+      },
+      {
         // #377: on principal component scores, as the SVM classifier is.
         kind: "SVR rbf 5 PC",
         group: "Regression" as const,
