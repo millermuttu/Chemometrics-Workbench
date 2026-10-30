@@ -162,13 +162,21 @@ def json_model(
         },
     }
 
-    if result.simca or result.training_classes or result.svm or result.logistic:
+    if result.simca or result.training_classes or result.svm or result.logistic or result.qda:
         # #306: a SIMCA, a kNN or an SVM decides on the whole preprocessed
         # spectrum, so the foldable tail travels as the affine map it is (§6).
         # An SVR (#377) predicts from the same kernel and travels the same way.
         payload["model"].update(threshold=None, assignment=result.method)
         payload["affine"] = _affine(fitted, n_variables) if fitted else None
-        if result.logistic:
+        if result.qda:
+            # #381, qda.md section 5: the chain to the scores, then each class's
+            # Gaussian: mean, rotation, scalings and prior.
+            payload["qda"] = {
+                "x_mean": list(result.x_mean),
+                "loadings": [list(row) for row in result.loadings],
+                "classes": result.qda["classes"],
+            }
+        elif result.logistic:
             # #380, logistic-regression.md section 5: the chain to the scores,
             # then one row of W per model row and its intercept.
             payload["logistic"] = {
@@ -333,6 +341,23 @@ def python_snippet(model: dict[str, Any]) -> str:
             f"NEIGHBOURS = np.array({_matrix_literal(knn['neighbours'])})",
             f"NEIGHBOUR_CLASSES = np.array({knn['neighbour_classes']!r})",
         ]
+    elif assignment == "qda":
+        qda = model["qda"]
+        body += [
+            f"X_MEAN = np.array({_literal(qda['x_mean'])})",
+            f"LOADINGS = np.array({_matrix_literal(qda['loadings'])})",
+            "GAUSSIANS = [",
+        ]
+        for one in qda["classes"]:
+            body += [
+                "    {",
+                f"        'mean': np.array({_literal(one['mean'])}),",
+                f"        'rotation': np.array({_matrix_literal(one['rotation'])}),",
+                f"        'scalings': np.array({_literal(one['scalings'])}),",
+                f"        'prior': {one['prior']!r},",
+                "    },",
+            ]
+        body += ["]"]
     elif assignment == "logistic":
         logistic = model["logistic"]
         body += [
@@ -429,6 +454,21 @@ def python_snippet(model: dict[str, Any]) -> str:
             "        for row in nearest",
             "    ])",
             "    return np.array([CLASSES[i] for i in counts.argmax(axis=1)])",
+        ]
+    elif assignment == "qda":
+        # qda.md section 4, as classification.QDA computes it: the largest log
+        # posterior, a tie to the first class.
+        body += [
+            "    T = (X - X_MEAN) @ LOADINGS.T",
+            "    D = []",
+            "    for g in GAUSSIANS:",
+            "        W = (T - g['mean']) @ g['rotation'] / np.sqrt(g['scalings'])",
+            "        D.append(",
+            "            -0.5 * ((W**2).sum(axis=1) + np.log(g['scalings']).sum())",
+            "            + np.log(g['prior'])",
+            "        )",
+            "    D = np.column_stack(D)",
+            "    return np.array([CLASSES[i] for i in D.argmax(axis=1)])",
         ]
     elif assignment == "logistic":
         # logistic-regression.md section 4, as classification.LogisticRegression

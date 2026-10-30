@@ -248,6 +248,14 @@ export function stepMenu(targets: string[], classColumns: string[] = []): Catalo
         payload: { spec: { kind: "lda", n_components: 5, class_column: classColumn } },
       },
       {
+        // #381: LDA with a covariance per class.
+        kind: "QDA 5 PC",
+        group: "Classification" as const,
+        type: "estimator" as const,
+        parameters: `5 components · reg 0 · ${classColumn}`,
+        payload: { spec: { kind: "qda", n_components: 5, reg_param: 0, class_column: classColumn } },
+      },
+      {
         // #380: the first classifier with class probabilities.
         kind: "Logistic 5 PC",
         group: "Classification" as const,

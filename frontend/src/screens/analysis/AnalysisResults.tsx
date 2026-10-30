@@ -1622,7 +1622,7 @@ export function AnalysisResults({
             style={{ fontSize: 11, color: "var(--ink3)", overflow: "hidden", textOverflow: "ellipsis" }}
           >
             {classification
-              ? `${{ lda: "LDA", knn: "kNN", svm: "SVM", oplsda: "OPLS-DA", logistic: "Logistic regression" }[pca.regression?.method ?? ""] ?? "PLS-DA"} on ${pca.classification?.class_column ?? "?"}`
+              ? `${{ lda: "LDA", knn: "kNN", svm: "SVM", oplsda: "OPLS-DA", logistic: "Logistic regression", qda: "QDA" }[pca.regression?.method ?? ""] ?? "PLS-DA"} on ${pca.classification?.class_column ?? "?"}`
               : regression
                 ? `${METHODS[pca.regression?.method ?? ""] ?? "PLS"} on ${pca.regression?.target ?? "?"}`
                 : "PCA"}{" "}

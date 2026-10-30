@@ -149,6 +149,7 @@ it("puts every step under a heading, the models under Regression and Classificat
     "PLS-DA 5 LV",
     "OPLS-DA 1+1",
     "LDA 5 PC",
+    "QDA 5 PC",
     "Logistic 5 PC",
     "kNN k5",
     "SVM rbf 5 PC",
@@ -289,4 +290,12 @@ it("offers a logistic regression on a class column, labelled alike (#380)", () =
   const node = { id: "l", type: "estimator", inputs: ["snv"], ...logistic.payload } as PipelineNode;
   expect(nodeLabel(node)).toBe("Logistic 5 PC · grade");
   expect(parameterLine(node)).toBe(logistic.parameters);
+});
+
+it("offers QDA beside LDA on a class column, labelled alike (#381)", () => {
+  const qda = stepMenu([], ["grade"]).find((step) => step.kind === "QDA 5 PC")!;
+  expect(qda.payload.spec).toEqual({ kind: "qda", n_components: 5, reg_param: 0, class_column: "grade" });
+  const node = { id: "q", type: "estimator", inputs: ["snv"], ...qda.payload } as PipelineNode;
+  expect(nodeLabel(node)).toBe("QDA 5 PC · grade");
+  expect(parameterLine(node)).toBe(qda.parameters);
 });

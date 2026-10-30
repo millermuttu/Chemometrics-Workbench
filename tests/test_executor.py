@@ -55,6 +55,7 @@ from chemometrics_workbench.models import (
     PLSDASpec,
     PLSRegressionSpec,
     PreprocessNode,
+    QDASpec,
     RangeSelect,
     RepeatedKFoldSplit,
     RidgeSpec,
@@ -1976,6 +1977,71 @@ def test_a_logistic_node_classifies_with_probabilities_on_its_folds(
         model = LogisticRegression(5, 10).fit(spectra[train], codes[train], 3)
         cv[test] = model.predict(spectra[test])
     assert result.metrics["accuracy_cv"] == pytest.approx(float(np.mean(cv == codes)))
+
+
+def test_a_qda_node_tallies_on_its_folds_and_refuses_a_singular_class(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#381, `qda.md`: the PCA front, the tallies of `classification.md` the
+    kernel gives on the run's folds, and a class too small for its covariance
+    refused by fold and name - until reg_param shrinks it."""
+    from chemometrics_workbench.classification import QDA
+
+    directory, version = project
+    version = _terciles(version, tecator)
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=4, stratify_by="grade")),
+        PreprocessNode(id="snv", inputs=("split",), step=SNV()),
+        EstimatorNode(
+            id="qda", inputs=("snv",), spec=QDASpec(n_components=4, class_column="grade")
+        ),
+    )
+    run = execute(directory, pipeline, version)
+    result = run.results["qda"]
+    assert result.task == "classification" and result.method == "qda"
+    assert len(result.qda["classes"]) == 3 and len(result.scores[0]) == 4
+
+    spectra = _as_stored(SNVTransformer().fit_transform(_as_stored(tecator.spectra)))
+    codes = np.asarray([result.classes.index(g) for g in version.metadata_columns["grade"]])
+    [resolved] = run.resolved_splits
+    cv = np.empty_like(codes)
+    for train, test in zip(resolved.train_indices, resolved.test_indices, strict=True):
+        cv[test] = QDA(4).fit(spectra[train], codes[train], 3).predict(spectra[test])
+    assert result.metrics["accuracy_cv"] == pytest.approx(float(np.mean(cv == codes)))
+
+    # Ten "rare" samples: every training fold holds about seven, too few for
+    # a covariance on 10 scores.
+    labels = list(version.metadata_columns["grade"])
+    for row in range(10):
+        labels[row] = "rare"
+    rare = version.model_copy(update={"metadata_columns": {"grade": labels}})
+    ten = pipeline.model_copy(
+        update={
+            "nodes": (
+                *pipeline.nodes[:-1],
+                EstimatorNode(
+                    id="qda", inputs=("snv",), spec=QDASpec(n_components=10, class_column="grade")
+                ),
+            )
+        }
+    )
+    refusal = r"training fold 1 of 4, class 'rare' has \d+ training samples.*positive reg_param"
+    with pytest.raises(ExecutorError, match=refusal):
+        execute(directory, ten, rare)
+    shrunk = ten.model_copy(
+        update={
+            "nodes": (
+                *ten.nodes[:-1],
+                EstimatorNode(
+                    id="qda",
+                    inputs=("snv",),
+                    spec=QDASpec(n_components=10, reg_param=0.2, class_column="grade"),
+                ),
+            )
+        }
+    )
+    assert "rare" in execute(directory, shrunk, rare).results["qda"].classes
 
 
 def test_a_simca_node_decides_every_set_with_its_folds_own_models(

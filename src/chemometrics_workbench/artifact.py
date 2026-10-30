@@ -241,6 +241,12 @@ def _arrays(
         arrays["knn_classes"] = np.asarray(result.training_classes, dtype=np.int64)
         arrays["x_mean"] = _float64(result.x_mean)
 
+    for k, one in enumerate(result.qda.get("classes", [])):
+        # #381, qda.md section 5: each class's Gaussian on the scores.
+        arrays["x_mean"] = _float64(result.x_mean)
+        arrays[f"qda_{k}_mean"] = _float64(one["mean"])
+        arrays[f"qda_{k}_rotation"] = _float64(one["rotation"])
+        arrays[f"qda_{k}_scalings"] = _float64(one["scalings"])
     if result.logistic:
         # #380, logistic-regression.md section 5: W and its intercept on the scores.
         arrays["x_mean"] = _float64(result.x_mean)
@@ -311,6 +317,12 @@ def _manifest(
             if result.svm and result.method != "svr"
             else None,
             "logistic": {"C": result.logistic["C"]} if result.logistic else None,
+            "qda": {
+                "reg_param": result.qda["reg_param"],
+                "priors": [one["prior"] for one in result.qda["classes"]],
+            }
+            if result.qda
+            else None,
             "svr": {name: result.svm[name] for name in ("kernel", "C", "epsilon", "gamma", "rho")}
             if result.method == "svr"
             else None,

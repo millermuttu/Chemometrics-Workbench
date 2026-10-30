@@ -566,6 +566,17 @@ class SVMSpec(Frozen):
     class_column: str
 
 
+class QDASpec(Frozen):
+    """`qda.md`: one Gaussian per class on principal component scores."""
+
+    kind: Literal["qda"] = "qda"
+    n_components: int = Field(ge=1, description="Principal components the model is fitted on.")
+    reg_param: float = Field(
+        default=0.0, ge=0, le=1, description="Shrinkage of each class's covariance toward one."
+    )
+    class_column: str
+
+
 class LogisticSpec(Frozen):
     """`logistic-regression.md`: L2-penalised logistic regression on principal
     component scores, binomial for two classes and multinomial for more."""
@@ -598,7 +609,8 @@ EstimatorSpec = Annotated[
     | LDASpec
     | KNNSpec
     | SVMSpec
-    | LogisticSpec,
+    | LogisticSpec
+    | QDASpec,
     Field(discriminator="kind"),
 ]
 
