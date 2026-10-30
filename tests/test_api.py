@@ -1125,6 +1125,7 @@ def _run_current(client: TestClient) -> None:
         ({"kind": "ridge", "alpha": 0.1}, "ridge"),
         ({"kind": "elastic_net", "alpha": 0.1, "l1_ratio": 0.5}, "elastic_net"),
         ({"kind": "elastic_net", "alpha": 0.1, "l1_ratio": 1.0}, "lasso"),
+        ({"kind": "svr", "C": 10, "n_components": 2}, "svr"),
     ],
 )
 def test_a_penalised_model_is_served_exported_reported_and_saved_like_a_regression(
@@ -1158,13 +1159,18 @@ def test_a_penalised_model_is_served_exported_reported_and_saved_like_a_regressi
 
     payload = client.get("/api/results/ridge").json()
     assert payload["regression"]["method"] == method
-    assert payload["scores"] == [] and payload["metrics"]["rmsecv"] > 0
+    # An SVR is on PCA scores, so it has an X model; the penalised models have none.
+    assert (payload["scores"] != []) == (method == "svr") and payload["metrics"]["rmsecv"] > 0
     curve = payload["tuning_curve"]
-    assert curve["parameter"] == "alpha" and curve["log"] and curve["chosen"] == 0.1
-    assert len(curve["values"]) == len(curve["scores"]) == 25
+    parameter = "C" if method == "svr" else "alpha"
+    assert curve["parameter"] == parameter and curve["log"] and curve["chosen"] == spec[parameter]
+    assert len(curve["values"]) == len(curve["scores"]) == (13 if method == "svr" else 25)
 
     coefficients = client.get("/api/results/ridge/coefficients").json()
-    assert coefficients["available"] and len(coefficients["coefficients"]) == 12
+    if method == "svr":
+        assert not coefficients["available"] and "support vectors" in coefficients["reason"]
+    else:
+        assert coefficients["available"] and len(coefficients["coefficients"]) == 12
     assert client.get("/api/results/ridge/export.json").status_code == 200
     assert client.get("/api/results/ridge/export.py").status_code == 200
     # No X model, so nothing to diagnose and no VIP to bootstrap: refused by name.

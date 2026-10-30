@@ -166,9 +166,9 @@
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; an e2e test adds it from its menu group and runs it"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-30, feature/377_svr. docs/algorithms/svr.md written, in the nav; model-export.md and model-artifact.md gain the svr rows; mkdocs build --strict built. Parity: corn/gasoline/tecator x linear/rbf, both solvers to KKT gap 1e-9: predictions pass in the float32_kernel class; at the default 1e-3 within 10 tol x range(y) (checked) and 6 stopping-rule divergences recorded; fixture diff only the 12 svr entries; parity report 234/234, and its tables now render ridge, elastic_net, lasso, mlr and svr (missing since #374). SVM parity unchanged after _smo gained its linear term. tests/test_executor.py: PCA front present, 13-point curve over C from range/1000 to range, final model and RMSECV equal the kernel on the run's folds (rtol 1e-9). tests/test_export.py: linear and rbf snippets reproduce predictions. tests/test_api.py: served with scores, folding refused with the reason, export, report, save. New tests fail at import with src stashed. uv run pytest 1023 passed; ruff, mypy clean. In frontend/: typecheck, lint clean; pnpm test 181 passed; pnpm build; changed specs walkthrough.spec.ts + analysis.spec.ts 34 passed incl. 'an SVR runs below a split with the PCA front and a curve over C'.",
+      "notes": "_smo takes the dual's linear term (default -1 keeps SVM's steps). The doubled kernel is 4n^2 floats (ponytail note). A linear kernel on Tecator takes tens of seconds over the C grid (Python SMO loop); RBF, the default, a few. Permutation test not offered for SVR."
     },
     {
       "id": "opls",

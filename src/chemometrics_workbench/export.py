@@ -165,9 +165,21 @@ def json_model(
     if result.simca or result.training_classes or result.svm:
         # #306: a SIMCA, a kNN or an SVM decides on the whole preprocessed
         # spectrum, so the foldable tail travels as the affine map it is (§6).
+        # An SVR (#377) predicts from the same kernel and travels the same way.
         payload["model"].update(threshold=None, assignment=result.method)
         payload["affine"] = _affine(fitted, n_variables) if fitted else None
-        if result.simca:
+        if result.method == "svr":
+            scores = np.asarray(result.scores, dtype=np.float64)
+            payload["svr"] = {
+                "kernel": result.svm["kernel"],
+                "gamma": result.svm["gamma"],
+                "x_mean": list(result.x_mean),
+                "loadings": [list(row) for row in result.loadings],
+                "support_vectors": scores[result.svm["support"]].tolist(),
+                "dual": list(result.svm["dual"]),
+                "rho": result.svm["rho"],
+            }
+        elif result.simca:
             payload["simca"] = {
                 "models": [
                     {key: model[key] for key in _SIMCA_KEYS} for model in result.simca["models"]
@@ -312,6 +324,17 @@ def python_snippet(model: dict[str, Any]) -> str:
             f"NEIGHBOURS = np.array({_matrix_literal(knn['neighbours'])})",
             f"NEIGHBOUR_CLASSES = np.array({knn['neighbour_classes']!r})",
         ]
+    elif assignment == "svr":
+        svr = model["svr"]
+        body += [
+            f"KERNEL = {svr['kernel']!r}",
+            f"GAMMA = {svr['gamma']!r}",
+            f"X_MEAN = np.array({_literal(svr['x_mean'])})",
+            f"LOADINGS = np.array({_matrix_literal(svr['loadings'])})",
+            f"SUPPORT_VECTORS = np.array({_matrix_literal(svr['support_vectors'])})",
+            f"DUAL = np.array({_literal(svr['dual'])})",
+            f"RHO = {svr['rho']!r}",
+        ]
     elif assignment == "svm":
         svm = model["svm"]
         body += [
@@ -389,6 +412,18 @@ def python_snippet(model: dict[str, Any]) -> str:
             "        for row in nearest",
             "    ])",
             "    return np.array([CLASSES[i] for i in counts.argmax(axis=1)])",
+        ]
+    elif assignment == "svr":
+        # svr.md section 4, as regression.SVR computes it.
+        body += [
+            "    T = (X - X_MEAN) @ LOADINGS.T",
+            "    S = SUPPORT_VECTORS",
+            "    if KERNEL == 'linear':",
+            "        K = T @ S.T",
+            "    else:",
+            "        squared = (T**2).sum(axis=1)[:, None] - 2.0 * T @ S.T + (S**2).sum(axis=1)",
+            "        K = np.exp(-GAMMA * np.maximum(squared, 0.0))",
+            "    return K @ DUAL - RHO",
         ]
     elif assignment == "svm":
         # svm.md section 4, as classification.SVM computes it: a pair's

@@ -34,6 +34,7 @@ ALGORITHMS = (
     "elastic_net",
     "lasso",
     "mlr",
+    "svr",
     "plsda",
     "lda",
     "knn",

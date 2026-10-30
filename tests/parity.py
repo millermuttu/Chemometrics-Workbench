@@ -258,6 +258,8 @@ QUANTITY_CLASS: dict[str, str] = {
     "class_votes": "metrics",
     # SVM (svm.md section 7): one-vs-one decision values from an SMO solve.
     "svm_decision": "float32_kernel",
+    # SVR (svr.md section 6): the same SMO and the same float32 kernel cache.
+    "svr_predictions": "float32_kernel",
     # Outliers (outliers.md section 7): once both searches reach the same
     # support, a distance is a covariance inverse applied to scores.
     "robust_distance": "decomposition",

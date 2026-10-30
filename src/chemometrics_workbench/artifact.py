@@ -241,7 +241,13 @@ def _arrays(
         arrays["knn_classes"] = np.asarray(result.training_classes, dtype=np.int64)
         arrays["x_mean"] = _float64(result.x_mean)
 
-    if result.svm:
+    if result.method == "svr":
+        # #377, svr.md section 7: the support vectors in score space and
+        # their coefficients a - a*.
+        arrays["x_mean"] = _float64(result.x_mean)
+        arrays["svr_support_vectors"] = _float64(result.scores)[result.svm["support"]]
+        arrays["svr_dual"] = _float64(result.svm["dual"])
+    elif result.svm:
         # #338, svm.md section 6: every pair's support vectors in score space,
         # their coefficients a y, and rho.
         arrays["x_mean"] = _float64(result.x_mean)
@@ -297,7 +303,10 @@ def _manifest(
                     {"classes": pair["classes"], "rho": pair["rho"]} for pair in result.svm["pairs"]
                 ],
             }
-            if result.svm
+            if result.svm and result.method != "svr"
+            else None,
+            "svr": {name: result.svm[name] for name in ("kernel", "C", "epsilon", "gamma", "rho")}
+            if result.method == "svr"
             else None,
             "simca": [
                 {name: model[name] for name in ("class", "n_samples", "t2_limit", "q_limit")}

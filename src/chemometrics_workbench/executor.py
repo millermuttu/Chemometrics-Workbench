@@ -166,6 +166,7 @@ from chemometrics_workbench.models import (
     SelectVariables,
     SIMCASpec,
     SVMSpec,
+    SVRSpec,
     TrainTestSplit,
 )
 from chemometrics_workbench.project import (
@@ -181,6 +182,7 @@ from chemometrics_workbench.regression import (
     PCR,
     PLS,
     PLS2,
+    SVR,
     ElasticNet,
     Ridge,
     cross_validated_predictions,
@@ -253,6 +255,7 @@ _FITTED: tuple[type, ...] = (
     PCRSpec,
     ElasticNetSpec,
     MLRSpec,
+    SVRSpec,
     RidgeSpec,
     PLSDASpec,
     SIMCASpec,
@@ -1343,6 +1346,9 @@ def _fitted(
     if isinstance(node.spec, RidgeSpec):
         return _ridge(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
 
+    if isinstance(node.spec, SVRSpec):
+        return _svr(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
+
     if isinstance(node.spec, MLRSpec):
         return _mlr(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
 
@@ -1699,6 +1705,164 @@ def _elastic_net(
         lambda x, y, alphas: elastic_net_path(x, y, alphas, spec.l1_ratio),
         lambda x, y: float(np.abs(x.T @ y).max()) / (len(y) * spec.l1_ratio),
         ENET_DECADES,
+    )
+
+
+#: svr.md section 5: C's grid, from range(y) / 1000 up to range(y), smallest
+#: first, and the iterations a point of it may take before it is absent.
+SVR_POINTS = 13
+SVR_DECADES = 3
+SVR_CURVE_ITERATIONS = 20_000
+
+
+def _svr(
+    node: PipelineNode,
+    spec: SVRSpec,
+    parent: _State,
+    key: str,
+    matrix: NDArray[np.float64],
+    rows: NDArray[np.intp],
+    held_out: NDArray[np.intp],
+    fold: int | None,
+    version: DatasetVersion,
+) -> EstimatorResult:
+    """`svr.md`: PCA-SVR, the regression half of `pls-regression.md` §13 and the
+    PCA front's panels, as kNN and SVM have them (`svm.md` §5)."""
+    response = _response(version, node, spec.target)
+    if response.size != matrix.shape[0]:
+        raise ExecutorError(
+            f"node {node.id!r} (svr) has {matrix.shape[0]} samples and target "
+            f"{spec.target!r} has {response.size} values.",
+            node.id,
+        )
+
+    def build(c: float, max_iter: int = 1_000_000) -> SVR:
+        return SVR(spec.n_components, spec.kernel, c, spec.epsilon, spec.gamma, max_iter=max_iter)
+
+    def fit(values: NDArray[np.float64], train: NDArray[np.intp]) -> SVR:
+        try:
+            return build(spec.C).fit(values[train], response[train])
+        except ValueError as error:
+            raise ExecutorError(
+                f"node {node.id!r} (svr) failed at C {spec.C:g}: {error}", node.id
+            ) from error
+
+    model = fit(matrix, rows)
+    train_y = response[rows]
+    predicted = model.predict(matrix[rows])
+    metrics: dict[str, float] = {
+        "rmsec": validation.rmse(train_y, predicted),
+        "r2": validation.r2(train_y, predicted),
+        "bias": validation.bias(train_y, predicted),
+    }
+    with np.errstate(invalid="ignore", divide="ignore"):
+        pearson = float(np.corrcoef(train_y, predicted)[0, 1] ** 2)
+    if np.isfinite(pearson):
+        metrics["r2_pearson"] = pearson
+    held_y = response[held_out]
+    held_predicted = model.predict(matrix[held_out]) if held_out.size else np.array([])
+    if held_out.size:
+        metrics["rmsep"] = validation.rmse(held_y, held_predicted)
+        metrics["sep"] = validation.sep(held_y, held_predicted)
+
+    cross_validated = np.array([], dtype=np.float64)
+    tuning: dict[str, Any] = {}
+    if parent.folds is not None and len(parent.folds) > 1:
+        folds = parent.folds
+        grid = float(np.ptp(train_y)) * np.logspace(-SVR_DECADES, 0, SVR_POINTS)
+
+        def fit_path(
+            train_x: NDArray[np.float64],
+            fold_y: NDArray[np.float64],
+            test_x: NDArray[np.float64],
+            values: Sequence[float],
+        ) -> NDArray[np.float64]:
+            # Smallest C first, each a cold start: SMO has no warm start here.
+            # A C that does not converge ends the fold's path, as Elastic Net's.
+            # ponytail: a linear kernel on unscaled scores takes tens of
+            # seconds over this grid (Tecator); shrink the grid or move the
+            # SMO loop to compiled code if that matters.
+            found = np.full((len(values), test_x.shape[0]), np.nan)
+            for index, c in enumerate(values):
+                try:
+                    one = build(c, SVR_CURVE_ITERATIONS).fit(train_x, fold_y)
+                except ValueError:
+                    break
+                found[index] = one.predict(test_x)
+            return found
+
+        curve = tuning_curve(parent.arrays, response, folds, list(grid), fit_path)
+        tuning = {
+            "parameter": "C",
+            "metric": "rmsecv",
+            "values": _values(grid),
+            "scores": [float(score) if np.isfinite(score) else None for score in curve],
+            "log": True,
+            "chosen": spec.C,
+        }
+        cross_validated = np.empty_like(response)
+        for one, values in zip(folds, parent.arrays, strict=True):
+            cross_validated[one.test] = fit(values, one.train).predict(values[one.test])
+        metrics["rmsecv"] = validation.rmse(response, cross_validated)
+        metrics["q2"] = validation.q2(response, cross_validated)
+        for index, one in enumerate(folds):
+            metrics[f"rmsecv_fold_{index}"] = validation.rmse(
+                response[one.test], cross_validated[one.test]
+            )
+        per_fold = [metrics[f"rmsecv_fold_{i}"] for i in range(len(folds))]
+        metrics["rmsecv_std"] = float(np.std(per_fold, ddof=1))
+
+    pca = model.pca_
+    x_mean = np.asarray(model.x_mean_)
+    centred = matrix[rows] - x_mean
+    held_x = matrix[held_out] - x_mean
+    a = spec.n_components
+    return EstimatorResult(
+        node_id=node.id,
+        key=key,
+        task="regression",
+        n_components=a,
+        n_samples=int(rows.size),
+        n_variables=int(matrix.shape[1]),
+        rank=a,
+        fold=fold,
+        rows=[int(row) for row in rows],
+        scores=_rows(pca.transform(centred)),
+        loadings=_rows(np.asarray(pca.loadings_).T),
+        rotations=_rows(np.asarray(pca.loadings_).T),
+        eigenvalues=_values(np.asarray(pca.eigenvalues_)[:a]),
+        explained_variance_ratio=_values(pca.explained_variance_ratio()),
+        cumulative_explained_variance=_values(pca.cumulative_explained_variance()),
+        hotelling_t2=_values(pca.hotelling_t2(centred)),
+        hotelling_t2_limit=float(pca.hotelling_t2_limit(ALPHA)),
+        spe=_values(pca.spe(centred)),
+        spe_limit=float(pca.spe_limit(ALPHA)),
+        spe_limit_caveat=pca.spe_limit_caveat(),
+        target=spec.target,
+        method="svr",
+        observed=_values(train_y),
+        predicted=_values(predicted),
+        x_mean=_values(x_mean),
+        y_mean=None,
+        cross_validated_predicted=_values(cross_validated),
+        metrics=metrics,
+        held_out=[int(row) for row in held_out],
+        held_out_observed=_values(held_y) if held_out.size else [],
+        held_out_predicted=_values(held_predicted) if held_out.size else [],
+        held_out_scores=_rows(pca.transform(held_x)) if held_out.size else [],
+        held_out_hotelling_t2=_values(pca.hotelling_t2(held_x)) if held_out.size else [],
+        held_out_spe=_values(pca.spe(held_x)) if held_out.size else [],
+        tuning=tuning,
+        # svr.md section 7: support rows are rows of `scores`, by position.
+        svm={
+            "kernel": spec.kernel,
+            "C": spec.C,
+            "epsilon": spec.epsilon,
+            "gamma": model.gamma_,
+            "support": [int(row) for row in np.asarray(model.support_)],
+            "dual": _values(np.asarray(model.dual_)),
+            "rho": float(model.rho_),
+        },
     )
 
 

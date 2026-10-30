@@ -22,10 +22,10 @@ strong the agreement is** rather than a bare pass or fail:
 | Claim | Count | Meaning |
 | --- | --- | --- |
 | identical within floating point | 153 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
-| agrees within stated tolerance | 46 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
-| differs by documented convention | 23 | Not compared numerically at all. The two quantities are not the same thing, and the reason is given in full below. |
+| agrees within stated tolerance | 52 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
+| differs by documented convention | 29 | Not compared numerically at all. The two quantities are not the same thing, and the reason is given in full below. |
 
-**222 comparisons, 222 passed, 0 failed.**
+**234 comparisons, 234 passed, 0 failed.**
 
 Three things a reader should hold on to, because the agreement column cannot
 show them:
@@ -80,6 +80,7 @@ those listed under *Gaps* or *Documented divergences* below.
 | PCR | `PCR` | 6 claims |
 | Ridge | `Ridge` | 6 claims |
 | MLR | `MLR` | 6 claims |
+| SVR | `SVR` | 12 claims |
 | Elastic Net and Lasso | `ElasticNet`, `elastic_net_path` | 18 claims |
 | PLS2 | `PLS2` | 9 claims |
 | LDA | `LDA` | 6 claims |
@@ -285,6 +286,73 @@ those listed under *Gaps* or *Documented divergences* below.
 | tecator | `coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 100 values, worst Δ < 1e-11 |
 | tecator | `predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 240 values, worst Δ < 1e-11 |
 
+### Ridge regression
+
+| Dataset | Quantity | Reference | Claim | Ours vs reference |
+| --- | --- | --- | --- | --- |
+| corn | `coefficients` | scikit-learn 1.9.0 | identical | 700 values, worst Δ < 1e-16 |
+| corn | `predictions` | scikit-learn 1.9.0 | identical | 80 values, worst Δ < 1e-14 |
+| gasoline | `coefficients` | scikit-learn 1.9.0 | identical | 401 values, worst Δ < 1e-15 |
+| gasoline | `predictions` | scikit-learn 1.9.0 | identical | 60 values, worst Δ < 1e-13 |
+| tecator | `coefficients` | scikit-learn 1.9.0 | identical | 100 values, worst Δ < 1e-15 |
+| tecator | `predictions` | scikit-learn 1.9.0 | identical | 240 values, worst Δ < 1e-13 |
+
+### Elastic Net
+
+| Dataset | Quantity | Reference | Claim | Ours vs reference |
+| --- | --- | --- | --- | --- |
+| corn | `coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 700 values, worst Δ < 1e-10 |
+| corn | `predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 80 values, worst Δ < 1e-11 |
+| corn | `predictions` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| gasoline | `coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 401 values, worst Δ < 1e-11 |
+| gasoline | `predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 60 values, worst Δ < 1e-11 |
+| gasoline | `predictions` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| tecator | `coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 100 values, worst Δ < 1e-10 |
+| tecator | `predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 240 values, worst Δ < 1e-10 |
+| tecator | `predictions` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+
+### Lasso
+
+| Dataset | Quantity | Reference | Claim | Ours vs reference |
+| --- | --- | --- | --- | --- |
+| corn | `coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 700 values, worst Δ < 1e-7 |
+| corn | `predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 80 values, worst Δ < 1e-8 |
+| corn | `predictions` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| gasoline | `coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 401 values, worst Δ < 1e-6 |
+| gasoline | `predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 60 values, worst Δ < 1e-9 |
+| gasoline | `predictions` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| tecator | `coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 100 values, worst Δ < 1e-8 |
+| tecator | `predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 240 values, worst Δ < 1e-9 |
+| tecator | `predictions` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+
+### MLR (multiple linear regression)
+
+| Dataset | Quantity | Reference | Claim | Ours vs reference |
+| --- | --- | --- | --- | --- |
+| corn | `coefficients` | scikit-learn 1.9.0 | identical | 10 values, worst Δ < 1e-12 |
+| corn | `predictions` | scikit-learn 1.9.0 | identical | 80 values, worst Δ < 1e-13 |
+| gasoline | `coefficients` | scikit-learn 1.9.0 | identical | 10 values, worst Δ < 1e-11 |
+| gasoline | `predictions` | scikit-learn 1.9.0 | identical | 60 values, worst Δ < 1e-13 |
+| tecator | `coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 10 values, worst Δ < 1e-10 |
+| tecator | `predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 240 values, worst Δ < 1e-11 |
+
+### SVR (PCA-SVR, epsilon)
+
+| Dataset | Quantity | Reference | Claim | Ours vs reference |
+| --- | --- | --- | --- | --- |
+| corn | `svr_predictions` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| corn | `svr_predictions` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 80 values, worst Δ < 1e-6 |
+| corn | `svr_predictions` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| corn | `svr_predictions` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 80 values, worst Δ < 1e-6 |
+| gasoline | `svr_predictions` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| gasoline | `svr_predictions` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 60 values, worst Δ < 1e-7 |
+| gasoline | `svr_predictions` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| gasoline | `svr_predictions` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 60 values, worst Δ < 1e-6 |
+| tecator | `svr_predictions` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| tecator | `svr_predictions` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 240 values, worst Δ < 1e-4 |
+| tecator | `svr_predictions` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| tecator | `svr_predictions` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 240 values, worst Δ < 1e-6 |
+
 ### PLS-DA (two-class)
 
 | Dataset | Quantity | Reference | Claim | Ours vs reference |
@@ -421,6 +489,54 @@ mdatools computes the classic Hotelling limit a(n-1)/(n-a) F(a, n-a); pca.md §7
 
 Not reproducible from what we model. The reference is a linear model on ten of the 22 principal components supplied inside tecator.txt, computed by the original authors in 1992 on subset C; load_tecator() discards that block because it is preprocessing rather than data. The file also never states its SEP denominator. Recorded for context, not as a target.
 
+**`corn.elastic_net.predictions.sklearn`** — scikit-learn 1.9.0
+
+The application solves by FISTA, scikit-learn by coordinate descent; both stop on the same duality gap, 1e-4 ||y||^2 by default, rather than at the optimum, and where each stops depends on its route. The default fit's objective is within that gap of the optimum (checked); solved to 1e-12 both reach the same coefficients and predictions (penalised-regression.md section 6).
+
+**`gasoline.elastic_net.predictions.sklearn`** — scikit-learn 1.9.0
+
+The application solves by FISTA, scikit-learn by coordinate descent; both stop on the same duality gap, 1e-4 ||y||^2 by default, rather than at the optimum, and where each stops depends on its route. The default fit's objective is within that gap of the optimum (checked); solved to 1e-12 both reach the same coefficients and predictions (penalised-regression.md section 6).
+
+**`tecator.elastic_net.predictions.sklearn`** — scikit-learn 1.9.0
+
+The application solves by FISTA, scikit-learn by coordinate descent; both stop on the same duality gap, 1e-4 ||y||^2 by default, rather than at the optimum, and where each stops depends on its route. The default fit's objective is within that gap of the optimum (checked); solved to 1e-12 both reach the same coefficients and predictions (penalised-regression.md section 6).
+
+**`corn.lasso.predictions.sklearn`** — scikit-learn 1.9.0
+
+The application solves by FISTA, scikit-learn by coordinate descent; both stop on the same duality gap, 1e-4 ||y||^2 by default, rather than at the optimum, and where each stops depends on its route. The default fit's objective is within that gap of the optimum (checked); solved to 1e-12 both reach the same coefficients and predictions (penalised-regression.md section 6).
+
+**`gasoline.lasso.predictions.sklearn`** — scikit-learn 1.9.0
+
+The application solves by FISTA, scikit-learn by coordinate descent; both stop on the same duality gap, 1e-4 ||y||^2 by default, rather than at the optimum, and where each stops depends on its route. The default fit's objective is within that gap of the optimum (checked); solved to 1e-12 both reach the same coefficients and predictions (penalised-regression.md section 6).
+
+**`tecator.lasso.predictions.sklearn`** — scikit-learn 1.9.0
+
+The application solves by FISTA, scikit-learn by coordinate descent; both stop on the same duality gap, 1e-4 ||y||^2 by default, rather than at the optimum, and where each stops depends on its route. The default fit's objective is within that gap of the optimum (checked); solved to 1e-12 both reach the same coefficients and predictions (penalised-regression.md section 6).
+
+**`corn.svr.predictions_linear.sklearn`** — scikit-learn 1.9.0
+
+Both solvers are LIBSVM's SMO on the epsilon-SVR dual, and both stop once the largest KKT violation falls below tol = 1e-3 rather than at the optimum; where each stops depends on its arithmetic, LIBSVM's kernel cache being float32. The predictions agree to within ten times tol across the response's range (checked); solved to 1e-9 they agree to float32's precision (svr.md section 6).
+
+**`corn.svr.predictions_rbf.sklearn`** — scikit-learn 1.9.0
+
+Both solvers are LIBSVM's SMO on the epsilon-SVR dual, and both stop once the largest KKT violation falls below tol = 1e-3 rather than at the optimum; where each stops depends on its arithmetic, LIBSVM's kernel cache being float32. The predictions agree to within ten times tol across the response's range (checked); solved to 1e-9 they agree to float32's precision (svr.md section 6).
+
+**`gasoline.svr.predictions_linear.sklearn`** — scikit-learn 1.9.0
+
+Both solvers are LIBSVM's SMO on the epsilon-SVR dual, and both stop once the largest KKT violation falls below tol = 1e-3 rather than at the optimum; where each stops depends on its arithmetic, LIBSVM's kernel cache being float32. The predictions agree to within ten times tol across the response's range (checked); solved to 1e-9 they agree to float32's precision (svr.md section 6).
+
+**`gasoline.svr.predictions_rbf.sklearn`** — scikit-learn 1.9.0
+
+Both solvers are LIBSVM's SMO on the epsilon-SVR dual, and both stop once the largest KKT violation falls below tol = 1e-3 rather than at the optimum; where each stops depends on its arithmetic, LIBSVM's kernel cache being float32. The predictions agree to within ten times tol across the response's range (checked); solved to 1e-9 they agree to float32's precision (svr.md section 6).
+
+**`tecator.svr.predictions_linear.sklearn`** — scikit-learn 1.9.0
+
+Both solvers are LIBSVM's SMO on the epsilon-SVR dual, and both stop once the largest KKT violation falls below tol = 1e-3 rather than at the optimum; where each stops depends on its arithmetic, LIBSVM's kernel cache being float32. The predictions agree to within ten times tol across the response's range (checked); solved to 1e-9 they agree to float32's precision (svr.md section 6).
+
+**`tecator.svr.predictions_rbf.sklearn`** — scikit-learn 1.9.0
+
+Both solvers are LIBSVM's SMO on the epsilon-SVR dual, and both stop once the largest KKT violation falls below tol = 1e-3 rather than at the optimum; where each stops depends on its arithmetic, LIBSVM's kernel cache being float32. The predictions agree to within ten times tol across the response's range (checked); solved to 1e-9 they agree to float32's precision (svr.md section 6).
+
 **`corn.svm.decision_linear.sklearn`** — scikit-learn 1.9.0
 
 Both solvers are LIBSVM's SMO with second-order working-set selection, and both stop once the largest KKT violation falls below tol = 1e-3 rather than at the optimum. Where each stops depends on its arithmetic: LIBSVM caches the kernel in float32, ours is float64. The decision values therefore agree only to about tol (within 1e-2 here, checked), while the assignments are identical and, solved to 1e-9, the values agree to float32's precision (svm.md section 3).
@@ -456,30 +572,6 @@ Both keep every group in one fold. GroupKFold's default deals groups without a s
 **`tecator.split.group_kfold.sklearn`** — scikit-learn 1.9.0
 
 Both keep every group in one fold. GroupKFold's default deals groups without a seed, largest first, each to the fold with the fewest samples so far. metrics-and-validation.md §8.8 permutes the groups with the split's seed and slices them by the K-fold size rule (§8.3) - which is GroupKFold(shuffle=True)'s rule, but drawn from NumPy's default_rng rather than a legacy RandomState, so the folds differ either way. A cross-validated claim passes our resolved folds to the reference instead (§8.2).
-
-**`corn.elastic_net.predictions.sklearn`** — scikit-learn 1.9.0
-
-The application solves by FISTA, scikit-learn by coordinate descent; both stop on the same duality gap, 1e-4 ||y||^2 by default, rather than at the optimum, and where each stops depends on its route. The default fit's objective is within that gap of the optimum (checked); solved to 1e-12 both reach the same coefficients and predictions (penalised-regression.md section 6).
-
-**`corn.lasso.predictions.sklearn`** — scikit-learn 1.9.0
-
-The application solves by FISTA, scikit-learn by coordinate descent; both stop on the same duality gap, 1e-4 ||y||^2 by default, rather than at the optimum, and where each stops depends on its route. The default fit's objective is within that gap of the optimum (checked); solved to 1e-12 both reach the same coefficients and predictions (penalised-regression.md section 6).
-
-**`gasoline.elastic_net.predictions.sklearn`** — scikit-learn 1.9.0
-
-The application solves by FISTA, scikit-learn by coordinate descent; both stop on the same duality gap, 1e-4 ||y||^2 by default, rather than at the optimum, and where each stops depends on its route. The default fit's objective is within that gap of the optimum (checked); solved to 1e-12 both reach the same coefficients and predictions (penalised-regression.md section 6).
-
-**`gasoline.lasso.predictions.sklearn`** — scikit-learn 1.9.0
-
-The application solves by FISTA, scikit-learn by coordinate descent; both stop on the same duality gap, 1e-4 ||y||^2 by default, rather than at the optimum, and where each stops depends on its route. The default fit's objective is within that gap of the optimum (checked); solved to 1e-12 both reach the same coefficients and predictions (penalised-regression.md section 6).
-
-**`tecator.elastic_net.predictions.sklearn`** — scikit-learn 1.9.0
-
-The application solves by FISTA, scikit-learn by coordinate descent; both stop on the same duality gap, 1e-4 ||y||^2 by default, rather than at the optimum, and where each stops depends on its route. The default fit's objective is within that gap of the optimum (checked); solved to 1e-12 both reach the same coefficients and predictions (penalised-regression.md section 6).
-
-**`tecator.lasso.predictions.sklearn`** — scikit-learn 1.9.0
-
-The application solves by FISTA, scikit-learn by coordinate descent; both stop on the same duality gap, 1e-4 ||y||^2 by default, rather than at the optimum, and where each stops depends on its route. The default fit's objective is within that gap of the optimum (checked); solved to 1e-12 both reach the same coefficients and predictions (penalised-regression.md section 6).
 
 ---
 

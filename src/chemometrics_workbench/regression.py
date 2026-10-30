@@ -64,6 +64,7 @@ from scipy.linalg import solve_triangular
 from scipy.stats import chi2
 
 from chemometrics_workbench.arrays import as_float64, as_float64_vector
+from chemometrics_workbench.classification import _smo, kernel_matrix
 from chemometrics_workbench.decomposition import (
     PCA,
     LimitFor,
@@ -90,6 +91,7 @@ __all__ = [
     "PCR",
     "PLS",
     "PLS2",
+    "SVR",
     "ElasticNet",
     "Ridge",
     "coefficients_original_units",
@@ -884,6 +886,96 @@ class MLR:
         if self.coefficients_ is None:
             raise RuntimeError("MLR has not been fitted")
         predicted: NDArray[np.float64] = as_float64(X, "X") @ self.coefficients_
+        return predicted
+
+
+class SVR:
+    """Epsilon-SVR on principal component scores, per `svr.md` (#377): centre X,
+    project it on `n_components` principal components, and fit LIBSVM's
+    epsilon-SVR to the scores, linear or RBF, as `SVM` does for a classifier.
+
+    The dual has `2n` multipliers, `a_i` and `a*_i`, and is the C-SVM dual
+    with labels `+1` then `-1`, the kernel repeated in all four blocks and the
+    linear term `epsilon - y` then `epsilon + y` (§3), so `_smo` solves it
+    unchanged. The prediction is `sum_i (a_i - a*_i) K(t_i, t) - rho`; y is not
+    centred, `rho` is the intercept. `gamma=None` is scikit-learn's "scale".
+    """
+
+    x_mean_: NDArray[np.float64] | None = None
+    scores_: NDArray[np.float64] | None = None
+    support_: NDArray[np.intp] | None = None
+    dual_: NDArray[np.float64] | None = None
+    rho_: float = 0.0
+    gamma_: float = 0.0
+
+    def __init__(
+        self,
+        n_components: int,
+        kernel: str = "rbf",
+        c: float = 1.0,
+        epsilon: float = 0.1,
+        gamma: float | None = None,
+        tol: float = 1e-3,
+        max_iter: int = 1_000_000,
+    ) -> None:
+        if kernel not in ("linear", "rbf"):
+            raise ValueError(f"kernel must be 'linear' or 'rbf', got {kernel!r}")
+        if c <= 0:
+            raise ValueError(f"C must be positive, got {c}")
+        if epsilon < 0:
+            raise ValueError(f"epsilon must not be negative, got {epsilon}")
+        if gamma is not None and gamma <= 0:
+            raise ValueError(f"gamma must be positive, got {gamma}")
+        self.n_components = int(n_components)
+        self.kernel = kernel
+        self.c = float(c)
+        self.epsilon = float(epsilon)
+        self.gamma = gamma
+        self.tol = float(tol)
+        self.max_iter = int(max_iter)
+        self.pca_ = PCA(self.n_components)
+
+    def fit(self, X: object, y: object) -> Self:
+        values = as_float64(X, "X")
+        response = as_float64_vector(y, "y")
+        n = values.shape[0]
+        if response.size != n:
+            raise ValueError(f"X has {n} samples and y has {response.size}")
+        self.x_mean_ = values.mean(axis=0)
+        self.pca_.fit(values - self.x_mean_)
+        scores = self.pca_.transform(values - self.x_mean_)
+        self.scores_ = scores
+        variance = float(scores.var())
+        self.gamma_ = (
+            self.gamma
+            if self.gamma is not None
+            else 1.0 / (scores.shape[1] * variance)
+            if variance > 0
+            else 1.0
+        )
+        # ponytail: the doubled kernel is 4n^2 floats, kept because _smo takes a
+        # matrix; index K by `t mod n` instead if a large n makes it heavy.
+        k = kernel_matrix(self.kernel, self.gamma_, scores, scores)
+        doubled = np.block([[k, k], [k, k]])
+        signs = np.concatenate([np.ones(n), -np.ones(n)])
+        linear = np.concatenate([self.epsilon - response, self.epsilon + response])
+        a, rho = _smo(doubled, signs, self.c, self.tol, self.max_iter, linear)
+        beta = a[:n] - a[n:]
+        support = np.flatnonzero(beta != 0)
+        self.support_ = support
+        self.dual_ = beta[support]
+        self.rho_ = rho
+        return self
+
+    def predict(self, X: object) -> NDArray[np.float64]:
+        """On the original scale: y is never centred, `rho` is the intercept."""
+        if self.x_mean_ is None or self.scores_ is None or self.dual_ is None:
+            raise RuntimeError("SVR has not been fitted")
+        projected = self.pca_.transform(as_float64(X, "X") - self.x_mean_)
+        support = self.scores_[np.asarray(self.support_)]
+        predicted: NDArray[np.float64] = (
+            kernel_matrix(self.kernel, self.gamma_, projected, support) @ self.dual_ - self.rho_
+        )
         return predicted
 
 

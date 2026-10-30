@@ -1487,6 +1487,7 @@ const METHODS: Record<string, string> = {
   elastic_net: "Elastic Net",
   lasso: "Lasso",
   mlr: "MLR",
+  svr: "SVR",
 };
 
 export function AnalysisResults({
