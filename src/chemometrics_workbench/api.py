@@ -155,7 +155,7 @@ MAX_TRACES = 60
 MAX_POINTS = 1000
 
 #: An upload past this is refused before it is written. Above §13's envelope —
-#: 20,000 x 4,000 float32 is about 320 MB — because a text file holding that
+#: 20,000 x 4,000 float64 is about 640 MB — because a text file holding that
 #: many values is several times larger than the array it becomes, and refusing
 #: a file the application could have read would be the wrong failure.
 MAX_UPLOAD_BYTES = 2_000_000_000
@@ -303,8 +303,8 @@ def import_dataset(
 ) -> Any:
     """Read the file with the user's corrections applied and record what it became.
 
-    The array is written through #77's store, so it is float32 on disk and the
-    `content_hash` falls out of storing it. The `DatasetVersion` references
+    The array is written through the store, float64 on disk since #402, and
+    the `content_hash` falls out of storing it. The `DatasetVersion` references
     that path; the index never holds values.
     """
     directory, project = _project()

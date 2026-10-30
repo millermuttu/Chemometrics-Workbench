@@ -214,7 +214,7 @@ def test_import_writes_the_array_through_the_store_and_records_a_version(
     # The index holds a path; the values are in the store, float32 on disk.
     stored = project / version["array_path"]
     assert stored.exists()
-    assert np.load(stored).dtype == np.float32
+    assert np.load(stored).dtype == np.float64
     assert read_array(project, version["array_path"]).shape == (8, 12)
 
 
@@ -971,7 +971,10 @@ def test_a_step_below_an_estimator_is_refused_where_it_is_written(client: TestCl
 #: target, and whose `batch` is text, so the reader offers it as a class.
 CODED = "sample,900,902,904,906,908,910,variety,batch,fat\n" + "".join(
     f"S{row},"
-    + ",".join(f"{(row % 2) * 0.5 + 0.1 * col + 0.01 * row:.3f}" for col in range(6))
+    + ",".join(
+        f"{(row % 2) * 0.5 + 0.1 * col + 0.01 * row * col + 0.004 * ((row * 7 + col * 3) % 5):.3f}"
+        for col in range(6)
+    )
     + f",{row % 2 + 1},b{row // 4},{10 + row}\n"
     for row in range(8)
 )

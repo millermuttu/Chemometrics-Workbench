@@ -213,6 +213,12 @@ class PCA:
     #: A caller that knows the provenance says so; the default assumes none,
     #: which leaves the tolerance where it has always been to within one part
     #: in `max(n, p)` - so nothing computed in float64 throughout moves.
+    #:
+    #: The executor passes `STORED_EPS` (#101). The store is float64 since
+    #: #402, but the term is the data's precision, not the store's: imported
+    #: text carries five to seven significant digits, so float32's epsilon
+    #: still describes it, and keeping it left every rank where it was
+    #: (decision 0007).
     DEFAULT_EPS = float(np.finfo(np.float64).eps)
     STORED_EPS = float(np.finfo(np.float32).eps)
 

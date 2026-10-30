@@ -116,7 +116,7 @@ A version 1 artifact carries `fold` here instead of `fitted_on`, and the fold's 
 
 An object mapping a **name** to `{file, dtype, shape}`. `file` is the path inside the archive; `dtype` and `shape` are stated in the manifest as well as carried by the `.npy`, so a reader can see what it is about to load without loading it.
 
-Every array is written **float64** except the index sets, which are **int64**. The application stores its intermediate arrays as float32 (`PROPOSAL.md` §13); an artifact is a record rather than a cache, and narrowing a coefficient vector to save 16 kB would be trading the thing the file exists for.
+Every array is written **float64** except the index sets, which are **int64**. The application stores its intermediate arrays as float64 too, since v1.3 (decision 0007); before it they were float32, and an artifact still never narrowed, because it is a record rather than a cache.
 
 Which arrays are present depends on the task. A reader must not assume any of them beyond `dataset_axis`:
 

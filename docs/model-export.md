@@ -128,14 +128,11 @@ A zero divisor in any of these is a dead spectrum, and both the application and 
 
 ## 5. The tolerance, and why it is what it is
 
-**An exported prediction agrees with the application's to `rtol = 1e-4`, `atol = 1e-6`.**
+**An exported prediction agrees with the application's to `rtol = 1e-6`, `atol = 1e-9`** - the parity harness's prediction class.
 
-That is wider than the parity harness's prediction class (`rtol = 1e-6`) and the reason is measured rather than supposed. The executor stores every intermediate array as **float32** (`PROPOSAL.md` §13), so the application's own prediction is computed from float32-rounded inputs, while an export applied to the raw data computes in float64 throughout. `docs/phase-2/exit-run.md` measured exactly this on a Savitzky–Golay first-derivative chain: the served predictions differ from a float64 reference by **7.09e-6 relative**, and a first derivative is the worst case, because it amplifies the rounding of the array it differentiates.
+Until v1.3 it was `rtol = 1e-4`, `atol = 1e-6`, and the reason was measured: the executor stored every intermediate array as float32, so the application predicted from float32-rounded inputs while an export computed in float64 throughout. `docs/phase-2/exit-run.md` measured the gap at 7.09e-6 relative on a first-derivative chain. Phase 7's exit run then found models where it was far larger - Ridge at a small α and MLR on a selection, whose condition numbers multiply one float32 rounding by about 10⁵ - and the store became float64 ([#402](https://github.com/millermuttu/Chemometrics-Workbench/issues/402), decision 0007). The application and an export now compute from the same numbers, and the tolerance came down to the prediction class, as this section said it should; `tests/test_export.py` holds it.
 
-The export tolerance is therefore set an order of magnitude above the largest difference the store can produce, not at a number that happened to pass. Two consequences worth stating:
-
-- **The difference is the store's, not the export's.** Narrowing the exported coefficients to float32 would make the two agree more closely and make the export worse. The artifact and the JSON model both carry float64.
-- **If the store ever becomes float64**, this tolerance should come down to the parity harness's prediction class, and the test that holds it should be the thing that notices.
+The artifact and the JSON model carry float64, as they always did.
 
 ---
 
