@@ -86,6 +86,8 @@ export function parameterLine(node: PipelineNode): string {
       return `${spec!.n_components} components · ${spec!.target}`;
     case "ridge":
       return `alpha ${spec!.alpha} · ${spec!.target}`;
+    case "elastic_net":
+      return `alpha ${spec!.alpha} · l1 ${spec!.l1_ratio} · ${spec!.target}`;
     case "knn":
       return `k ${spec!.k} · ${spec!.n_components} components · ${spec!.class_column}`;
     case "svm":

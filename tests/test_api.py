@@ -1119,9 +1119,18 @@ def _run_current(client: TestClient) -> None:
     assert status["status"] == "succeeded", status
 
 
-def test_a_ridge_is_served_exported_reported_and_saved_like_a_regression(
-    client: TestClient,
+@pytest.mark.parametrize(
+    ("spec", "method"),
+    [
+        ({"kind": "ridge", "alpha": 0.1}, "ridge"),
+        ({"kind": "elastic_net", "alpha": 0.1, "l1_ratio": 0.5}, "elastic_net"),
+        ({"kind": "elastic_net", "alpha": 0.1, "l1_ratio": 1.0}, "lasso"),
+    ],
+)
+def test_a_penalised_model_is_served_exported_reported_and_saved_like_a_regression(
+    client: TestClient, spec: dict[str, Any], method: str
 ) -> None:
+    """#374, #375: every surface a regression result has."""
     client.post("/api/import", files=upload("tecator_subset.csv"))
     nodes = client.get("/api/pipelines/current").json()["nodes"]
     nodes += [
@@ -1141,14 +1150,14 @@ def test_a_ridge_is_served_exported_reported_and_saved_like_a_regression(
             "id": "ridge",
             "type": "estimator",
             "inputs": ["centre"],
-            "spec": {"kind": "ridge", "alpha": 0.1, "target": "fat"},
+            "spec": {**spec, "target": "fat"},
         },
     ]
     assert client.put("/api/pipelines/current", json={"nodes": nodes}).status_code == 200
     _run_current(client)
 
     payload = client.get("/api/results/ridge").json()
-    assert payload["regression"]["method"] == "ridge"
+    assert payload["regression"]["method"] == method
     assert payload["scores"] == [] and payload["metrics"]["rmsecv"] > 0
     curve = payload["tuning_curve"]
     assert curve["parameter"] == "alpha" and curve["log"] and curve["chosen"] == 0.1
@@ -1166,5 +1175,5 @@ def test_a_ridge_is_served_exported_reported_and_saved_like_a_regression(
     [experiment] = client.get("/api/experiments").json()
     report = client.get(f"/api/experiments/{experiment['experiment_id']}/report.html")
     assert report.status_code == 200, report.text
-    saved = client.post("/api/results/ridge/save", json={"name": "ridge fat"})
+    saved = client.post("/api/results/ridge/save", json={"name": f"{method} fat"})
     assert saved.status_code == 201, saved.text

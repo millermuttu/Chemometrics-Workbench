@@ -1021,8 +1021,9 @@ function RmsecvCurve({ pca }: { pca: PcaPayload }) {
   // there and then quoting that minimum as the model's expected error is
   // optimistic, and that it is the user's call rather than the application's.
   const symbol = parameterSymbol(curve);
-  const best = curve?.scores.length
-    ? curve.values[curve.scores.indexOf(Math.min(...curve.scores))]
+  const fitted = (curve?.scores ?? []).filter((score): score is number => score !== null);
+  const best = fitted.length
+    ? curve!.values[curve!.scores.indexOf(Math.min(...fitted))]
     : undefined;
   const note =
     curve && best !== undefined
@@ -1476,6 +1477,14 @@ function SimcaResults({ pca, nodeId, title }: { pca: PcaPayload; nodeId: string;
   );
 }
 
+/** What a regression's header calls its method, by `regression.method`. */
+const METHODS: Record<string, string> = {
+  pcr: "PCR",
+  ridge: "Ridge",
+  elastic_net: "Elastic Net",
+  lasso: "Lasso",
+};
+
 export function AnalysisResults({
   nodeId,
   title,
@@ -1513,6 +1522,8 @@ export function AnalysisResults({
   const regression = pca.task === "regression" || classification;
   // Whether the model has components and so an X model to draw (#374).
   const latent = pca.scores.length > 0;
+  const sparse = ["elastic_net", "lasso"].includes(pca.regression?.method ?? "");
+  const kept = (pca.regression?.coefficients ?? []).filter((value) => value !== 0).length;
   return (
     <div className="pane">
       <div
@@ -1540,10 +1551,12 @@ export function AnalysisResults({
             {classification
               ? `${{ lda: "LDA", knn: "kNN", svm: "SVM" }[pca.regression?.method ?? ""] ?? "PLS-DA"} on ${pca.classification?.class_column ?? "?"}`
               : regression
-                ? `${{ pcr: "PCR", ridge: "Ridge" }[pca.regression?.method ?? ""] ?? "PLS"} on ${pca.regression?.target ?? "?"}`
+                ? `${METHODS[pca.regression?.method ?? ""] ?? "PLS"} on ${pca.regression?.target ?? "?"}`
                 : "PCA"}{" "}
             {latent ? `${pca.n_components} components · ` : ""}
             {pca.n_samples} × {pca.n_variables}
+            {/* #375: an L1 penalty's coefficients are a selection. */}
+            {sparse ? ` · ${kept} of ${pca.n_variables} variables kept` : ""}
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "center" }}>

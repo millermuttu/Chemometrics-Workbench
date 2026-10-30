@@ -32,7 +32,27 @@ which is $(X^\top X + \alpha I)^{-1} X^\top y$ without forming $X^\top X$. With 
 
 ## 3. Elastic Net and Lasso
 
-Specified with [#375](https://github.com/millermuttu/Chemometrics-Workbench/issues/375).
+[#375](https://github.com/millermuttu/Chemometrics-Workbench/issues/375). Elastic Net minimises scikit-learn's objective, with its scaling,
+
+$$\frac{1}{2n}\lVert y - Xb \rVert^2 + \alpha\,\rho\,\lVert b \rVert_1 + \frac{\alpha (1 - \rho)}{2}\lVert b \rVert^2,$$
+
+where $\rho$ is `l1_ratio`, $0 < \rho \le 1$. $\rho = 1$ is the **Lasso**; the menu offers both, and they are one estimator. The L1 term sets coefficients exactly to zero, so a sparse $b$ is a wavelength selection: the analysis screen says how many of the $p$ variables the model kept.
+
+The smallest $\alpha$ at which every coefficient is zero is
+
+$$\alpha_{\max} = \frac{\max_j |x_j^\top y|}{n \rho}.$$
+
+At or above it the model predicts the training mean. The schema's default $\alpha = 1$ is scikit-learn's, and on many spectra it is above $\alpha_{\max}$ (corn's is about $10^{-2}$, Tecator's about 4): the curve (§5) shows where the useful range is.
+
+### 3.1 Why the solution is not always unique
+
+With $\rho < 1$ the objective is strictly convex and $b$ is unique. The Lasso's need not be when $p > n$ or the columns are collinear, which spectra are; its fitted values $Xb$ are unique even then. At the parity alpha (§6) the Lasso solutions are sparse and agree coefficient by coefficient.
+
+### 3.2 The solver, and how it stops
+
+**FISTA with adaptive restart**, not coordinate descent (maintainer, 2026-10-30). Each step is a gradient step on the smooth part, $\tfrac12 b^\top (X^\top X + \ell_2 I) b - b^\top X^\top y$ in scikit-learn's $n$-scaled units ($\ell_1 = \alpha\rho n$, $\ell_2 = \alpha(1-\rho)n$), with step $1/L$ for $L$ the largest eigenvalue of $X^\top X$ plus $\ell_2$, followed by soft-thresholding at $\ell_1/L$, Nesterov momentum, and O'Donoghue and Candès's restart, which drops the momentum whenever it points uphill. Every step is one product with $X^\top X$, which NumPy does at compiled speed; a coordinate sweep is a Python loop, and on corn coordinate descent needs up to a million sweeps (scikit-learn's own count).
+
+It stops on **scikit-learn's duality gap**, computed every 10 steps: $\text{gap} \le \text{tol}\,\lVert y \rVert^2$, with `tol` $= 10^{-4}$ as scikit-learn's default. A fit that does not reach it within the iteration limit (100,000 for a model, 20,000 for a point of the curve) is **refused, naming $\alpha$**, never reported.
 
 ## 4. Degrees of freedom, and why SEC is absent
 
@@ -40,20 +60,25 @@ The effective degrees of freedom of a ridge fit are the trace of its hat matrix,
 
 ## 5. The tuning grid
 
-The penalty's curve ([`metrics-and-validation.md`](metrics-and-validation.md) §15) is RMSECV at 25 values of $\alpha$, log-spaced over six decades:
+The penalty's curve ([`metrics-and-validation.md`](metrics-and-validation.md) §15) is RMSECV at 25 values of $\alpha$, log-spaced from a top down, the top computed from the centred matrix the model is fitted on before any residual is seen:
 
-$$\alpha_j = s_1^2 \cdot 10^{-6 + j/4}, \qquad j = 0 \dots 24,$$
+| Model | Top | Decades |
+| --- | --- | --- |
+| Ridge | $s_1^2$, the largest squared singular value: even the strongest direction is shrunk by half and the model predicts little more than the mean | 6 |
+| Elastic Net, Lasso | $\alpha_{\max}$ (§3), where every coefficient is zero | 3 |
 
-where $s_1$ is the largest singular value of the centred matrix the model is fitted on. At $\alpha = s_1^2$ even the strongest direction is shrunk by half and the model predicts little more than the mean; six decades below, the penalty barely acts. The grid is fixed by the data before any residual is seen. The $\alpha$ the node was fitted with is marked on the curve and is not replaced by the curve's minimum.
+Elastic Net's grid is shorter because a small L1 penalty on collinear spectra converges slowly: three decades below $\alpha_{\max}$ keeps a corn curve to seconds. Each fold fits the grid **from the top down, each fit started from the last**. A fit that does not converge ends that fold's path, and it and every smaller $\alpha$ are **absent** from the curve: a pooled residual missing a fold is not the curve's number. The $\alpha$ the node was fitted with is marked on the curve and is not replaced by the curve's minimum.
 
 ## 6. Parity
 
 scikit-learn's `Ridge(alpha=1.0, fit_intercept=True, solver="svd")`, on the raw matrix of corn, gasoline and Tecator: its coefficients against ours on the centred matrix, and its calibration predictions against ours plus the mean. The claims are `<dataset>.ridge.coefficients.sklearn` and `<dataset>.ridge.predictions.sklearn`, in the `coefficients` and `predictions` tolerance classes. In the executor, RMSECV, every point of the curve and the final model's predictions are checked against scikit-learn's `Ridge` on the run's own folds (`tests/test_executor.py`).
 
+Elastic Net and the Lasso are compared with scikit-learn's `ElasticNet(l1_ratio=0.5)` and `Lasso` at $\alpha = 0.1\,\alpha_{\max}$, on the centred matrices of corn, gasoline and Tecator, **both solved to a duality gap of $10^{-12}$**, where the two solvers reach the same optimum by different routes: coefficients and predictions in the `coefficients` and `predictions` classes, twelve claims. At the default gap of $10^{-4}\lVert y\rVert^2$ each solver stops where its route has got to, so the default fit is a **documented divergence**: before it is recorded, its objective is checked to be within that gap of the optimum.
+
 ## 7. Export
 
-$b$ is a fixed vector, so a ridge model exports as a PLS does ([`model-export.md`](../model-export.md)): foldable steps folded into the coefficients, residual steps carried, and the snippet reproduces the application's predictions.
+$b$ is a fixed vector, zeros included, so a penalised model exports as a PLS does ([`model-export.md`](../model-export.md)): foldable steps folded into the coefficients, residual steps carried, and the snippet reproduces the application's predictions.
 
 ## 8. What is not reported
 
-A ridge model has no components, so it has **no scores, loadings, $T^2$, SPE or contributions**, and no VIP. The analysis screen leaves those panels out, outlier diagnostics refuse it by name, and bootstrap intervals, which are specified for PLS and PCR, refuse it too.
+A penalised model has no components, so it has **no scores, loadings, $T^2$, SPE or contributions**, and no VIP. The analysis screen leaves those panels out, outlier diagnostics refuse it by name, and bootstrap intervals, which are specified for PLS and PCR, refuse it too.

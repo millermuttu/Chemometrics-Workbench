@@ -476,6 +476,17 @@ class RidgeSpec(Frozen):
     target: str = Field(description="Which target column in the dataset is being modelled.")
 
 
+class ElasticNetSpec(Frozen):
+    """`penalised-regression.md` §3: an L1 and an L2 penalty; `l1_ratio = 1` is the Lasso."""
+
+    kind: Literal["elastic_net"] = "elastic_net"
+    alpha: float = Field(default=1.0, gt=0, description="Overall strength of the penalty.")
+    l1_ratio: float = Field(
+        default=0.5, gt=0, le=1, description="Share of the penalty that is L1; 1 is the Lasso."
+    )
+    target: str = Field(description="Which target column in the dataset is being modelled.")
+
+
 class SIMCASpec(Frozen):
     kind: Literal["simca"] = "simca"
     n_components: int = Field(ge=1, description="Components in every class's PCA.")
@@ -522,6 +533,7 @@ EstimatorSpec = Annotated[
     | PLSRegressionSpec
     | PCRSpec
     | RidgeSpec
+    | ElasticNetSpec
     | PLSDASpec
     | SIMCASpec
     | LDASpec

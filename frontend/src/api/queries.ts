@@ -318,7 +318,8 @@ export interface TuningCurve {
   parameter: string;
   metric: string;
   values: number[];
-  scores: number[];
+  /** `null` where a fold could not fit that value (#375): absent, never a guess. */
+  scores: (number | null)[];
   log: boolean;
   chosen: number;
 }

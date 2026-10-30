@@ -178,6 +178,21 @@ export function stepMenu(targets: string[], classColumns: string[] = []): Catalo
         parameters: `alpha 1 · ${target}`,
         payload: { spec: { kind: "ridge", alpha: 1, target } },
       },
+      {
+        // #375: one estimator; l1_ratio 1 is the Lasso, offered by its name.
+        kind: "Elastic Net α1",
+        group: "Regression" as const,
+        type: "estimator" as const,
+        parameters: `alpha 1 · l1 0.5 · ${target}`,
+        payload: { spec: { kind: "elastic_net", alpha: 1, l1_ratio: 0.5, target } },
+      },
+      {
+        kind: "Lasso α1",
+        group: "Regression" as const,
+        type: "estimator" as const,
+        parameters: `alpha 1 · l1 1 · ${target}`,
+        payload: { spec: { kind: "elastic_net", alpha: 1, l1_ratio: 1, target } },
+      },
     ].map(needs(targets.length > 0, NO_TARGET)),
     // Enabled when the dataset has a metadata column with two or more values
     // (#185, #274, pls-da.md section 2), and it models the first.

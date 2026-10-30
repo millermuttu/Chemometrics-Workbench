@@ -401,6 +401,39 @@ test("a flagged sample is excluded from the outlier table, rerun, and named in l
   }
 });
 
+test("a lasso runs below a split and says how many variables it kept", async ({ page }) => {
+  // #375. Beside the ridge above, on the ridge's split; the alpha is small
+  // enough for the walkthrough's synthetic spectra to keep some variables.
+  await page.goto("/?token=e2e-token");
+  const auth = { Authorization: "Bearer e2e-token" };
+  const pipeline = await (await page.request.get("/api/pipelines/current", { headers: auth })).json();
+  const nodes = pipeline.nodes as { id: string; type: string; inputs: string[] }[];
+  nodes.push({
+    id: "lasso",
+    type: "estimator",
+    inputs: ["ridge_split"],
+    spec: { kind: "elastic_net", alpha: 0.001, l1_ratio: 1, target: "moisture" },
+  } as (typeof nodes)[number]);
+  const saved = await page.request.put("/api/pipelines/current", {
+    headers: { ...auth, "Content-Type": "application/json" },
+    data: { nodes },
+  });
+  expect(saved.status()).toBe(200);
+
+  await page.reload();
+  await page.getByRole("button", { name: "Run pipeline" }).click();
+  await expect(page.locator(".status")).toContainText("Done", { timeout: 60_000 });
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /Lasso α0.001 · moisture/ }).dblclick();
+  await expect(page.getByTestId("analysis-header")).toContainText(
+    /Lasso on moisture 30 × 24 · \d+ of 24 variables kept/,
+  );
+  await expect(page.getByRole("region", { name: "RMSECV" })).toContainText(
+    /fitted at alpha = 0.001 · lowest at alpha = /,
+  );
+  await expect(page.getByRole("region", { name: "Scores" })).toHaveCount(0);
+});
+
 /** #371, #372. A column's role was the reader's guess and could not be
  * changed, and a dataset with no column for a model hid the model. Last, on
  * whatever version the tests above left the pipeline on: the target is made a

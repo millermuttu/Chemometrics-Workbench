@@ -126,9 +126,9 @@
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; an e2e test adds it from its menu group and runs it"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-30, feature/375_elastic-net. penalised-regression.md section 3 (objective, alpha_max, uniqueness, FISTA and the duality-gap stop), 5 (3-decade grid, warm-started path, absent points), 6 (parity); metrics-and-validation.md section 15 updated; mkdocs build --strict built. Parity: tests/test_parity.py, corn/gasoline/tecator x elastic_net (l1 0.5) and lasso, alpha = 0.1 alpha_max, both solvers to gap 1e-12: 12 claims passed in the coefficients/predictions classes; at the default tol 1e-4 the objective is within the gap of the optimum (checked) and 6 stopping-rule divergences recorded; fixture diff only the 12 new entries; parity report 216/216. tests/test_executor.py: both l1_ratios under a 5-fold split, sparse coefficients, 3-decade descending curve, RMSECV equal to the kernel on the run's folds (rtol 1e-9). tests/test_regression.py: non-convergence refused naming alpha; a path ends at its first unconverged alpha with the rest None; a NaN fold row makes that curve point NaN. tests/test_export.py: lasso behind Savitzky-Golay folds and the snippet reproduces predictions. tests/test_api.py: ridge, elastic_net and lasso served, folded, exported, reported, saved; outliers/bootstrap 422. New tests fail at import with src stashed. uv run pytest 1011 passed; ruff, mypy clean. In frontend/: typecheck, lint clean; pnpm test 179 passed; pnpm build; changed specs only (maintainer 2026-10-30): walkthrough.spec.ts 9 passed incl. 'a lasso runs below a split and says how many variables it kept', analysis.spec.ts 23 passed.",
+      "notes": "Solver is FISTA, not the issue's coordinate descent (maintainer's choice, 2026-10-30; pure-Python CD needs up to 1e6 sweeps on corn). The schema default alpha 1 is sklearn's and is above alpha_max on corn and gasoline, where it keeps no variables; the curve shows the useful range. Ridge's grid now runs from its top down as well."
     },
     {
       "id": "mlr",

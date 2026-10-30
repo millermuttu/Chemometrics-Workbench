@@ -237,6 +237,11 @@ describe("a regression's own panels", () => {
     expect(parameterSymbol(penalty.tuning_curve)).toBe("alpha");
     expect(chosenLine(penalty.tuning_curve, theme)).toMatchObject({ x0: 1, x1: 1, yref: "paper" });
     expect(rmsecvTrace({ ...pls, tuning_curve: undefined }, theme)).toMatchObject({ x: [], y: [] });
+    // #375: a value a fold could not fit is a gap in the line, not a point.
+    const gapped = { ...penalty.tuning_curve, scores: [3.1, 2.4, null, null] };
+    expect((rmsecvTrace({ ...pls, tuning_curve: gapped }, theme) as Record<string, unknown>).y).toEqual(
+      [3.1, 2.4, null, null],
+    );
   });
 });
 

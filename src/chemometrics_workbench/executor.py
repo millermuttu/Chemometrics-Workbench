@@ -121,7 +121,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import Counter
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, fields, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -142,6 +142,7 @@ from chemometrics_workbench.classification import (
 from chemometrics_workbench.decomposition import PCA
 from chemometrics_workbench.models import (
     DatasetVersion,
+    ElasticNetSpec,
     Environment,
     EstimatorSpec,
     Experiment,
@@ -178,8 +179,10 @@ from chemometrics_workbench.regression import (
     PCR,
     PLS,
     PLS2,
+    ElasticNet,
     Ridge,
     cross_validated_predictions,
+    elastic_net_path,
     rmsecv_curve,
     tuning_curve,
 )
@@ -246,6 +249,7 @@ _FITTED: tuple[type, ...] = (
     PCASpec,
     PLSRegressionSpec,
     PCRSpec,
+    ElasticNetSpec,
     RidgeSpec,
     PLSDASpec,
     SIMCASpec,
@@ -1336,6 +1340,9 @@ def _fitted(
     if isinstance(node.spec, RidgeSpec):
         return _ridge(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
 
+    if isinstance(node.spec, ElasticNetSpec):
+        return _elastic_net(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
+
     if isinstance(node.spec, SVMSpec):
         return _svm(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
 
@@ -1609,9 +1616,18 @@ def _fit_regression(
     )
 
 
-#: penalised-regression.md section 5: the grid a penalty's curve is drawn over.
+#: penalised-regression.md section 5: the grid a penalty's curve is drawn over,
+#: from its top down - largest first, so a path can start each fit from the last.
 PENALTY_POINTS = 25
-PENALTY_DECADES = 6
+RIDGE_DECADES = 6
+ENET_DECADES = 3
+
+#: A centred training matrix and response, and the penalty: the coefficients.
+_Fit = Callable[[NDArray[np.float64], NDArray[np.float64], float], NDArray[np.float64]]
+#: The same at every penalty of a grid, `None` where the fit could not be made.
+_Path = Callable[
+    [NDArray[np.float64], NDArray[np.float64], list[float]], list[NDArray[np.float64] | None]
+]
 
 
 def _ridge(
@@ -1625,38 +1641,126 @@ def _ridge(
     fold: int | None,
     version: DatasetVersion,
 ) -> EstimatorResult:
-    """Ridge on the node's input (`penalised-regression.md`), with the regression
-    half of `pls-regression.md` §13's quantities and none of the X model's.
+    """Ridge (`penalised-regression.md` §2), its grid topped at the centred
+    matrix's largest squared singular value - a penalty that size shrinks
+    every direction to near nothing (§5)."""
 
-    A ridge model has no components, so it has no scores, loadings, T2 or SPE
-    to report; those fields are empty and the screen leaves their panels out.
-    SEC is absent too: §5's `n - A - 1` needs a whole number of parameters,
-    and a ridge model's effective degrees of freedom are not one.
+    def fit(x: NDArray[np.float64], y: NDArray[np.float64], alpha: float) -> NDArray[np.float64]:
+        return np.asarray(Ridge(alpha).fit(x, y).coefficients_)
+
+    return _penalised(
+        node,
+        "ridge",
+        spec.target,
+        spec.alpha,
+        (parent, key, matrix, rows, held_out, fold, version),
+        fit,
+        lambda x, y, alphas: [fit(x, y, alpha) for alpha in alphas],
+        lambda x, _y: float(np.linalg.norm(x, ord=2) ** 2),
+        RIDGE_DECADES,
+    )
+
+
+def _elastic_net(
+    node: PipelineNode,
+    spec: ElasticNetSpec,
+    parent: _State,
+    key: str,
+    matrix: NDArray[np.float64],
+    rows: NDArray[np.intp],
+    held_out: NDArray[np.intp],
+    fold: int | None,
+    version: DatasetVersion,
+) -> EstimatorResult:
+    """Elastic Net and the Lasso (`penalised-regression.md` §3), its grid topped
+    at the smallest alpha that zeroes every coefficient, `max|X'y| / (n l1_ratio)`,
+    over three decades (§5)."""
+    kind = "lasso" if spec.l1_ratio == 1 else "elastic_net"
+
+    def fit(x: NDArray[np.float64], y: NDArray[np.float64], alpha: float) -> NDArray[np.float64]:
+        try:
+            return np.asarray(ElasticNet(alpha, spec.l1_ratio).fit(x, y).coefficients_)
+        except RuntimeError as error:
+            raise ExecutorError(f"node {node.id!r} ({kind}) failed: {error}", node.id) from error
+
+    return _penalised(
+        node,
+        kind,
+        spec.target,
+        spec.alpha,
+        (parent, key, matrix, rows, held_out, fold, version),
+        fit,
+        lambda x, y, alphas: elastic_net_path(x, y, alphas, spec.l1_ratio),
+        lambda x, y: float(np.abs(x.T @ y).max()) / (len(y) * spec.l1_ratio),
+        ENET_DECADES,
+    )
+
+
+def _penalised(
+    node: PipelineNode,
+    kind: str,
+    target: str,
+    alpha: float,
+    where: tuple[
+        _State,
+        str,
+        NDArray[np.float64],
+        NDArray[np.intp],
+        NDArray[np.intp],
+        int | None,
+        DatasetVersion,
+    ],
+    fit: _Fit,
+    path: _Path,
+    top: Callable[[NDArray[np.float64], NDArray[np.float64]], float],
+    decades: int,
+) -> EstimatorResult:
+    """A penalised linear model on the node's input (`penalised-regression.md`),
+    with the regression half of `pls-regression.md` §13's quantities and none
+    of the X model's.
+
+    It has no components, so it has no scores, loadings, T2 or SPE to report;
+    those fields are empty and the screen leaves their panels out. SEC is
+    absent too: §5's `n - A - 1` needs a whole number of parameters, and a
+    penalised model's effective degrees of freedom are not one (§4).
     """
-    response = _response(version, node, spec.target)
+    parent, key, matrix, rows, held_out, fold, version = where
+    response = _response(version, node, target)
     if response.size != matrix.shape[0]:
         raise ExecutorError(
-            f"node {node.id!r} (ridge) has {matrix.shape[0]} samples and target "
-            f"{spec.target!r} has {response.size} values.",
+            f"node {node.id!r} ({kind}) has {matrix.shape[0]} samples and target "
+            f"{target!r} has {response.size} values.",
             node.id,
         )
 
     def fit_predict(
+        train_x: NDArray[np.float64], train_y: NDArray[np.float64], test_x: NDArray[np.float64]
+    ) -> NDArray[np.float64]:
+        x_mean, y_mean = train_x.mean(axis=0), float(train_y.mean())
+        return np.asarray(
+            (test_x - x_mean) @ fit(train_x - x_mean, train_y - y_mean, alpha) + y_mean
+        )
+
+    def fit_path(
         train_x: NDArray[np.float64],
         train_y: NDArray[np.float64],
         test_x: NDArray[np.float64],
-        alpha: float,
+        alphas: Sequence[float],
     ) -> NDArray[np.float64]:
         x_mean, y_mean = train_x.mean(axis=0), float(train_y.mean())
-        return (
-            Ridge(alpha).fit(train_x - x_mean, train_y - y_mean).predict(test_x - x_mean) + y_mean
+        found = path(train_x - x_mean, train_y - y_mean, list(alphas))
+        return np.array(
+            [
+                np.full(test_x.shape[0], np.nan) if b is None else (test_x - x_mean) @ b + y_mean
+                for b in found
+            ]
         )
 
     train_x, train_y = matrix[rows], response[rows]
     x_mean = train_x.mean(axis=0)
     y_mean = float(train_y.mean())
-    model = Ridge(spec.alpha).fit(train_x - x_mean, train_y - y_mean)
-    predicted = model.predict(train_x - x_mean) + y_mean
+    coefficients = fit(train_x - x_mean, train_y - y_mean, alpha)
+    predicted = (train_x - x_mean) @ coefficients + y_mean
     metrics: dict[str, float] = {
         "rmsec": validation.rmse(train_y, predicted),
         "r2": validation.r2(train_y, predicted),
@@ -1669,7 +1773,7 @@ def _ridge(
 
     held_y = response[held_out]
     held_predicted = (
-        fit_predict(train_x, train_y, matrix[held_out], spec.alpha)
+        fit_predict(train_x, train_y, matrix[held_out])
         if held_out.size
         else np.array([], dtype=np.float64)
     )
@@ -1678,30 +1782,28 @@ def _ridge(
         metrics["sep"] = validation.sep(held_y, held_predicted)
 
     # §9 and §15 as for PLS: one fold assignment, each fold on its own
-    # preprocessed array (#173), the curve over a log grid whose top is the
-    # largest squared singular value of the centred matrix - a penalty that
-    # size shrinks every direction to near nothing.
+    # preprocessed array (#173), the curve over the model's log grid from
+    # its top down. A value a fold could not fit is absent from the curve.
     cross_validated = np.array([], dtype=np.float64)
     tuning: dict[str, Any] = {}
     if parent.folds is not None and len(parent.folds) > 1:
         folds = parent.folds
-        top = float(np.linalg.norm(train_x - x_mean, ord=2) ** 2)
-        grid = top * np.logspace(-PENALTY_DECADES, 0, PENALTY_POINTS)
-        # ponytail: one SVD per fold per grid value; reuse each fold's SVD
+        grid = top(train_x - x_mean, train_y - y_mean) * np.logspace(0, -decades, PENALTY_POINTS)
+        # ponytail: Ridge refits its SVD per grid value; reuse each fold's SVD
         # across the grid if a large dataset makes the curve slow.
-        curve = tuning_curve(parent.arrays, response, folds, list(grid), fit_predict)
+        curve = tuning_curve(parent.arrays, response, folds, list(grid), fit_path)
         tuning = {
             "parameter": "alpha",
             "metric": "rmsecv",
             "values": _values(grid),
-            "scores": _values(curve),
+            "scores": [float(score) if np.isfinite(score) else None for score in curve],
             "log": True,
-            "chosen": spec.alpha,
+            "chosen": alpha,
         }
         cross_validated = np.empty_like(response)
         for one, values in zip(folds, parent.arrays, strict=True):
             cross_validated[one.test] = fit_predict(
-                values[one.train], response[one.train], values[one.test], spec.alpha
+                values[one.train], response[one.train], values[one.test]
             )
         metrics["rmsecv"] = validation.rmse(response, cross_validated)
         metrics["q2"] = validation.q2(response, cross_validated)
@@ -1733,11 +1835,11 @@ def _ridge(
         hotelling_t2_limit=0.0,
         spe=[],
         spe_limit=0.0,
-        target=spec.target,
-        method="ridge",
+        target=target,
+        method=kind,
         observed=_values(train_y),
         predicted=_values(predicted),
-        coefficients=_values(model.coefficients_),
+        coefficients=_values(coefficients),
         x_mean=_values(x_mean),
         y_mean=y_mean,
         cross_validated_predicted=_values(cross_validated),

@@ -50,6 +50,7 @@ from chemometrics_workbench.regression import (
     PCR,
     PLS,
     PLS2,
+    ElasticNet,
     Ridge,
     coefficients_original_units,
     cross_validated_predictions,
@@ -544,6 +545,68 @@ def test_ridge_matches_the_reference(dataset: str) -> None:
         f"{dataset}.ridge.predictions.sklearn", model.predict(centred) + y.mean()
     )
     assert coefficients.passed and predictions.passed
+
+
+# --------------------------------------------------------------------------
+# Elastic Net and Lasso (#375)
+# --------------------------------------------------------------------------
+
+ENET_CASES = [("elastic_net", 0.5), ("lasso", 1.0)]
+
+
+def _enet_problem(dataset: str, l1_ratio: float) -> tuple[np.ndarray, np.ndarray, float]:
+    """The centred matrix and response, and the generator's alpha (section 6)."""
+    data = LOADERS[dataset]()
+    centred = data.spectra - data.spectra.mean(axis=0)
+    y = np.asarray(data.targets[parity.load_fixture()["targets"][dataset]])
+    y = y - y.mean()
+    alpha = 0.1 * float(np.abs(centred.T @ y).max()) / (len(y) * l1_ratio)
+    return centred, y, alpha
+
+
+@every_dataset
+@pytest.mark.parametrize(("algorithm", "l1_ratio"), ENET_CASES)
+def test_elastic_net_solved_to_the_optimum_matches_the_reference(
+    dataset: str, algorithm: str, l1_ratio: float
+) -> None:
+    """`penalised-regression.md` section 6: both solvers run to a duality gap of
+    1e-12, where they reach the same optimum by different routes."""
+    centred, y, alpha = _enet_problem(dataset, l1_ratio)
+    model = ElasticNet(alpha, l1_ratio, tol=1e-12, max_iter=2_000_000).fit(centred, y)
+    coefficients = parity.check(f"{dataset}.{algorithm}.coefficients.sklearn", model.coefficients_)
+    predictions = parity.check(f"{dataset}.{algorithm}.predictions.sklearn", model.predict(centred))
+    assert coefficients.passed and predictions.passed
+
+
+@every_dataset
+@pytest.mark.parametrize(("algorithm", "l1_ratio"), ENET_CASES)
+def test_elastic_net_at_the_default_tolerance_differs_by_the_stopping_rule(
+    dataset: str, algorithm: str, l1_ratio: float, fixture_entries: dict[str, dict[str, object]]
+) -> None:
+    """At the default gap of 1e-4 ||y||^2 the fit is within that gap of the
+    optimum, checked on the objective before the divergence is recorded."""
+    centred, y, alpha = _enet_problem(dataset, l1_ratio)
+    model = ElasticNet(alpha, l1_ratio).fit(centred, y)
+    optimum = np.asarray(fixture_entries[f"{dataset}.{algorithm}.coefficients.sklearn"]["value"])
+
+    def objective(b: np.ndarray) -> float:
+        residual = y - centred @ b
+        penalty = alpha * (l1_ratio * np.abs(b).sum() + (1 - l1_ratio) / 2 * (b @ b))
+        return float(residual @ residual / (2 * len(y)) + penalty)
+
+    assert model.coefficients_ is not None
+    assert objective(model.coefficients_) - objective(optimum) <= model.tol * (y @ y) / len(y)
+    result = parity.record_divergence(
+        f"{dataset}.{algorithm}.predictions.sklearn",
+        reason=(
+            "The application solves by FISTA, scikit-learn by coordinate descent; both stop "
+            "on the same duality gap, 1e-4 ||y||^2 by default, rather than at the optimum, "
+            "and where each stops depends on its route. The default fit's objective is "
+            "within that gap of the optimum (checked); solved to 1e-12 both reach the same "
+            "coefficients and predictions (penalised-regression.md section 6)."
+        ),
+    )
+    assert result.passed
 
 
 # --------------------------------------------------------------------------

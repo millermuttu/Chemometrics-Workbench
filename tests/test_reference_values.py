@@ -31,6 +31,8 @@ ALGORITHMS = (
     "pls2",
     "pcr",
     "ridge",
+    "elastic_net",
+    "lasso",
     "plsda",
     "lda",
     "knn",
