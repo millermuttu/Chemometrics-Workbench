@@ -961,3 +961,141 @@ def test_a_step_below_an_estimator_is_refused_where_it_is_written(client: TestCl
         error = response.json()["error"]
         assert error["code"] == "invalid_pipeline"
         assert "node 'snv' takes its input from 'pca', which is an estimator" in error["message"]
+
+
+# --------------------------------------------------------------------------
+# column roles (#371): a derived version, and the pipeline moved onto it
+# --------------------------------------------------------------------------
+
+#: Eight spectra whose class is coded as a number, so the reader takes it for a
+#: target, and whose `batch` is text, so the reader offers it as a class.
+CODED = "sample,900,902,904,906,908,910,variety,batch,fat\n" + "".join(
+    f"S{row},"
+    + ",".join(f"{(row % 2) * 0.5 + 0.1 * col + 0.01 * row:.3f}" for col in range(6))
+    + f",{row % 2 + 1},b{row // 4},{10 + row}\n"
+    for row in range(8)
+)
+
+
+def _coded(client: TestClient) -> tuple[str, dict[str, Any]]:
+    entry = client.post("/api/import", files={"file": ("coded.csv", CODED.encode())}).json()
+    return entry["dataset"]["dataset_id"], entry["versions"][0]
+
+
+def test_a_number_coded_class_is_made_a_class_and_a_classifier_runs_on_it(
+    client: TestClient,
+) -> None:
+    dataset_id, parent = _coded(client)
+    assert parent["targets"]["variety"] == [1, 2, 1, 2, 1, 2, 1, 2]
+    assert "variety" not in parent["metadata_columns"]
+
+    response = client.post(
+        f"/api/datasets/{dataset_id}/roles",
+        json={
+            "from_version_id": parent["version_id"],
+            "roles": {"variety": "class", "batch": "group"},
+        },
+    )
+    assert response.status_code == 201, response.text
+    child = response.json()["versions"][1]
+    assert child["version"] == 2
+    assert child["derived_from"] == parent["version_id"]
+    assert child["metadata_columns"]["variety"] == ["1", "2", "1", "2", "1", "2", "1", "2"]
+    assert "variety" not in child["targets"]
+    assert child["targets"]["fat"] == parent["targets"]["fat"]
+    assert child["column_roles"] == {"variety": "class", "batch": "group"}
+    assert child["role_changes"] == {"variety": "class", "batch": "group"}
+    # The spectra did not change, so neither did the array.
+    assert child["array_path"] == parent["array_path"]
+    assert child["content_hash"] == parent["content_hash"]
+    # The parent is untouched.
+    assert response.json()["versions"][0] == parent
+
+    nodes = client.get("/api/pipelines/current").json()["nodes"]
+    assert nodes[0]["version_id"] == child["version_id"]
+    nodes.append(
+        {
+            "id": "lda",
+            "type": "estimator",
+            "inputs": ["source"],
+            "spec": {"kind": "lda", "n_components": 2, "class_column": "variety"},
+        }
+    )
+    assert client.put("/api/pipelines/current", json={"nodes": nodes}).status_code == 200
+    job = client.post("/api/experiments/current/run").json()
+    deadline = time.monotonic() + 60
+    while (status := client.get(f"/api/jobs/{job['job_id']}").json())["status"] not in (
+        "succeeded",
+        "failed",
+        "cancelled",
+    ):
+        assert time.monotonic() < deadline, status
+        time.sleep(0.01)
+    assert status["status"] == "succeeded", status
+    assert client.get("/api/results/lda").json()["classification"]["classes"] == ["1", "2"]
+
+
+def test_a_class_is_made_a_target_and_an_identifier_ignored(client: TestClient) -> None:
+    dataset_id, parent = _coded(client)
+    first = client.post(
+        f"/api/datasets/{dataset_id}/roles",
+        json={"from_version_id": parent["version_id"], "roles": {"variety": "class"}},
+    ).json()["versions"][1]
+    back = client.post(
+        f"/api/datasets/{dataset_id}/roles",
+        json={
+            "from_version_id": first["version_id"],
+            "roles": {"variety": "target", "batch": "ignore"},
+        },
+    )
+    assert back.status_code == 201, back.text
+    child = back.json()["versions"][2]
+    assert child["targets"]["variety"] == [1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0]
+    assert child["metadata_columns"] == {}
+    assert child["role_changes"] == {"variety": "target", "batch": "ignore"}
+    assert "column_roles" not in child
+
+
+@pytest.mark.parametrize(
+    ("roles", "message"),
+    [
+        (
+            {"batch": "target"},
+            "'batch' cannot be a target: sample 'S0' has 'b0', which is not a number",
+        ),
+        ({"colour": "class"}, "has no column 'colour'"),
+        (
+            {"fat": "target", "batch": "class"},
+            "the roles chosen are the roles the columns already have",
+        ),
+    ],
+)
+def test_a_role_that_cannot_be_given_is_refused_by_name(
+    client: TestClient, roles: dict[str, str], message: str
+) -> None:
+    dataset_id, parent = _coded(client)
+    response = client.post(
+        f"/api/datasets/{dataset_id}/roles",
+        json={"from_version_id": parent["version_id"], "roles": roles},
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "invalid_roles"
+    assert message in response.json()["error"]["message"]
+    datasets = client.get(f"/api/projects/{project_id(client)}/datasets").json()
+    assert len(datasets[0]["versions"]) == 1
+
+
+def test_a_column_with_one_value_cannot_be_a_class(client: TestClient, project: Path) -> None:
+    csv = "sample,900,902,904,lot\n" + "".join(
+        f"S{row},{row}.1,{row}.2,{row}.3,7\n" for row in range(4)
+    )
+    entry = client.post("/api/import", files={"file": ("lot.csv", csv.encode())}).json()
+    response = client.post(
+        f"/api/datasets/{entry['dataset']['dataset_id']}/roles",
+        json={"from_version_id": entry["versions"][0]["version_id"], "roles": {"lot": "class"}},
+    )
+    assert response.status_code == 422
+    assert (
+        "'lot' cannot be a class: it has one value ('7' on every sample)"
+        in response.json()["error"]["message"]
+    )

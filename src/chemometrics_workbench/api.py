@@ -84,6 +84,7 @@ from chemometrics_workbench.executor import stored_result as _stored_result
 from chemometrics_workbench.export import ExportError, json_model, python_snippet
 from chemometrics_workbench.jobs import Job, Jobs, JobStatus, Reporter, submit_run
 from chemometrics_workbench.models import (
+    ColumnRole,
     Dataset,
     DatasetVersion,
     EstimatorSpec,
@@ -104,6 +105,7 @@ from chemometrics_workbench.project import (
     add_dataset,
     config_dir,
     create_project,
+    derive_roles,
     derive_version,
     is_project,
     open_project,
@@ -354,23 +356,15 @@ class Exclusion(BaseModel):
     exclude: list[int]
 
 
-@router.post("/datasets/{dataset_id}/versions", status_code=201)
-def exclude_samples(dataset_id: str, body: Exclusion) -> Any:
-    """A new version without the rows named, and the pipeline moved onto it.
-
-    The pipeline follows only when its source is the version excluded from, so
-    an exclusion made while looking at another dataset does not swap the data
-    under the canvas. Undoing it is pointing the source back at the parent,
-    which the pipeline's own write already does.
-    """
-    directory, _ = _project()
+def _parent_version(directory: Path, dataset_id: str, version_id: str) -> DatasetVersion:
+    """The version an edit starts from, or a 404 naming what is missing."""
     parent = next(
         (
             version
             for entry in read_datasets(directory)
             if str(entry.dataset.dataset_id) == dataset_id
             for version in entry.versions
-            if str(version.version_id) == body.from_version_id
+            if str(version.version_id) == version_id
         ),
         None,
     )
@@ -378,14 +372,20 @@ def exclude_samples(dataset_id: str, body: Exclusion) -> Any:
         raise _fail(
             404,
             "not_found",
-            f"dataset {dataset_id} has no version {body.from_version_id}.",
+            f"dataset {dataset_id} has no version {version_id}.",
             dataset_id=dataset_id,
         )
-    try:
-        version = derive_version(directory, parent, body.exclude)
-    except ProjectError as error:
-        raise _fail(422, "invalid_exclusion", str(error)) from error
+    return parent
 
+
+def _follow(directory: Path, parent: DatasetVersion, version: DatasetVersion) -> Any:
+    """Move the pipeline onto `version` if it was on `parent`, and return the dataset.
+
+    The pipeline follows only when its source is the version edited, so an
+    edit made while looking at another dataset does not swap the data under
+    the canvas. Undoing it is pointing the source back at the parent, which
+    the pipeline's own write already does.
+    """
     pipeline = read_pipeline(directory)
     if pipeline is not None:
         nodes = [
@@ -398,6 +398,37 @@ def exclude_samples(dataset_id: str, body: Exclusion) -> Any:
             write_pipeline(directory, pipeline.model_copy(update={"nodes": nodes}))
     entry = next(e for e in read_datasets(directory) if e.dataset.dataset_id == parent.dataset_id)
     return _entry_json(entry)
+
+
+@router.post("/datasets/{dataset_id}/versions", status_code=201)
+def exclude_samples(dataset_id: str, body: Exclusion) -> Any:
+    """A new version without the rows named, and the pipeline moved onto it."""
+    directory, _ = _project()
+    parent = _parent_version(directory, dataset_id, body.from_version_id)
+    try:
+        version = derive_version(directory, parent, body.exclude)
+    except ProjectError as error:
+        raise _fail(422, "invalid_exclusion", str(error)) from error
+    return _follow(directory, parent, version)
+
+
+class Roles(BaseModel):
+    """Which columns of which version to give which role (#371)."""
+
+    from_version_id: str
+    roles: dict[str, ColumnRole]
+
+
+@router.post("/datasets/{dataset_id}/roles", status_code=201)
+def change_roles(dataset_id: str, body: Roles) -> Any:
+    """A new version with the columns named given their roles, and the pipeline moved onto it."""
+    directory, _ = _project()
+    parent = _parent_version(directory, dataset_id, body.from_version_id)
+    try:
+        version = derive_roles(directory, parent, body.roles)
+    except ProjectError as error:
+        raise _fail(422, "invalid_roles", str(error)) from error
+    return _follow(directory, parent, version)
 
 
 def _corrections(raw: str) -> dict[str, str]:

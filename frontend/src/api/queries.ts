@@ -18,6 +18,9 @@ export interface Project {
   app_version: string;
 }
 
+/** What a column of a dataset is for (#371), as `models.ColumnRole` says. */
+export type ColumnRole = "target" | "class" | "group" | "ignore";
+
 export interface DatasetVersion {
   version_id: string;
   version: number;
@@ -30,6 +33,10 @@ export interface DatasetVersion {
   metadata_columns: Record<string, (string | number)[]>;
   excluded_samples: number[];
   excluded_variables: number[];
+  /** Metadata columns whose role the user chose (#371); absent when none was. */
+  column_roles?: Record<string, "class" | "group">;
+  /** What this version changed from its parent, each column to its new role. */
+  role_changes?: Record<string, ColumnRole>;
   source: {
     filename: string;
     reader: string;
@@ -429,6 +436,33 @@ export function useExcludeSamples() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ from_version_id: fromVersionId, exclude }),
+      }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["datasets"] });
+      void client.invalidateQueries({ queryKey: ["pipeline"] });
+      void client.invalidateQueries({ queryKey: ["pipeline-state"] });
+    },
+  });
+}
+
+/** Give columns of a version new roles (#371): the server writes a new version
+ * with them and moves the pipeline's source onto it, as an exclusion does. */
+export function useChangeRoles() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      datasetId,
+      fromVersionId,
+      roles,
+    }: {
+      datasetId: string;
+      fromVersionId: string;
+      roles: Record<string, ColumnRole>;
+    }) =>
+      api<DatasetEntry>(`/datasets/${datasetId}/roles`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from_version_id: fromVersionId, roles }),
       }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["datasets"] });

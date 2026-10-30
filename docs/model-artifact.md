@@ -95,6 +95,7 @@ Every field is required unless it is marked optional. `null` means *this quantit
 | `axis` | object | `{kind, unit}` of the dataset's variable axis. The values are in `arrays/dataset_axis.npy` |
 | `derived_from` | string or null | The version this one was cut from by an exclusion (#270), else null. Absent from an artifact written before it |
 | `excluded_samples` | int list | That version's rows left out, as positional indices into it; empty when nothing was excluded |
+| `role_changes` | object | The column roles that version changed from `derived_from` (#371), each column to `target`, `class`, `group` or `ignore`; empty when none. Absent from an artifact written before it |
 
 ### 6. `split`
 

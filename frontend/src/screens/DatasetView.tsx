@@ -1,12 +1,15 @@
 import { useState } from "react";
 
 import {
+  type ColumnRole,
   type DatasetEntry,
   type DatasetVersion,
+  useChangeRoles,
   useExcludeSamples,
   usePipeline,
   useSavePipeline,
 } from "@/api/queries";
+import { roleOf } from "@/shell/classColumns";
 
 /** The dataset a user has just imported: what came in, what is excluded, and
  * where it came from. Built from the artboard's table rules - mono uppercase
@@ -14,7 +17,14 @@ import {
  *
  * Ticking rows and excluding them writes a new version without them (#270),
  * and the pipeline moves onto it. A version made that way names its parent and
- * the samples it left out, and offers to put the pipeline back on the parent. */
+ * the samples it left out, and offers to put the pipeline back on the parent.
+ *
+ * Each column's header carries its role (#371): a target, a class, a group or
+ * ignored. Changing one writes a new version with the column moved, the
+ * same way, so a class coded as numbers or an identifier read as a class is
+ * put right without editing the file. */
+
+const ROLES: ColumnRole[] = ["target", "class", "group", "ignore"];
 
 const ROWS = 60;
 
@@ -41,6 +51,34 @@ export function DatasetView({ entry, version }: { entry: DatasetEntry; version: 
   );
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const exclude = useExcludeSamples();
+  const roles = useChangeRoles();
+  const changed = Object.entries(version.role_changes ?? {});
+  const failure = exclude.error ?? roles.error;
+  const header = (column: string) => (
+    <>
+      <span>{column}</span>
+      <select
+        aria-label={`Role of ${column}`}
+        className="mono"
+        value={roleOf(version, column)}
+        disabled={roles.isPending}
+        onChange={(event) =>
+          roles.mutate({
+            datasetId: entry.dataset.dataset_id,
+            fromVersionId: version.version_id,
+            roles: { [column]: event.target.value as ColumnRole },
+          })
+        }
+        style={{ display: "block", font: "inherit", fontSize: 10, marginTop: 2 }}
+      >
+        {ROLES.map((role) => (
+          <option key={role} value={role}>
+            {role}
+          </option>
+        ))}
+      </select>
+    </>
+  );
   const pipeline = usePipeline();
   const save = useSavePipeline();
   const source = pipeline.data?.nodes.find((node) => node.type === "source");
@@ -87,7 +125,17 @@ export function DatasetView({ entry, version }: { entry: DatasetEntry; version: 
               {item}
             </span>
           ))}
-          {parent ? (
+          {parent && changed.length > 0 ? (
+            <span
+              className="pill mono"
+              data-testid="roles-pill"
+              style={{ color: "var(--stale)", borderColor: "var(--stale)" }}
+            >
+              {changed.length} {changed.length === 1 ? "role" : "roles"} changed from v
+              {parent.version}
+            </span>
+          ) : null}
+          {parent && left.length > 0 ? (
             <span
               className="pill mono"
               data-testid="excluded-pill"
@@ -124,14 +172,19 @@ export function DatasetView({ entry, version }: { entry: DatasetEntry; version: 
         </div>
       </div>
 
-      {parent || exclude.error ? (
+      {parent || failure ? (
         <div
           className="mono"
           style={{ padding: "6px 14px", fontSize: 11, borderBottom: "1px solid var(--rule2)" }}
         >
-          {exclude.error ? (
+          {failure ? (
             <span role="alert" style={{ color: "var(--fail)" }}>
-              {exclude.error.message}
+              {failure.message}
+            </span>
+          ) : changed.length > 0 ? (
+            <span data-testid="role-changes" style={{ color: "var(--ink3)" }}>
+              Changed from v{parent!.version}:{" "}
+              {changed.map(([column, role]) => `${column} → ${role}`).join(", ")}
             </span>
           ) : (
             <span data-testid="excluded-ids" style={{ color: "var(--ink3)" }}>
@@ -151,11 +204,11 @@ export function DatasetView({ entry, version }: { entry: DatasetEntry; version: 
               </th>
               <th style={{ width: 90 }}>Sample</th>
               {metadata.map((column) => (
-                <th key={column}>{column}</th>
+                <th key={column}>{header(column)}</th>
               ))}
               {targets.map((target) => (
                 <th key={target} className="n">
-                  {target}
+                  {header(target)}
                 </th>
               ))}
             </tr>

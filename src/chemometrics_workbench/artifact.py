@@ -318,6 +318,9 @@ def _manifest(
             # #270: a version cut from another names it and the rows it left out.
             "derived_from": str(version.derived_from) if version.derived_from else None,
             "excluded_samples": list(version.excluded_samples),
+            # #371: a version whose columns were given new roles has its
+            # parent's array and hash, so what changed is said here.
+            "role_changes": dict(version.role_changes),
         },
         "split": None
         if split is None

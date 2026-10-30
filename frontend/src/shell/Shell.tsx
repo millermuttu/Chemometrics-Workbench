@@ -354,7 +354,7 @@ export function Shell() {
   /** What a PLS node can model: the columns of the version the recipe runs on. */
   const source = sourceVersionOf(pipeline.data, datasets.data);
   const targets = Object.keys(source?.targets ?? {});
-  const classColumns = classColumnsOf(source?.metadata_columns);
+  const classColumns = classColumnsOf(source?.metadata_columns, source?.column_roles);
 
   /** The active estimator node's headline numbers, from its own result. The
    * full results table is #48; this is what fits in 292px. */
