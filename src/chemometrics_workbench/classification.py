@@ -298,18 +298,39 @@ class KNN:
 _TAU = 1e-12
 
 
+def kernel_matrix(
+    kind: str, gamma: float, a: NDArray[np.float64], b: NDArray[np.float64]
+) -> NDArray[np.float64]:
+    """`svm.md` §2's kernel between the rows of `a` and `b`: `a b'`, or the RBF."""
+    if kind == "linear":
+        linear: NDArray[np.float64] = a @ b.T
+        return linear
+    squared = (a**2).sum(axis=1)[:, None] - 2.0 * a @ b.T + (b**2).sum(axis=1)[None, :]
+    rbf: NDArray[np.float64] = np.exp(-gamma * np.maximum(squared, 0.0))
+    return rbf
+
+
 def _smo(
-    kernel: NDArray[np.float64], y: NDArray[np.float64], c: float, tol: float, max_iter: int
+    kernel: NDArray[np.float64],
+    y: NDArray[np.float64],
+    c: float,
+    tol: float,
+    max_iter: int,
+    linear: NDArray[np.float64] | None = None,
 ) -> tuple[NDArray[np.float64], float]:
     """The C-SVM dual by SMO with LIBSVM's second-order working-set selection
     and without shrinking (`svm.md` §3). `y` is +1/-1. Returns the multipliers
     and `rho`, the decision being `sum_i a_i y_i K(x_i, x) - rho`.
 
+    `linear` is the dual's linear term, `-1` everywhere for a classifier and
+    epsilon-SVR's `epsilon -+ z` over its doubled problem (`svr.md` §3, #377):
+    LIBSVM solves both with this one solver, started from `gradient = linear`.
+
     Ties in both selections go to the later index, as LIBSVM's `>=` and `<=`
     make them, so the two solvers take the same steps.
     """
     a = np.zeros(y.size)
-    gradient = -np.ones(y.size)
+    gradient = -np.ones(y.size) if linear is None else np.array(linear, dtype=np.float64)
     diagonal = np.diag(kernel).copy()
     for _ in range(max_iter):
         up = np.flatnonzero(np.where(y > 0, a < c, a > 0))
@@ -427,12 +448,7 @@ class SVM:
         self.pairs_: list[dict[str, Any]] = []
 
     def _kernel(self, a: NDArray[np.float64], b: NDArray[np.float64]) -> NDArray[np.float64]:
-        if self.kernel == "linear":
-            linear: NDArray[np.float64] = a @ b.T
-            return linear
-        squared = (a**2).sum(axis=1)[:, None] - 2.0 * a @ b.T + (b**2).sum(axis=1)[None, :]
-        rbf: NDArray[np.float64] = np.exp(-self.gamma_ * np.maximum(squared, 0.0))
-        return rbf
+        return kernel_matrix(self.kernel, self.gamma_, a, b)
 
     def fit(self, X: object, codes: object, n_classes: int) -> Self:
         values = as_float64(X, "X")

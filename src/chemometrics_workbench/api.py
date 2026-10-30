@@ -1061,6 +1061,15 @@ def folded_coefficients(
     returns an intercept of `y_mean + offset·b`, passing `ȳ - x̄·b` as `y_mean`
     puts it exactly where it belongs.
     """
+    if not result.coefficients:
+        # #377: an SVR predicts from its support vectors through a kernel,
+        # which is not a coefficient vector on any axis.
+        return {
+            "node_id": node_id,
+            "available": False,
+            "reason": f"a {result.method or result.task} has no coefficient vector: it predicts "
+            "from its support vectors through a kernel, so there is nothing to fold.",
+        }
     chain, source_id = _preprocess_chain(pipeline, node_id)
     if source_id not in {node.id for node in pipeline.nodes}:  # pragma: no cover - defensive
         raise _fail(404, "not_found", f"node {node_id!r} has no source above it.", node_id=node_id)

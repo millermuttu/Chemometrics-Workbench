@@ -201,6 +201,16 @@ export function stepMenu(targets: string[], classColumns: string[] = []): Catalo
         parameters: `least squares · ${target}`,
         payload: { spec: { kind: "mlr", target } },
       },
+      {
+        // #377: on principal component scores, as the SVM classifier is.
+        kind: "SVR rbf 5 PC",
+        group: "Regression" as const,
+        type: "estimator" as const,
+        parameters: `rbf · C 1 · ε 0.1 · 5 components · ${target}`,
+        payload: {
+          spec: { kind: "svr", kernel: "rbf", C: 1, epsilon: 0.1, n_components: 5, target },
+        },
+      },
     ].map(needs(targets.length > 0, NO_TARGET)),
     // Enabled when the dataset has a metadata column with two or more values
     // (#185, #274, pls-da.md section 2), and it models the first.

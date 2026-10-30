@@ -121,6 +121,8 @@ export function nodeLabel(node: PipelineNode): string {
       return `PCR ${spec?.n_components} PC · ${spec?.target}`;
     case "ridge":
       return `Ridge α${spec?.alpha} · ${spec?.target}`;
+    case "svr":
+      return `SVR ${spec?.kernel} ${spec?.n_components} PC · ${spec?.target}`;
     case "mlr":
       return `MLR · ${spec?.target}`;
     case "elastic_net":

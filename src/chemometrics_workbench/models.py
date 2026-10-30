@@ -476,6 +476,24 @@ class RidgeSpec(Frozen):
     target: str = Field(description="Which target column in the dataset is being modelled.")
 
 
+class SVRSpec(Frozen):
+    """`svr.md`: epsilon-SVR on principal component scores, as `SVMSpec` for a classifier."""
+
+    kind: Literal["svr"] = "svr"
+    kernel: Literal["linear", "rbf"] = "rbf"
+    C: float = Field(default=1.0, gt=0, description="Penalty on a residual outside the tube.")
+    epsilon: float = Field(
+        default=0.1, ge=0, description="Half-width of the tube residuals inside cost nothing."
+    )
+    gamma: float | None = Field(
+        default=None,
+        gt=0,
+        description="RBF width. Unset is 1 / (A var(T)), scikit-learn's 'scale'.",
+    )
+    n_components: int = Field(ge=1, description="Principal components the kernel is taken on.")
+    target: str = Field(description="Which target column in the dataset is being modelled.")
+
+
 class MLRSpec(Frozen):
     """`mlr.md`: ordinary least squares, for a selected set of variables."""
 
@@ -542,6 +560,7 @@ EstimatorSpec = Annotated[
     | RidgeSpec
     | ElasticNetSpec
     | MLRSpec
+    | SVRSpec
     | PLSDASpec
     | SIMCASpec
     | LDASpec

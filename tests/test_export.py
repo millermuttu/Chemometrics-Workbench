@@ -56,6 +56,7 @@ from chemometrics_workbench.models import (
     SourceNode,
     SplitNode,
     SVMSpec,
+    SVRSpec,
     WhittakerSmooth,
 )
 from chemometrics_workbench.project import create_project, write_array
@@ -273,6 +274,32 @@ def test_a_lasso_exports_its_sparse_vector_and_reproduces_its_predictions(
     assert 0 < np.count_nonzero(result.coefficients) < version.n_variables
     model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
     assert model["preprocessing"] == []
+    predicted = _predict(python_snippet(model), tecator.spectra)
+    np.testing.assert_allclose(
+        predicted[np.asarray(result.rows)], result.predicted, rtol=RTOL, atol=ATOL
+    )
+
+
+@pytest.mark.parametrize("kernel", ["linear", "rbf"])
+def test_an_svr_exports_its_support_vectors_and_reproduces_its_predictions(
+    project: tuple[Path, DatasetVersion], tecator: Any, kernel: str
+) -> None:
+    """#377, svr.md section 7: the chain to the scores, then the support
+    vectors, the dual coefficients and rho, as an SVM's pair travels."""
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(id="snv", inputs=("source",), step=SNV()),
+        EstimatorNode(
+            id="svr",
+            inputs=("snv",),
+            spec=SVRSpec(kernel=kernel, C=5, n_components=4, target="fat"),
+        ),
+    )
+    result = _run(directory, version, pipeline, "svr")
+    model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
+    assert model["model"]["assignment"] == "svr" and model["model"]["task"] == "regression"
+    assert len(model["svr"]["support_vectors"]) == len(result.svm["support"])
     predicted = _predict(python_snippet(model), tecator.spectra)
     np.testing.assert_allclose(
         predicted[np.asarray(result.rows)], result.predicted, rtol=RTOL, atol=ATOL

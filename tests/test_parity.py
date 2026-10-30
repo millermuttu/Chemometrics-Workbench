@@ -632,6 +632,54 @@ def test_mlr_on_a_selected_subset_matches_least_squares(dataset: str) -> None:
 
 
 # --------------------------------------------------------------------------
+# SVR (#377)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("kernel", ["linear", "rbf"])
+@every_dataset
+def test_svr_solved_to_the_optimum_matches_pca_then_svr(dataset: str, kernel: str) -> None:
+    """`svr.md` section 6: both solvers to a KKT gap of 1e-9, predictions within
+    float32's precision, the support the same."""
+    from chemometrics_workbench.regression import SVR
+
+    data = LOADERS[dataset]()
+    y = np.asarray(data.targets[parity.load_fixture()["targets"][dataset]])
+    model = SVR(N_COMPONENTS, kernel, tol=1e-9).fit(data.spectra, y)
+    assert parity.check(
+        f"{dataset}.svr.predictions_{kernel}_converged.sklearn", model.predict(data.spectra)
+    ).passed
+
+
+@pytest.mark.parametrize("kernel", ["linear", "rbf"])
+@every_dataset
+def test_svr_at_the_default_tolerance_differs_by_the_stopping_rule(
+    dataset: str, kernel: str, fixture_entries: dict[str, dict[str, object]]
+) -> None:
+    """Both stop at a KKT gap of 1e-3, so their predictions agree to about that
+    gap times the response's scale; checked before the divergence is recorded."""
+    from chemometrics_workbench.regression import SVR
+
+    data = LOADERS[dataset]()
+    y = np.asarray(data.targets[parity.load_fixture()["targets"][dataset]])
+    model = SVR(N_COMPONENTS, kernel).fit(data.spectra, y)
+    entry_id = f"{dataset}.svr.predictions_{kernel}.sklearn"
+    theirs = np.asarray(fixture_entries[entry_id]["value"])
+    assert np.abs(model.predict(data.spectra) - theirs).max() < 10 * model.tol * np.ptp(y)
+    result = parity.record_divergence(
+        entry_id,
+        reason=(
+            "Both solvers are LIBSVM's SMO on the epsilon-SVR dual, and both stop once the "
+            "largest KKT violation falls below tol = 1e-3 rather than at the optimum; where "
+            "each stops depends on its arithmetic, LIBSVM's kernel cache being float32. The "
+            "predictions agree to within ten times tol across the response's range "
+            "(checked); solved to 1e-9 they agree to float32's precision (svr.md section 6)."
+        ),
+    )
+    assert result.passed
+
+
+# --------------------------------------------------------------------------
 # PCA
 # --------------------------------------------------------------------------
 

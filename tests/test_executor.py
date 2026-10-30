@@ -61,6 +61,7 @@ from chemometrics_workbench.models import (
     SourceNode,
     SplitNode,
     SVMSpec,
+    SVRSpec,
     TrainTestSplit,
 )
 from chemometrics_workbench.preprocessing import SNVTransformer
@@ -1809,6 +1810,43 @@ def test_an_mlr_on_a_full_spectrum_is_refused_naming_the_fold_and_its_rank(
         ExecutorError, match=r"training fold 1 of 5 has rank \d+ and 100 variables.*or use PCR"
     ):
         execute(directory, pipeline, version)
+
+
+def test_an_svr_node_has_the_pca_front_and_a_curve_over_c(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#377, `svr.md`: a regression with the PCA front's X model, a curve over C
+    from range(y) / 1000 up, and RMSECV that the kernel gives on the run's own
+    folds. That the kernel matches scikit-learn is test_parity.py's."""
+    from chemometrics_workbench.regression import SVR
+
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=5, seed=42)),
+        PreprocessNode(id="snv", inputs=("split",), step=SNV()),
+        EstimatorNode(id="svr", inputs=("snv",), spec=SVRSpec(C=10, n_components=5, target="fat")),
+    )
+    run = execute(directory, pipeline, version)
+    result = run.results["svr"]
+    assert result.task == "regression" and result.method == "svr"
+    assert len(result.scores) == version.n_samples and len(result.scores[0]) == 5
+    assert result.hotelling_t2 and result.svm["support"] and "sec" not in result.metrics
+
+    fat = np.asarray(tecator.targets["fat"])
+    curve = result.tuning
+    assert curve["parameter"] == "C" and curve["log"] and curve["chosen"] == 10
+    assert curve["values"][0] == pytest.approx(np.ptp(fat) / 1000)
+    assert curve["values"][-1] == pytest.approx(np.ptp(fat))
+
+    spectra = _as_stored(SNVTransformer().fit_transform(_as_stored(tecator.spectra)))
+    final = SVR(5, c=10).fit(spectra, fat)
+    np.testing.assert_allclose(result.predicted, final.predict(spectra), rtol=1e-9)
+    [resolved] = run.resolved_splits
+    held = np.empty_like(fat)
+    for train, test in zip(resolved.train_indices, resolved.test_indices, strict=True):
+        held[test] = SVR(5, c=10).fit(spectra[train], fat[train]).predict(spectra[test])
+    assert result.metrics["rmsecv"] == pytest.approx(rmse(fat, held), rel=1e-9)
 
 
 def test_a_simca_node_decides_every_set_with_its_folds_own_models(

@@ -488,6 +488,38 @@ test("an MLR runs below a selection, and on the whole spectrum is refused by nam
   expect((await put(nodes)).status()).toBe(200);
 });
 
+test("an SVR runs below a split with the PCA front and a curve over C", async ({ page }) => {
+  // #377. On the ridge's split, RBF on three components.
+  await page.goto("/?token=e2e-token");
+  const auth = { Authorization: "Bearer e2e-token" };
+  const pipeline = await (await page.request.get("/api/pipelines/current", { headers: auth })).json();
+  const nodes = pipeline.nodes as { id: string; type: string; inputs: string[] }[];
+  nodes.push({
+    id: "svr",
+    type: "estimator",
+    inputs: ["ridge_split"],
+    spec: { kind: "svr", kernel: "rbf", C: 1, epsilon: 0.1, n_components: 3, target: "moisture" },
+  } as (typeof nodes)[number]);
+  const saved = await page.request.put("/api/pipelines/current", {
+    headers: { ...auth, "Content-Type": "application/json" },
+    data: { nodes },
+  });
+  expect(saved.status()).toBe(200);
+
+  await page.reload();
+  await page.getByRole("button", { name: "Run pipeline" }).click();
+  await expect(page.locator(".status")).toContainText("Done", { timeout: 60_000 });
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /SVR rbf 3 PC · moisture/ }).dblclick();
+  await expect(page.getByTestId("analysis-header")).toContainText("SVR on moisture 3 components");
+  await expect(page.getByRole("region", { name: "RMSECV" })).toContainText(
+    /fitted at C = 1 · lowest at C = /,
+  );
+  // On PCA scores, so the X model is drawn, as for an SVM.
+  await expect(page.getByRole("region", { name: "Scores" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Predicted vs measured" })).toBeVisible();
+});
+
 /** #371, #372. A column's role was the reader's guess and could not be
  * changed, and a dataset with no column for a model hid the model. Last, on
  * whatever version the tests above left the pipeline on: the target is made a
