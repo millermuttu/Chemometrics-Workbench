@@ -185,9 +185,9 @@
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; an e2e test adds it from its menu group and runs it"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-30, feature/378_opls. docs/algorithms/opls.md written, in the nav; mkdocs build --strict built. Parity through the PLS1 identity: test_opls_predicts_as_pls1_with_as_many_components, corn/gasoline/tecator at 1+1 and 1+4 vs sklearn PLSRegression - 6 claims passed; tecator.opls.orthogonal_scores.unsourced entered with its reason (no open OPLS installed; Trygg and Wold publish figures); fixture diff only those 7 entries; parity report 240/240 with an OPLS section. tests/test_regression.py: T = XR, scores orthogonal, orthogonal scores uncorrelated with y, predictions equal PLS(1+A) (rtol 1e-9), VIP the predictive one's, for 1+0, 1+1, 1+3. tests/test_executor.py: beside PLS(3) on one split, same predictions, coefficients, RMSECV, Q2 and curve. tests/test_api.py: curve over orthogonal components [0, 1], chosen 1; folded and exported. New tests fail at import with src stashed. uv run pytest 1030 passed; ruff, mypy clean. In frontend/: typecheck, lint clean; pnpm test 182 passed; pnpm build; changed specs walkthrough.spec.ts + analysis.spec.ts 35 passed incl. 'an OPLS draws its predictive score against its orthogonal one'.",
+      "notes": "OPLS subclasses PLS and sets its fitted attributes; _fit_regression runs PLS's nested curve for it (identity). Scores read 't pred', 't orth k' on the screen. No decision record was needed: no dev-only OPLS reference was adopted."
     },
     {
       "id": "opls-da",

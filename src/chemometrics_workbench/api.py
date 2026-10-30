@@ -647,13 +647,16 @@ def results_payload(
         # the models tuned by one. `chosen` is the value the node was fitted
         # with; the curve's minimum is reported beside it, never adopted.
         if payload["rmsecv_curve"]:
+            # opls.md section 4: OPLS's curve is over its orthogonal components,
+            # 0 to A - 1, the same numbers as PLS1's over 1 to A.
+            opls = result.method == "opls"
             payload["tuning_curve"] = {
-                "parameter": "components",
+                "parameter": "orthogonal components" if opls else "components",
                 "metric": "rmsecv",
-                "values": list(range(1, len(payload["rmsecv_curve"]) + 1)),
+                "values": [a - opls for a in range(1, len(payload["rmsecv_curve"]) + 1)],
                 "scores": payload["rmsecv_curve"],
                 "log": False,
-                "chosen": result.n_components,
+                "chosen": result.n_components - 1 if opls else result.n_components,
             }
         elif result.tuning:
             payload["tuning_curve"] = result.tuning

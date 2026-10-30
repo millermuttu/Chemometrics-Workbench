@@ -189,6 +189,7 @@ export function predictedTraces(pca: PcaPayload, theme: PlotTheme) {
 
 /** How a curve's parameter is written: `A` for components, else its own name. */
 export function parameterSymbol(curve: TuningCurve | undefined) {
+  if (curve?.parameter === "orthogonal components") return "A orth";
   return !curve || curve.parameter === "components" ? "A" : curve.parameter;
 }
 

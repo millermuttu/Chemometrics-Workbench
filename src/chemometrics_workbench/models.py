@@ -476,6 +476,16 @@ class RidgeSpec(Frozen):
     target: str = Field(description="Which target column in the dataset is being modelled.")
 
 
+class OPLSSpec(Frozen):
+    """`opls.md`: one predictive component and `n_orthogonal` orthogonal ones."""
+
+    kind: Literal["opls"] = "opls"
+    n_orthogonal: int = Field(
+        default=1, ge=0, description="Orthogonal components, removed before the predictive one."
+    )
+    target: str = Field(description="Which target column in the dataset is being modelled.")
+
+
 class SVRSpec(Frozen):
     """`svr.md`: epsilon-SVR on principal component scores, as `SVMSpec` for a classifier."""
 
@@ -561,6 +571,7 @@ EstimatorSpec = Annotated[
     | ElasticNetSpec
     | MLRSpec
     | SVRSpec
+    | OPLSSpec
     | PLSDASpec
     | SIMCASpec
     | LDASpec

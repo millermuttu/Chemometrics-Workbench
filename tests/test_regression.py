@@ -32,6 +32,7 @@ from chemometrics_workbench.preprocessing import (
     Transformer,
 )
 from chemometrics_workbench.regression import (
+    OPLS,
     PLS,
     PLS2,
     ElasticNet,
@@ -951,3 +952,25 @@ def test_a_path_ends_at_its_first_unconverged_alpha() -> None:
     cold = ElasticNet(alphas[2], 1.0, tol=1e-10, max_iter=200_000).fit(X, y).coefficients_
     assert path[2] is not None and cold is not None
     np.testing.assert_allclose(X @ path[2], X @ cold, rtol=1e-4, atol=1e-6)
+
+
+@pytest.mark.parametrize("total", [1, 2, 4])
+def test_opls_scores_are_its_rotations_and_the_orthogonal_ones_miss_y(total: int) -> None:
+    """`opls.md` sections 2 and 3: T = X R, the scores mutually orthogonal, the
+    orthogonal ones uncorrelated with y, and predictions PLS1's with as many
+    components - the properties the unsourced scores are tested by."""
+    X, y = _spectra_and_response(n=30)
+    X, y = X - X.mean(axis=0), y - y.mean()
+    model = OPLS(total).fit(X, y)
+    scores = model._fitted("x_scores_")
+    np.testing.assert_allclose(X @ model._fitted("rotations_"), scores, atol=1e-10)
+    gram = scores.T @ scores
+    assert np.abs(gram - np.diag(np.diag(gram))).max() < 1e-9 * np.abs(gram).max()
+    assert np.abs(scores[:, 1:].T @ y).max(initial=0.0) < 1e-8 * np.abs(scores[:, 0] @ y)
+    np.testing.assert_allclose(
+        model.predict(X), PLS(total).fit(X, y).predict(X), rtol=1e-9, atol=1e-9
+    )
+    assert model.n_orthogonal_ == total - 1
+    # The orthogonal components explain none of y, so VIP is the predictive one's.
+    w = model._fitted("weights_")[:, 0]
+    np.testing.assert_allclose(model.vip(), np.sqrt(X.shape[1] * w**2), rtol=1e-9)

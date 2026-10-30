@@ -83,8 +83,8 @@ function Scores({ pca }: { pca: PcaPayload }) {
     (theme) => ({
       data: [ellipseTrace(pca, x, y, theme), scoresTrace(pca, x, y, theme)],
       layout: {
-        xaxis: axisLayout(theme, `PC ${x + 1} (${(pca.explained_variance_ratio[x] * 100).toFixed(1)}%)`),
-        yaxis: axisLayout(theme, `PC ${y + 1} (${(pca.explained_variance_ratio[y] * 100).toFixed(1)}%)`),
+        xaxis: axisLayout(theme, `${componentName(pca, x)} (${(pca.explained_variance_ratio[x] * 100).toFixed(1)}%)`),
+        yaxis: axisLayout(theme, `${componentName(pca, y)} (${(pca.explained_variance_ratio[y] * 100).toFixed(1)}%)`),
         margin: { l: 48, r: 12, t: 8, b: 38 },
       },
     }),
@@ -109,7 +109,7 @@ function Scores({ pca }: { pca: PcaPayload }) {
     >
       {pca.explained_variance_ratio.map((_, index) => (
         <option key={index} value={index}>
-          PC {index + 1}
+          {componentName(pca, index)}
         </option>
       ))}
     </select>
@@ -1488,7 +1488,15 @@ const METHODS: Record<string, string> = {
   lasso: "Lasso",
   mlr: "MLR",
   svr: "SVR",
+  opls: "OPLS",
 };
+
+/** A score column's name: an OPLS's predictive one first, then its orthogonal
+ * ones (opls.md section 3, #378); a principal component for everything else. */
+export function componentName(pca: PcaPayload, index: number): string {
+  if (pca.regression?.method !== "opls") return `PC ${index + 1}`;
+  return index === 0 ? "t pred" : `t orth ${index}`;
+}
 
 export function AnalysisResults({
   nodeId,

@@ -21,11 +21,11 @@ strong the agreement is** rather than a bare pass or fail:
 
 | Claim | Count | Meaning |
 | --- | --- | --- |
-| identical within floating point | 153 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
-| agrees within stated tolerance | 52 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
+| identical within floating point | 157 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
+| agrees within stated tolerance | 54 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
 | differs by documented convention | 29 | Not compared numerically at all. The two quantities are not the same thing, and the reason is given in full below. |
 
-**234 comparisons, 234 passed, 0 failed.**
+**240 comparisons, 240 passed, 0 failed.**
 
 Three things a reader should hold on to, because the agreement column cannot
 show them:
@@ -80,6 +80,7 @@ those listed under *Gaps* or *Documented divergences* below.
 | PCR | `PCR` | 6 claims |
 | Ridge | `Ridge` | 6 claims |
 | MLR | `MLR` | 6 claims |
+| OPLS | `OPLS` | 6 claims |
 | SVR | `SVR` | 12 claims |
 | Elastic Net and Lasso | `ElasticNet`, `elastic_net_path` | 18 claims |
 | PLS2 | `PLS2` | 9 claims |
@@ -335,6 +336,17 @@ those listed under *Gaps* or *Documented divergences* below.
 | gasoline | `predictions` | scikit-learn 1.9.0 | identical | 60 values, worst Δ < 1e-13 |
 | tecator | `coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 10 values, worst Δ < 1e-10 |
 | tecator | `predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 240 values, worst Δ < 1e-11 |
+
+### OPLS (through the PLS1 identity)
+
+| Dataset | Quantity | Reference | Claim | Ours vs reference |
+| --- | --- | --- | --- | --- |
+| corn | `predictions` | scikit-learn 1.9.0 | identical | 80 values, worst Δ < 1e-13 |
+| corn | `predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 80 values, worst Δ < 1e-11 |
+| gasoline | `predictions` | scikit-learn 1.9.0 | identical | 60 values, worst Δ < 1e-13 |
+| gasoline | `predictions` | scikit-learn 1.9.0 | identical | 60 values, worst Δ < 1e-12 |
+| tecator | `predictions` | scikit-learn 1.9.0 | identical | 240 values, worst Δ < 1e-12 |
+| tecator | `predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 240 values, worst Δ < 1e-10 |
 
 ### SVR (PCA-SVR, epsilon)
 
@@ -624,6 +636,10 @@ a gap left out is a false impression.
 **`corn.pca.loadings.literature`** — unsourced
 
 The corn dataset is used widely in the calibration-transfer literature, but the papers report transfer performance rather than the decomposition itself, and none found states a preprocessing chain precisely enough to reproduce a loading vector. Recorded as a gap rather than filled with a number from a plot.
+
+**`tecator.opls.orthogonal_scores.unsourced`** — unsourced
+
+OPLS's orthogonal scores and loadings themselves (opls.md section 6). No open OPLS implementation is installed here (R ropls is Bioconductor, R is not in this environment, and the Python ones are unmaintained), and Trygg and Wold (2002) publish their worked example as figures, not values. The predictions are compared through the PLS1 identity instead, and the scores' defining properties - T = XR, mutually orthogonal, orthogonal scores uncorrelated with y - are tested in tests/test_regression.py.
 
 **`tecator.pls.sec.unsourced`** — unsourced
 

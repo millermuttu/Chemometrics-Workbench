@@ -154,6 +154,7 @@ from chemometrics_workbench.models import (
     Metrics,
     MLRSpec,
     NodeId,
+    OPLSSpec,
     PCASpec,
     PCRSpec,
     Pipeline,
@@ -179,6 +180,7 @@ from chemometrics_workbench.project import (
 )
 from chemometrics_workbench.regression import (
     MLR,
+    OPLS,
     PCR,
     PLS,
     PLS2,
@@ -255,6 +257,7 @@ _FITTED: tuple[type, ...] = (
     PCRSpec,
     ElasticNetSpec,
     MLRSpec,
+    OPLSSpec,
     SVRSpec,
     RidgeSpec,
     PLSDASpec,
@@ -1346,6 +1349,22 @@ def _fitted(
     if isinstance(node.spec, RidgeSpec):
         return _ridge(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
 
+    if isinstance(node.spec, OPLSSpec):
+        return _fit_regression(
+            node,
+            "opls",
+            1 + node.spec.n_orthogonal,
+            node.spec.target,
+            _response(version, node, node.spec.target),
+            parent,
+            key,
+            matrix,
+            rows,
+            held_out,
+            fold,
+            estimator=OPLS,
+        )
+
     if isinstance(node.spec, SVRSpec):
         return _svr(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
 
@@ -1493,7 +1512,7 @@ def _fit_regression(
     fold: int | None,
     estimator: type[PLS] | type[PCR] = PLS,
 ) -> EstimatorResult:
-    """PLS1 or PCR on `response`, with every quantity `pls-regression.md` §13 names.
+    """PLS1, OPLS or PCR on `response`, with every quantity `pls-regression.md` §13 names.
 
     Shared by a PLS regression, a two-class PLS-DA, which is this on a dummy
     response (`pls-da.md` §2), and a PCR (`pcr.md`), which has the same
@@ -1557,7 +1576,11 @@ def _fit_regression(
     cross_validated = np.array([], dtype=np.float64)
     if parent.folds is not None and len(parent.folds) > 1:
         folds = parent.folds
-        curve = rmsecv_curve(parent.arrays, response, folds, a, estimator)
+        # opls.md section 4: OPLS with 1 + k components predicts as PLS1 with
+        # 1 + k, so PLS's one-fit-per-fold curve is OPLS's over its orthogonal
+        # components; OPLS's own components do not nest, so it cannot run it.
+        curve_estimator = PLS if estimator is OPLS else estimator
+        curve = rmsecv_curve(parent.arrays, response, folds, a, curve_estimator)
         for index, value in enumerate(curve, start=1):
             metrics[f"rmsecv_a{index}"] = float(value)
         metrics["rmsecv"] = float(curve[-1])

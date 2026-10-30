@@ -142,6 +142,7 @@ it("puts every step under a heading, the models under Regression and Classificat
     "Elastic Net α1",
     "Lasso α1",
     "MLR",
+    "OPLS 1+1",
     "SVR rbf 5 PC",
   ]);
   expect(headings.Classification).toEqual(["PLS-DA 5 LV", "LDA 5 PC", "kNN k5", "SVM rbf 5 PC", "SIMCA 3 PC"]);
@@ -254,4 +255,12 @@ it("offers an SVR beside PLS when the dataset has a target, labelled alike (#377
   const node = { id: "svr", type: "estimator", inputs: ["snv"], ...svr.payload } as PipelineNode;
   expect(nodeLabel(node)).toBe("SVR rbf 5 PC · fat");
   expect(parameterLine(node)).toBe(svr.parameters);
+});
+
+it("offers OPLS beside PLS when the dataset has a target, labelled alike (#378)", () => {
+  const opls = stepMenu(["fat"]).find((step) => step.kind === "OPLS 1+1")!;
+  expect(opls.payload.spec).toEqual({ kind: "opls", n_orthogonal: 1, target: "fat" });
+  const node = { id: "opls", type: "estimator", inputs: ["centre"], ...opls.payload } as PipelineNode;
+  expect(nodeLabel(node)).toBe("OPLS 1+1 · fat");
+  expect(parameterLine(node)).toBe(opls.parameters);
 });
