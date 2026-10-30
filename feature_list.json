@@ -65,9 +65,9 @@
         "catalogue.test.ts pins the reasons and that a disabled entry cannot be added",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; an e2e test opens a spectra-only dataset, sees models disabled, marks a column and sees them enabled"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-30, feature/372_disabled-models. In frontend/: pnpm typecheck, pnpm lint clean; pnpm test 176 passed (19 files) - catalogue.test.tsx 'disables every model the dataset has no column for, naming the column it needs (#372)', 'draws a disabled model as a disabled option, and its reason under the list (#372)', 'is disabled, with the reason, when the dataset has nothing to model (#372)' and the updated #370 heading test FAIL with src/canvas stashed (4 failed); pnpm build; pnpm exec playwright test 102 passed (4.1m), including walkthrough.spec.ts 'a column's role is changed in the dataset view, and the step menu follows': moisture made a group, PLS and PLS-DA options disabled and both reasons shown; 'Open Dataset view' opens the source version; made a class, PLS-DA enabled and PLS disabled; made a target, PLS enabled and no reason shown.",
+      "notes": "A disabled entry's payload names '—' as its column; it cannot be added from either menu. The drop menu's disabled items are not walked in e2e (the seeded dataset has both a target and a class); the Step list's are, and both draw from the same stepMenu."
     },
     {
       "id": "tuning-curve",
