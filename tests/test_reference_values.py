@@ -37,6 +37,7 @@ ALGORITHMS = (
     "svr",
     "opls",
     "oplsda",
+    "logistic",
     "plsda",
     "lda",
     "knn",

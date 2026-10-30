@@ -610,6 +610,8 @@ def results_payload(
             payload["validation"]["predicted"] = result.held_out_predicted
         if result.task == "classification":
             payload["validation"]["predicted_class"] = result.held_out_predicted_class
+            if result.held_out_probabilities:
+                payload["validation"]["probabilities"] = result.held_out_probabilities
 
     # A regression's own half, added rather than substituted: `scores`,
     # `loadings`, the x-variances and both diagnostics above mean the same
@@ -703,6 +705,9 @@ def results_payload(
                 name: class_metrics(matrix) for name, matrix in result.confusion.items()
             },
         }
+        if result.probabilities:
+            # logistic-regression.md section 4 (#380): n x K, columns in class order.
+            payload["classification"]["probabilities"] = result.probabilities
     return payload
 
 

@@ -96,6 +96,8 @@ export function parameterLine(node: PipelineNode): string {
       return `least squares · ${spec!.target}`;
     case "elastic_net":
       return `alpha ${spec!.alpha} · l1 ${spec!.l1_ratio} · ${spec!.target}`;
+    case "logistic":
+      return `C ${spec!.C} · ${spec!.n_components} components · ${spec!.class_column}`;
     case "knn":
       return `k ${spec!.k} · ${spec!.n_components} components · ${spec!.class_column}`;
     case "svm":

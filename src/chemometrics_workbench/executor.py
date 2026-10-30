@@ -136,6 +136,7 @@ from chemometrics_workbench.classification import (
     LDA,
     SIMCA,
     SVM,
+    LogisticRegression,
     acceptance_table,
     simca_metrics,
 )
@@ -151,6 +152,7 @@ from chemometrics_workbench.models import (
     KNNSpec,
     LDASpec,
     LeaveOneOut,
+    LogisticSpec,
     Metrics,
     MLRSpec,
     NodeId,
@@ -265,6 +267,7 @@ _FITTED: tuple[type, ...] = (
     PLSDASpec,
     SIMCASpec,
     LDASpec,
+    LogisticSpec,
     KNNSpec,
     SVMSpec,
 )
@@ -522,6 +525,13 @@ class EstimatorResult:
     RMSECV and Q² are missing entirely when the node is not under a split, and
     SEC is missing when `n - A - 1 <= 0` rather than falling back to a
     denominator that would silently produce something that is not SEC."""
+
+    probabilities: list[list[float]] = field(default_factory=list)
+    """`n x K` class probabilities of the calibration rows, a logistic
+    regression's (#380, `logistic-regression.md` §4); empty for every other model."""
+    held_out_probabilities: list[list[float]] = field(default_factory=list)
+    logistic: dict[str, Any] = field(default_factory=dict)
+    """A logistic regression's `C`, `coefficients` (rows x A) and `intercept`."""
 
     s_plot: dict[str, list[float]] = field(default_factory=dict)
     """`opls.md` §8 (#379), an OPLS-DA's: each variable's `covariance` and
@@ -1385,6 +1395,9 @@ def _fitted(
 
     if isinstance(node.spec, SVMSpec):
         return _svm(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
+
+    if isinstance(node.spec, LogisticSpec):
+        return _logistic(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
 
     if isinstance(node.spec, KNNSpec):
         return _knn(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
@@ -2521,12 +2534,9 @@ def _svm(
     return replace(result, svm=svm)
 
 
-def _scores_classifier(
+def _logistic(
     node: PipelineNode,
-    kind: str,
-    class_column: str,
-    n_components: int,
-    build: Callable[[], KNN | SVM],
+    spec: LogisticSpec,
     parent: _State,
     key: str,
     matrix: NDArray[np.float64],
@@ -2534,14 +2544,60 @@ def _scores_classifier(
     held_out: NDArray[np.intp],
     fold: int | None,
     version: DatasetVersion,
-) -> tuple[KNN | SVM, EstimatorResult]:
+) -> EstimatorResult:
+    """`logistic-regression.md`: PCA-logistic regression, tallied by
+    `classification.md`, with its class probabilities (§4)."""
+    model, result = _scores_classifier(
+        node,
+        "logistic",
+        spec.class_column,
+        spec.n_components,
+        lambda: LogisticRegression(spec.n_components, spec.C),
+        parent,
+        key,
+        matrix,
+        rows,
+        held_out,
+        fold,
+        version,
+    )
+    assert isinstance(model, LogisticRegression)
+    return replace(
+        result,
+        probabilities=_rows(model.predict_proba(matrix[rows])),
+        held_out_probabilities=_rows(model.predict_proba(matrix[held_out]))
+        if held_out.size
+        else [],
+        # logistic-regression.md section 5: one row of W per model row, on the scores.
+        logistic={
+            "C": spec.C,
+            "coefficients": _rows(np.asarray(model.coefficients_)),
+            "intercept": _values(np.asarray(model.intercept_)),
+        },
+    )
+
+
+def _scores_classifier(
+    node: PipelineNode,
+    kind: str,
+    class_column: str,
+    n_components: int,
+    build: Callable[[], KNN | SVM | LogisticRegression],
+    parent: _State,
+    key: str,
+    matrix: NDArray[np.float64],
+    rows: NDArray[np.intp],
+    held_out: NDArray[np.intp],
+    fold: int | None,
+    version: DatasetVersion,
+) -> tuple[KNN | SVM | LogisticRegression, EstimatorResult]:
     """A classifier on the PCA front's scores, kNN's or SVM's: fitted on the
     calibration rows and on every fold, tallied by `classification.md`, with
     the PCA front's panels (`knn.md` §4, `svm.md` §5)."""
     classes, codes = _class_labels(version, node, class_column, kind=kind)
     n_classes = len(classes)
 
-    def fit(values: NDArray[np.float64], train: NDArray[np.intp]) -> KNN | SVM:
+    def fit(values: NDArray[np.float64], train: NDArray[np.intp]) -> KNN | SVM | LogisticRegression:
         try:
             return build().fit(values[train], codes[train], n_classes)
         except ValueError as error:

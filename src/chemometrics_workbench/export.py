@@ -162,13 +162,22 @@ def json_model(
         },
     }
 
-    if result.simca or result.training_classes or result.svm:
+    if result.simca or result.training_classes or result.svm or result.logistic:
         # #306: a SIMCA, a kNN or an SVM decides on the whole preprocessed
         # spectrum, so the foldable tail travels as the affine map it is (§6).
         # An SVR (#377) predicts from the same kernel and travels the same way.
         payload["model"].update(threshold=None, assignment=result.method)
         payload["affine"] = _affine(fitted, n_variables) if fitted else None
-        if result.method == "svr":
+        if result.logistic:
+            # #380, logistic-regression.md section 5: the chain to the scores,
+            # then one row of W per model row and its intercept.
+            payload["logistic"] = {
+                "x_mean": list(result.x_mean),
+                "loadings": [list(row) for row in result.loadings],
+                "coefficients": result.logistic["coefficients"],
+                "intercept": result.logistic["intercept"],
+            }
+        elif result.method == "svr":
             scores = np.asarray(result.scores, dtype=np.float64)
             payload["svr"] = {
                 "kernel": result.svm["kernel"],
@@ -324,6 +333,14 @@ def python_snippet(model: dict[str, Any]) -> str:
             f"NEIGHBOURS = np.array({_matrix_literal(knn['neighbours'])})",
             f"NEIGHBOUR_CLASSES = np.array({knn['neighbour_classes']!r})",
         ]
+    elif assignment == "logistic":
+        logistic = model["logistic"]
+        body += [
+            f"X_MEAN = np.array({_literal(logistic['x_mean'])})",
+            f"LOADINGS = np.array({_matrix_literal(logistic['loadings'])})",
+            f"W = np.array({_matrix_literal(logistic['coefficients'])})",
+            f"B = np.array({_literal(logistic['intercept'])})",
+        ]
     elif assignment == "svr":
         svr = model["svr"]
         body += [
@@ -412,6 +429,20 @@ def python_snippet(model: dict[str, Any]) -> str:
             "        for row in nearest",
             "    ])",
             "    return np.array([CLASSES[i] for i in counts.argmax(axis=1)])",
+        ]
+    elif assignment == "logistic":
+        # logistic-regression.md section 4, as classification.LogisticRegression
+        # computes it: one row is a binomial model, more a softmax; the most
+        # probable class, a tie to the first.
+        body += [
+            "    Z = ((X - X_MEAN) @ LOADINGS.T) @ W.T + B",
+            "    if Z.shape[1] == 1:",
+            "        P = 1.0 / (1.0 + np.exp(-Z[:, 0]))",
+            "        P = np.column_stack([1.0 - P, P])",
+            "    else:",
+            "        E = np.exp(Z - Z.max(axis=1, keepdims=True))",
+            "        P = E / E.sum(axis=1, keepdims=True)",
+            "    return np.array([CLASSES[i] for i in P.argmax(axis=1)])",
         ]
     elif assignment == "svr":
         # svr.md section 4, as regression.SVR computes it.

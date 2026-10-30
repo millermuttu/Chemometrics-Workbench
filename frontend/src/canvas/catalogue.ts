@@ -248,6 +248,14 @@ export function stepMenu(targets: string[], classColumns: string[] = []): Catalo
         payload: { spec: { kind: "lda", n_components: 5, class_column: classColumn } },
       },
       {
+        // #380: the first classifier with class probabilities.
+        kind: "Logistic 5 PC",
+        group: "Classification" as const,
+        type: "estimator" as const,
+        parameters: `C 1 · 5 components · ${classColumn}`,
+        payload: { spec: { kind: "logistic", C: 1, n_components: 5, class_column: classColumn } },
+      },
+      {
         kind: "kNN k5",
         group: "Classification" as const,
         type: "estimator" as const,

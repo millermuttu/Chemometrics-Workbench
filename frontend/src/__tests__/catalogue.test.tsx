@@ -149,6 +149,7 @@ it("puts every step under a heading, the models under Regression and Classificat
     "PLS-DA 5 LV",
     "OPLS-DA 1+1",
     "LDA 5 PC",
+    "Logistic 5 PC",
     "kNN k5",
     "SVM rbf 5 PC",
     "SIMCA 3 PC",
@@ -280,4 +281,12 @@ it("offers OPLS-DA beside PLS-DA on a class column, labelled alike (#379)", () =
   expect(nodeLabel(node)).toBe("OPLS-DA 1+1 · grade");
   expect(parameterLine(node)).toBe(oplsda.parameters);
   expect(stepMenu(["fat"]).find((step) => step.kind === "OPLS-DA 1+1")!.disabled).toBe(NO_CLASS);
+});
+
+it("offers a logistic regression on a class column, labelled alike (#380)", () => {
+  const logistic = stepMenu([], ["grade"]).find((step) => step.kind === "Logistic 5 PC")!;
+  expect(logistic.payload.spec).toEqual({ kind: "logistic", C: 1, n_components: 5, class_column: "grade" });
+  const node = { id: "l", type: "estimator", inputs: ["snv"], ...logistic.payload } as PipelineNode;
+  expect(nodeLabel(node)).toBe("Logistic 5 PC · grade");
+  expect(parameterLine(node)).toBe(logistic.parameters);
 });

@@ -291,6 +291,8 @@ export interface PcaPayload {
     class_column: string | null;
     classes: string[];
     predicted_class: number[];
+    /** A logistic regression's (#380): n x K, columns in `classes` order. */
+    probabilities?: number[][];
     /** `calibration`, and below a split `cross_validation` and `held_out`:
      * rows observed, columns assigned, in `classes` order. */
     confusion: Record<string, number[][]>;

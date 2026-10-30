@@ -633,6 +633,72 @@ def test_mlr_on_a_selected_subset_matches_least_squares(dataset: str) -> None:
 
 
 # --------------------------------------------------------------------------
+# Logistic regression (#380)
+# --------------------------------------------------------------------------
+
+
+def _logistic_codes(dataset: str, k: int) -> np.ndarray:
+    """The generator's coding: k classes cut at the target's quantiles."""
+    y = np.asarray(LOADERS[dataset]().targets[parity.load_fixture()["targets"][dataset]])
+    return np.searchsorted(np.quantile(y, np.linspace(0, 1, k + 1)[1:-1]), y)
+
+
+@pytest.mark.parametrize("k", [2, 3])
+@every_dataset
+def test_logistic_regression_solved_to_the_optimum_matches_pca_then_lbfgs(
+    dataset: str, k: int
+) -> None:
+    """`logistic-regression.md` section 6: both optimisers to a gradient of
+    1e-10, the coefficients and probabilities within the lbfgs class, and at
+    the default tolerance the assignments identical."""
+    from chemometrics_workbench.classification import LogisticRegression
+
+    spectra = LOADERS[dataset]().spectra
+    codes = _logistic_codes(dataset, k)
+    model = LogisticRegression(N_COMPONENTS, tol=1e-10).fit(spectra, codes, k)
+    assert model.coefficients_ is not None and model.intercept_ is not None
+    stacked = np.column_stack([model.coefficients_, model.intercept_])
+    assert parity.check(f"{dataset}.logistic.coefficients_{k}class.sklearn", stacked).passed
+    assert parity.check(
+        f"{dataset}.logistic.probabilities_{k}class_converged.sklearn",
+        model.predict_proba(spectra),
+    ).passed
+    default = LogisticRegression(N_COMPONENTS).fit(spectra, codes, k)
+    assigned = parity.check(
+        f"{dataset}.logistic.predictions_{k}class.sklearn", default.predict(spectra).astype(float)
+    )
+    assert assigned.passed and assigned.max_abs_diff == 0.0
+
+
+@pytest.mark.parametrize("k", [2, 3])
+@every_dataset
+def test_logistic_probabilities_at_the_default_tolerance_differ_by_the_stopping_rule(
+    dataset: str, k: int, fixture_entries: dict[str, dict[str, object]]
+) -> None:
+    """Both stop at a gradient of 1e-4, short of the optimum; the probabilities
+    agree within ten times that, checked before the divergence is recorded."""
+    from chemometrics_workbench.classification import LogisticRegression
+
+    spectra = LOADERS[dataset]().spectra
+    model = LogisticRegression(N_COMPONENTS).fit(spectra, _logistic_codes(dataset, k), k)
+    entry_id = f"{dataset}.logistic.probabilities_{k}class.sklearn"
+    theirs = np.asarray(fixture_entries[entry_id]["value"])
+    assert np.abs(model.predict_proba(spectra) - theirs).max() < 10 * model.tol
+    result = parity.record_divergence(
+        entry_id,
+        reason=(
+            "Both are L-BFGS on the same L2-penalised objective, stopped at a gradient "
+            "tolerance of 1e-4 rather than at the optimum, and where each stops depends on "
+            "its quasi-Newton history; scikit-learn also stops on a relative change in the "
+            "objective. The probabilities agree within ten times tol (checked) and the "
+            "assignments are identical; solved to 1e-10 they agree within the lbfgs class "
+            "(logistic-regression.md section 6)."
+        ),
+    )
+    assert result.passed
+
+
+# --------------------------------------------------------------------------
 # SVR (#377)
 # --------------------------------------------------------------------------
 
