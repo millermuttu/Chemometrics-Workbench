@@ -150,6 +150,15 @@ def test_every_number_the_pls_example_quotes(client: TestClient) -> None:  # noq
     run(client, [SNV, SAVGOL, *PCA, *pls_branch(10)])
     ten = result(client, "pls")
     curve, spread = ten["rmsecv_curve"], ten["metrics"]["rmsecv_std"]
+    # #373: the same curve against its named parameter, marked at the A fitted.
+    assert ten["tuning_curve"] == {
+        "parameter": "components",
+        "metric": "rmsecv",
+        "values": list(range(1, len(curve) + 1)),
+        "scores": curve,
+        "log": False,
+        "chosen": ten["n_components"],
+    }
     lowest = min(curve)
     chosen = next(a for a, value in enumerate(curve, 1) if value <= lowest + spread)
 

@@ -83,9 +83,9 @@
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-30, feature/373_tuning-curve. regression.tuning_curve added; tests/test_regression.py 'the tuning curve over components is the rmsecv curve' (rtol 1e-10) and 'pools residuals at every value' (uneven folds, worked by hand, differs from the fold mean) - ImportError with src stashed. tests/test_examples.py PLS example asserts the payload's tuning_curve {parameter components, metric rmsecv, values 1..A, scores = rmsecv_curve, log false, chosen = n_components} - KeyError with api.py stashed; every quoted number unchanged. uv run pytest 995 passed (parity claims unchanged; parity_report regenerated, 192 claims, one new not-compared Coverage row); ruff check, ruff format --check, mypy clean. In frontend/: typecheck, lint clean; pnpm test 177 passed, analysis.test.ts 'plots a curve against its own parameter and marks the value fitted (#373)' FAILS with src/plot stashed; pnpm build; pnpm exec playwright test 102 passed (4.3m), analysis.spec.ts asserts the RMSECV panel reads 'fitted at A = n · lowest at A = m'. metrics-and-validation.md section 15 written; uv run mkdocs build --strict built.",
+      "notes": "PLS and PCR keep rmsecv_curve (nested, one fit per fold); tuning_curve is the general form the penalised models (#374, #375, #377) will call with their grids. The payload's 'scores' field is metric-neutral so a classifier error-rate curve fits it; none is computed yet (PLS-DA's curve stays dummy RMSECV), as section 15 says."
     },
     {
       "id": "ridge",

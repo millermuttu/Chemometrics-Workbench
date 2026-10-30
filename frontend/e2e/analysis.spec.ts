@@ -110,6 +110,10 @@ test("a regression tab draws what a decomposition has no counterpart for", async
   }
   await expect(page.getByTestId("predicted-plot")).toBeVisible();
   await expect(page.getByTestId("rmsecv-plot")).toBeVisible();
+  // #373: the curve marks the A fitted and reports its minimum beside it.
+  await expect(page.getByRole("region", { name: "RMSECV" })).toContainText(
+    /fitted at A = \d+ · lowest at A = \d+/,
+  );
 
   // #184: VIP beside the loadings, on the same axis - one point per variable.
   await expect(page.getByRole("region", { name: "Variable importance" })).toBeVisible();

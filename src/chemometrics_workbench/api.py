@@ -642,6 +642,19 @@ def results_payload(
             for key in (f"rmsecv_a{a}" for a in range(1, result.n_components + 1))
             if key in result.metrics
         ]
+        # §15 (#373): the same curve against its named parameter, the shape
+        # every model's curve takes - components here, a penalty or C for
+        # the models tuned by one. `chosen` is the value the node was fitted
+        # with; the curve's minimum is reported beside it, never adopted.
+        if payload["rmsecv_curve"]:
+            payload["tuning_curve"] = {
+                "parameter": "components",
+                "metric": "rmsecv",
+                "values": list(range(1, len(payload["rmsecv_curve"]) + 1)),
+                "scores": payload["rmsecv_curve"],
+                "log": False,
+                "chosen": result.n_components,
+            }
     if result.simca:
         # simca.md section 5: no single X model and no confusion matrix, so
         # its own block - the class models' sizes and limits and, per set, the

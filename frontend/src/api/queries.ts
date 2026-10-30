@@ -308,6 +308,19 @@ export interface PcaPayload {
   metrics?: Partial<Record<string, number>>;
   /** RMSECV against component count, one point per `A`. Empty above a split. */
   rmsecv_curve?: number[];
+  /** The same curve against its named parameter (#373); absent with no curve. */
+  tuning_curve?: TuningCurve;
+}
+
+/** `metrics-and-validation.md` section 15: a metric against one complexity
+ * parameter over one fold assignment, and the value the node was fitted with. */
+export interface TuningCurve {
+  parameter: string;
+  metric: string;
+  values: number[];
+  scores: number[];
+  log: boolean;
+  chosen: number;
 }
 
 /** `GET /results/{id}/coefficients`: the model as `y = intercept + X_raw · b`

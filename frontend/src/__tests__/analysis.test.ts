@@ -25,6 +25,8 @@ import {
   bandTraces,
   permutationFigure,
   predictedTraces,
+  chosenLine,
+  parameterSymbol,
   rmsecvTrace,
   scoresTrace,
   selectionTraces,
@@ -168,6 +170,14 @@ describe("a regression's own panels", () => {
     },
     metrics: { rmsec: 1.0, rmsecv: 1.2, r2: 0.99 },
     rmsecv_curve: [4.9, 3.2, 2.8, 2.5],
+    tuning_curve: {
+      parameter: "components",
+      metric: "rmsecv",
+      values: [1, 2, 3, 4],
+      scores: [4.9, 3.2, 2.8, 2.5],
+      log: false,
+      chosen: 3,
+    },
   };
 
   it("draws calibration against a 1:1 line, and held-out separately", () => {
@@ -206,6 +216,27 @@ describe("a regression's own panels", () => {
     const trace = rmsecvTrace(pls, theme) as Record<string, unknown>;
     expect(trace.x).toEqual([1, 2, 3, 4]);
     expect(trace.y).toEqual([4.9, 3.2, 2.8, 2.5]);
+    expect(trace.hovertemplate).toContain("A = %{x");
+  });
+
+  it("plots a curve against its own parameter and marks the value fitted (#373)", () => {
+    const penalty = {
+      ...pls,
+      tuning_curve: {
+        parameter: "alpha",
+        metric: "rmsecv",
+        values: [0.01, 0.1, 1, 10],
+        scores: [3.1, 2.4, 2.6, 4.0],
+        log: true,
+        chosen: 1,
+      },
+    };
+    const trace = rmsecvTrace(penalty, theme) as Record<string, unknown>;
+    expect(trace.x).toEqual([0.01, 0.1, 1, 10]);
+    expect(trace.hovertemplate).toContain("alpha = %{x");
+    expect(parameterSymbol(penalty.tuning_curve)).toBe("alpha");
+    expect(chosenLine(penalty.tuning_curve, theme)).toMatchObject({ x0: 1, x1: 1, yref: "paper" });
+    expect(rmsecvTrace({ ...pls, tuning_curve: undefined }, theme)).toMatchObject({ x: [], y: [] });
   });
 });
 
