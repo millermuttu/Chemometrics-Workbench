@@ -11,9 +11,8 @@ selection above it (`node_axis`, #312).
 
 ## What a node's output is
 
-One array per node, `n_samples x n_variables`, stored through #77's array
-store — float32 on disk, float64 at the kernel boundary, converted at that
-boundary and nowhere else.
+One array per node, `n_samples x n_variables`, stored through the array
+store - float64 on disk since #402 (float32 under #77 before it).
 
 Every node's output is read back out of the store before the nodes below it
 see it. A node therefore computes from what is on disk, not from the float64
@@ -734,7 +733,7 @@ def execute(
         hashes: list[str] = []
         if cached is not None:
             # Already on disk under these paths. Writing them again cost a
-            # float32 copy, a serialisation and a SHA-256 per array, per fold,
+            # serialisation and a SHA-256 per array, per fold,
             # on every run that recomputed nothing (#174). The store is
             # content-addressed, so the hash is the file's name.
             state = cached

@@ -64,12 +64,12 @@ from chemometrics_workbench.models import (
 )
 from chemometrics_workbench.project import create_project, write_array
 
-#: `docs/model-export.md` §5. Wider than the parity harness's prediction class
-#: because the application predicts from float32-stored arrays and an export
-#: computes in float64 - measured at 7.09e-6 relative in
-#: `docs/phase-2/exit-run.md`, and this is an order of magnitude above it.
-RTOL = 1e-4
-ATOL = 1e-6
+#: `docs/model-export.md` §5: an export agrees with the application within the
+#: parity harness's prediction class. It was 1e-4 / 1e-6 while the store was
+#: float32 (#77), a gap measured in `docs/phase-2/exit-run.md`; since #402 the
+#: store is float64 and the two compute from the same numbers.
+RTOL = 1e-6
+ATOL = 1e-9
 
 
 @pytest.fixture(scope="module")

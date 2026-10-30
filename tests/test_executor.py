@@ -179,13 +179,10 @@ def fixture_pipeline(version_id: UUID) -> Pipeline:
 
 
 def _as_stored(values: np.ndarray) -> np.ndarray:
-    """What the array store gives back: float32 on disk, float64 to a kernel.
-
-    A hand-computed comparison has to pass through the same boundary, or it is
-    comparing the executor's stored numbers against float64 ones and calling
-    #77's documented narrowing a divergence.
-    """
-    return values.astype(np.float32).astype(np.float64)
+    """What the array store gives back. Float32 until #402 - a hand-computed
+    comparison had to round as the store did - and float64 since, so this is
+    the identity, kept so each comparison still says where its numbers went."""
+    return np.asarray(values, dtype=np.float64)
 
 
 def _fixture_rows(node_id: str) -> dict[int, np.ndarray]:

@@ -14,13 +14,13 @@ results are still files, because they are contents rather than references, and
 the registry of directories the user has opened still lives in their config
 directory, because it is the one thing a project directory cannot know.
 
-**Arrays are float32 on disk and float64 at the kernel boundary.** §13's
-envelope — 20,000 spectra by 4,000 variables, about 320 MB — is a float32
-budget, and `pca.md` §10 requires float64 computation whatever the caller
-stores. Both are true at once because the conversion happens here, at the store
-boundary, and nowhere else: `write_array` takes float64 and narrows it,
-`read_array` widens it back. A kernel never sees a float32 array and a disk
-file is never float64.
+**Arrays are float64 on disk, as at the kernel boundary** (#402, decision
+0007). They were float32 until v1.3 (#77), which halved §13's envelope - 20,000
+spectra by 4,000 variables is about 640 MB in float64 - and cost an
+ill-conditioned model its agreement with its own export: one float32 rounding
+of an intermediate array moved a Ridge or MLR prediction by about its condition
+number times that rounding. `read_array` still widens whatever it finds, so an
+array a project wrote in float32 reads back as it always did.
 
 Arrays are content-addressed — `arrays/<sha256>.npy` — which makes writing the
 same array twice a no-op and makes the `content_hash` a `DatasetVersion` needs
@@ -959,9 +959,8 @@ def write_array(directory: str | os.PathLike[str], values: object) -> tuple[str,
     The path is relative — `arrays/<sha256>.npy` — because it is recorded in a
     `DatasetVersion` that travels with the directory. The hash is the same
     string a `DatasetVersion.content_hash` takes, `sha256:` and sixty-four hex
-    digits, and it is the hash of the stored float32 bytes rather than of the
-    float64 the caller passed: it identifies what is on disk, which is what a
-    later read can actually be checked against.
+    digits, and it is the hash of the stored float64 bytes: it identifies what
+    is on disk, which is what a later read can actually be checked against.
 
     `as_float64` is the same contract every kernel enforces, so a NaN or a 1-D
     array is refused here with the message it would have been refused with
@@ -969,7 +968,7 @@ def write_array(directory: str | os.PathLike[str], values: object) -> tuple[str,
     """
     path = Path(directory)
     _require_project(path)
-    stored = as_float64(values, "array").astype(np.float32)
+    stored = as_float64(values, "array")
 
     blob = _npy_bytes(stored)
     digest = hashlib.sha256(blob).hexdigest()
@@ -1010,7 +1009,7 @@ def read_array(directory: str | os.PathLike[str], array_path: str) -> NDArray[np
     return as_float64(stored, array_path)
 
 
-def _npy_bytes(values: NDArray[np.float32]) -> bytes:
+def _npy_bytes(values: NDArray[np.float64]) -> bytes:
     """Serialise to `.npy` in memory, so the bytes can be hashed before they land.
 
     Hashing the file after writing it would name a file by a digest taken from

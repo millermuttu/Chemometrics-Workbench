@@ -176,18 +176,31 @@ def test_a_missing_arrays_directory_is_repaired(tmp_path: Path) -> None:
 # --- The array store ------------------------------------------------------
 
 
-def test_an_array_is_float32_on_disk_and_float64_at_the_kernel_boundary(
+def test_an_array_written_in_float32_before_402_still_reads_back(
+    tmp_path: Path, spectra: np.ndarray
+) -> None:
+    """A project from before v1.3 holds float32 arrays; read_array widens them."""
+    create_project(tmp_path / "old", name="Old")
+    (tmp_path / "old" / "arrays").mkdir(exist_ok=True)
+    np.save(tmp_path / "old" / "arrays" / "legacy.npy", spectra.astype(np.float32))
+    back = read_array(tmp_path / "old", "arrays/legacy.npy")
+    assert back.dtype == np.float64
+    assert np.array_equal(back, spectra.astype(np.float32))
+
+
+def test_an_array_is_float64_on_disk_as_at_the_kernel_boundary(
     tmp_path: Path, spectra: np.ndarray
 ) -> None:
     create_project(tmp_path / "corn", name="Corn")
     relative, _ = write_array(tmp_path / "corn", spectra)
 
+    # #402: float64 on disk, so a value reads back exactly as it was written.
     on_disk = np.load(tmp_path / "corn" / relative)
-    assert on_disk.dtype == np.float32
+    assert on_disk.dtype == np.float64
 
     back = read_array(tmp_path / "corn", relative)
     assert back.dtype == np.float64
-    assert np.array_equal(back, spectra.astype(np.float32))
+    assert np.array_equal(back, spectra)
 
 
 def test_the_content_hash_has_the_shape_the_schema_requires(
@@ -297,8 +310,8 @@ def test_a_project_survives_a_new_process(tmp_path: Path, spectra: np.ndarray) -
     assert reported["dtype"] == "float64"
     assert reported["shape"] == list(spectra.shape)
     # Bit-identical, not merely close: the bytes the new process read are the
-    # bytes float32 storage can carry.
-    expected = spectra.astype(np.float32).astype(np.float64).tobytes()
+    # bytes that were written (#402: float64 on disk).
+    expected = spectra.astype(np.float64).tobytes()
     assert reported["digest"] == hashlib.sha256(expected).hexdigest()
     assert content_hash.startswith("sha256:")
 
@@ -322,7 +335,7 @@ def test_a_project_can_be_zipped_and_opened_elsewhere(tmp_path: Path, spectra: n
     project = open_project(elsewhere)
     assert project.name == "Corn"
     assert Path(project.directory) == elsewhere
-    assert np.array_equal(read_array(elsewhere, relative), spectra.astype(np.float32))
+    assert np.array_equal(read_array(elsewhere, relative), spectra)
 
 
 # --- The registry ---------------------------------------------------------

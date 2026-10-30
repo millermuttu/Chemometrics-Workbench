@@ -1570,7 +1570,7 @@ def test_bootstrap_intervals_match_an_independent_rebuild_on_the_same_resamples(
 
     # The rebuild: the stored spectra are float32, the response as written.
     table = np.genfromtxt(io.BytesIO(raw_csv), delimiter=",", skip_header=1, dtype=str)
-    x = table[:, 1:101].astype(np.float32).astype(np.float64)
+    x = table[:, 1:101].astype(np.float64)
     header = raw_csv.decode().splitlines()[0].split(",")
     y = table[:, header.index("fat")].astype(np.float64)
     rng = np.random.default_rng(5)
