@@ -186,6 +186,20 @@ TOLERANCES: dict[str, Tolerance] = {
             "whose solve takes about thirty thousand steps."
         ),
     ),
+    "lbfgs": Tolerance(
+        rtol=1e-5,
+        atol=1e-5,
+        reason=(
+            "Logistic regression coefficients and class probabilities, both optimisers run "
+            "to a gradient tolerance of 1e-10 (logistic-regression.md section 6). The "
+            "objective is the same strictly convex function, but scikit-learn's L-BFGS also "
+            "stops on a relative change in the objective, and the two quasi-Newton histories "
+            "differ, so each stops a little short of the optimum in its own direction. The "
+            "largest differences observed on the parity sets are 3e-6 in a coefficient and "
+            "3e-7 in a probability, on Tecator's three classes; a probability near 0 or 1 is "
+            "why the absolute tolerance, not a relative one, decides."
+        ),
+    ),
     "transcribed": Tolerance(
         rtol=5e-3,
         atol=0.0,
@@ -258,6 +272,9 @@ QUANTITY_CLASS: dict[str, str] = {
     "class_votes": "metrics",
     # SVM (svm.md section 7): one-vs-one decision values from an SMO solve.
     "svm_decision": "float32_kernel",
+    # Logistic regression (logistic-regression.md section 6): an L-BFGS solve.
+    "logistic_coefficients": "lbfgs",
+    "class_probabilities": "lbfgs",
     # SVR (svr.md section 6): the same SMO and the same float32 kernel cache.
     "svr_predictions": "float32_kernel",
     # Outliers (outliers.md section 7): once both searches reach the same

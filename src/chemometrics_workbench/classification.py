@@ -12,6 +12,8 @@ from typing import Any, Self
 
 import numpy as np
 from numpy.typing import NDArray
+from scipy.optimize import minimize
+from scipy.special import expit, logsumexp
 
 from chemometrics_workbench.arrays import as_float64
 from chemometrics_workbench.decomposition import PCA
@@ -21,6 +23,7 @@ __all__ = [
     "LDA",
     "SIMCA",
     "SVM",
+    "LogisticRegression",
     "acceptance_table",
     "simca_class_metrics",
     "simca_metrics",
@@ -516,4 +519,110 @@ class SVM:
     def predict(self, X: object) -> NDArray[np.intp]:
         """The most votes, a tied vote to the first class (`svm.md` §4)."""
         assigned: NDArray[np.intp] = self.votes(X).argmax(axis=1)
+        return assigned
+
+
+class LogisticRegression:
+    """PCA-logistic regression, per `logistic-regression.md` (#380): centre X,
+    project it on `n_components` principal components, and fit an L2-penalised
+    logistic regression to the scores with SciPy's L-BFGS.
+
+    The objective is scikit-learn's, `1/2 ||W||^2 + C sum_i loss_i`, the
+    intercept unpenalised (§2). Two classes are one binomial model, `W` one
+    row, as scikit-learn fits them; three or more are one multinomial model
+    over every class, softmax over `K` rows. The first classifier here with
+    class probabilities.
+    """
+
+    x_mean_: NDArray[np.float64] | None = None
+    coefficients_: NDArray[np.float64] | None = None
+    intercept_: NDArray[np.float64] | None = None
+
+    def __init__(
+        self, n_components: int, c: float = 1.0, *, tol: float = 1e-4, max_iter: int = 15_000
+    ) -> None:
+        if c <= 0:
+            raise ValueError(f"C must be positive, got {c}")
+        self.n_components = int(n_components)
+        self.c = float(c)
+        self.tol = float(tol)
+        self.max_iter = int(max_iter)
+        self.pca_ = PCA(self.n_components)
+        self.n_classes = 0
+
+    def fit(self, X: object, codes: object, n_classes: int) -> Self:
+        values = as_float64(X, "X")
+        labels = np.asarray(codes, dtype=np.intp)
+        if labels.shape != (values.shape[0],):
+            raise ValueError(f"X has {values.shape[0]} rows and codes has {labels.size}")
+        counts = np.bincount(labels, minlength=n_classes)
+        if (counts == 0).any():
+            empty = int(np.flatnonzero(counts == 0)[0])
+            raise ValueError(
+                f"class {empty} has no calibration samples (logistic-regression.md section 2)"
+            )
+        self.x_mean_ = values.mean(axis=0)
+        self.pca_.fit(values - self.x_mean_)
+        scores = self.pca_.transform(values - self.x_mean_)
+        self.n_classes = int(n_classes)
+        rows = 1 if n_classes == 2 else n_classes
+        width = scores.shape[1]
+        target = labels.astype(np.float64) if rows == 1 else np.eye(n_classes)[labels]
+
+        def objective(theta: NDArray[np.float64]) -> tuple[float, NDArray[np.float64]]:
+            w = theta[: rows * width].reshape(rows, width)
+            z = scores @ w.T + theta[rows * width :]
+            if rows == 1:
+                loss = float(np.sum(np.logaddexp(0.0, z[:, 0]) - target * z[:, 0]))
+                residual = (expit(z[:, 0]) - target)[:, None]
+            else:
+                total = logsumexp(z, axis=1)
+                loss = float(np.sum(total - np.sum(target * z, axis=1)))
+                residual = np.exp(z - total[:, None]) - target
+            gradient = np.concatenate(
+                [(w + self.c * residual.T @ scores).ravel(), self.c * residual.sum(axis=0)]
+            )
+            return 0.5 * float(np.sum(w * w)) + self.c * loss, gradient
+
+        found = minimize(
+            objective,
+            np.zeros(rows * width + rows),
+            jac=True,
+            method="L-BFGS-B",
+            options={"gtol": self.tol, "maxiter": self.max_iter, "ftol": 0.0},
+        )
+        if not found.success and found.nit >= self.max_iter:
+            raise ValueError(
+                f"L-BFGS did not converge in {self.max_iter} iterations at C {self.c:g}; "
+                "a smaller C converges faster (logistic-regression.md section 3)"
+            )
+        self.coefficients_ = found.x[: rows * width].reshape(rows, width)
+        self.intercept_ = found.x[rows * width :]
+        return self
+
+    def _scores(self, X: object) -> NDArray[np.float64]:
+        if self.x_mean_ is None or self.coefficients_ is None or self.intercept_ is None:
+            raise RuntimeError("LogisticRegression has not been fitted")
+        return self.pca_.transform(as_float64(X, "X") - self.x_mean_)
+
+    def decision_function(self, X: object) -> NDArray[np.float64]:
+        """`n x rows`: the linear predictor on each row of `W`."""
+        z: NDArray[np.float64] = self._scores(X) @ np.asarray(self.coefficients_).T + np.asarray(
+            self.intercept_
+        )
+        return z
+
+    def predict_proba(self, X: object) -> NDArray[np.float64]:
+        """`n x K`, every row summing to one, columns in class order (§4)."""
+        z = self.decision_function(X)
+        if z.shape[1] == 1:
+            p = expit(z[:, 0])
+            both: NDArray[np.float64] = np.column_stack([1.0 - p, p])
+            return both
+        probabilities: NDArray[np.float64] = np.exp(z - logsumexp(z, axis=1)[:, None])
+        return probabilities
+
+    def predict(self, X: object) -> NDArray[np.intp]:
+        """The most probable class; a tie goes to the first (§4)."""
+        assigned: NDArray[np.intp] = self.predict_proba(X).argmax(axis=1)
         return assigned

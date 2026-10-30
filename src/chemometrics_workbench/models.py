@@ -566,6 +566,16 @@ class SVMSpec(Frozen):
     class_column: str
 
 
+class LogisticSpec(Frozen):
+    """`logistic-regression.md`: L2-penalised logistic regression on principal
+    component scores, binomial for two classes and multinomial for more."""
+
+    kind: Literal["logistic"] = "logistic"
+    C: float = Field(default=1.0, gt=0, description="Inverse strength of the L2 penalty.")
+    n_components: int = Field(ge=1, description="Principal components the model is fitted on.")
+    class_column: str
+
+
 class PLSDASpec(Frozen):
     kind: Literal["plsda"] = "plsda"
     n_components: int = Field(ge=1)
@@ -587,7 +597,8 @@ EstimatorSpec = Annotated[
     | SIMCASpec
     | LDASpec
     | KNNSpec
-    | SVMSpec,
+    | SVMSpec
+    | LogisticSpec,
     Field(discriminator="kind"),
 ]
 

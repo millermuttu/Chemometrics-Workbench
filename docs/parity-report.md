@@ -21,11 +21,11 @@ strong the agreement is** rather than a bare pass or fail:
 
 | Claim | Count | Meaning |
 | --- | --- | --- |
-| identical within floating point | 161 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
-| agrees within stated tolerance | 56 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
-| differs by documented convention | 29 | Not compared numerically at all. The two quantities are not the same thing, and the reason is given in full below. |
+| identical within floating point | 167 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
+| agrees within stated tolerance | 68 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
+| differs by documented convention | 35 | Not compared numerically at all. The two quantities are not the same thing, and the reason is given in full below. |
 
-**246 comparisons, 246 passed, 0 failed.**
+**270 comparisons, 270 passed, 0 failed.**
 
 Three things a reader should hold on to, because the agreement column cannot
 show them:
@@ -82,6 +82,7 @@ those listed under *Gaps* or *Documented divergences* below.
 | MLR | `MLR` | 6 claims |
 | OPLS | `OPLS` | 6 claims |
 | OPLS-DA (two-class) | `OPLS` | 6 claims |
+| Logistic regression | `LogisticRegression` | 24 claims |
 | SVR | `SVR` | 12 claims |
 | Elastic Net and Lasso | `ElasticNet`, `elastic_net_path` | 18 claims |
 | PLS2 | `PLS2` | 9 claims |
@@ -442,6 +443,35 @@ those listed under *Gaps* or *Documented divergences* below.
 | tecator | `svm_decision` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
 | tecator | `svm_decision` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 720 values, worst Δ < 1e-6 |
 
+### Logistic regression (PCA-logistic, L-BFGS)
+
+| Dataset | Quantity | Reference | Claim | Ours vs reference |
+| --- | --- | --- | --- | --- |
+| corn | `assigned_class` | scikit-learn 1.9.0 | identical | 80 values, worst Δ 0, exactly |
+| corn | `assigned_class` | scikit-learn 1.9.0 | identical | 80 values, worst Δ 0, exactly |
+| corn | `class_probabilities` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| corn | `class_probabilities` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 160 values, worst Δ < 1e-8 |
+| corn | `class_probabilities` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| corn | `class_probabilities` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 240 values, worst Δ < 1e-7 |
+| corn | `logistic_coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 6 values, worst Δ < 1e-7 |
+| corn | `logistic_coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 18 values, worst Δ < 1e-6 |
+| gasoline | `assigned_class` | scikit-learn 1.9.0 | identical | 60 values, worst Δ 0, exactly |
+| gasoline | `assigned_class` | scikit-learn 1.9.0 | identical | 60 values, worst Δ 0, exactly |
+| gasoline | `class_probabilities` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| gasoline | `class_probabilities` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 120 values, worst Δ < 1e-7 |
+| gasoline | `class_probabilities` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| gasoline | `class_probabilities` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 180 values, worst Δ < 1e-7 |
+| gasoline | `logistic_coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 6 values, worst Δ < 1e-6 |
+| gasoline | `logistic_coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 18 values, worst Δ < 1e-6 |
+| tecator | `assigned_class` | scikit-learn 1.9.0 | identical | 240 values, worst Δ 0, exactly |
+| tecator | `assigned_class` | scikit-learn 1.9.0 | identical | 240 values, worst Δ 0, exactly |
+| tecator | `class_probabilities` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| tecator | `class_probabilities` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 480 values, worst Δ < 1e-8 |
+| tecator | `class_probabilities` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| tecator | `class_probabilities` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 720 values, worst Δ < 1e-6 |
+| tecator | `logistic_coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 6 values, worst Δ < 1e-7 |
+| tecator | `logistic_coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 18 values, worst Δ < 1e-5 |
+
 ### Robust distance (FastMCD)
 
 | Dataset | Quantity | Reference | Claim | Ours vs reference |
@@ -585,6 +615,30 @@ Both solvers are LIBSVM's SMO with second-order working-set selection, and both 
 
 Both solvers are LIBSVM's SMO with second-order working-set selection, and both stop once the largest KKT violation falls below tol = 1e-3 rather than at the optimum. Where each stops depends on its arithmetic: LIBSVM caches the kernel in float32, ours is float64. The decision values therefore agree only to about tol (within 1e-2 here, checked), while the assignments are identical and, solved to 1e-9, the values agree to float32's precision (svm.md section 3).
 
+**`corn.logistic.probabilities_2class.sklearn`** — scikit-learn 1.9.0
+
+Both are L-BFGS on the same L2-penalised objective, stopped at a gradient tolerance of 1e-4 rather than at the optimum, and where each stops depends on its quasi-Newton history; scikit-learn also stops on a relative change in the objective. The probabilities agree within ten times tol (checked) and the assignments are identical; solved to 1e-10 they agree within the lbfgs class (logistic-regression.md section 6).
+
+**`corn.logistic.probabilities_3class.sklearn`** — scikit-learn 1.9.0
+
+Both are L-BFGS on the same L2-penalised objective, stopped at a gradient tolerance of 1e-4 rather than at the optimum, and where each stops depends on its quasi-Newton history; scikit-learn also stops on a relative change in the objective. The probabilities agree within ten times tol (checked) and the assignments are identical; solved to 1e-10 they agree within the lbfgs class (logistic-regression.md section 6).
+
+**`gasoline.logistic.probabilities_2class.sklearn`** — scikit-learn 1.9.0
+
+Both are L-BFGS on the same L2-penalised objective, stopped at a gradient tolerance of 1e-4 rather than at the optimum, and where each stops depends on its quasi-Newton history; scikit-learn also stops on a relative change in the objective. The probabilities agree within ten times tol (checked) and the assignments are identical; solved to 1e-10 they agree within the lbfgs class (logistic-regression.md section 6).
+
+**`gasoline.logistic.probabilities_3class.sklearn`** — scikit-learn 1.9.0
+
+Both are L-BFGS on the same L2-penalised objective, stopped at a gradient tolerance of 1e-4 rather than at the optimum, and where each stops depends on its quasi-Newton history; scikit-learn also stops on a relative change in the objective. The probabilities agree within ten times tol (checked) and the assignments are identical; solved to 1e-10 they agree within the lbfgs class (logistic-regression.md section 6).
+
+**`tecator.logistic.probabilities_2class.sklearn`** — scikit-learn 1.9.0
+
+Both are L-BFGS on the same L2-penalised objective, stopped at a gradient tolerance of 1e-4 rather than at the optimum, and where each stops depends on its quasi-Newton history; scikit-learn also stops on a relative change in the objective. The probabilities agree within ten times tol (checked) and the assignments are identical; solved to 1e-10 they agree within the lbfgs class (logistic-regression.md section 6).
+
+**`tecator.logistic.probabilities_3class.sklearn`** — scikit-learn 1.9.0
+
+Both are L-BFGS on the same L2-penalised objective, stopped at a gradient tolerance of 1e-4 rather than at the optimum, and where each stops depends on its quasi-Newton history; scikit-learn also stops on a relative change in the objective. The probabilities agree within ten times tol (checked) and the assignments are identical; solved to 1e-10 they agree within the lbfgs class (logistic-regression.md section 6).
+
 **`corn.split.group_kfold.sklearn`** — scikit-learn 1.9.0
 
 Both keep every group in one fold. GroupKFold's default deals groups without a seed, largest first, each to the fold with the fewest samples so far. metrics-and-validation.md §8.8 permutes the groups with the split's seed and slices them by the K-fold size rule (§8.3) - which is GroupKFold(shuffle=True)'s rule, but drawn from NumPy's default_rng rather than a legacy RandomState, so the folds differ either way. A cross-validated claim passes our resolved folds to the reference instead (§8.2).
@@ -616,6 +670,10 @@ Scores, loadings, eigenvalues and explained variance. Two LAPACK drivers on the 
 **`float32_kernel`** — rtol 1.000e-05, atol 0.0001
 
 SVM decision values, both solvers run to a KKT gap of 1e-9 (svm.md section 7). LIBSVM caches the kernel matrix in float32, about seven significant digits, and its gradient accumulates that rounding over every SMO step; ours holds the kernel in float64. The largest difference observed on the parity sets is 3e-5, on Tecator's linear kernel, whose kernel values reach 1e2 and whose solve takes about thirty thousand steps.
+
+**`lbfgs`** — rtol 1.000e-05, atol 1.000e-05
+
+Logistic regression coefficients and class probabilities, both optimisers run to a gradient tolerance of 1e-10 (logistic-regression.md section 6). The objective is the same strictly convex function, but scikit-learn's L-BFGS also stops on a relative change in the objective, and the two quasi-Newton histories differ, so each stops a little short of the optimum in its own direction. The largest differences observed on the parity sets are 3e-6 in a coefficient and 3e-7 in a probability, on Tecator's three classes; a probability near 0 or 1 is why the absolute tolerance, not a relative one, decides.
 
 **`metrics`** — rtol 1.000e-06, atol 1.000e-09
 

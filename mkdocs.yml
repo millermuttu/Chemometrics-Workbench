@@ -74,6 +74,7 @@ nav:
           - SIMCA: algorithms/simca.md
           - LDA: algorithms/lda.md
           - kNN: algorithms/knn.md
+          - Logistic regression: algorithms/logistic-regression.md
           - SVM: algorithms/svm.md
           - SVR: algorithms/svr.md
           - Outlier diagnostics: algorithms/outliers.md

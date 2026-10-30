@@ -225,9 +225,9 @@
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; an e2e test adds it from its menu group and runs it"
       ],
-      "status": "not_started",
+      "status": "in_progress",
       "evidence": "",
-      "notes": ""
+      "notes": "2026-10-30, stopped mid-feature (usage limit). Done on feature/380_logistic-regression: kernel, parity (24 fixture entries, lbfgs tolerance class frozen), executor, payload probabilities, export/snippet, artifact, docs, frontend Probabilities panel; uv run pytest 1042 passed; pnpm test 185 passed. NEXT: analysis.spec.ts 'a logistic regression tab lists each sample's class probabilities' fails - confusion-matrix reported hidden after the new Probabilities panel was added to the row (likely the row overflows; check the panel width or drop that assertion if the confusion panel is merely scrolled). Then rerun analysis.spec + walkthrough.spec, record evidence, open the PR."
     },
     {
       "id": "qda",

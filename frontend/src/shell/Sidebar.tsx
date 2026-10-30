@@ -131,6 +131,8 @@ export function nodeLabel(node: PipelineNode): string {
       return `MLR · ${spec?.target}`;
     case "elastic_net":
       return `${spec?.l1_ratio === 1 ? "Lasso" : "Elastic Net"} α${spec?.alpha} · ${spec?.target}`;
+    case "logistic":
+      return `Logistic ${spec?.n_components} PC · ${spec?.class_column}`;
     case "knn":
       return `kNN k${spec?.k} · ${spec?.class_column}`;
     case "svm":

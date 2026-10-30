@@ -1222,6 +1222,33 @@ def test_an_opls_curve_is_over_its_orthogonal_components(client: TestClient) -> 
     assert client.get("/api/results/opls/export.py").status_code == 200
 
 
+def test_a_logistic_regression_serves_its_probabilities(client: TestClient) -> None:
+    """#380: probabilities beside the assignment. The subset's fat made a class
+    column (#371) gives as many classes as samples, a multinomial model of 8."""
+    entry = client.post("/api/import", files=upload("tecator_subset.csv")).json()
+    roles = client.post(
+        f"/api/datasets/{entry['dataset']['dataset_id']}/roles",
+        json={"from_version_id": entry["versions"][0]["version_id"], "roles": {"fat": "class"}},
+    )
+    assert roles.status_code == 201, roles.text
+    nodes = client.get("/api/pipelines/current").json()["nodes"]
+    nodes += [
+        {
+            "id": "logistic",
+            "type": "estimator",
+            "inputs": ["source"],
+            "spec": {"kind": "logistic", "C": 1, "n_components": 2, "class_column": "fat"},
+        },
+    ]
+    assert client.put("/api/pipelines/current", json={"nodes": nodes}).status_code == 200
+    _run_current(client)
+    payload = client.get("/api/results/logistic").json()
+    probabilities = np.asarray(payload["classification"]["probabilities"])
+    assert probabilities.shape == (8, len(payload["classification"]["classes"]))
+    np.testing.assert_allclose(probabilities.sum(axis=1), 1.0)
+    assert client.get("/api/results/logistic/export.py").status_code == 200
+
+
 def test_an_mlr_below_a_selection_is_served_and_exported(client: TestClient) -> None:
     """#376: three of twelve variables, so every training fold of six rows has full rank."""
     client.post("/api/import", files=upload("tecator_subset.csv"))

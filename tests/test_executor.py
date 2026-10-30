@@ -44,6 +44,7 @@ from chemometrics_workbench.models import (
     KNNSpec,
     LDASpec,
     LeaveOneOut,
+    LogisticSpec,
     MeanCentre,
     MLRSpec,
     OPLSDASpec,
@@ -1934,6 +1935,47 @@ def test_an_oplsda_with_three_classes_is_refused_naming_plsda(
         ExecutorError, match=r"3 classes; OPLS-DA here is two-class only\. Use PLS-DA"
     ):
         execute(directory, pipeline, version)
+
+
+def test_a_logistic_node_classifies_with_probabilities_on_its_folds(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#380, `logistic-regression.md`: the PCA front, the tallies of
+    `classification.md`, probabilities that sum to one and agree with the
+    assignment, and a cross-validated tally the kernel gives on the run's folds."""
+    from chemometrics_workbench.classification import LogisticRegression
+
+    directory, version = project
+    version = _terciles(version, tecator)
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=4, stratify_by="grade")),
+        PreprocessNode(id="snv", inputs=("split",), step=SNV()),
+        EstimatorNode(
+            id="logistic",
+            inputs=("snv",),
+            spec=LogisticSpec(C=10, n_components=5, class_column="grade"),
+        ),
+    )
+    run = execute(directory, pipeline, version)
+    result = run.results["logistic"]
+    assert result.task == "classification" and result.method == "logistic"
+    assert result.classes == ["lean", "mid", "rich"] and len(result.scores[0]) == 5
+    probabilities = np.asarray(result.probabilities)
+    assert probabilities.shape == (version.n_samples, 3)
+    np.testing.assert_allclose(probabilities.sum(axis=1), 1.0)
+    assert probabilities.argmax(axis=1).tolist() == result.predicted_class
+    assert np.asarray(result.logistic["coefficients"]).shape == (3, 5)
+
+    spectra = _as_stored(SNVTransformer().fit_transform(_as_stored(tecator.spectra)))
+    labels = version.metadata_columns["grade"]
+    codes = np.asarray([result.classes.index(label) for label in labels])
+    [resolved] = run.resolved_splits
+    cv = np.empty_like(codes)
+    for train, test in zip(resolved.train_indices, resolved.test_indices, strict=True):
+        model = LogisticRegression(5, 10).fit(spectra[train], codes[train], 3)
+        cv[test] = model.predict(spectra[test])
+    assert result.metrics["accuracy_cv"] == pytest.approx(float(np.mean(cv == codes)))
 
 
 def test_a_simca_node_decides_every_set_with_its_folds_own_models(

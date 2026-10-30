@@ -1130,6 +1130,50 @@ function PermutationTest({ pca }: { pca: PcaPayload }) {
  * set and - below a split - the cross-validated and held-out sets, each with
  * its per-class table beneath. Counts, not a plot: N-by-N numbers are read,
  * not drawn. Exported for its test. */
+/** #380, logistic-regression.md section 4: each calibration sample's assigned
+ * class beside every class's probability. The first rows only, as the dataset
+ * view shows them; the whole table is in the payload and the export. */
+const PROBABILITY_ROWS = 60;
+
+function Probabilities({ pca }: { pca: PcaPayload }) {
+  const classification = pca.classification;
+  const probabilities = classification?.probabilities;
+  if (!classification || !probabilities) return null;
+  const { classes } = classification;
+  return (
+    <Panel title="Class probabilities" note={`${probabilities.length} samples`} width={340}>
+      <div data-testid="class-probabilities" style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+        <table>
+          <thead>
+            <tr>
+              <th>Sample</th>
+              <th>Assigned</th>
+              {classes.map((name) => (
+                <th key={name} className="n">
+                  p({name})
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {probabilities.slice(0, PROBABILITY_ROWS).map((row, index) => (
+              <tr key={pca.samples[index]?.sample_id ?? index}>
+                <td className="mono">{pca.samples[index]?.sample_id}</td>
+                <td>{classes[classification.predicted_class[index]]}</td>
+                {row.map((value, k) => (
+                  <td key={classes[k]} className="n">
+                    {value.toFixed(3)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
+  );
+}
+
 export function ConfusionMatrix({ pca }: { pca: PcaPayload }) {
   const classification = pca.classification;
   if (!classification) return null;
@@ -1578,7 +1622,7 @@ export function AnalysisResults({
             style={{ fontSize: 11, color: "var(--ink3)", overflow: "hidden", textOverflow: "ellipsis" }}
           >
             {classification
-              ? `${{ lda: "LDA", knn: "kNN", svm: "SVM", oplsda: "OPLS-DA" }[pca.regression?.method ?? ""] ?? "PLS-DA"} on ${pca.classification?.class_column ?? "?"}`
+              ? `${{ lda: "LDA", knn: "kNN", svm: "SVM", oplsda: "OPLS-DA", logistic: "Logistic regression" }[pca.regression?.method ?? ""] ?? "PLS-DA"} on ${pca.classification?.class_column ?? "?"}`
               : regression
                 ? `${METHODS[pca.regression?.method ?? ""] ?? "PLS"} on ${pca.regression?.target ?? "?"}`
                 : "PCA"}{" "}
@@ -1686,6 +1730,7 @@ export function AnalysisResults({
         {regression && (
           <div style={ROW}>
             {classification ? <ConfusionMatrix pca={pca} /> : <PredictedVsMeasured pca={pca} />}
+            <Probabilities pca={pca} />
             <RmsecvCurve pca={pca} />
             <RegressionMetrics pca={pca} />
           </div>

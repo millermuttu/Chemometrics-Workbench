@@ -65,7 +65,7 @@ Everything after the last unfoldable step folds; everything up to and including 
 | `schema_version` | Integer, currently **1**. A reader refuses a higher one by name, as [`model-artifact.md`](model-artifact.md) §2 has it |
 | `model.task` | `regression` or `classification`. **A decomposition has no prediction to export** and is refused: PCA produces scores, not a response |
 | `model.threshold` | `0.5` for a two-class classification, `null` otherwise — `pls-da.md` §5's fixed cut, stated rather than assumed by the reader |
-| `model.assignment` | `"argmax"` for a classification of three or more classes (#274), `"simca"`, `"knn"`, `"svm"` or `"svr"` for those (§6), `null` otherwise |
+| `model.assignment` | `"argmax"` for a classification of three or more classes (#274), `"simca"`, `"knn"`, `"svm"`, `"logistic"` or `"svr"` for those (§6), `null` otherwise |
 | `model.classes` | The classes in Unicode order. With two, the prediction is `classes[1]` at or above the threshold; with more, it is `classes[k]` for the largest of the N predictions |
 | `axis.values` | The **raw** variable axis the model expects its input on, with as many entries as `coefficients` has when the residual chain preserves the variable count. It is the axis of the matrix the residual chain is applied to |
 | `preprocessing` | The residual chain, in the order it is applied, each step as `models.py` serialises it plus whatever fitted parameters it needs (§4) |
@@ -151,11 +151,12 @@ The JSON model of either carries, beside the fields of §2 that every model has:
 
 | Field | Meaning |
 | --- | --- |
-| `model.assignment` | `"simca"`, `"knn"`, `"svm"` or `"svr"`; `model.threshold` is `null` and there is no `coefficients` or `intercept` |
+| `model.assignment` | `"simca"`, `"knn"`, `"svm"`, `"logistic"` or `"svr"`; `model.threshold` is `null` and there is no `coefficients` or `intercept` |
 | `affine` | `{"matrix": p × p', "offset": p'}`, or **`null`** when the tail is empty — an identity is not written out |
 | `simca.models` | One entry per class, in the order of `classes`: `mean` (p'), `loadings` (A × p', one row per component), `eigenvalues` (A), `t2_limit`, `q_limit` |
 | `knn` | `k`, `x_mean` (p'), `loadings` (A × p'), `neighbours` (the n calibration scores, n × A) and `neighbour_classes` (n indices into `classes`) |
 | `svm` | `kernel`, `gamma`, `x_mean` (p'), `loadings` (A × p') and `pairs`: per pair of classes, `classes` (`[i, j]`), `support_vectors` (in score space, m × A), `dual` (their $a y$) and `rho` |
+| `logistic` | A logistic regression's (#380, `logistic-regression.md` §5): `x_mean` (p'), `loadings` (A × p'), `coefficients` ($W$, r × A: one row for two classes, K for more) and `intercept` ($b$, r) |
 | `svr` | An SVR's (#377, `svr.md` §7): `kernel`, `gamma`, `x_mean` (p'), `loadings` (A × p'), `support_vectors` (m × A), `dual` (their $a - a^*$) and `rho`; the prediction is $K(t, S)\,\beta - \rho$ |
 
 `p` is the width the residual chain hands on, which is the raw width; `p'` the width after the tail, smaller than `p` when a range selection is in it.

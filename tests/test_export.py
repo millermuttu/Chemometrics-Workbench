@@ -40,6 +40,7 @@ from chemometrics_workbench.models import (
     KFoldSplit,
     KNNSpec,
     LDASpec,
+    LogisticSpec,
     MeanCentre,
     MedianFilter,
     MovingAverage,
@@ -356,6 +357,35 @@ def test_an_oplsda_exports_as_a_two_class_plsda_does(
     assert model["model"]["threshold"] == 0.5 and model["model"]["assignment"] is None
     predicted = _predict(python_snippet(model), tecator.spectra)
     expected = [result.classes[k] for k in result.predicted_class]
+    assert predicted[np.asarray(result.rows)].tolist() == expected
+
+
+@pytest.mark.parametrize("k", [2, 3])
+def test_a_logistic_regression_exports_and_assigns_as_the_application_does(
+    project: tuple[Path, DatasetVersion], tecator: Any, k: int
+) -> None:
+    """#380, logistic-regression.md section 5: the chain to the scores, W and b;
+    a binomial model for two classes, a softmax for three."""
+    directory, version = project
+    fat = np.asarray(tecator.targets["fat"])
+    cuts = np.quantile(fat, np.linspace(0, 1, k + 1)[1:-1])
+    labels = [f"c{int(i)}" for i in np.searchsorted(cuts, fat)]
+    version = version.model_copy(update={"metadata_columns": {"grade": labels}})
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(id="snv", inputs=("source",), step=SNV()),
+        EstimatorNode(
+            id="logistic",
+            inputs=("snv",),
+            spec=LogisticSpec(C=10, n_components=4, class_column="grade"),
+        ),
+    )
+    result = _run(directory, version, pipeline, "logistic")
+    model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
+    assert model["model"]["assignment"] == "logistic"
+    assert len(model["logistic"]["coefficients"]) == (1 if k == 2 else k)
+    predicted = _predict(python_snippet(model), tecator.spectra)
+    expected = [result.classes[i] for i in result.predicted_class]
     assert predicted[np.asarray(result.rows)].tolist() == expected
 
 

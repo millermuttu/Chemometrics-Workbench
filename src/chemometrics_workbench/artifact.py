@@ -241,6 +241,11 @@ def _arrays(
         arrays["knn_classes"] = np.asarray(result.training_classes, dtype=np.int64)
         arrays["x_mean"] = _float64(result.x_mean)
 
+    if result.logistic:
+        # #380, logistic-regression.md section 5: W and its intercept on the scores.
+        arrays["x_mean"] = _float64(result.x_mean)
+        arrays["logistic_coefficients"] = _float64(result.logistic["coefficients"])
+        arrays["logistic_intercept"] = _float64(result.logistic["intercept"])
     if result.method == "svr":
         # #377, svr.md section 7: the support vectors in score space and
         # their coefficients a - a*.
@@ -305,6 +310,7 @@ def _manifest(
             }
             if result.svm and result.method != "svr"
             else None,
+            "logistic": {"C": result.logistic["C"]} if result.logistic else None,
             "svr": {name: result.svm[name] for name in ("kernel", "C", "epsilon", "gamma", "rho")}
             if result.method == "svr"
             else None,
