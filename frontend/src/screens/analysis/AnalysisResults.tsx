@@ -1028,7 +1028,10 @@ function RmsecvCurve({ pca }: { pca: PcaPayload }) {
   const note =
     curve && best !== undefined
       ? `fitted at ${symbol} = ${curve.chosen} · lowest at ${symbol} = ${best}`
-      : "needs a split";
+      : // #376: cross-validated, but with nothing to tune - an MLR.
+        pca.metrics?.rmsecv !== undefined
+        ? "no parameter to tune"
+        : "needs a split";
   return (
     <Panel title={metric} note={note} width={340}>
       <div ref={host} data-testid="rmsecv-plot" style={{ flex: 1, minHeight: 0 }} />
@@ -1483,6 +1486,7 @@ const METHODS: Record<string, string> = {
   ridge: "Ridge",
   elastic_net: "Elastic Net",
   lasso: "Lasso",
+  mlr: "MLR",
 };
 
 export function AnalysisResults({

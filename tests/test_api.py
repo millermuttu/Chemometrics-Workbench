@@ -1177,3 +1177,36 @@ def test_a_penalised_model_is_served_exported_reported_and_saved_like_a_regressi
     assert report.status_code == 200, report.text
     saved = client.post("/api/results/ridge/save", json={"name": f"{method} fat"})
     assert saved.status_code == 201, saved.text
+
+
+def test_an_mlr_below_a_selection_is_served_and_exported(client: TestClient) -> None:
+    """#376: three of twelve variables, so every training fold of six rows has full rank."""
+    client.post("/api/import", files=upload("tecator_subset.csv"))
+    nodes = client.get("/api/pipelines/current").json()["nodes"]
+    nodes += [
+        {
+            "id": "split",
+            "type": "split",
+            "inputs": ["source"],
+            "spec": {"kind": "kfold", "n_splits": 4},
+        },
+        {
+            "id": "pick",
+            "type": "preprocess",
+            "inputs": ["split"],
+            "step": {"kind": "select_variables", "indices": [0, 5, 11]},
+        },
+        {
+            "id": "mlr",
+            "type": "estimator",
+            "inputs": ["pick"],
+            "spec": {"kind": "mlr", "target": "fat"},
+        },
+    ]
+    assert client.put("/api/pipelines/current", json={"nodes": nodes}).status_code == 200
+    _run_current(client)
+    payload = client.get("/api/results/mlr").json()
+    assert payload["regression"]["method"] == "mlr" and "tuning_curve" not in payload
+    assert len(payload["regression"]["coefficients"]) == 3 and "sec" in payload["metrics"]
+    assert client.get("/api/results/mlr/coefficients").json()["available"]
+    assert client.get("/api/results/mlr/export.py").status_code == 200

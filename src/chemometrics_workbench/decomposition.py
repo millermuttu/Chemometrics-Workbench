@@ -62,7 +62,7 @@ from scipy.stats import beta, f, norm
 
 from chemometrics_workbench.arrays import as_float64, as_float64_vector
 
-__all__ = ["PCA", "hotelling_t2_limit", "spe_contributions", "t2_contributions"]
+__all__ = ["PCA", "hotelling_t2_limit", "numerical_rank", "spe_contributions", "t2_contributions"]
 
 LimitFor = Literal["calibration", "new"]
 
@@ -159,6 +159,18 @@ def spe_contributions(
     return residual, residual**2
 
 
+def numerical_rank(
+    singular_values: NDArray[np.float64], shape: tuple[int, int], data_eps: float
+) -> int:
+    """How many singular values clear `pca.md` §9's tolerance (decision 0004):
+    `(max(n, p) eps64 + data_eps) s1`, the decomposition's rounding plus the
+    data's own precision. Shared by PCA and MLR (#376), so the two cannot
+    disagree about what rank-deficient means."""
+    largest = float(singular_values[0]) if singular_values.size else 0.0
+    arithmetic = max(shape) * float(np.finfo(np.float64).eps)
+    return int(np.count_nonzero(singular_values > (arithmetic + data_eps) * largest))
+
+
 class PCA:
     """Principal component analysis by SVD, per `pca.md`.
 
@@ -243,10 +255,7 @@ class PCA:
         # belongs to accumulated rounding, not to a perturbation of the input.
         # Scaling it too was measured on Tecator: it discards 33 genuine
         # components, reporting rank 66 where the matrix has 99.
-        largest = float(singular_values[0]) if singular_values.size else 0.0
-        arithmetic = max(n_samples, n_variables) * float(np.finfo(np.float64).eps)
-        tolerance = (arithmetic + self.data_eps) * largest
-        rank = int(np.count_nonzero(singular_values > tolerance))
+        rank = numerical_rank(singular_values, (n_samples, n_variables), self.data_eps)
         if rank == 0:
             raise ValueError(
                 "X has no variance to decompose: every singular value is at or below "

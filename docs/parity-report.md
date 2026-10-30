@@ -21,11 +21,11 @@ strong the agreement is** rather than a bare pass or fail:
 
 | Claim | Count | Meaning |
 | --- | --- | --- |
-| identical within floating point | 149 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
-| agrees within stated tolerance | 44 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
+| identical within floating point | 153 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
+| agrees within stated tolerance | 46 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
 | differs by documented convention | 23 | Not compared numerically at all. The two quantities are not the same thing, and the reason is given in full below. |
 
-**216 comparisons, 216 passed, 0 failed.**
+**222 comparisons, 222 passed, 0 failed.**
 
 Three things a reader should hold on to, because the agreement column cannot
 show them:
@@ -79,6 +79,7 @@ those listed under *Gaps* or *Documented divergences* below.
 | Whittaker smoothing | `WhittakerTransformer` | 3 claims |
 | PCR | `PCR` | 6 claims |
 | Ridge | `Ridge` | 6 claims |
+| MLR | `MLR` | 6 claims |
 | Elastic Net and Lasso | `ElasticNet`, `elastic_net_path` | 18 claims |
 | PLS2 | `PLS2` | 9 claims |
 | LDA | `LDA` | 6 claims |

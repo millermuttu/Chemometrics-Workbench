@@ -434,6 +434,60 @@ test("a lasso runs below a split and says how many variables it kept", async ({ 
   await expect(page.getByRole("region", { name: "Scores" })).toHaveCount(0);
 });
 
+test("an MLR runs below a selection, and on the whole spectrum is refused by name", async ({
+  page,
+}) => {
+  // #376. Five of the 24 variables on the ridge's split: every training fold
+  // of 24 rows has full rank. The whole spectrum's 24 variables do not.
+  await page.goto("/?token=e2e-token");
+  const auth = { Authorization: "Bearer e2e-token" };
+  const pipeline = await (await page.request.get("/api/pipelines/current", { headers: auth })).json();
+  const nodes = pipeline.nodes as { id: string; type: string; inputs: string[] }[];
+  nodes.push(
+    {
+      id: "pick",
+      type: "preprocess",
+      inputs: ["ridge_split"],
+      step: { kind: "select_variables", indices: [2, 7, 12, 17, 22] },
+    } as (typeof nodes)[number],
+    {
+      id: "mlr",
+      type: "estimator",
+      inputs: ["pick"],
+      spec: { kind: "mlr", target: "moisture" },
+    } as (typeof nodes)[number],
+  );
+  const put = (body: unknown) =>
+    page.request.put("/api/pipelines/current", {
+      headers: { ...auth, "Content-Type": "application/json" },
+      data: { nodes: body },
+    });
+  expect((await put(nodes)).status()).toBe(200);
+
+  await page.reload();
+  await page.getByRole("button", { name: "Run pipeline" }).click();
+  await expect(page.locator(".status")).toContainText("Done", { timeout: 60_000 });
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /MLR · moisture/ }).dblclick();
+  await expect(page.getByTestId("analysis-header")).toContainText("MLR on moisture 30 × 5");
+  await expect(page.getByRole("region", { name: "RMSECV" })).toContainText("no parameter to tune");
+  await expect(page.getByRole("region", { name: "Predicted vs measured" })).toBeVisible();
+
+  // Off the selection, onto the whole spectrum: refused, naming the fold.
+  const whole = nodes.map((node) => (node.id === "mlr" ? { ...node, inputs: ["ridge_split"] } : node));
+  expect((await put(whole.filter((node) => node.id !== "pick"))).status()).toBe(200);
+  const job = await (
+    await page.request.post("/api/experiments/current/run", { headers: auth })
+  ).json();
+  await expect
+    .poll(async () => (await (await page.request.get(`/api/jobs/${job.job_id}`, { headers: auth })).json()).status)
+    .toBe("failed");
+  const failed = await (await page.request.get(`/api/jobs/${job.job_id}`, { headers: auth })).json();
+  expect(JSON.stringify(failed)).toMatch(/training fold 1 of 5 has rank \d+ and 24 variables/);
+  // Put the selection back for the tests that follow.
+  expect((await put(nodes)).status()).toBe(200);
+});
+
 /** #371, #372. A column's role was the reader's guess and could not be
  * changed, and a dataset with no column for a model hid the model. Last, on
  * whatever version the tests above left the pipeline on: the target is made a

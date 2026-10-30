@@ -47,6 +47,7 @@ from chemometrics_workbench.preprocessing import (
     WhittakerTransformer,
 )
 from chemometrics_workbench.regression import (
+    MLR,
     PCR,
     PLS,
     PLS2,
@@ -607,6 +608,27 @@ def test_elastic_net_at_the_default_tolerance_differs_by_the_stopping_rule(
         ),
     )
     assert result.passed
+
+
+# --------------------------------------------------------------------------
+# MLR (#376)
+# --------------------------------------------------------------------------
+
+
+@every_dataset
+def test_mlr_on_a_selected_subset_matches_least_squares(dataset: str) -> None:
+    """`mlr.md` section 6: ten evenly spaced variables, coefficients and predictions."""
+    data = LOADERS[dataset]()
+    columns = [int(i) for i in np.linspace(0, data.spectra.shape[1] - 1, 10).round()]
+    X = data.spectra[:, columns]
+    centred = X - X.mean(axis=0)
+    y = np.asarray(data.targets[parity.load_fixture()["targets"][dataset]])
+    model = MLR().fit(centred, y - y.mean())
+    coefficients = parity.check(f"{dataset}.mlr.coefficients.sklearn", model.coefficients_)
+    predictions = parity.check(
+        f"{dataset}.mlr.predictions.sklearn", model.predict(centred) + y.mean()
+    )
+    assert coefficients.passed and predictions.passed
 
 
 # --------------------------------------------------------------------------

@@ -139,7 +139,7 @@ from chemometrics_workbench.classification import (
     acceptance_table,
     simca_metrics,
 )
-from chemometrics_workbench.decomposition import PCA
+from chemometrics_workbench.decomposition import PCA, numerical_rank
 from chemometrics_workbench.models import (
     DatasetVersion,
     ElasticNetSpec,
@@ -152,6 +152,7 @@ from chemometrics_workbench.models import (
     LDASpec,
     LeaveOneOut,
     Metrics,
+    MLRSpec,
     NodeId,
     PCASpec,
     PCRSpec,
@@ -176,6 +177,7 @@ from chemometrics_workbench.project import (
     write_json,
 )
 from chemometrics_workbench.regression import (
+    MLR,
     PCR,
     PLS,
     PLS2,
@@ -250,6 +252,7 @@ _FITTED: tuple[type, ...] = (
     PLSRegressionSpec,
     PCRSpec,
     ElasticNetSpec,
+    MLRSpec,
     RidgeSpec,
     PLSDASpec,
     SIMCASpec,
@@ -1340,6 +1343,9 @@ def _fitted(
     if isinstance(node.spec, RidgeSpec):
         return _ridge(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
 
+    if isinstance(node.spec, MLRSpec):
+        return _mlr(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
+
     if isinstance(node.spec, ElasticNetSpec):
         return _elastic_net(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
 
@@ -1648,7 +1654,7 @@ def _ridge(
     def fit(x: NDArray[np.float64], y: NDArray[np.float64], alpha: float) -> NDArray[np.float64]:
         return np.asarray(Ridge(alpha).fit(x, y).coefficients_)
 
-    return _penalised(
+    return _linear(
         node,
         "ridge",
         spec.target,
@@ -1683,7 +1689,7 @@ def _elastic_net(
         except RuntimeError as error:
             raise ExecutorError(f"node {node.id!r} ({kind}) failed: {error}", node.id) from error
 
-    return _penalised(
+    return _linear(
         node,
         kind,
         spec.target,
@@ -1696,7 +1702,55 @@ def _elastic_net(
     )
 
 
-def _penalised(
+def _mlr(
+    node: PipelineNode,
+    spec: MLRSpec,
+    parent: _State,
+    key: str,
+    matrix: NDArray[np.float64],
+    rows: NDArray[np.intp],
+    held_out: NDArray[np.intp],
+    fold: int | None,
+    version: DatasetVersion,
+) -> EstimatorResult:
+    """MLR (`mlr.md`): least squares, refused on a rank-deficient X - in every
+    training fold first, each named, as a one-class fold is for a classifier."""
+    if parent.folds is not None:
+        for number, (one, values) in enumerate(zip(parent.folds, parent.arrays, strict=True), 1):
+            train = values[one.train] - values[one.train].mean(axis=0)
+            rank = numerical_rank(
+                np.linalg.svd(train, compute_uv=False), train.shape, PCA.STORED_EPS
+            )
+            if rank < train.shape[1]:
+                raise ExecutorError(
+                    f"node {node.id!r} (mlr) cannot be fitted: training fold {number} of "
+                    f"{len(parent.folds)} has rank {rank} and {train.shape[1]} variables, so "
+                    "least squares has no unique solution. Select fewer variables above it "
+                    "(a select_variables, VIP, iPLS or CARS step), or use PCR.",
+                    node.id,
+                )
+
+    def fit(x: NDArray[np.float64], y: NDArray[np.float64], _alpha: float) -> NDArray[np.float64]:
+        try:
+            return np.asarray(MLR(data_eps=PCA.STORED_EPS).fit(x, y).coefficients_)
+        except ValueError as error:
+            raise ExecutorError(f"node {node.id!r} (mlr) failed: {error}", node.id) from error
+
+    return _linear(
+        node,
+        "mlr",
+        spec.target,
+        0.0,
+        (parent, key, matrix, rows, held_out, fold, version),
+        fit,
+        None,
+        None,
+        0,
+        parameters=matrix.shape[1],
+    )
+
+
+def _linear(
     node: PipelineNode,
     kind: str,
     target: str,
@@ -1711,18 +1765,21 @@ def _penalised(
         DatasetVersion,
     ],
     fit: _Fit,
-    path: _Path,
-    top: Callable[[NDArray[np.float64], NDArray[np.float64]], float],
+    path: _Path | None,
+    top: Callable[[NDArray[np.float64], NDArray[np.float64]], float] | None,
     decades: int,
+    parameters: int | None = None,
 ) -> EstimatorResult:
-    """A penalised linear model on the node's input (`penalised-regression.md`),
-    with the regression half of `pls-regression.md` §13's quantities and none
-    of the X model's.
+    """A linear model without components on the node's input - a penalised one
+    (`penalised-regression.md`) or MLR (`mlr.md`) - with the regression half of
+    `pls-regression.md` §13's quantities and none of the X model's.
 
     It has no components, so it has no scores, loadings, T2 or SPE to report;
-    those fields are empty and the screen leaves their panels out. SEC is
-    absent too: §5's `n - A - 1` needs a whole number of parameters, and a
-    penalised model's effective degrees of freedom are not one (§4).
+    those fields are empty and the screen leaves their panels out. SEC needs
+    §5's `n - A - 1` in whole parameters: MLR passes its variable count; a
+    penalised model's effective degrees of freedom are not whole, so for it
+    SEC is absent (§4). `path` and `top` give the tuning curve; MLR has no
+    parameter to tune and passes neither.
     """
     parent, key, matrix, rows, held_out, fold, version = where
     response = _response(version, node, target)
@@ -1747,6 +1804,7 @@ def _penalised(
         test_x: NDArray[np.float64],
         alphas: Sequence[float],
     ) -> NDArray[np.float64]:
+        assert path is not None
         x_mean, y_mean = train_x.mean(axis=0), float(train_y.mean())
         found = path(train_x - x_mean, train_y - y_mean, list(alphas))
         return np.array(
@@ -1770,6 +1828,8 @@ def _penalised(
         pearson = float(np.corrcoef(train_y, predicted)[0, 1] ** 2)
     if np.isfinite(pearson):
         metrics["r2_pearson"] = pearson
+    if parameters is not None and train_y.size - parameters - 1 > 0:
+        metrics["sec"] = validation.sec(train_y, predicted, n_components=parameters)
 
     held_y = response[held_out]
     held_predicted = (
@@ -1788,18 +1848,21 @@ def _penalised(
     tuning: dict[str, Any] = {}
     if parent.folds is not None and len(parent.folds) > 1:
         folds = parent.folds
-        grid = top(train_x - x_mean, train_y - y_mean) * np.logspace(0, -decades, PENALTY_POINTS)
-        # ponytail: Ridge refits its SVD per grid value; reuse each fold's SVD
-        # across the grid if a large dataset makes the curve slow.
-        curve = tuning_curve(parent.arrays, response, folds, list(grid), fit_path)
-        tuning = {
-            "parameter": "alpha",
-            "metric": "rmsecv",
-            "values": _values(grid),
-            "scores": [float(score) if np.isfinite(score) else None for score in curve],
-            "log": True,
-            "chosen": alpha,
-        }
+        if path is not None and top is not None:
+            grid = top(train_x - x_mean, train_y - y_mean) * np.logspace(
+                0, -decades, PENALTY_POINTS
+            )
+            # ponytail: Ridge refits its SVD per grid value; reuse each fold's SVD
+            # across the grid if a large dataset makes the curve slow.
+            curve = tuning_curve(parent.arrays, response, folds, list(grid), fit_path)
+            tuning = {
+                "parameter": "alpha",
+                "metric": "rmsecv",
+                "values": _values(grid),
+                "scores": [float(score) if np.isfinite(score) else None for score in curve],
+                "log": True,
+                "chosen": alpha,
+            }
         cross_validated = np.empty_like(response)
         for one, values in zip(folds, parent.arrays, strict=True):
             cross_validated[one.test] = fit_predict(
