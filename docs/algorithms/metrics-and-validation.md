@@ -355,6 +355,6 @@ It is never zero: the observed labelling is one of those the null could have dra
 
 PLS-DA's curve is RMSECV of its dummy response against components, as `pls-da.md` §7 defines it; an error-rate curve for a classifier is not computed yet.
 
-**Grid defaults.** Components run from 1 to the $A$ asked for. A penalty or a margin cost is log-spaced: 25 values over six decades, the top named by the model's own specification (for an L1 penalty, the smallest value at which every coefficient is zero). A model page states its grid; a grid is never chosen by looking at the held-out residuals.
+**Grid defaults.** Components run from 1 to the $A$ asked for. A penalty or a margin cost is log-spaced, 25 values from a top named by the model's own specification down a number of decades it states - six for Ridge, three for Elastic Net, whose top is the smallest value at which every coefficient is zero (`penalised-regression.md` §5). A grid is never chosen by looking at the held-out residuals. A value a fold could not fit is **absent** from the curve (`scores` holds `null` there), never a pool of the folds that did fit.
 
 **The chosen value is the user's.** `chosen` is the parameter the node was fitted with, not the curve's minimum. The minimum is reported beside it, because picking the value there and then quoting the same curve's minimum as the expected error is optimistic (§9); choosing is the user's call, and the application does not make it for them.

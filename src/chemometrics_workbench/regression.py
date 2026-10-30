@@ -82,9 +82,11 @@ __all__ = [
     "PCR",
     "PLS",
     "PLS2",
+    "ElasticNet",
     "Ridge",
     "coefficients_original_units",
     "cross_validated_predictions",
+    "elastic_net_path",
     "rmsecv_curve",
     "tuning_curve",
 ]
@@ -832,6 +834,152 @@ class Ridge:
         return predicted
 
 
+class ElasticNet:
+    """Elastic Net, per `penalised-regression.md` §3: least squares with an L1
+    and an L2 penalty, scikit-learn's objective and scaling,
+
+        1/(2n) ||y - Xb||^2 + alpha l1_ratio ||b||_1 + alpha (1 - l1_ratio)/2 ||b||^2,
+
+    so `l1_ratio = 1` is the Lasso. Solved by FISTA with adaptive restart (§3.2)
+    rather than coordinate descent: each step is one product with `X'X`, which
+    NumPy does at compiled speed where a coordinate sweep is a Python loop.
+    It stops on scikit-learn's duality gap, `gap < tol ||y||^2`, and refuses a
+    fit that does not get there within `max_iter`, naming alpha.
+
+    Like `Ridge` it centres nothing.
+    """
+
+    coefficients_: NDArray[np.float64] | None = None
+    n_iter_: int | None = None
+
+    def __init__(
+        self, alpha: float, l1_ratio: float = 0.5, *, tol: float = 1e-4, max_iter: int = 100_000
+    ) -> None:
+        if not alpha > 0:
+            raise ValueError(f"alpha must be positive, got {alpha}")
+        if not 0 < l1_ratio <= 1:
+            raise ValueError(f"l1_ratio must be in (0, 1], got {l1_ratio}")
+        self.alpha = float(alpha)
+        self.l1_ratio = float(l1_ratio)
+        self.tol = float(tol)
+        self.max_iter = int(max_iter)
+
+    def fit(self, X: object, y: object, *, start: NDArray[np.float64] | None = None) -> Self:
+        """Fit, from `start` when given - a warm start along a path of alphas (§5)."""
+        values = as_float64(X, "X")
+        response = as_float64_vector(y, "y")
+        if response.size != values.shape[0]:
+            raise ValueError(
+                f"X has {values.shape[0]} samples and y has {response.size}. Arrays are "
+                "n_samples x n_variables and are never silently transposed."
+            )
+        gram = values.T @ values
+        self.coefficients_, self.n_iter_ = _fista(
+            values, response, gram, values.T @ response, self, start
+        )
+        return self
+
+    def predict(self, X: object) -> NDArray[np.float64]:
+        """`y_hat = X b` on the centred scale the model was fitted on, as `PLS.predict`."""
+        if self.coefficients_ is None:
+            raise RuntimeError("ElasticNet has not been fitted")
+        predicted: NDArray[np.float64] = as_float64(X, "X") @ self.coefficients_
+        return predicted
+
+
+def _duality_gap(
+    X: NDArray[np.float64], y: NDArray[np.float64], b: NDArray[np.float64], l1: float, l2: float
+) -> float:
+    """scikit-learn's `enet_coordinate_descent` gap, in its `n`-scaled units (§3.2)."""
+    residual = y - X @ b
+    xta = X.T @ residual - l2 * b
+    dual_norm = float(np.abs(xta).max()) if xta.size else 0.0
+    r2 = float(residual @ residual)
+    if dual_norm > l1:
+        const = l1 / dual_norm
+        gap = 0.5 * (r2 + r2 * const**2)
+    else:
+        const = 1.0
+        gap = r2
+    return float(
+        gap
+        + l1 * np.abs(b).sum()
+        - const * float(residual @ y)
+        + 0.5 * l2 * (1 + const**2) * float(b @ b)
+    )
+
+
+#: How often FISTA computes the duality gap, in steps: it costs a product with X.
+_GAP_EVERY = 10
+
+
+def _fista(
+    X: NDArray[np.float64],
+    y: NDArray[np.float64],
+    gram: NDArray[np.float64],
+    xty: NDArray[np.float64],
+    model: ElasticNet,
+    start: NDArray[np.float64] | None,
+) -> tuple[NDArray[np.float64], int]:
+    """§3.2: proximal gradient on the smooth part, soft-thresholding the L1."""
+    n = X.shape[0]
+    l1 = model.alpha * model.l1_ratio * n
+    l2 = model.alpha * (1 - model.l1_ratio) * n
+    step = 1.0 / (float(np.linalg.eigvalsh(gram)[-1]) + l2) if gram.size else 1.0
+    b = np.zeros(X.shape[1]) if start is None else np.array(start, dtype=np.float64)
+    z = b.copy()
+    t = 1.0
+    target = model.tol * float(y @ y)
+    for iteration in range(1, model.max_iter + 1):
+        w = z - step * (gram @ z - xty + l2 * z)
+        new = np.sign(w) * np.maximum(np.abs(w) - l1 * step, 0.0)
+        t_next = (1 + np.sqrt(1 + 4 * t * t)) / 2
+        # O'Donoghue and Candes's gradient restart: momentum that points uphill is dropped.
+        if float((z - new) @ (new - b)) > 0:
+            t_next, z = 1.0, new.copy()
+        else:
+            z = new + (t - 1) / t_next * (new - b)
+        b, t = new, t_next
+        if iteration % _GAP_EVERY == 0 and _duality_gap(X, y, b, l1, l2) <= target:
+            return b, iteration
+    raise RuntimeError(
+        f"elastic net did not converge at alpha {model.alpha:.6g} (l1_ratio "
+        f"{model.l1_ratio:g}) within {model.max_iter} iterations; a larger alpha "
+        "converges faster."
+    )
+
+
+def elastic_net_path(
+    X: object,
+    y: object,
+    alphas: Sequence[float],
+    l1_ratio: float,
+    *,
+    tol: float = 1e-4,
+    max_iter: int = 20_000,
+) -> list[NDArray[np.float64] | None]:
+    """Coefficients at each alpha, largest first, each fit started from the last (§5).
+
+    A fit that does not converge ends the path: it and every smaller alpha,
+    which converge more slowly still, are `None` - absent, never a guess.
+    """
+    values = as_float64(X, "X")
+    response = as_float64_vector(y, "y")
+    gram = values.T @ values
+    xty = values.T @ response
+    path: list[NDArray[np.float64] | None] = []
+    start: NDArray[np.float64] | None = None
+    for alpha in alphas:
+        model = ElasticNet(alpha, l1_ratio, tol=tol, max_iter=max_iter)
+        try:
+            start, _ = _fista(values, response, gram, xty, model, start)
+        except RuntimeError:
+            path.extend([None] * (len(alphas) - len(path)))
+            break
+        path.append(start)
+    return path
+
+
 def cross_validated_predictions(
     X: object,
     y: object,
@@ -958,20 +1106,23 @@ def tuning_curve(
     y: object,
     folds: list[Fold],
     values: Sequence[float],
-    fit_predict: Callable[
-        [NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], float],
+    fit_path: Callable[
+        [NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], Sequence[float]],
         NDArray[np.float64],
     ],
 ) -> NDArray[np.float64]:
     """RMSECV at every value of one complexity parameter, from one fold assignment.
 
-    `metrics-and-validation.md` §15. `fit_predict(train_x, train_y, test_x,
-    value)` fits on a fold's training rows with the parameter at `value` and
-    predicts its test rows; the residuals are pooled across folds and rooted
-    once per value (§7), as `rmsecv_curve` does for components. That one is
-    kept for PLS and PCR because their components nest and one fit per fold
-    gives every point; a penalty does not nest, so this fits once per fold
-    per value.
+    `metrics-and-validation.md` §15. `fit_path(train_x, train_y, test_x,
+    values)` fits on a fold's training rows at every value and returns the
+    test rows' predictions, one row per value - a path, so a model may start
+    each fit from the last (#375). The residuals are pooled across folds and
+    rooted once per value (§7), as `rmsecv_curve` does for components; that
+    one is kept for PLS and PCR because their components nest and one fit
+    per fold gives every point.
+
+    A row of NaN is a value the fold could not fit, and that value's RMSECV is
+    NaN: a pooled residual missing a fold is not the curve's number.
     """
     if not values:
         raise ValueError("a tuning curve needs at least one parameter value")
@@ -983,11 +1134,15 @@ def tuning_curve(
     validate_partition(folds, n_samples)
     held_out = np.empty((len(values), *response.shape), dtype=np.float64)
     for fold, matrix in zip(folds, matrices, strict=True):
-        for index, value in enumerate(values):
-            held_out[index, fold.test] = fit_predict(
-                matrix[fold.train], response[fold.train], matrix[fold.test], float(value)
-            )
-    return np.asarray([rmse(response.ravel(), predicted.ravel()) for predicted in held_out])
+        held_out[:, fold.test] = fit_path(
+            matrix[fold.train], response[fold.train], matrix[fold.test], list(values)
+        )
+    return np.asarray(
+        [
+            rmse(response.ravel(), predicted.ravel()) if np.isfinite(predicted).all() else np.nan
+            for predicted in held_out
+        ]
+    )
 
 
 def _response(y: object) -> NDArray[np.float64]:

@@ -34,6 +34,7 @@ from chemometrics_workbench.models import (
     Autoscale,
     BaselineCorrect,
     DatasetVersion,
+    ElasticNetSpec,
     EstimatorNode,
     GaussianSmooth,
     KFoldSplit,
@@ -246,6 +247,32 @@ def test_a_ridge_exports_as_a_bare_coefficient_vector_through_a_residual_step(
     model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
     assert [step["kind"] for step in model["preprocessing"]] == ["snv"]
     assert model["model"]["task"] == "regression"
+    predicted = _predict(python_snippet(model), tecator.spectra)
+    np.testing.assert_allclose(
+        predicted[np.asarray(result.rows)], result.predicted, rtol=RTOL, atol=ATOL
+    )
+
+
+def test_a_lasso_exports_its_sparse_vector_and_reproduces_its_predictions(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#375: the zeros are part of the vector, folded through Savitzky-Golay like any other."""
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(
+            id="savgol", inputs=("source",), step=SavitzkyGolay(window_length=11, polyorder=2)
+        ),
+        EstimatorNode(
+            id="lasso",
+            inputs=("savgol",),
+            spec=ElasticNetSpec(alpha=0.05, l1_ratio=1.0, target="fat"),
+        ),
+    )
+    result = _run(directory, version, pipeline, "lasso")
+    assert 0 < np.count_nonzero(result.coefficients) < version.n_variables
+    model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
+    assert model["preprocessing"] == []
     predicted = _predict(python_snippet(model), tecator.spectra)
     np.testing.assert_allclose(
         predicted[np.asarray(result.rows)], result.predicted, rtol=RTOL, atol=ATOL

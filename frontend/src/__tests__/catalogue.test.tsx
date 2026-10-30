@@ -135,7 +135,13 @@ it("puts every step under a heading, the models under Regression and Classificat
   const menu = stepMenu(["fat"], ["fat_class"]);
   const headings = Object.fromEntries(grouped(menu).map(([group, steps]) => [group, steps.map((s) => s.kind)]));
   expect(Object.keys(headings)).toEqual([...GROUPS]);
-  expect(headings.Regression).toEqual(["PLS 5 LV", "PCR 5 PC", "Ridge α1"]);
+  expect(headings.Regression).toEqual([
+    "PLS 5 LV",
+    "PCR 5 PC",
+    "Ridge α1",
+    "Elastic Net α1",
+    "Lasso α1",
+  ]);
   expect(headings.Classification).toEqual(["PLS-DA 5 LV", "LDA 5 PC", "kNN k5", "SVM rbf 5 PC", "SIMCA 3 PC"]);
   expect(headings.Validation).toEqual(["K-fold 10", "Train/test 25%"]);
   expect(headings.Explore).toEqual(["PCA"]);
@@ -210,4 +216,17 @@ it("offers Ridge beside PLS when the dataset has a target, labelled alike (#374)
   expect(nodeLabel(node)).toBe("Ridge α1 · fat");
   expect(parameterLine(node)).toBe(ridge.parameters);
   expect(stepMenu([]).find((step) => step.kind === "Ridge α1")!.disabled).toBe(NO_TARGET);
+});
+
+it("offers Elastic Net and the Lasso as one estimator, named by l1_ratio (#375)", () => {
+  const menu = stepMenu(["fat"]);
+  const enet = menu.find((step) => step.kind === "Elastic Net α1")!;
+  const lasso = menu.find((step) => step.kind === "Lasso α1")!;
+  expect(enet.payload.spec).toEqual({ kind: "elastic_net", alpha: 1, l1_ratio: 0.5, target: "fat" });
+  expect(lasso.payload.spec).toEqual({ kind: "elastic_net", alpha: 1, l1_ratio: 1, target: "fat" });
+  for (const step of [enet, lasso]) {
+    const node = { id: "e", type: "estimator", inputs: ["snv"], ...step.payload } as PipelineNode;
+    expect(nodeLabel(node)).toBe(`${step.kind} · fat`);
+    expect(parameterLine(node)).toBe(step.parameters);
+  }
 });

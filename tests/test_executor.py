@@ -38,6 +38,7 @@ from chemometrics_workbench.models import (
     SNV,
     Autoscale,
     DatasetVersion,
+    ElasticNetSpec,
     EstimatorNode,
     KFoldSplit,
     KNNSpec,
@@ -1706,9 +1707,54 @@ def test_a_ridge_node_cross_validates_and_draws_its_curve_over_alpha(
     curve = result.tuning
     assert curve["parameter"] == "alpha" and curve["log"] and curve["chosen"] == 0.01
     assert len(curve["values"]) == 25
-    assert np.allclose(np.diff(np.log10(curve["values"])), 0.25)
+    assert np.allclose(np.abs(np.diff(np.log10(curve["values"]))), 0.25)
     for value, score in list(zip(curve["values"], curve["scores"], strict=True))[::6]:
         assert score == pytest.approx(rmse(fat, cross_validated(value)), rel=1e-9)
+
+
+@pytest.mark.parametrize("l1_ratio", [0.5, 1.0])
+def test_an_elastic_net_node_cross_validates_and_marks_its_variables(
+    project: tuple[Path, DatasetVersion], tecator: Any, l1_ratio: float
+) -> None:
+    """#375, `penalised-regression.md` section 3: Elastic Net and the Lasso as
+    regressions with sparse coefficients, a three-decade curve from the top
+    down, and RMSECV that the kernel gives on the run's own folds, each
+    preprocessed by its own rows. That the kernel finds the optimum is
+    test_parity.py's; this is the executor's wiring."""
+    from chemometrics_workbench.regression import ElasticNet
+
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=5, seed=42)),
+        PreprocessNode(id="snv", inputs=("split",), step=SNV()),
+        EstimatorNode(
+            id="enet",
+            inputs=("snv",),
+            spec=ElasticNetSpec(alpha=0.02, l1_ratio=l1_ratio, target="fat"),
+        ),
+    )
+    run = execute(directory, pipeline, version)
+    result = run.results["enet"]
+    assert result.method == ("lasso" if l1_ratio == 1 else "elastic_net")
+    assert result.scores == [] and "sec" not in result.metrics
+    kept = int(np.count_nonzero(result.coefficients))
+    assert 0 < kept < version.n_variables
+
+    curve = result.tuning
+    assert curve["parameter"] == "alpha" and curve["log"] and curve["chosen"] == 0.02
+    assert curve["values"][0] > curve["values"][-1]
+    assert np.allclose(np.abs(np.diff(np.log10(curve["values"]))), 3 / 24)
+
+    spectra = _as_stored(SNVTransformer().fit_transform(_as_stored(tecator.spectra)))
+    fat = np.asarray(tecator.targets["fat"])
+    [resolved] = run.resolved_splits
+    held = np.empty_like(fat)
+    for train, test in zip(resolved.train_indices, resolved.test_indices, strict=True):
+        mean, centre = spectra[train].mean(axis=0), fat[train].mean()
+        model = ElasticNet(0.02, l1_ratio).fit(spectra[train] - mean, fat[train] - centre)
+        held[test] = model.predict(spectra[test] - mean) + centre
+    assert result.metrics["rmsecv"] == pytest.approx(rmse(fat, held), rel=1e-9)
 
 
 def test_a_simca_node_decides_every_set_with_its_folds_own_models(

@@ -22,10 +22,10 @@ strong the agreement is** rather than a bare pass or fail:
 | Claim | Count | Meaning |
 | --- | --- | --- |
 | identical within floating point | 149 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
-| agrees within stated tolerance | 32 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
-| differs by documented convention | 17 | Not compared numerically at all. The two quantities are not the same thing, and the reason is given in full below. |
+| agrees within stated tolerance | 44 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
+| differs by documented convention | 23 | Not compared numerically at all. The two quantities are not the same thing, and the reason is given in full below. |
 
-**198 comparisons, 198 passed, 0 failed.**
+**216 comparisons, 216 passed, 0 failed.**
 
 Three things a reader should hold on to, because the agreement column cannot
 show them:
@@ -79,6 +79,7 @@ those listed under *Gaps* or *Documented divergences* below.
 | Whittaker smoothing | `WhittakerTransformer` | 3 claims |
 | PCR | `PCR` | 6 claims |
 | Ridge | `Ridge` | 6 claims |
+| Elastic Net and Lasso | `ElasticNet`, `elastic_net_path` | 18 claims |
 | PLS2 | `PLS2` | 9 claims |
 | LDA | `LDA` | 6 claims |
 | kNN | `KNN` | 6 claims |
@@ -454,6 +455,30 @@ Both keep every group in one fold. GroupKFold's default deals groups without a s
 **`tecator.split.group_kfold.sklearn`** — scikit-learn 1.9.0
 
 Both keep every group in one fold. GroupKFold's default deals groups without a seed, largest first, each to the fold with the fewest samples so far. metrics-and-validation.md §8.8 permutes the groups with the split's seed and slices them by the K-fold size rule (§8.3) - which is GroupKFold(shuffle=True)'s rule, but drawn from NumPy's default_rng rather than a legacy RandomState, so the folds differ either way. A cross-validated claim passes our resolved folds to the reference instead (§8.2).
+
+**`corn.elastic_net.predictions.sklearn`** — scikit-learn 1.9.0
+
+The application solves by FISTA, scikit-learn by coordinate descent; both stop on the same duality gap, 1e-4 ||y||^2 by default, rather than at the optimum, and where each stops depends on its route. The default fit's objective is within that gap of the optimum (checked); solved to 1e-12 both reach the same coefficients and predictions (penalised-regression.md section 6).
+
+**`corn.lasso.predictions.sklearn`** — scikit-learn 1.9.0
+
+The application solves by FISTA, scikit-learn by coordinate descent; both stop on the same duality gap, 1e-4 ||y||^2 by default, rather than at the optimum, and where each stops depends on its route. The default fit's objective is within that gap of the optimum (checked); solved to 1e-12 both reach the same coefficients and predictions (penalised-regression.md section 6).
+
+**`gasoline.elastic_net.predictions.sklearn`** — scikit-learn 1.9.0
+
+The application solves by FISTA, scikit-learn by coordinate descent; both stop on the same duality gap, 1e-4 ||y||^2 by default, rather than at the optimum, and where each stops depends on its route. The default fit's objective is within that gap of the optimum (checked); solved to 1e-12 both reach the same coefficients and predictions (penalised-regression.md section 6).
+
+**`gasoline.lasso.predictions.sklearn`** — scikit-learn 1.9.0
+
+The application solves by FISTA, scikit-learn by coordinate descent; both stop on the same duality gap, 1e-4 ||y||^2 by default, rather than at the optimum, and where each stops depends on its route. The default fit's objective is within that gap of the optimum (checked); solved to 1e-12 both reach the same coefficients and predictions (penalised-regression.md section 6).
+
+**`tecator.elastic_net.predictions.sklearn`** — scikit-learn 1.9.0
+
+The application solves by FISTA, scikit-learn by coordinate descent; both stop on the same duality gap, 1e-4 ||y||^2 by default, rather than at the optimum, and where each stops depends on its route. The default fit's objective is within that gap of the optimum (checked); solved to 1e-12 both reach the same coefficients and predictions (penalised-regression.md section 6).
+
+**`tecator.lasso.predictions.sklearn`** — scikit-learn 1.9.0
+
+The application solves by FISTA, scikit-learn by coordinate descent; both stop on the same duality gap, 1e-4 ||y||^2 by default, rather than at the optimum, and where each stops depends on its route. The default fit's objective is within that gap of the optimum (checked); solved to 1e-12 both reach the same coefficients and predictions (penalised-regression.md section 6).
 
 ---
 
