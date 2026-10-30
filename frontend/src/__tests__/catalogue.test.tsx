@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import type { PipelineNode } from "@/api/queries";
-import { STEPS, stepMenu } from "@/canvas/catalogue";
+import { GROUPS, grouped, STEPS, stepMenu } from "@/canvas/catalogue";
 import { parameterLine } from "@/canvas/graph";
 import { StepList } from "@/canvas/StepList";
 import { nodeLabel } from "@/shell/Sidebar";
@@ -116,4 +116,38 @@ it("offers in the Step list what the port menu offers, splits and estimators inc
   const options = [...markup.matchAll(/<option value="([^"]+)"/g)].map((match) => match[1]);
   expect(options).toEqual(menu.map((step) => step.kind));
   expect(options).toEqual(expect.arrayContaining(["K-fold 10", "Train/test 25%", "PLS-DA 5 LV"]));
+});
+
+it("puts every step under a heading, the models under Regression and Classification (#370)", () => {
+  const menu = stepMenu(["fat"], ["fat_class"]);
+  const headings = Object.fromEntries(grouped(menu).map(([group, steps]) => [group, steps.map((s) => s.kind)]));
+  expect(Object.keys(headings)).toEqual([...GROUPS]);
+  expect(headings.Regression).toEqual(["PLS 5 LV", "PCR 5 PC"]);
+  expect(headings.Classification).toEqual(["PLS-DA 5 LV", "LDA 5 PC", "kNN k5", "SVM rbf 5 PC", "SIMCA 3 PC"]);
+  expect(headings.Validation).toEqual(["K-fold 10", "Train/test 25%"]);
+  expect(headings.Explore).toEqual(["PCA"]);
+  // The menu is already in heading order, so grouping it moves nothing.
+  expect(grouped(menu).flatMap(([, steps]) => steps)).toEqual(menu);
+  // A heading with nothing under it is not drawn.
+  expect(grouped(stepMenu([])).map(([group]) => group)).not.toContain("Regression");
+});
+
+it("draws the Step list's options under one optgroup per heading (#370)", () => {
+  const markup = renderToStaticMarkup(
+    <StepList
+      menu={stepMenu(["fat"], ["fat_class"])}
+      steps={[]}
+      onChange={() => {}}
+      onValidate={() => {}}
+      onSave={() => {}}
+      saving={false}
+      validation={null}
+      edited={false}
+    />,
+  );
+  const labels = [...markup.matchAll(/<optgroup label="([^"]+)"/g)].map((match) => match[1]);
+  expect(labels).toEqual([...GROUPS]);
+  const regression = markup.split('<optgroup label="Regression">')[1].split("</optgroup>")[0];
+  expect(regression).toContain('value="PLS 5 LV"');
+  expect(regression).toContain('value="PCR 5 PC"');
 });

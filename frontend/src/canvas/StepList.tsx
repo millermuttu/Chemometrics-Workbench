@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import type { DraftStep } from "@/canvas/graph";
-import type { CatalogueStep } from "@/canvas/catalogue";
+import { grouped, type CatalogueStep } from "@/canvas/catalogue";
 
 /** The pipeline builder beside the canvas: appending, and what a drag cannot do.
  *
@@ -105,10 +105,14 @@ export function StepList({
             fontSize: 11,
           }}
         >
-          {menu.map((step) => (
-            <option key={step.kind} value={step.kind}>
-              {step.kind}
-            </option>
+          {grouped(menu).map(([group, entries]) => (
+            <optgroup key={group} label={group}>
+              {entries.map((step) => (
+                <option key={step.kind} value={step.kind}>
+                  {step.kind}
+                </option>
+              ))}
+            </optgroup>
           ))}
         </select>
         <button
