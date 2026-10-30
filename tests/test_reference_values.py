@@ -33,6 +33,7 @@ ALGORITHMS = (
     "ridge",
     "elastic_net",
     "lasso",
+    "mlr",
     "plsda",
     "lda",
     "knn",

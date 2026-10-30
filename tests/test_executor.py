@@ -45,6 +45,7 @@ from chemometrics_workbench.models import (
     LDASpec,
     LeaveOneOut,
     MeanCentre,
+    MLRSpec,
     PCASpec,
     PCRSpec,
     Pipeline,
@@ -55,6 +56,7 @@ from chemometrics_workbench.models import (
     RepeatedKFoldSplit,
     RidgeSpec,
     SavitzkyGolay,
+    SelectVariables,
     SIMCASpec,
     SourceNode,
     SplitNode,
@@ -1755,6 +1757,58 @@ def test_an_elastic_net_node_cross_validates_and_marks_its_variables(
         model = ElasticNet(0.02, l1_ratio).fit(spectra[train] - mean, fat[train] - centre)
         held[test] = model.predict(spectra[test] - mean) + centre
     assert result.metrics["rmsecv"] == pytest.approx(rmse(fat, held), rel=1e-9)
+
+
+def test_an_mlr_below_a_selection_cross_validates_like_least_squares(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#376, `mlr.md`: on ten selected variables, the final model, SEC and RMSECV
+    against scikit-learn's LinearRegression on the run's own folds."""
+    from sklearn.linear_model import LinearRegression
+
+    directory, version = project
+    columns = list(range(0, 100, 10))
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=5, seed=42)),
+        PreprocessNode(id="pick", inputs=("split",), step=SelectVariables(indices=columns)),
+        EstimatorNode(id="mlr", inputs=("pick",), spec=MLRSpec(target="fat")),
+    )
+    run = execute(directory, pipeline, version)
+    result = run.results["mlr"]
+    assert result.method == "mlr" and result.scores == [] and result.tuning == {}
+    assert len(result.coefficients) == 10 and "sec" in result.metrics
+
+    spectra = _as_stored(tecator.spectra)[:, columns]
+    fat = np.asarray(tecator.targets["fat"])
+    final = LinearRegression().fit(spectra, fat)
+    np.testing.assert_allclose(result.predicted, final.predict(spectra), rtol=1e-9)
+    assert result.metrics["sec"] == pytest.approx(
+        rmse(fat, final.predict(spectra)) * np.sqrt(240 / (240 - 10 - 1)), rel=1e-6
+    )
+    [resolved] = run.resolved_splits
+    held = np.empty_like(fat)
+    for train, test in zip(resolved.train_indices, resolved.test_indices, strict=True):
+        held[test] = LinearRegression().fit(spectra[train], fat[train]).predict(spectra[test])
+    assert result.metrics["rmsecv"] == pytest.approx(rmse(fat, held), rel=1e-9)
+
+
+def test_an_mlr_on_a_full_spectrum_is_refused_naming_the_fold_and_its_rank(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    """#376: 100 collinear variables and 192 training rows, after a float32 store,
+    are rank-deficient; the refusal says which fold, its rank, and what to do."""
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=5, seed=42)),
+        PreprocessNode(id="snv", inputs=("split",), step=SNV()),
+        EstimatorNode(id="mlr", inputs=("snv",), spec=MLRSpec(target="fat")),
+    )
+    with pytest.raises(
+        ExecutorError, match=r"training fold 1 of 5 has rank \d+ and 100 variables.*or use PCR"
+    ):
+        execute(directory, pipeline, version)
 
 
 def test_a_simca_node_decides_every_set_with_its_folds_own_models(

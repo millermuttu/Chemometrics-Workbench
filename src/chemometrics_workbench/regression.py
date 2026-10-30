@@ -60,10 +60,17 @@ from typing import Literal, Self
 
 import numpy as np
 from numpy.typing import NDArray
+from scipy.linalg import solve_triangular
 from scipy.stats import chi2
 
 from chemometrics_workbench.arrays import as_float64, as_float64_vector
-from chemometrics_workbench.decomposition import PCA, LimitFor, check_alpha, hotelling_t2_limit
+from chemometrics_workbench.decomposition import (
+    PCA,
+    LimitFor,
+    check_alpha,
+    hotelling_t2_limit,
+    numerical_rank,
+)
 from chemometrics_workbench.preprocessing import (
     AutoscaleTransformer,
     GaussianTransformer,
@@ -79,6 +86,7 @@ from chemometrics_workbench.validation import Fold, rmse, validate_partition
 
 __all__ = [
     "FOLDABLE",
+    "MLR",
     "PCR",
     "PLS",
     "PLS2",
@@ -830,6 +838,51 @@ class Ridge:
         """`y_hat = X b` on the centred scale the model was fitted on, as `PLS.predict`."""
         if self.coefficients_ is None:
             raise RuntimeError("Ridge has not been fitted")
+        predicted: NDArray[np.float64] = as_float64(X, "X") @ self.coefficients_
+        return predicted
+
+
+class MLR:
+    """Multiple linear regression, per `mlr.md`: ordinary least squares, solved by QR.
+
+    `b` solves `R b = Q'y` for `X = QR`. It is defined only when `X` has full
+    column rank, which a spectrum - more variables than samples, and every
+    neighbour collinear with the next - does not: so `fit` measures the rank
+    first, with PCA's tolerance (`numerical_rank`, decision 0004), and
+    refuses a deficient `X` naming its rank and what to do instead. Like
+    `PLS` it centres nothing; the executor centres X and y, which is the
+    intercept.
+    """
+
+    coefficients_: NDArray[np.float64] | None = None
+
+    def __init__(self, *, data_eps: float | None = None) -> None:
+        self.data_eps = PCA.DEFAULT_EPS if data_eps is None else float(data_eps)
+
+    def fit(self, X: object, y: object) -> Self:
+        values = as_float64(X, "X")
+        response = as_float64_vector(y, "y")
+        n, p = values.shape
+        if response.size != n:
+            raise ValueError(
+                f"X has {n} samples and y has {response.size}. Arrays are "
+                "n_samples x n_variables and are never silently transposed."
+            )
+        rank = numerical_rank(np.linalg.svd(values, compute_uv=False), (n, p), self.data_eps)
+        if rank < p:
+            raise ValueError(
+                f"X has rank {rank} and {p} variables, so least squares has no unique "
+                "solution. Select variables above the MLR (fewer than the rank, and not "
+                "collinear), or use PCR, which regresses on the rank's worth of components."
+            )
+        q, r = np.linalg.qr(values)
+        self.coefficients_ = solve_triangular(r, q.T @ response)
+        return self
+
+    def predict(self, X: object) -> NDArray[np.float64]:
+        """`y_hat = X b` on the centred scale the model was fitted on, as `PLS.predict`."""
+        if self.coefficients_ is None:
+            raise RuntimeError("MLR has not been fitted")
         predicted: NDArray[np.float64] = as_float64(X, "X") @ self.coefficients_
         return predicted
 

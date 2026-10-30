@@ -145,9 +145,9 @@
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; an e2e test adds it from its menu group and runs it"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-30, feature/376_mlr. docs/algorithms/mlr.md written, in the nav; mkdocs build --strict built. Parity: test_mlr_on_a_selected_subset_matches_least_squares, corn/gasoline/tecator on 10 evenly spaced variables vs sklearn 1.9 LinearRegression - 6 claims passed; fixture diff only those entries; parity report 222/222. tests/test_executor.py: below a 10-variable selection, final model and RMSECV equal LinearRegression on the run's folds (rtol 1e-9), SEC with n-p-1; on the full SNV spectrum refused 'training fold 1 of 5 has rank N and 100 variables ... or use PCR'. tests/test_api.py: served (no tuning curve, SEC present), folded, exported. New tests fail at import with src stashed. uv run pytest 1015 passed; ruff, mypy clean. In frontend/: typecheck, lint clean; pnpm test 180 passed; pnpm build; changed specs: walkthrough.spec.ts + analysis.spec.ts 33 passed, incl. 'an MLR runs below a selection, and on the whole spectrum is refused by name' (refusal: rank 12 and 24 variables).",
+      "notes": "PCA's rank tolerance is now decomposition.numerical_rank, shared by PCA and MLR (PCA's numbers unchanged: its tests green). The RMSECV panel says 'no parameter to tune' for a cross-validated model without a curve."
     },
     {
       "id": "svr",

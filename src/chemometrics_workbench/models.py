@@ -476,6 +476,13 @@ class RidgeSpec(Frozen):
     target: str = Field(description="Which target column in the dataset is being modelled.")
 
 
+class MLRSpec(Frozen):
+    """`mlr.md`: ordinary least squares, for a selected set of variables."""
+
+    kind: Literal["mlr"] = "mlr"
+    target: str = Field(description="Which target column in the dataset is being modelled.")
+
+
 class ElasticNetSpec(Frozen):
     """`penalised-regression.md` §3: an L1 and an L2 penalty; `l1_ratio = 1` is the Lasso."""
 
@@ -534,6 +541,7 @@ EstimatorSpec = Annotated[
     | PCRSpec
     | RidgeSpec
     | ElasticNetSpec
+    | MLRSpec
     | PLSDASpec
     | SIMCASpec
     | LDASpec

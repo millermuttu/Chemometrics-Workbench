@@ -193,6 +193,14 @@ export function stepMenu(targets: string[], classColumns: string[] = []): Catalo
         parameters: `alpha 1 · l1 1 · ${target}`,
         payload: { spec: { kind: "elastic_net", alpha: 1, l1_ratio: 1, target } },
       },
+      {
+        // #376: needs a selection above it; refused on a full spectrum.
+        kind: "MLR",
+        group: "Regression" as const,
+        type: "estimator" as const,
+        parameters: `least squares · ${target}`,
+        payload: { spec: { kind: "mlr", target } },
+      },
     ].map(needs(targets.length > 0, NO_TARGET)),
     // Enabled when the dataset has a metadata column with two or more values
     // (#185, #274, pls-da.md section 2), and it models the first.

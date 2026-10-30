@@ -36,6 +36,7 @@ from chemometrics_workbench.models import (
     Autoscale,
     ElasticNetSpec,
     MeanCentre,
+    MLRSpec,
     NodeId,
     PCRSpec,
     Pipeline,
@@ -181,7 +182,7 @@ def _pls_without_centring(
     centring is a node in the recipe or it has not happened.
     """
     if node.type != "estimator" or not isinstance(
-        node.spec, PLSRegressionSpec | PCRSpec | RidgeSpec | ElasticNetSpec | PLSDASpec
+        node.spec, PLSRegressionSpec | PCRSpec | RidgeSpec | ElasticNetSpec | MLRSpec | PLSDASpec
     ):
         return []
 

@@ -123,6 +123,7 @@ COVERAGE: tuple[Coverage, ...] = (
     Coverage("Whittaker smoothing", ("WhittakerTransformer",), ("preprocess.whittaker",)),
     Coverage("PCR", ("PCR",), ("pcr.coefficients", "pcr.predictions")),
     Coverage("Ridge", ("Ridge",), ("ridge.coefficients", "ridge.predictions")),
+    Coverage("MLR", ("MLR",), ("mlr.coefficients", "mlr.predictions")),
     Coverage(
         "Elastic Net and Lasso",
         ("ElasticNet", "elastic_net_path"),
@@ -378,6 +379,7 @@ NOT_KERNELS: dict[str, str] = {
     "Transformer": "the base class every preprocessing kernel implements",
     "from_spec": "dispatch from a pipeline step to its kernel",
     "FOLDABLE": "a constant: which steps fold into coefficients",
+    "numerical_rank": "PCA's rank tolerance (pca.md section 9), shared with MLR",
     "Fold": "a record of one fold's indices",
     "folds_from_indices": "rebuilds stored folds; no arithmetic",
     "validate_partition": "a check that folds partition the samples",

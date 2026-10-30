@@ -141,6 +141,7 @@ it("puts every step under a heading, the models under Regression and Classificat
     "Ridge α1",
     "Elastic Net α1",
     "Lasso α1",
+    "MLR",
   ]);
   expect(headings.Classification).toEqual(["PLS-DA 5 LV", "LDA 5 PC", "kNN k5", "SVM rbf 5 PC", "SIMCA 3 PC"]);
   expect(headings.Validation).toEqual(["K-fold 10", "Train/test 25%"]);
@@ -229,4 +230,12 @@ it("offers Elastic Net and the Lasso as one estimator, named by l1_ratio (#375)"
     expect(nodeLabel(node)).toBe(`${step.kind} · fat`);
     expect(parameterLine(node)).toBe(step.parameters);
   }
+});
+
+it("offers MLR beside PLS when the dataset has a target, labelled alike (#376)", () => {
+  const mlr = stepMenu(["fat"]).find((step) => step.kind === "MLR")!;
+  expect(mlr.payload.spec).toEqual({ kind: "mlr", target: "fat" });
+  const node = { id: "mlr", type: "estimator", inputs: ["pick"], ...mlr.payload } as PipelineNode;
+  expect(nodeLabel(node)).toBe("MLR · fat");
+  expect(parameterLine(node)).toBe(mlr.parameters);
 });
