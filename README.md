@@ -24,9 +24,15 @@ selects its variables, compares PLS-DA, SIMCA, LDA and kNN against independent r
 under one stratified cross-validation, and imports a file of each new format against its
 source (`uv run python -m tests.exit_run_phase5`).
 
-Phase 6 is in progress, towards `v1.2.0`: grouped splits for replicate measurements, a final
+Phase 6, released as `v1.2.0`, added grouped splits for replicate measurements, a final
 model fitted on every sample, nested validation of variable selection, permutation tests,
-bootstrap intervals, class-wise outlier diagnostics and SVM.
+bootstrap intervals, class-wise outlier diagnostics and SVM
+([`docs/phase-6/exit-run.md`](docs/phase-6/exit-run.md)).
+
+Phase 7 is in progress, towards `v1.3.0`: a step menu grouped by type, models shown disabled
+with the reason when a dataset has no column for them, column roles changeable after import,
+a tuning curve over any complexity parameter, and Ridge, Elastic Net, MLR, SVR, OPLS, OPLS-DA,
+logistic regression and QDA.
 
 ## Running it
 
