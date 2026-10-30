@@ -29,9 +29,9 @@
         "catalogue.test.ts pins every entry's group",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; an e2e test finds a model under its heading in both menus"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-30, feature/370_grouped-palette. In frontend/: pnpm typecheck, pnpm lint clean; pnpm test 172 passed (19 files) - catalogue.test.tsx 'puts every step under a heading, the models under Regression and Classification (#370)' and 'draws the Step list's options under one optgroup per heading (#370)' both FAIL with src/canvas stashed (TypeError: grouped is not a function; GROUPS is not iterable); pnpm build built; pnpm exec playwright test 101 passed (4.2m), including pipeline.spec.ts 'both menus show the models under Regression and Classification'. uv run mkdocs build --strict built.",
+      "notes": "Normalise moved beside SNV and MSC so the menu is already in heading order. The PR's macOS jobs were red at uv sync, not in the tests: #386."
     },
     {
       "id": "column-roles",
@@ -294,6 +294,21 @@
       "status": "not_started",
       "evidence": "",
       "notes": ""
+    },
+    {
+      "id": "pin-python",
+      "priority": 16,
+      "area": "ci",
+      "issue": 386,
+      "title": "macOS CI fails at uv sync: no Python pinned",
+      "depends_on": [],
+      "user_visible_behavior": "Every uv command - CI, the package build, ./run.sh - uses Python 3.12 unless --python says otherwise, so the macOS jobs sync again.",
+      "verification": [
+        "PR #387's CI - e2e (macos-latest) and package (macos-latest) past uv sync and green"
+      ],
+      "status": "passing",
+      "evidence": "2026-10-30, fix/386_pin-python, PR #387 (merged). Before: on #384 and #385, e2e (macos-latest) and package (macos-latest) failed at step 'Sync the server's environment' / 'Sync environment' (uv sync --locked), every other check green. After: #387's 11 checks green, e2e (macos-latest) completed success 06:42:01Z and package (macos-latest) 06:35:14Z. Locally uv sync --locked resolved and audited; uv run python -V 3.12.3.",
+      "notes": "Found while opening Phase 7 (#384). The cause was inferred from uv.lock (no macOS arm64 wheel past cp313 for watchdog, past cp314 for pydantic-core and others); the job log needs authentication, so it was confirmed by the fix's own run, not read."
     },
     {
       "id": "signed-packages",

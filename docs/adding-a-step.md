@@ -123,8 +123,9 @@ The inspector needs no code. It builds each node's form from `GET /api/schema/st
 
 What does need code is how the step is offered and named:
 
-- `frontend/src/canvas/catalogue.ts` adds an entry to the **Step** list:
-  `{ kind: "Normalise", type: "preprocess", parameters: "l2 norm per row", payload: { step: { kind: "normalise", norm: "l2" } } }`;
+- `frontend/src/canvas/catalogue.ts` adds an entry to the **Step** list, with the heading it is
+  shown under in both menus (one of `GROUPS`):
+  `{ kind: "Normalise", type: "preprocess", group: "Preprocess", parameters: "l2 norm per row", payload: { step: { kind: "normalise", norm: "l2" } } }`;
 - `nodeLabel` in `frontend/src/shell/Sidebar.tsx` gives the outline name, `Normalise · l2`;
 - `parameterLine` in `frontend/src/canvas/graph.ts` gives the canvas line, `l2 norm per row`.
 

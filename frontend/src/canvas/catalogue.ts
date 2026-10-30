@@ -20,24 +20,59 @@
  */
 import type { DraftStep } from "@/canvas/graph";
 
+/** The headings both menus show, in the order they show them (#370). One
+ * flat list put the models between the smoothers and the splits, where they
+ * were hard to notice; every entry now says which heading it sits under. */
+export const GROUPS = [
+  "Preprocess",
+  "Derivative and smoothing",
+  "Scaling",
+  "Explore",
+  "Regression",
+  "Classification",
+  "Validation",
+] as const;
+
+export type StepGroup = (typeof GROUPS)[number];
+
 /** A step the canvas can create, from the list or from the menu. */
-export type CatalogueStep = Pick<DraftStep, "kind" | "type" | "parameters" | "payload">;
+export type CatalogueStep = Pick<DraftStep, "kind" | "type" | "parameters" | "payload"> & {
+  group: StepGroup;
+};
+
+/** The menu under its headings, in `GROUPS` order; an empty group is left out. */
+export function grouped(menu: CatalogueStep[]): [StepGroup, CatalogueStep[]][] {
+  return GROUPS.map((group) => [group, menu.filter((step) => step.group === group)] as [
+    StepGroup,
+    CatalogueStep[],
+  ]).filter(([, steps]) => steps.length > 0);
+}
 
 export const STEPS: CatalogueStep[] = [
   {
     kind: "SNV",
+    group: "Preprocess",
     type: "preprocess",
     parameters: "population statistics per row",
     payload: { step: { kind: "snv" } },
   },
   {
     kind: "MSC",
+    group: "Preprocess",
     type: "preprocess",
     parameters: "reference: mean",
     payload: { step: { kind: "msc", reference: "mean" } },
   },
   {
+    kind: "Normalise",
+    group: "Preprocess",
+    type: "preprocess",
+    parameters: "l2 norm per row",
+    payload: { step: { kind: "normalise", norm: "l2" } },
+  },
+  {
     kind: "SG d1 w11",
+    group: "Derivative and smoothing",
     type: "preprocess",
     parameters: "window 11 · poly 2 · deriv 1",
     payload: {
@@ -48,48 +83,49 @@ export const STEPS: CatalogueStep[] = [
   // fixture's (smoothing-and-baselines.md section 10.4).
   {
     kind: "Moving avg w5",
+    group: "Derivative and smoothing",
     type: "preprocess",
     parameters: "window 5",
     payload: { step: { kind: "moving_average", window_length: 5 } },
   },
   {
     kind: "Median w5",
+    group: "Derivative and smoothing",
     type: "preprocess",
     parameters: "window 5",
     payload: { step: { kind: "median", window_length: 5 } },
   },
   {
     kind: "Gaussian σ1.5",
+    group: "Derivative and smoothing",
     type: "preprocess",
     parameters: "sigma 1.5",
     payload: { step: { kind: "gaussian", sigma: 1.5 } },
   },
   {
     kind: "Whittaker λ100",
+    group: "Derivative and smoothing",
     type: "preprocess",
     parameters: "lambda 100",
     payload: { step: { kind: "whittaker", lam: 100 } },
   },
   {
     kind: "Mean centre",
+    group: "Scaling",
     type: "preprocess",
     parameters: "column means",
     payload: { step: { kind: "mean_centre" } },
   },
   {
     kind: "Autoscale",
+    group: "Scaling",
     type: "preprocess",
     parameters: "ddof 1",
     payload: { step: { kind: "autoscale", ddof: 1 } },
   },
   {
-    kind: "Normalise",
-    type: "preprocess",
-    parameters: "l2 norm per row",
-    payload: { step: { kind: "normalise", norm: "l2" } },
-  },
-  {
     kind: "PCA",
+    group: "Explore",
     type: "estimator",
     parameters: "5 components",
     payload: { spec: { kind: "pca", n_components: 5 } },
@@ -114,12 +150,14 @@ export function stepMenu(targets: string[], classColumns: string[] = []): Catalo
       ? [
           {
             kind: "PLS 5 LV",
+            group: "Regression" as const,
             type: "estimator" as const,
             parameters: `5 components · ${target}`,
             payload: { spec: { kind: "pls", n_components: 5, algorithm: "nipals", target } },
           },
           {
             kind: "PCR 5 PC",
+            group: "Regression" as const,
             type: "estimator" as const,
             parameters: `5 components · ${target}`,
             payload: { spec: { kind: "pcr", n_components: 5, target } },
@@ -132,6 +170,7 @@ export function stepMenu(targets: string[], classColumns: string[] = []): Catalo
       ? [
           {
             kind: "PLS-DA 5 LV",
+            group: "Classification" as const,
             type: "estimator" as const,
             parameters: `5 components · ${classColumn}`,
             payload: {
@@ -140,18 +179,21 @@ export function stepMenu(targets: string[], classColumns: string[] = []): Catalo
           },
           {
             kind: "LDA 5 PC",
+            group: "Classification" as const,
             type: "estimator" as const,
             parameters: `5 components · ${classColumn}`,
             payload: { spec: { kind: "lda", n_components: 5, class_column: classColumn } },
           },
           {
             kind: "kNN k5",
+            group: "Classification" as const,
             type: "estimator" as const,
             parameters: `k 5 · 5 components · ${classColumn}`,
             payload: { spec: { kind: "knn", k: 5, n_components: 5, class_column: classColumn } },
           },
           {
             kind: "SVM rbf 5 PC",
+            group: "Classification" as const,
             type: "estimator" as const,
             parameters: `rbf · C 1 · 5 components · ${classColumn}`,
             payload: {
@@ -160,6 +202,7 @@ export function stepMenu(targets: string[], classColumns: string[] = []): Catalo
           },
           {
             kind: "SIMCA 3 PC",
+            group: "Classification" as const,
             type: "estimator" as const,
             parameters: `3 components · ${classColumn}`,
             payload: { spec: { kind: "simca", n_components: 3, class_column: classColumn } },
@@ -168,6 +211,7 @@ export function stepMenu(targets: string[], classColumns: string[] = []): Catalo
       : []),
     {
       kind: "K-fold 10",
+      group: "Validation" as const,
       type: "split",
       parameters: "10 folds · shuffle · seed 42",
       payload: { spec: { kind: "kfold", n_splits: 10, shuffle: true, seed: 42 } },
@@ -175,6 +219,7 @@ export function stepMenu(targets: string[], classColumns: string[] = []): Catalo
     {
       // One hold-out (#183): RMSEP on the held-out rows, no RMSECV.
       kind: "Train/test 25%",
+      group: "Validation" as const,
       type: "split",
       parameters: "25% held out · seed 42",
       payload: { spec: { kind: "train_test", test_size: 0.25, seed: 42 } },

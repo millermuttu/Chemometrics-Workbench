@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api } from "@/api/client";
 import type { PipelineNode } from "@/api/queries";
 import { usePipeline, usePipelineState, useSaveLayout, useSavePipeline } from "@/api/queries";
-import { stepMenu } from "@/canvas/catalogue";
+import { grouped, stepMenu } from "@/canvas/catalogue";
 import { NodeCard } from "@/canvas/NodeCard";
 import { StepList } from "@/canvas/StepList";
 import {
@@ -350,27 +350,34 @@ export function PipelineCanvas({
           <div className="ilabel" style={{ padding: "2px 8px 4px" }}>
             Add after {dropped.parent}
           </div>
-          {menu.map((step) => (
-            <button
-              key={step.kind}
-              role="menuitem"
-              className="srow"
-              style={{ display: "block", width: "100%", textAlign: "left", padding: "3px 8px" }}
-              onClick={() => {
-                // Minted once and used twice: `add` derives the same id from
-                // the same set, and the position has to be filed under it.
-                const id = numberedId(new Set(nodes.map((node) => node.id)), step.kind);
-                edit(() =>
-                  add(nodes, dropped.parent, { type: step.type, ...step.payload }, step.kind),
-                );
-                // Placed where the connector was let go. #162's layout write
-                // carries it to the server when the pipeline is saved.
-                setMoved((current) => ({ ...current, [id]: dropped.at }));
-                setDropped(null);
-              }}
-            >
-              {step.kind}
-            </button>
+          {grouped(menu).map(([group, entries]) => (
+            <div key={group} role="group" aria-label={group}>
+              <div className="ilabel" style={{ padding: "6px 8px 2px" }}>
+                {group}
+              </div>
+              {entries.map((step) => (
+                <button
+                  key={step.kind}
+                  role="menuitem"
+                  className="srow"
+                  style={{ display: "block", width: "100%", textAlign: "left", padding: "3px 8px" }}
+                  onClick={() => {
+                    // Minted once and used twice: `add` derives the same id from
+                    // the same set, and the position has to be filed under it.
+                    const id = numberedId(new Set(nodes.map((node) => node.id)), step.kind);
+                    edit(() =>
+                      add(nodes, dropped.parent, { type: step.type, ...step.payload }, step.kind),
+                    );
+                    // Placed where the connector was let go. #162's layout write
+                    // carries it to the server when the pipeline is saved.
+                    setMoved((current) => ({ ...current, [id]: dropped.at }));
+                    setDropped(null);
+                  }}
+                >
+                  {step.kind}
+                </button>
+              ))}
+            </div>
           ))}
         </div>
       ) : null}
