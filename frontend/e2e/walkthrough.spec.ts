@@ -353,3 +353,51 @@ test("a flagged sample is excluded from the outlier table, rerun, and named in l
     });
   }
 });
+
+/** #371. A column's role was the reader's guess and could not be changed.
+ * Last, on whatever version the tests above left the pipeline on: the target
+ * is made a class, which writes a version the pipeline moves onto and the Step
+ * list follows, and then made a target again. */
+test("a column's role is changed in the dataset view, and the step menu follows", async ({
+  page,
+}) => {
+  await page.goto("/?token=e2e-token");
+  const auth = { headers: { Authorization: "Bearer e2e-token" } };
+  const source = (await (await page.request.get("/api/pipelines/current", auth)).json()).nodes[0];
+  const projects = await (await page.request.get("/api/projects", auth)).json();
+  const [entry] = await (
+    await page.request.get(`/api/projects/${projects[0].project_id}/datasets`, auth)
+  ).json();
+  const on = entry.versions.find(
+    (version: { version_id: string }) => version.version_id === source.version_id,
+  ).version as number;
+  const next = Math.max(...entry.versions.map((version: { version: number }) => version.version)) + 1;
+
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: new RegExp(` v${on} · `) }).dblclick();
+  await expect(page.getByLabel("Role of moisture")).toHaveValue("target");
+  await page.getByLabel("Role of moisture").selectOption("class");
+
+  await outline.getByRole("button", { name: new RegExp(` v${next} · `) }).dblclick();
+  await expect(page.getByTestId("roles-pill")).toHaveText(`1 role changed from v${on}`);
+  await expect(page.getByTestId("role-changes")).toHaveText(`Changed from v${on}: moisture → class`);
+  await expect(page.getByLabel("Role of moisture")).toHaveValue("class");
+
+  await page.getByRole("button", { name: "Pipeline", exact: true }).click();
+  const list = page.getByLabel("Step", { exact: true });
+  await expect(
+    list.locator('optgroup[label="Classification"] > option', { hasText: "PLS-DA 5 LV" }),
+  ).toHaveCount(1);
+  await expect(list.locator('optgroup[label="Regression"]')).toHaveCount(0);
+
+  await outline.getByRole("button", { name: new RegExp(` v${next} · `) }).dblclick();
+  await page.getByLabel("Role of moisture").selectOption("target");
+  await outline.getByRole("button", { name: new RegExp(` v${next + 1} · `) }).dblclick();
+  await expect(page.getByTestId("role-changes")).toHaveText(
+    `Changed from v${next}: moisture → target`,
+  );
+  await page.getByRole("button", { name: "Pipeline", exact: true }).click();
+  await expect(
+    list.locator('optgroup[label="Regression"] > option', { hasText: "PLS 5 LV" }),
+  ).toHaveCount(1);
+});

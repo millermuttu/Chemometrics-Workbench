@@ -133,6 +133,13 @@ class VariableAxis(Frozen):
         return self
 
 
+#: What a column of a dataset is for (#371). A target is a reference value a
+#: regression models; a class is a metadata column a classifier separates; a
+#: group is a metadata column a split keeps together (replicates, batches) and
+#: is not offered as a class; an ignored column is left out of the version.
+ColumnRole = Literal["target", "class", "group", "ignore"]
+
+
 class DatasetVersion(Frozen):
     """An immutable snapshot of a 2-D dataset: n_samples x n_variables.
 
@@ -162,6 +169,22 @@ class DatasetVersion(Frozen):
         ),
     )
     excluded_variables: list[int] = Field(default_factory=list)
+    column_roles: dict[str, Literal["class", "group"]] = Field(
+        default_factory=dict,
+        exclude_if=lambda value: not value,
+        description=(
+            "Metadata columns whose role the user chose (#371). A column not named here is a "
+            "class when it has two or more values, as it was before roles could be chosen."
+        ),
+    )
+    role_changes: dict[str, ColumnRole] = Field(
+        default_factory=dict,
+        exclude_if=lambda value: not value,
+        description=(
+            "The roles this version changed from its `derived_from` parent, each column to the "
+            "role it was given (#371). Left out of the dump when it changed none."
+        ),
+    )
     source: SourceFile | None = None
     derived_from: UUID | None = Field(
         default=None,

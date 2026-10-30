@@ -46,9 +46,9 @@
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; an e2e test changes a role and sees the new version and menu"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-10-30, feature/371_column-roles. tests/test_api.py: 'a number-coded class is made a class and a classifier runs on it' (variety 1/2 read as a target, made a class: a v2 with the parent's array and hash, role_changes recorded, parent unchanged, pipeline moved, an LDA on it runs and reports classes ['1','2']); 'a class is made a target and an identifier ignored'; three refusals by name (text as a target names sample 'S0', an unknown column, no change) and a one-valued class - all 6 FAIL with src/chemometrics_workbench stashed. uv run pytest 993 passed; ruff check, ruff format --check clean; mypy no issues in 88 files. In frontend/: pnpm typecheck, lint clean; pnpm test 174 passed, the two classColumns.test.ts role tests FAIL with shell/classColumns.ts stashed (roleOf is not a function; a group still offered as a class); pnpm build; pnpm exec playwright test 102 passed (4.1m), including walkthrough.spec.ts 'a column's role is changed in the dataset view, and the step menu follows' (target to class: PLS-DA under Classification, no Regression group; back to target: PLS). uv run mkdocs build --strict built.",
+      "notes": "An ignored column is left out of the new version; it comes back by pointing the pipeline at the parent. A column made a group is not offered as a class in the menus or the inspector, but the server still accepts it as class_column if named. The model artifact's dataset block gains role_changes (docs/model-artifact.md)."
     },
     {
       "id": "disabled-models",

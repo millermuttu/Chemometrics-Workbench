@@ -53,6 +53,7 @@ from sqlalchemy.orm import Session
 from chemometrics_workbench import db
 from chemometrics_workbench.arrays import as_float64
 from chemometrics_workbench.models import (
+    ColumnRole,
     Dataset,
     DatasetVersion,
     Experiment,
@@ -78,6 +79,7 @@ __all__ = [
     "add_dataset",
     "config_dir",
     "create_project",
+    "derive_roles",
     "derive_version",
     "forget_project",
     "is_project",
@@ -592,9 +594,108 @@ def derive_version(
         },
         excluded_samples=dropped,
         excluded_variables=list(parent.excluded_variables),
+        column_roles=dict(parent.column_roles),
         source=parent.source,
         derived_from=parent.version_id,
         array_path=array_path,
+    )
+    add_dataset(path, entry.dataset, version)
+    return version
+
+
+def role_of(version: DatasetVersion, column: str) -> ColumnRole:
+    """What `column` is for in `version`: chosen (#371), or as the import read it.
+
+    A metadata column nobody gave a role is a class when it has two or more
+    values - the rule `shell/classColumns.ts` applied before roles could be
+    chosen - and a group otherwise.
+    """
+    if column in version.targets:
+        return "target"
+    if column in version.column_roles:
+        return version.column_roles[column]
+    return "class" if len(set(version.metadata_columns[column])) >= 2 else "group"
+
+
+def _label(value: float) -> str:
+    """A reference value written as a class label: `1.0` is the class `1`."""
+    return str(int(value)) if float(value).is_integer() else repr(float(value))
+
+
+def derive_roles(
+    directory: str | os.PathLike[str], parent: DatasetVersion, roles: dict[str, ColumnRole]
+) -> DatasetVersion:
+    """A new version of `parent`'s dataset with the columns `roles` names given those roles (#371).
+
+    The spectra are the parent's, so the array and its hash are reused; what
+    changes is which columns are targets and which are metadata, and that is
+    what a run on the new version reads. `role_changes` records what changed
+    and `derived_from` from what, so the change is lineage and is undone by
+    pointing the pipeline back at the parent.
+    """
+    path = Path(directory)
+    known = set(parent.targets) | set(parent.metadata_columns)
+    unknown = sorted(set(roles) - known)
+    if unknown:
+        raise ProjectError(
+            f"version {parent.version} has no column {', '.join(map(repr, unknown))}. "
+            f"It has: {', '.join(sorted(known)) or 'none'}."
+        )
+    changes = {name: role for name, role in roles.items() if role_of(parent, name) != role}
+    if not changes:
+        raise ProjectError("the roles chosen are the roles the columns already have.")
+
+    targets = dict(parent.targets)
+    metadata = dict(parent.metadata_columns)
+    chosen = dict(parent.column_roles)
+    ids = parent.sample_ids or [f"row {row + 1}" for row in range(parent.n_samples)]
+    for name, role in changes.items():
+        if role == "ignore":
+            targets.pop(name, None)
+            metadata.pop(name, None)
+            chosen.pop(name, None)
+        elif role == "target":
+            values: list[float] = []
+            for row, label in enumerate(metadata[name]):
+                try:
+                    values.append(float(label))
+                except ValueError:
+                    raise ProjectError(
+                        f"{name!r} cannot be a target: sample {ids[row]!r} has {label!r}, "
+                        "which is not a number."
+                    ) from None
+            targets[name] = values
+            del metadata[name]
+            chosen.pop(name, None)
+        else:
+            labels = metadata.get(name) or [_label(value) for value in targets.pop(name)]
+            if role == "class" and len(set(labels)) < 2:
+                raise ProjectError(
+                    f"{name!r} cannot be a class: it has one value ({labels[0]!r} on every "
+                    "sample), and a classifier needs two to separate."
+                )
+            metadata[name] = labels
+            chosen[name] = role
+
+    entry = next(
+        (e for e in read_datasets(path) if e.dataset.dataset_id == parent.dataset_id), None
+    )
+    if entry is None:
+        raise ProjectError(f"dataset {parent.dataset_id} is not in this project.")
+    # Validated rather than copied, so the shape checks run on what changed.
+    version = DatasetVersion.model_validate(
+        parent.model_dump()
+        | {
+            "version_id": uuid.uuid4(),
+            "version": max(v.version for v in entry.versions) + 1,
+            "targets": targets,
+            "metadata_columns": metadata,
+            "column_roles": chosen,
+            "role_changes": changes,
+            "excluded_samples": [],
+            "derived_from": parent.version_id,
+            "created_at": datetime.now(UTC),
+        }
     )
     add_dataset(path, entry.dataset, version)
     return version
