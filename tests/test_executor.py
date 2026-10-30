@@ -52,6 +52,7 @@ from chemometrics_workbench.models import (
     PreprocessNode,
     RangeSelect,
     RepeatedKFoldSplit,
+    RidgeSpec,
     SavitzkyGolay,
     SIMCASpec,
     SourceNode,
@@ -1661,6 +1662,53 @@ def test_a_pcr_node_fits_and_cross_validates_like_a_regression(
         model = LinearRegression().fit(pca.transform(spectra[train] - mean), fat[train])
         held[test] = model.predict(pca.transform(spectra[test] - mean))
     assert result.metrics["rmsecv"] == pytest.approx(rmse(fat, held), rel=1e-6)
+
+
+def test_a_ridge_node_cross_validates_and_draws_its_curve_over_alpha(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#374, `penalised-regression.md`: a regression result with ridge's
+    numbers, no X model, and a log curve over alpha marked at the alpha
+    fitted. RMSECV, the curve and the final model are checked against
+    scikit-learn's Ridge on the run's own folds."""
+    from sklearn.linear_model import Ridge as SkRidge
+
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=5, seed=42)),
+        PreprocessNode(id="snv", inputs=("split",), step=SNV()),
+        EstimatorNode(id="ridge", inputs=("snv",), spec=RidgeSpec(alpha=0.01, target="fat")),
+    )
+    run = execute(directory, pipeline, version)
+    result = run.results["ridge"]
+
+    assert result.task == "regression" and result.method == "ridge"
+    assert result.scores == [] and result.vip == [] and "sec" not in result.metrics
+    assert len(result.coefficients) == version.n_variables
+
+    # Each step's output is stored too, so the reference crosses the same boundary twice.
+    spectra = _as_stored(SNVTransformer().fit_transform(_as_stored(tecator.spectra)))
+    fat = np.asarray(tecator.targets["fat"])
+    final = SkRidge(alpha=0.01).fit(spectra, fat)
+    np.testing.assert_allclose(result.predicted, final.predict(spectra), rtol=1e-9)
+
+    [resolved] = run.resolved_splits
+    pairs = list(zip(resolved.train_indices, resolved.test_indices, strict=True))
+
+    def cross_validated(alpha: float) -> np.ndarray:
+        held = np.empty_like(fat)
+        for train, test in pairs:
+            held[test] = SkRidge(alpha=alpha).fit(spectra[train], fat[train]).predict(spectra[test])
+        return held
+
+    assert result.metrics["rmsecv"] == pytest.approx(rmse(fat, cross_validated(0.01)), rel=1e-9)
+    curve = result.tuning
+    assert curve["parameter"] == "alpha" and curve["log"] and curve["chosen"] == 0.01
+    assert len(curve["values"]) == 25
+    assert np.allclose(np.diff(np.log10(curve["values"])), 0.25)
+    for value, score in list(zip(curve["values"], curve["scores"], strict=True))[::6]:
+        assert score == pytest.approx(rmse(fat, cross_validated(value)), rel=1e-9)
 
 
 def test_a_simca_node_decides_every_set_with_its_folds_own_models(

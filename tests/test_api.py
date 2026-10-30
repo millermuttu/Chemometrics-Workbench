@@ -1099,3 +1099,72 @@ def test_a_column_with_one_value_cannot_be_a_class(client: TestClient, project: 
         "'lot' cannot be a class: it has one value ('7' on every sample)"
         in response.json()["error"]["message"]
     )
+
+
+# --------------------------------------------------------------------------
+# ridge (#374): every surface a regression result has
+# --------------------------------------------------------------------------
+
+
+def _run_current(client: TestClient) -> None:
+    job = client.post("/api/experiments/current/run").json()
+    deadline = time.monotonic() + 60
+    while (status := client.get(f"/api/jobs/{job['job_id']}").json())["status"] not in (
+        "succeeded",
+        "failed",
+        "cancelled",
+    ):
+        assert time.monotonic() < deadline, status
+        time.sleep(0.01)
+    assert status["status"] == "succeeded", status
+
+
+def test_a_ridge_is_served_exported_reported_and_saved_like_a_regression(
+    client: TestClient,
+) -> None:
+    client.post("/api/import", files=upload("tecator_subset.csv"))
+    nodes = client.get("/api/pipelines/current").json()["nodes"]
+    nodes += [
+        {
+            "id": "split",
+            "type": "split",
+            "inputs": ["source"],
+            "spec": {"kind": "kfold", "n_splits": 4},
+        },
+        {
+            "id": "centre",
+            "type": "preprocess",
+            "inputs": ["split"],
+            "step": {"kind": "mean_centre"},
+        },
+        {
+            "id": "ridge",
+            "type": "estimator",
+            "inputs": ["centre"],
+            "spec": {"kind": "ridge", "alpha": 0.1, "target": "fat"},
+        },
+    ]
+    assert client.put("/api/pipelines/current", json={"nodes": nodes}).status_code == 200
+    _run_current(client)
+
+    payload = client.get("/api/results/ridge").json()
+    assert payload["regression"]["method"] == "ridge"
+    assert payload["scores"] == [] and payload["metrics"]["rmsecv"] > 0
+    curve = payload["tuning_curve"]
+    assert curve["parameter"] == "alpha" and curve["log"] and curve["chosen"] == 0.1
+    assert len(curve["values"]) == len(curve["scores"]) == 25
+
+    coefficients = client.get("/api/results/ridge/coefficients").json()
+    assert coefficients["available"] and len(coefficients["coefficients"]) == 12
+    assert client.get("/api/results/ridge/export.json").status_code == 200
+    assert client.get("/api/results/ridge/export.py").status_code == 200
+    # No X model, so nothing to diagnose and no VIP to bootstrap: refused by name.
+    outliers = client.get("/api/results/ridge/outliers")
+    assert outliers.status_code == 422, outliers.text
+    assert client.get("/api/results/ridge/bootstrap").status_code == 422
+
+    [experiment] = client.get("/api/experiments").json()
+    report = client.get(f"/api/experiments/{experiment['experiment_id']}/report.html")
+    assert report.status_code == 200, report.text
+    saved = client.post("/api/results/ridge/save", json={"name": "ridge fat"})
+    assert saved.status_code == 201, saved.text

@@ -104,9 +104,9 @@
         "uv run pytest, uv run ruff check, uv run mypy - green, each new test failing on the unfixed code first",
         "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm exec playwright test - green; an e2e test adds it from its menu group and runs it"
       ],
-      "status": "not_started",
+      "status": "in_progress",
       "evidence": "",
-      "notes": ""
+      "notes": "2026-10-30: implemented and PR open. Run so far: parity 6 claims IDENTICAL (report regenerated, 198/198); uv run pytest 999 passed; new Ridge tests fail at import with src stashed; pnpm test 178 passed; walkthrough.spec.ts 8 passed incl. the new ridge test. Still to run before passing: a clean full playwright run (the first one overlapped a src stash and does not count)."
     },
     {
       "id": "elastic-net",

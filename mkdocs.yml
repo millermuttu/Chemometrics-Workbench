@@ -66,6 +66,7 @@ nav:
           - PCA: algorithms/pca.md
           - PLS regression: algorithms/pls-regression.md
           - PCR: algorithms/pcr.md
+          - Penalised regression: algorithms/penalised-regression.md
           - PLS-DA: algorithms/pls-da.md
           - Classification metrics: algorithms/classification.md
           - SIMCA: algorithms/simca.md

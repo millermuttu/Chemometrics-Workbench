@@ -468,6 +468,14 @@ class PCRSpec(Frozen):
     target: str = Field(description="Which target column in the dataset is being modelled.")
 
 
+class RidgeSpec(Frozen):
+    """`penalised-regression.md`: least squares with a penalty on the squared coefficients."""
+
+    kind: Literal["ridge"] = "ridge"
+    alpha: float = Field(default=1.0, gt=0, description="Penalty on the squared coefficients.")
+    target: str = Field(description="Which target column in the dataset is being modelled.")
+
+
 class SIMCASpec(Frozen):
     kind: Literal["simca"] = "simca"
     n_components: int = Field(ge=1, description="Components in every class's PCA.")
@@ -510,7 +518,15 @@ class PLSDASpec(Frozen):
 
 
 EstimatorSpec = Annotated[
-    PCASpec | PLSRegressionSpec | PCRSpec | PLSDASpec | SIMCASpec | LDASpec | KNNSpec | SVMSpec,
+    PCASpec
+    | PLSRegressionSpec
+    | PCRSpec
+    | RidgeSpec
+    | PLSDASpec
+    | SIMCASpec
+    | LDASpec
+    | KNNSpec
+    | SVMSpec,
     Field(discriminator="kind"),
 ]
 
