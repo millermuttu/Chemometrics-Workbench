@@ -9,7 +9,8 @@
     "2026-10-30. The tuning curve generalises to any complexity parameter before the penalised models land; PLS and PCR numbers must not move.",
     "2026-10-30. Signed packages (#339) carry over from Phase 6, blocked on certificates, and are not in the exit criterion.",
     "2026-10-30. Unchanged: scikit-learn and chemotools stay development dependencies; SciPy is already a runtime one. One release, v1.3.0, at the end of the phase. Read each feature's issue, not only this list, before calling it done.",
-    "2026-10-30. The e2e CI jobs run only on the dev-into-main pull request and on pushes to main (#392, maintainer); feature and fix pull requests into dev skip them. The full Playwright suite is the gate before a release."
+    "2026-10-30. The e2e CI jobs run only on the dev-into-main pull request and on pushes to main (#392, maintainer); feature and fix pull requests into dev skip them. The full Playwright suite is the gate before a release.",
+    "2026-10-30. Arrays are stored as float64 (#402, decision 0007), the maintainer's choice after the exit run (#383) found ill-conditioned exports outside tolerance under the float32 store. Section 13's 20,000 x 4,000 envelope is kept at about 640 MB."
   ],
   "status_values": [
     "not_started",
@@ -325,6 +326,23 @@
       "status": "passing",
       "evidence": "2026-10-30, PR #393 (base dev), head c99eb06: check runs - 'e2e (${{ matrix.os }})' completed skipped (one skipped entry, the matrix not expanded); check (py3.12), check (py3.13), frontend, docs, package ubuntu/macos/windows completed success; pages skipped as before.",
       "notes": "The skipped job shows under its unexpanded name. On the dev-into-main pull request it expands to the three platforms as before."
+    },
+    {
+      "id": "float64-store",
+      "priority": 18,
+      "area": "backend",
+      "issue": 402,
+      "title": "Store arrays in float64",
+      "depends_on": [],
+      "user_visible_behavior": "Every array a project writes is float64; an exported model reproduces the application's predictions within the parity predictions class.",
+      "verification": [
+        "uv run pytest - green, the export tolerance at rtol 1e-6, atol 1e-9",
+        "the docs walks and the walkthrough pass",
+        "tests/exit_run_phase7.py's exports pass at the stored tolerance (checked on #383's branch after this merges)"
+      ],
+      "status": "passing",
+      "evidence": "2026-10-30, fix/402_float64-store. write_array keeps float64; read_array still widens a float32 array (new test: an array written in float32 before #402 still reads back). tests/test_export.py RTOL/ATOL 1e-4/1e-6 -> 1e-6/1e-9 (the parity predictions class, as model-export.md section 5 said it should): 27 passed. _as_stored is the identity. The number-coded test data had an exactly rank-1 (then rank-2) matrix that float32 noise had hidden; given an irregular term. uv run pytest 1052 passed; ruff, mypy clean; mkdocs build --strict built. pnpm exec playwright test docs-screens, docs-examples, docs-classification, docs-validation, docs-comparison, walkthrough: 20 passed. PROPOSAL.md section 13, model-export.md section 5, model-artifact.md, pca.md and decision 0007 updated.",
+      "notes": "The rank tolerance keeps float32's epsilon as the data's precision (decision 0004), so no rank moved. Earlier phases' exit-run records are left as measured."
     },
     {
       "id": "signed-packages",

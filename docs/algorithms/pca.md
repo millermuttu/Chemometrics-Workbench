@@ -202,7 +202,7 @@ Imputing inside PCA — or quietly using NIPALS's tolerance for gaps — would m
 
 ## 11. Numerical policy
 
-- Computation in **float64**, regardless of the storage dtype. Data may be held as float32 for memory; it is promoted before decomposition and results are returned as float64.
+- Computation in **float64**, regardless of the storage dtype. The application stores float64 since v1.3 (decision 0007); data held as float32, as a project from before it holds, is promoted before decomposition and results are returned as float64.
 - **The caller's array is never modified.**
 - **No random state.** SVD is deterministic, so PCA takes no seed. Any future component that needs randomness must take an explicit seed.
 - Eigenvalues below the §9 rank tolerance are treated as exactly zero when forming $\theta_m$, to keep the SPE limit from being driven by numerical noise.

@@ -9,7 +9,7 @@ you is a genuine differentiator. It also places one constraint on the codebase,
 and it is a test rather than a promise: **exported predictions must match
 in-application predictions to within a stated numerical tolerance**.
 `docs/model-export.md` §5 states that tolerance and says where the number came
-from — the float32 array store, measured in `docs/phase-2/exit-run.md`.
+from - the parity harness's prediction class, since the store became float64 (#402).
 
 ## The split
 

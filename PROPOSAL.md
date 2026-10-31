@@ -327,7 +327,7 @@ Node.js · pnpm · uv · Ruff · mypy · pytest · Vitest · Playwright · PyIns
 
 Stated as a target so it can be tested, and as a limit so it can be honestly documented.
 
-- **v1 target:** up to ~20,000 spectra × ~4,000 variables, held in memory as float32 (≈ 320 MB). Beyond this, v1 documents the limit rather than pretending otherwise.
+- **v1 target:** up to ~20,000 spectra × ~4,000 variables, held in memory and on disk as float64 (≈ 640 MB; it was float32 and ≈ 320 MB until v1.3, decision 0007). Beyond this, v1 documents the limit rather than pretending otherwise.
 - **Interaction budgets:** preprocessing preview under 1 s; PCA on the target dataset under 5 s; a 10-fold cross-validated PLS under 30 s with progress reporting.
 - **Plotting is the real constraint.** 20,000 spectra × 4,000 points is 80 million points — far past what Plotly renders. Required from the first plot, not as a later optimization: server-side decimation of each trace, a cap on individually drawn traces with the remainder shown as a density band, and WebGL (`scattergl`) rendering throughout. Selected or highlighted spectra are drawn at full resolution.
 
