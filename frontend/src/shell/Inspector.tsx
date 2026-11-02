@@ -129,7 +129,7 @@ export function Inspector({
     withDatasetColumns(
       found,
       Object.keys(source?.targets ?? {}),
-      classColumns(source?.metadata_columns),
+      classColumns(source?.metadata_columns, source?.column_roles),
       stratifiableColumns(source?.metadata_columns),
     );
 

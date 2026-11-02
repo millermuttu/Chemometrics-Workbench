@@ -31,7 +31,10 @@ import {
   loadingsTraces,
   outliers,
   predictedTraces,
+  chosenLine,
+  parameterSymbol,
   rmsecvTrace,
+  sPlotTrace,
   scoresTrace,
   selectionTraces,
   thresholdSelection,
@@ -81,8 +84,8 @@ function Scores({ pca }: { pca: PcaPayload }) {
     (theme) => ({
       data: [ellipseTrace(pca, x, y, theme), scoresTrace(pca, x, y, theme)],
       layout: {
-        xaxis: axisLayout(theme, `PC ${x + 1} (${(pca.explained_variance_ratio[x] * 100).toFixed(1)}%)`),
-        yaxis: axisLayout(theme, `PC ${y + 1} (${(pca.explained_variance_ratio[y] * 100).toFixed(1)}%)`),
+        xaxis: axisLayout(theme, `${componentName(pca, x)} (${(pca.explained_variance_ratio[x] * 100).toFixed(1)}%)`),
+        yaxis: axisLayout(theme, `${componentName(pca, y)} (${(pca.explained_variance_ratio[y] * 100).toFixed(1)}%)`),
         margin: { l: 48, r: 12, t: 8, b: 38 },
       },
     }),
@@ -107,7 +110,7 @@ function Scores({ pca }: { pca: PcaPayload }) {
     >
       {pca.explained_variance_ratio.map((_, index) => (
         <option key={index} value={index}>
-          PC {index + 1}
+          {componentName(pca, index)}
         </option>
       ))}
     </select>
@@ -184,7 +187,7 @@ function Loadings({ pca }: { pca: PcaPayload }) {
  * VIP arrives in the result and the folded vector from its own endpoint,
  * which answers with a sentence when a step in the chain - SNV, MSC, a
  * baseline - is not a fixed linear map and cannot be folded. */
-type ImportanceView = "vip" | "coefficients" | "selection";
+type ImportanceView = "vip" | "coefficients" | "selection" | "splot";
 
 function VariableImportance({ pca, onRun }: { pca: PcaPayload; onRun?: () => void }) {
   // A PCR has no VIP (pcr.md section 6), so its panel is the coefficients.
@@ -220,6 +223,18 @@ function VariableImportance({ pca, onRun }: { pca: PcaPayload; onRun?: () => voi
       };
     },
     [pca, view, bands],
+  );
+  // #379: an OPLS-DA's S-plot, covariance against correlation with t pred.
+  const sPlotHost = usePlot(
+    (theme) => ({
+      data: pca.s_plot ? [sPlotTrace(pca, theme)] : [],
+      layout: {
+        xaxis: axisLayout(theme, "Covariance with t pred"),
+        yaxis: { ...axisLayout(theme, "Correlation with t pred"), range: [-1.05, 1.05] },
+        margin: { l: 48, r: 12, t: 8, b: 38 },
+      },
+    }),
+    [pca, view],
   );
   const coefficientHost = usePlot(
     (theme) => {
@@ -262,6 +277,7 @@ function VariableImportance({ pca, onRun }: { pca: PcaPayload; onRun?: () => voi
       {hasVip ? <option value="vip">VIP</option> : null}
       <option value="coefficients">Coefficients, raw axis</option>
       {selectable ? <option value="selection">Select variables</option> : null}
+      {pca.s_plot ? <option value="splot">S-plot</option> : null}
     </select>
   );
   const note = (
@@ -285,6 +301,8 @@ function VariableImportance({ pca, onRun }: { pca: PcaPayload; onRun?: () => voi
     <Panel title="Variable importance" note={note}>
       {view === "selection" && selectable ? (
         <SelectVariables pca={pca} hasVip={hasVip} onRun={onRun} />
+      ) : view === "splot" && pca.s_plot ? (
+        <div ref={sPlotHost} data-testid="s-plot" style={{ flex: 1, minHeight: 0 }} />
       ) : view === "vip" && hasVip ? (
         <div ref={vipHost} data-testid="vip-plot" style={{ flex: 1, minHeight: 0 }} />
       ) : folded?.available ? (
@@ -996,24 +1014,42 @@ function PredictedVsMeasured({ pca }: { pca: PcaPayload }) {
 }
 
 function RmsecvCurve({ pca }: { pca: PcaPayload }) {
-  const curve = pca.rmsecv_curve ?? [];
+  const curve = pca.tuning_curve;
+  const metric = (curve?.metric ?? "rmsecv").toUpperCase();
   const host = usePlot(
     (theme) => ({
       data: [rmsecvTrace(pca, theme)],
       layout: {
-        xaxis: { ...axisLayout(theme, "Components"), dtick: 1 },
-        yaxis: { ...axisLayout(theme, "RMSECV"), rangemode: "tozero" },
+        // #373: against the model's own parameter, on a log axis when its
+        // grid is log-spaced, with the value fitted marked.
+        xaxis: {
+          ...axisLayout(theme, curve?.parameter === "components" || !curve ? "Components" : curve.parameter),
+          ...(curve?.log ? { type: "log" } : { dtick: 1 }),
+        },
+        yaxis: { ...axisLayout(theme, metric), rangemode: "tozero" },
+        shapes: curve ? [chosenLine(curve, theme)] : [],
         margin: { l: 48, r: 12, t: 8, b: 38 },
       },
     }),
     [pca],
   );
-  // The minimum is reported, never chosen: §9 says picking A there and then
-  // quoting that minimum as the model's expected error is optimistic, and that
-  // it is the user's call rather than the application's.
-  const best = curve.length ? curve.indexOf(Math.min(...curve)) + 1 : undefined;
+  // The minimum is reported, never chosen: §9 and §15 say picking the value
+  // there and then quoting that minimum as the model's expected error is
+  // optimistic, and that it is the user's call rather than the application's.
+  const symbol = parameterSymbol(curve);
+  const fitted = (curve?.scores ?? []).filter((score): score is number => score !== null);
+  const best = fitted.length
+    ? curve!.values[curve!.scores.indexOf(Math.min(...fitted))]
+    : undefined;
+  const note =
+    curve && best !== undefined
+      ? `fitted at ${symbol} = ${curve.chosen} · lowest at ${symbol} = ${best}`
+      : // #376: cross-validated, but with nothing to tune - an MLR.
+        pca.metrics?.rmsecv !== undefined
+        ? "no parameter to tune"
+        : "needs a split";
   return (
-    <Panel title="RMSECV" note={best ? `lowest at A = ${best}` : "needs a split"} width={340}>
+    <Panel title={metric} note={note} width={340}>
       <div ref={host} data-testid="rmsecv-plot" style={{ flex: 1, minHeight: 0 }} />
     </Panel>
   );
@@ -1094,6 +1130,50 @@ function PermutationTest({ pca }: { pca: PcaPayload }) {
  * set and - below a split - the cross-validated and held-out sets, each with
  * its per-class table beneath. Counts, not a plot: N-by-N numbers are read,
  * not drawn. Exported for its test. */
+/** #380, logistic-regression.md section 4: each calibration sample's assigned
+ * class beside every class's probability. The first rows only, as the dataset
+ * view shows them; the whole table is in the payload and the export. */
+const PROBABILITY_ROWS = 60;
+
+function Probabilities({ pca }: { pca: PcaPayload }) {
+  const classification = pca.classification;
+  const probabilities = classification?.probabilities;
+  if (!classification || !probabilities) return null;
+  const { classes } = classification;
+  return (
+    <Panel title="Class probabilities" note={`${probabilities.length} samples`}>
+      <div data-testid="class-probabilities" style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+        <table>
+          <thead>
+            <tr>
+              <th>Sample</th>
+              <th>Assigned</th>
+              {classes.map((name) => (
+                <th key={name} className="n">
+                  p({name})
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {probabilities.slice(0, PROBABILITY_ROWS).map((row, index) => (
+              <tr key={pca.samples[index]?.sample_id ?? index}>
+                <td className="mono">{pca.samples[index]?.sample_id}</td>
+                <td>{classes[classification.predicted_class[index]]}</td>
+                {row.map((value, k) => (
+                  <td key={classes[k]} className="n">
+                    {value.toFixed(3)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
+  );
+}
+
 export function ConfusionMatrix({ pca }: { pca: PcaPayload }) {
   const classification = pca.classification;
   if (!classification) return null;
@@ -1460,6 +1540,24 @@ function SimcaResults({ pca, nodeId, title }: { pca: PcaPayload; nodeId: string;
   );
 }
 
+/** What a regression's header calls its method, by `regression.method`. */
+const METHODS: Record<string, string> = {
+  pcr: "PCR",
+  ridge: "Ridge",
+  elastic_net: "Elastic Net",
+  lasso: "Lasso",
+  mlr: "MLR",
+  svr: "SVR",
+  opls: "OPLS",
+};
+
+/** A score column's name: an OPLS's predictive one first, then its orthogonal
+ * ones (opls.md section 3, #378); a principal component for everything else. */
+export function componentName(pca: PcaPayload, index: number): string {
+  if (!["opls", "oplsda"].includes(pca.regression?.method ?? "")) return `PC ${index + 1}`;
+  return index === 0 ? "t pred" : `t orth ${index}`;
+}
+
 export function AnalysisResults({
   nodeId,
   title,
@@ -1495,6 +1593,10 @@ export function AnalysisResults({
   // section 2), so every regression panel applies; only what it is called and
   // which panel sits first differ.
   const regression = pca.task === "regression" || classification;
+  // Whether the model has components and so an X model to draw (#374).
+  const latent = pca.scores.length > 0;
+  const sparse = ["elastic_net", "lasso"].includes(pca.regression?.method ?? "");
+  const kept = (pca.regression?.coefficients ?? []).filter((value) => value !== 0).length;
   return (
     <div className="pane">
       <div
@@ -1520,12 +1622,14 @@ export function AnalysisResults({
             style={{ fontSize: 11, color: "var(--ink3)", overflow: "hidden", textOverflow: "ellipsis" }}
           >
             {classification
-              ? `${{ lda: "LDA", knn: "kNN", svm: "SVM" }[pca.regression?.method ?? ""] ?? "PLS-DA"} on ${pca.classification?.class_column ?? "?"}`
+              ? `${{ lda: "LDA", knn: "kNN", svm: "SVM", oplsda: "OPLS-DA", logistic: "Logistic regression", qda: "QDA" }[pca.regression?.method ?? ""] ?? "PLS-DA"} on ${pca.classification?.class_column ?? "?"}`
               : regression
-                ? `${pca.regression?.method === "pcr" ? "PCR" : "PLS"} on ${pca.regression?.target ?? "?"}`
+                ? `${METHODS[pca.regression?.method ?? ""] ?? "PLS"} on ${pca.regression?.target ?? "?"}`
                 : "PCA"}{" "}
-            {pca.n_components}{" "}
-            components · {pca.n_samples} × {pca.n_variables}
+            {latent ? `${pca.n_components} components · ` : ""}
+            {pca.n_samples} × {pca.n_variables}
+            {/* #375: an L1 penalty's coefficients are a selection. */}
+            {sparse ? ` · ${kept} of ${pca.n_variables} variables kept` : ""}
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "center" }}>
@@ -1604,16 +1708,21 @@ export function AnalysisResults({
           overflowY: "auto",
         }}
       >
+        {/* #374: a model with no components - a ridge - has no scores,
+            loadings, variances or X diagnostics, so those panels are left out
+            rather than drawn empty. */}
         <div style={ROW}>
-          <Scores pca={pca} />
-          <Loadings pca={pca} />
+          {latent && <Scores pca={pca} />}
+          {latent && <Loadings pca={pca} />}
           {regression && <VariableImportance pca={pca} onRun={onRun} />}
         </div>
-        <div style={ROW}>
-          <Variance pca={pca} />
-          <Diagnostics pca={pca} picked={picked} onPick={setPicked} />
-          <Contributions pca={pca} sample={picked} />
-        </div>
+        {latent && (
+          <div style={ROW}>
+            <Variance pca={pca} />
+            <Diagnostics pca={pca} picked={picked} onPick={setPicked} />
+            <Contributions pca={pca} sample={picked} />
+          </div>
+        )}
         {/* The row this comment reserved in Phase 1.1, now filled. It arrives
             beside the two above rather than replacing them, exactly as the
             layout was drawn for - and only for a regression, because these
@@ -1625,6 +1734,12 @@ export function AnalysisResults({
             <RegressionMetrics pca={pca} />
           </div>
         )}
+        {/* #380: a row of its own, so the three panels above keep their widths. */}
+        {pca.classification?.probabilities ? (
+          <div style={ROW}>
+            <Probabilities pca={pca} />
+          </div>
+        ) : null}
         {/* #333: a permutation test, for an estimator with a cross-validated score. */}
         {["pls", "pcr", "plsda", "lda", "knn", "svm"].includes(pca.regression?.method ?? "") &&
         (pca.metrics?.rmsecv !== undefined || pca.metrics?.accuracy_cv !== undefined) ? (

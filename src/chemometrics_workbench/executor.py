@@ -11,9 +11,8 @@ selection above it (`node_axis`, #312).
 
 ## What a node's output is
 
-One array per node, `n_samples x n_variables`, stored through #77's array
-store — float32 on disk, float64 at the kernel boundary, converted at that
-boundary and nowhere else.
+One array per node, `n_samples x n_variables`, stored through the array
+store - float64 on disk since #402 (float32 under #77 before it).
 
 Every node's output is read back out of the store before the nodes below it
 see it. A node therefore computes from what is on disk, not from the float64
@@ -121,7 +120,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import Counter
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, fields, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -134,14 +133,18 @@ from chemometrics_workbench import preprocessing, validation
 from chemometrics_workbench.classification import (
     KNN,
     LDA,
+    QDA,
     SIMCA,
     SVM,
+    LogisticRegression,
+    SingularCovariance,
     acceptance_table,
     simca_metrics,
 )
-from chemometrics_workbench.decomposition import PCA
+from chemometrics_workbench.decomposition import PCA, numerical_rank
 from chemometrics_workbench.models import (
     DatasetVersion,
+    ElasticNetSpec,
     Environment,
     EstimatorSpec,
     Experiment,
@@ -150,19 +153,26 @@ from chemometrics_workbench.models import (
     KNNSpec,
     LDASpec,
     LeaveOneOut,
+    LogisticSpec,
     Metrics,
+    MLRSpec,
     NodeId,
+    OPLSDASpec,
+    OPLSSpec,
     PCASpec,
     PCRSpec,
     Pipeline,
     PipelineNode,
     PLSDASpec,
     PLSRegressionSpec,
+    QDASpec,
     RangeSelect,
     ResolvedSplit,
+    RidgeSpec,
     SelectVariables,
     SIMCASpec,
     SVMSpec,
+    SVRSpec,
     TrainTestSplit,
 )
 from chemometrics_workbench.project import (
@@ -174,11 +184,18 @@ from chemometrics_workbench.project import (
     write_json,
 )
 from chemometrics_workbench.regression import (
+    MLR,
+    OPLS,
     PCR,
     PLS,
     PLS2,
+    SVR,
+    ElasticNet,
+    Ridge,
     cross_validated_predictions,
+    elastic_net_path,
     rmsecv_curve,
+    tuning_curve,
 )
 from chemometrics_workbench.validation import (
     Fold,
@@ -243,9 +260,17 @@ _FITTED: tuple[type, ...] = (
     PCASpec,
     PLSRegressionSpec,
     PCRSpec,
+    ElasticNetSpec,
+    MLRSpec,
+    OPLSDASpec,
+    OPLSSpec,
+    SVRSpec,
+    RidgeSpec,
     PLSDASpec,
     SIMCASpec,
     LDASpec,
+    LogisticSpec,
+    QDASpec,
     KNNSpec,
     SVMSpec,
 )
@@ -504,6 +529,24 @@ class EstimatorResult:
     SEC is missing when `n - A - 1 <= 0` rather than falling back to a
     denominator that would silently produce something that is not SEC."""
 
+    probabilities: list[list[float]] = field(default_factory=list)
+    """`n x K` class probabilities of the calibration rows, a logistic
+    regression's (#380, `logistic-regression.md` §4); empty for every other model."""
+    held_out_probabilities: list[list[float]] = field(default_factory=list)
+    logistic: dict[str, Any] = field(default_factory=dict)
+    qda: dict[str, Any] = field(default_factory=dict)
+    """A QDA's `reg_param` and per class `mean`, `rotation`, `scalings`, `prior` (#381)."""
+    """A logistic regression's `C`, `coefficients` (rows x A) and `intercept`."""
+
+    s_plot: dict[str, list[float]] = field(default_factory=dict)
+    """`opls.md` §8 (#379), an OPLS-DA's: each variable's `covariance` and
+    `correlation` with the predictive score. Empty for every other model."""
+
+    tuning: dict[str, Any] = field(default_factory=dict)
+    """`metrics-and-validation.md` §15 (#373) for a model tuned by something
+    other than components: `parameter`, `metric`, `values`, `scores`, `log`
+    and `chosen`. Empty for PLS and PCR, whose curve is the `rmsecv_a<A>` keys."""
+
     def as_json(self) -> dict[str, Any]:
         return asdict(self)
 
@@ -690,7 +733,7 @@ def execute(
         hashes: list[str] = []
         if cached is not None:
             # Already on disk under these paths. Writing them again cost a
-            # float32 copy, a serialisation and a SHA-256 per array, per fold,
+            # serialisation and a SHA-256 per array, per fold,
             # on every run that recomputed nothing (#174). The store is
             # content-addressed, so the hash is the file's name.
             state = cached
@@ -1324,8 +1367,45 @@ def _fitted(
             estimator=PCR,
         )
 
+    if isinstance(node.spec, RidgeSpec):
+        return _ridge(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
+
+    if isinstance(node.spec, OPLSDASpec):
+        return _oplsda(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
+
+    if isinstance(node.spec, OPLSSpec):
+        return _fit_regression(
+            node,
+            "opls",
+            1 + node.spec.n_orthogonal,
+            node.spec.target,
+            _response(version, node, node.spec.target),
+            parent,
+            key,
+            matrix,
+            rows,
+            held_out,
+            fold,
+            estimator=OPLS,
+        )
+
+    if isinstance(node.spec, SVRSpec):
+        return _svr(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
+
+    if isinstance(node.spec, MLRSpec):
+        return _mlr(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
+
+    if isinstance(node.spec, ElasticNetSpec):
+        return _elastic_net(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
+
     if isinstance(node.spec, SVMSpec):
         return _svm(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
+
+    if isinstance(node.spec, QDASpec):
+        return _qda(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
+
+    if isinstance(node.spec, LogisticSpec):
+        return _logistic(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
 
     if isinstance(node.spec, KNNSpec):
         return _knn(node, node.spec, parent, key, matrix, rows, held_out, fold, version)
@@ -1370,9 +1450,7 @@ def _fitted(
         cumulative_explained_variance=_values(model.cumulative_explained_variance()),
         hotelling_t2=_values(model.hotelling_t2()),
         hotelling_t2_limit=float(model.hotelling_t2_limit(ALPHA)),
-        spe=_values(model.spe(calibration)),
-        spe_limit=float(model.spe_limit(ALPHA)),
-        spe_limit_caveat=model.spe_limit_caveat(),
+        **_spe(model, calibration),
         held_out=[int(row) for row in held_out],
         # §9: the held-out rows are pushed through the training fold's
         # parameters, exactly as new samples are at prediction time. They are
@@ -1462,7 +1540,7 @@ def _fit_regression(
     fold: int | None,
     estimator: type[PLS] | type[PCR] = PLS,
 ) -> EstimatorResult:
-    """PLS1 or PCR on `response`, with every quantity `pls-regression.md` §13 names.
+    """PLS1, OPLS or PCR on `response`, with every quantity `pls-regression.md` §13 names.
 
     Shared by a PLS regression, a two-class PLS-DA, which is this on a dummy
     response (`pls-da.md` §2), and a PCR (`pcr.md`), which has the same
@@ -1526,7 +1604,11 @@ def _fit_regression(
     cross_validated = np.array([], dtype=np.float64)
     if parent.folds is not None and len(parent.folds) > 1:
         folds = parent.folds
-        curve = rmsecv_curve(parent.arrays, response, folds, a, estimator)
+        # opls.md section 4: OPLS with 1 + k components predicts as PLS1 with
+        # 1 + k, so PLS's one-fit-per-fold curve is OPLS's over its orthogonal
+        # components; OPLS's own components do not nest, so it cannot run it.
+        curve_estimator = PLS if issubclass(estimator, OPLS) else estimator
+        curve = rmsecv_curve(parent.arrays, response, folds, a, curve_estimator)
         for index, value in enumerate(curve, start=1):
             metrics[f"rmsecv_a{index}"] = float(value)
         metrics["rmsecv"] = float(curve[-1])
@@ -1571,9 +1653,14 @@ def _fit_regression(
         y_explained_variance_ratio=_values(model.explained_variance_ratio("y")),
         hotelling_t2=_values(model.hotelling_t2()),
         hotelling_t2_limit=float(model.hotelling_t2_limit(ALPHA)),
-        spe=_values(model.spe(train_x - x_mean)),
-        spe_limit=float(model.spe_limit(ALPHA)),
-        spe_limit_caveat=model.spe_limit_caveat() if isinstance(model, PCR) else None,
+        **(
+            _spe(model.pca_, train_x - x_mean)
+            if isinstance(model, PCR)
+            else {
+                "spe": _values(model.spe(train_x - x_mean)),
+                "spe_limit": float(model.spe_limit(ALPHA)),
+            }
+        ),
         target=target,
         method=kind,
         observed=_values(train_y),
@@ -1594,6 +1681,454 @@ def _fit_regression(
             _values(model.hotelling_t2(held_x - x_mean)) if held_out.size else []
         ),
         held_out_spe=_values(model.spe(held_x - x_mean)) if held_out.size else [],
+    )
+
+
+#: penalised-regression.md section 5: the grid a penalty's curve is drawn over,
+#: from its top down - largest first, so a path can start each fit from the last.
+PENALTY_POINTS = 25
+RIDGE_DECADES = 6
+ENET_DECADES = 3
+
+#: A centred training matrix and response, and the penalty: the coefficients.
+_Fit = Callable[[NDArray[np.float64], NDArray[np.float64], float], NDArray[np.float64]]
+#: The same at every penalty of a grid, `None` where the fit could not be made.
+_Path = Callable[
+    [NDArray[np.float64], NDArray[np.float64], list[float]], list[NDArray[np.float64] | None]
+]
+
+
+def _ridge(
+    node: PipelineNode,
+    spec: RidgeSpec,
+    parent: _State,
+    key: str,
+    matrix: NDArray[np.float64],
+    rows: NDArray[np.intp],
+    held_out: NDArray[np.intp],
+    fold: int | None,
+    version: DatasetVersion,
+) -> EstimatorResult:
+    """Ridge (`penalised-regression.md` §2), its grid topped at the centred
+    matrix's largest squared singular value - a penalty that size shrinks
+    every direction to near nothing (§5)."""
+
+    def fit(x: NDArray[np.float64], y: NDArray[np.float64], alpha: float) -> NDArray[np.float64]:
+        return np.asarray(Ridge(alpha).fit(x, y).coefficients_)
+
+    return _linear(
+        node,
+        "ridge",
+        spec.target,
+        spec.alpha,
+        (parent, key, matrix, rows, held_out, fold, version),
+        fit,
+        lambda x, y, alphas: [fit(x, y, alpha) for alpha in alphas],
+        lambda x, _y: float(np.linalg.norm(x, ord=2) ** 2),
+        RIDGE_DECADES,
+    )
+
+
+def _elastic_net(
+    node: PipelineNode,
+    spec: ElasticNetSpec,
+    parent: _State,
+    key: str,
+    matrix: NDArray[np.float64],
+    rows: NDArray[np.intp],
+    held_out: NDArray[np.intp],
+    fold: int | None,
+    version: DatasetVersion,
+) -> EstimatorResult:
+    """Elastic Net and the Lasso (`penalised-regression.md` §3), its grid topped
+    at the smallest alpha that zeroes every coefficient, `max|X'y| / (n l1_ratio)`,
+    over three decades (§5)."""
+    kind = "lasso" if spec.l1_ratio == 1 else "elastic_net"
+
+    def fit(x: NDArray[np.float64], y: NDArray[np.float64], alpha: float) -> NDArray[np.float64]:
+        try:
+            return np.asarray(ElasticNet(alpha, spec.l1_ratio).fit(x, y).coefficients_)
+        except RuntimeError as error:
+            raise ExecutorError(f"node {node.id!r} ({kind}) failed: {error}", node.id) from error
+
+    return _linear(
+        node,
+        kind,
+        spec.target,
+        spec.alpha,
+        (parent, key, matrix, rows, held_out, fold, version),
+        fit,
+        lambda x, y, alphas: elastic_net_path(x, y, alphas, spec.l1_ratio),
+        lambda x, y: float(np.abs(x.T @ y).max()) / (len(y) * spec.l1_ratio),
+        ENET_DECADES,
+    )
+
+
+#: svr.md section 5: C's grid, from range(y) / 1000 up to range(y), smallest
+#: first, and the iterations a point of it may take before it is absent.
+SVR_POINTS = 13
+SVR_DECADES = 3
+SVR_CURVE_ITERATIONS = 20_000
+
+
+def _svr(
+    node: PipelineNode,
+    spec: SVRSpec,
+    parent: _State,
+    key: str,
+    matrix: NDArray[np.float64],
+    rows: NDArray[np.intp],
+    held_out: NDArray[np.intp],
+    fold: int | None,
+    version: DatasetVersion,
+) -> EstimatorResult:
+    """`svr.md`: PCA-SVR, the regression half of `pls-regression.md` §13 and the
+    PCA front's panels, as kNN and SVM have them (`svm.md` §5)."""
+    response = _response(version, node, spec.target)
+    if response.size != matrix.shape[0]:
+        raise ExecutorError(
+            f"node {node.id!r} (svr) has {matrix.shape[0]} samples and target "
+            f"{spec.target!r} has {response.size} values.",
+            node.id,
+        )
+
+    def build(c: float, max_iter: int = 1_000_000) -> SVR:
+        return SVR(spec.n_components, spec.kernel, c, spec.epsilon, spec.gamma, max_iter=max_iter)
+
+    def fit(values: NDArray[np.float64], train: NDArray[np.intp]) -> SVR:
+        try:
+            return build(spec.C).fit(values[train], response[train])
+        except ValueError as error:
+            raise ExecutorError(
+                f"node {node.id!r} (svr) failed at C {spec.C:g}: {error}", node.id
+            ) from error
+
+    model = fit(matrix, rows)
+    train_y = response[rows]
+    predicted = model.predict(matrix[rows])
+    metrics: dict[str, float] = {
+        "rmsec": validation.rmse(train_y, predicted),
+        "r2": validation.r2(train_y, predicted),
+        "bias": validation.bias(train_y, predicted),
+    }
+    with np.errstate(invalid="ignore", divide="ignore"):
+        pearson = float(np.corrcoef(train_y, predicted)[0, 1] ** 2)
+    if np.isfinite(pearson):
+        metrics["r2_pearson"] = pearson
+    held_y = response[held_out]
+    held_predicted = model.predict(matrix[held_out]) if held_out.size else np.array([])
+    if held_out.size:
+        metrics["rmsep"] = validation.rmse(held_y, held_predicted)
+        metrics["sep"] = validation.sep(held_y, held_predicted)
+
+    cross_validated = np.array([], dtype=np.float64)
+    tuning: dict[str, Any] = {}
+    if parent.folds is not None and len(parent.folds) > 1:
+        folds = parent.folds
+        grid = float(np.ptp(train_y)) * np.logspace(-SVR_DECADES, 0, SVR_POINTS)
+
+        def fit_path(
+            train_x: NDArray[np.float64],
+            fold_y: NDArray[np.float64],
+            test_x: NDArray[np.float64],
+            values: Sequence[float],
+        ) -> NDArray[np.float64]:
+            # Smallest C first, each a cold start: SMO has no warm start here.
+            # A C that does not converge ends the fold's path, as Elastic Net's.
+            # ponytail: a linear kernel on unscaled scores takes tens of
+            # seconds over this grid (Tecator); shrink the grid or move the
+            # SMO loop to compiled code if that matters.
+            found = np.full((len(values), test_x.shape[0]), np.nan)
+            for index, c in enumerate(values):
+                try:
+                    one = build(c, SVR_CURVE_ITERATIONS).fit(train_x, fold_y)
+                except ValueError:
+                    break
+                found[index] = one.predict(test_x)
+            return found
+
+        curve = tuning_curve(parent.arrays, response, folds, list(grid), fit_path)
+        tuning = {
+            "parameter": "C",
+            "metric": "rmsecv",
+            "values": _values(grid),
+            "scores": [float(score) if np.isfinite(score) else None for score in curve],
+            "log": True,
+            "chosen": spec.C,
+        }
+        cross_validated = np.empty_like(response)
+        for one, values in zip(folds, parent.arrays, strict=True):
+            cross_validated[one.test] = fit(values, one.train).predict(values[one.test])
+        metrics["rmsecv"] = validation.rmse(response, cross_validated)
+        metrics["q2"] = validation.q2(response, cross_validated)
+        for index, one in enumerate(folds):
+            metrics[f"rmsecv_fold_{index}"] = validation.rmse(
+                response[one.test], cross_validated[one.test]
+            )
+        per_fold = [metrics[f"rmsecv_fold_{i}"] for i in range(len(folds))]
+        metrics["rmsecv_std"] = float(np.std(per_fold, ddof=1))
+
+    pca = model.pca_
+    x_mean = np.asarray(model.x_mean_)
+    centred = matrix[rows] - x_mean
+    held_x = matrix[held_out] - x_mean
+    a = spec.n_components
+    return EstimatorResult(
+        node_id=node.id,
+        key=key,
+        task="regression",
+        n_components=a,
+        n_samples=int(rows.size),
+        n_variables=int(matrix.shape[1]),
+        rank=a,
+        fold=fold,
+        rows=[int(row) for row in rows],
+        scores=_rows(pca.transform(centred)),
+        loadings=_rows(np.asarray(pca.loadings_).T),
+        rotations=_rows(np.asarray(pca.loadings_).T),
+        eigenvalues=_values(np.asarray(pca.eigenvalues_)[:a]),
+        explained_variance_ratio=_values(pca.explained_variance_ratio()),
+        cumulative_explained_variance=_values(pca.cumulative_explained_variance()),
+        hotelling_t2=_values(pca.hotelling_t2(centred)),
+        hotelling_t2_limit=float(pca.hotelling_t2_limit(ALPHA)),
+        **_spe(pca, centred),
+        target=spec.target,
+        method="svr",
+        observed=_values(train_y),
+        predicted=_values(predicted),
+        x_mean=_values(x_mean),
+        y_mean=None,
+        cross_validated_predicted=_values(cross_validated),
+        metrics=metrics,
+        held_out=[int(row) for row in held_out],
+        held_out_observed=_values(held_y) if held_out.size else [],
+        held_out_predicted=_values(held_predicted) if held_out.size else [],
+        held_out_scores=_rows(pca.transform(held_x)) if held_out.size else [],
+        held_out_hotelling_t2=_values(pca.hotelling_t2(held_x)) if held_out.size else [],
+        held_out_spe=_values(pca.spe(held_x)) if held_out.size else [],
+        tuning=tuning,
+        # svr.md section 7: support rows are rows of `scores`, by position.
+        svm={
+            "kernel": spec.kernel,
+            "C": spec.C,
+            "epsilon": spec.epsilon,
+            "gamma": model.gamma_,
+            "support": [int(row) for row in np.asarray(model.support_)],
+            "dual": _values(np.asarray(model.dual_)),
+            "rho": float(model.rho_),
+        },
+    )
+
+
+def _mlr(
+    node: PipelineNode,
+    spec: MLRSpec,
+    parent: _State,
+    key: str,
+    matrix: NDArray[np.float64],
+    rows: NDArray[np.intp],
+    held_out: NDArray[np.intp],
+    fold: int | None,
+    version: DatasetVersion,
+) -> EstimatorResult:
+    """MLR (`mlr.md`): least squares, refused on a rank-deficient X - in every
+    training fold first, each named, as a one-class fold is for a classifier."""
+    if parent.folds is not None:
+        for number, (one, values) in enumerate(zip(parent.folds, parent.arrays, strict=True), 1):
+            train = values[one.train] - values[one.train].mean(axis=0)
+            rank = numerical_rank(
+                np.linalg.svd(train, compute_uv=False), train.shape, PCA.STORED_EPS
+            )
+            if rank < train.shape[1]:
+                raise ExecutorError(
+                    f"node {node.id!r} (mlr) cannot be fitted: training fold {number} of "
+                    f"{len(parent.folds)} has rank {rank} and {train.shape[1]} variables, so "
+                    "least squares has no unique solution. Select fewer variables above it "
+                    "(a select_variables, VIP, iPLS or CARS step), or use PCR.",
+                    node.id,
+                )
+
+    def fit(x: NDArray[np.float64], y: NDArray[np.float64], _alpha: float) -> NDArray[np.float64]:
+        try:
+            return np.asarray(MLR(data_eps=PCA.STORED_EPS).fit(x, y).coefficients_)
+        except ValueError as error:
+            raise ExecutorError(f"node {node.id!r} (mlr) failed: {error}", node.id) from error
+
+    return _linear(
+        node,
+        "mlr",
+        spec.target,
+        0.0,
+        (parent, key, matrix, rows, held_out, fold, version),
+        fit,
+        None,
+        None,
+        0,
+        parameters=matrix.shape[1],
+    )
+
+
+def _linear(
+    node: PipelineNode,
+    kind: str,
+    target: str,
+    alpha: float,
+    where: tuple[
+        _State,
+        str,
+        NDArray[np.float64],
+        NDArray[np.intp],
+        NDArray[np.intp],
+        int | None,
+        DatasetVersion,
+    ],
+    fit: _Fit,
+    path: _Path | None,
+    top: Callable[[NDArray[np.float64], NDArray[np.float64]], float] | None,
+    decades: int,
+    parameters: int | None = None,
+) -> EstimatorResult:
+    """A linear model without components on the node's input - a penalised one
+    (`penalised-regression.md`) or MLR (`mlr.md`) - with the regression half of
+    `pls-regression.md` §13's quantities and none of the X model's.
+
+    It has no components, so it has no scores, loadings, T2 or SPE to report;
+    those fields are empty and the screen leaves their panels out. SEC needs
+    §5's `n - A - 1` in whole parameters: MLR passes its variable count; a
+    penalised model's effective degrees of freedom are not whole, so for it
+    SEC is absent (§4). `path` and `top` give the tuning curve; MLR has no
+    parameter to tune and passes neither.
+    """
+    parent, key, matrix, rows, held_out, fold, version = where
+    response = _response(version, node, target)
+    if response.size != matrix.shape[0]:
+        raise ExecutorError(
+            f"node {node.id!r} ({kind}) has {matrix.shape[0]} samples and target "
+            f"{target!r} has {response.size} values.",
+            node.id,
+        )
+
+    def fit_predict(
+        train_x: NDArray[np.float64], train_y: NDArray[np.float64], test_x: NDArray[np.float64]
+    ) -> NDArray[np.float64]:
+        x_mean, y_mean = train_x.mean(axis=0), float(train_y.mean())
+        return np.asarray(
+            (test_x - x_mean) @ fit(train_x - x_mean, train_y - y_mean, alpha) + y_mean
+        )
+
+    def fit_path(
+        train_x: NDArray[np.float64],
+        train_y: NDArray[np.float64],
+        test_x: NDArray[np.float64],
+        alphas: Sequence[float],
+    ) -> NDArray[np.float64]:
+        assert path is not None
+        x_mean, y_mean = train_x.mean(axis=0), float(train_y.mean())
+        found = path(train_x - x_mean, train_y - y_mean, list(alphas))
+        return np.array(
+            [
+                np.full(test_x.shape[0], np.nan) if b is None else (test_x - x_mean) @ b + y_mean
+                for b in found
+            ]
+        )
+
+    train_x, train_y = matrix[rows], response[rows]
+    x_mean = train_x.mean(axis=0)
+    y_mean = float(train_y.mean())
+    coefficients = fit(train_x - x_mean, train_y - y_mean, alpha)
+    predicted = (train_x - x_mean) @ coefficients + y_mean
+    metrics: dict[str, float] = {
+        "rmsec": validation.rmse(train_y, predicted),
+        "r2": validation.r2(train_y, predicted),
+        "bias": validation.bias(train_y, predicted),
+    }
+    with np.errstate(invalid="ignore", divide="ignore"):
+        pearson = float(np.corrcoef(train_y, predicted)[0, 1] ** 2)
+    if np.isfinite(pearson):
+        metrics["r2_pearson"] = pearson
+    if parameters is not None and train_y.size - parameters - 1 > 0:
+        metrics["sec"] = validation.sec(train_y, predicted, n_components=parameters)
+
+    held_y = response[held_out]
+    held_predicted = (
+        fit_predict(train_x, train_y, matrix[held_out])
+        if held_out.size
+        else np.array([], dtype=np.float64)
+    )
+    if held_out.size:
+        metrics["rmsep"] = validation.rmse(held_y, held_predicted)
+        metrics["sep"] = validation.sep(held_y, held_predicted)
+
+    # §9 and §15 as for PLS: one fold assignment, each fold on its own
+    # preprocessed array (#173), the curve over the model's log grid from
+    # its top down. A value a fold could not fit is absent from the curve.
+    cross_validated = np.array([], dtype=np.float64)
+    tuning: dict[str, Any] = {}
+    if parent.folds is not None and len(parent.folds) > 1:
+        folds = parent.folds
+        if path is not None and top is not None:
+            grid = top(train_x - x_mean, train_y - y_mean) * np.logspace(
+                0, -decades, PENALTY_POINTS
+            )
+            # ponytail: Ridge refits its SVD per grid value; reuse each fold's SVD
+            # across the grid if a large dataset makes the curve slow.
+            curve = tuning_curve(parent.arrays, response, folds, list(grid), fit_path)
+            tuning = {
+                "parameter": "alpha",
+                "metric": "rmsecv",
+                "values": _values(grid),
+                "scores": [float(score) if np.isfinite(score) else None for score in curve],
+                "log": True,
+                "chosen": alpha,
+            }
+        cross_validated = np.empty_like(response)
+        for one, values in zip(folds, parent.arrays, strict=True):
+            cross_validated[one.test] = fit_predict(
+                values[one.train], response[one.train], values[one.test]
+            )
+        metrics["rmsecv"] = validation.rmse(response, cross_validated)
+        metrics["q2"] = validation.q2(response, cross_validated)
+        for index, one in enumerate(folds):
+            metrics[f"rmsecv_fold_{index}"] = validation.rmse(
+                response[one.test], cross_validated[one.test]
+            )
+        per_fold = [metrics[f"rmsecv_fold_{i}"] for i in range(len(folds))]
+        metrics["rmsecv_std"] = float(np.std(per_fold, ddof=1))
+
+    return EstimatorResult(
+        node_id=node.id,
+        key=key,
+        task="regression",
+        n_components=0,
+        n_samples=int(train_x.shape[0]),
+        n_variables=int(train_x.shape[1]),
+        rank=0,
+        fold=fold,
+        rows=[int(row) for row in rows],
+        scores=[],
+        loadings=[],
+        eigenvalues=[],
+        explained_variance_ratio=[],
+        cumulative_explained_variance=[],
+        hotelling_t2=[],
+        # No X model, so no limits; the fields are required and the screen
+        # draws no diagnostics for a model without scores.
+        hotelling_t2_limit=0.0,
+        spe=[],
+        spe_limit=0.0,
+        target=target,
+        method=kind,
+        observed=_values(train_y),
+        predicted=_values(predicted),
+        coefficients=_values(coefficients),
+        x_mean=_values(x_mean),
+        y_mean=y_mean,
+        cross_validated_predicted=_values(cross_validated),
+        metrics=metrics,
+        held_out=[int(row) for row in held_out],
+        held_out_observed=_values(held_y) if held_out.size else [],
+        held_out_predicted=_values(held_predicted) if held_out.size else [],
+        tuning=tuning,
     )
 
 
@@ -1701,12 +2236,82 @@ def _plsda(
         return _plsda_multiclass(
             node, spec, parent, key, matrix, rows, held_out, fold, classes, codes
         )
-    response = codes.astype(np.float64)
-    fitted = _fit_regression(
+    return _dummy_classifier(
         node,
         "plsda",
         spec.n_components,
         spec.class_column,
+        classes,
+        codes,
+        (parent, key, matrix, rows, held_out, fold),
+        PLS,
+    )
+
+
+def _oplsda(
+    node: PipelineNode,
+    spec: OPLSDASpec,
+    parent: _State,
+    key: str,
+    matrix: NDArray[np.float64],
+    rows: NDArray[np.intp],
+    held_out: NDArray[np.intp],
+    fold: int | None,
+    version: DatasetVersion,
+) -> EstimatorResult:
+    """`opls.md` §8 (#379): OPLS on PLS-DA's two-class dummy, assigned and tallied
+    as two-class PLS-DA is, with the S-plot. Three or more classes are refused:
+    multi-class OPLS-DA is not specified yet."""
+    classes, codes = _class_labels(version, node, spec.class_column, kind="oplsda")
+    if len(classes) > 2:
+        raise ExecutorError(
+            f"node {node.id!r} (oplsda) classifies by {spec.class_column!r}, which has "
+            f"{len(classes)} classes; OPLS-DA here is two-class only. Use PLS-DA, which "
+            "models three or more, or make the column two-valued.",
+            node.id,
+        )
+    result = _dummy_classifier(
+        node,
+        "oplsda",
+        1 + spec.n_orthogonal,
+        spec.class_column,
+        classes,
+        codes,
+        (parent, key, matrix, rows, held_out, fold),
+        OPLS,
+    )
+    # opls.md §8: each variable's covariance and correlation with the
+    # predictive score, over the rows the model was fitted on.
+    x = matrix[rows] - matrix[rows].mean(axis=0)
+    t = np.asarray(result.scores, dtype=np.float64)[:, 0]
+    covariance = x.T @ t / (len(t) - 1)
+    spread = x.std(axis=0, ddof=1) * t.std(ddof=1)
+    correlation = np.divide(covariance, spread, out=np.zeros_like(covariance), where=spread > 0)
+    return replace(
+        result, s_plot={"covariance": _values(covariance), "correlation": _values(correlation)}
+    )
+
+
+def _dummy_classifier(
+    node: PipelineNode,
+    kind: str,
+    n_components: int,
+    class_column: str,
+    classes: list[str],
+    codes: NDArray[np.intp],
+    where: tuple[_State, str, NDArray[np.float64], NDArray[np.intp], NDArray[np.intp], int | None],
+    estimator: type[PLS],
+) -> EstimatorResult:
+    """A regression on the {0, 1} dummy, assigned at 0.5 and tallied by
+    `classification.md` (`pls-da.md` §2 to §6): two-class PLS-DA, and since
+    #379 two-class OPLS-DA, which is the same with OPLS as the regression."""
+    parent, key, matrix, rows, held_out, fold = where
+    response = codes.astype(np.float64)
+    fitted = _fit_regression(
+        node,
+        kind,
+        n_components,
+        class_column,
         response,
         parent,
         key,
@@ -1714,6 +2319,7 @@ def _plsda(
         rows,
         held_out,
         fold,
+        estimator=estimator,
     )
 
     observed = assign_classes(fitted.observed)
@@ -1937,12 +2543,9 @@ def _svm(
     return replace(result, svm=svm)
 
 
-def _scores_classifier(
+def _qda(
     node: PipelineNode,
-    kind: str,
-    class_column: str,
-    n_components: int,
-    build: Callable[[], KNN | SVM],
+    spec: QDASpec,
     parent: _State,
     key: str,
     matrix: NDArray[np.float64],
@@ -1950,14 +2553,135 @@ def _scores_classifier(
     held_out: NDArray[np.intp],
     fold: int | None,
     version: DatasetVersion,
-) -> tuple[KNN | SVM, EstimatorResult]:
+) -> EstimatorResult:
+    """`qda.md`: PCA-QDA, tallied by `classification.md`. A class whose
+    covariance is singular is refused in every training fold first, naming the
+    fold, the class and its count, as a one-class fold is (#343)."""
+    classes, codes = _class_labels(version, node, spec.class_column, kind="qda")
+
+    def refused(error: SingularCovariance, where: str) -> ExecutorError:
+        return ExecutorError(
+            f"node {node.id!r} (qda) cannot be fitted: {where}class "
+            f"{classes[error.class_index]!r} has {error.count} training samples, and its "
+            f"covariance on {spec.n_components} scores is singular. Use fewer components, "
+            "or a positive reg_param.",
+            node.id,
+        )
+
+    if parent.folds is not None:
+        for number, (one, values) in enumerate(zip(parent.folds, parent.arrays, strict=True), 1):
+            try:
+                QDA(spec.n_components, spec.reg_param).fit(
+                    values[one.train], codes[one.train], len(classes)
+                )
+            except SingularCovariance as error:
+                raise refused(
+                    error, f"in training fold {number} of {len(parent.folds)}, "
+                ) from error
+    try:
+        model, result = _scores_classifier(
+            node,
+            "qda",
+            spec.class_column,
+            spec.n_components,
+            lambda: QDA(spec.n_components, spec.reg_param),
+            parent,
+            key,
+            matrix,
+            rows,
+            held_out,
+            fold,
+            version,
+        )
+    except ExecutorError as error:
+        if isinstance(error.__cause__, SingularCovariance):
+            raise refused(error.__cause__, "") from error
+        raise
+    assert isinstance(model, QDA)
+    # qda.md section 5: each class's model on the scores, in class order.
+    return replace(
+        result,
+        qda={
+            "reg_param": spec.reg_param,
+            "classes": [
+                {
+                    "mean": _values(one["mean"]),
+                    "rotation": _rows(one["rotation"]),
+                    "scalings": _values(one["scalings"]),
+                    "prior": float(one["prior"]),
+                }
+                for one in model.classes_
+            ],
+        },
+    )
+
+
+def _logistic(
+    node: PipelineNode,
+    spec: LogisticSpec,
+    parent: _State,
+    key: str,
+    matrix: NDArray[np.float64],
+    rows: NDArray[np.intp],
+    held_out: NDArray[np.intp],
+    fold: int | None,
+    version: DatasetVersion,
+) -> EstimatorResult:
+    """`logistic-regression.md`: PCA-logistic regression, tallied by
+    `classification.md`, with its class probabilities (§4)."""
+    model, result = _scores_classifier(
+        node,
+        "logistic",
+        spec.class_column,
+        spec.n_components,
+        lambda: LogisticRegression(spec.n_components, spec.C),
+        parent,
+        key,
+        matrix,
+        rows,
+        held_out,
+        fold,
+        version,
+    )
+    assert isinstance(model, LogisticRegression)
+    return replace(
+        result,
+        probabilities=_rows(model.predict_proba(matrix[rows])),
+        held_out_probabilities=_rows(model.predict_proba(matrix[held_out]))
+        if held_out.size
+        else [],
+        # logistic-regression.md section 5: one row of W per model row, on the scores.
+        logistic={
+            "C": spec.C,
+            "coefficients": _rows(np.asarray(model.coefficients_)),
+            "intercept": _values(np.asarray(model.intercept_)),
+        },
+    )
+
+
+def _scores_classifier(
+    node: PipelineNode,
+    kind: str,
+    class_column: str,
+    n_components: int,
+    build: Callable[[], KNN | SVM | LogisticRegression | QDA],
+    parent: _State,
+    key: str,
+    matrix: NDArray[np.float64],
+    rows: NDArray[np.intp],
+    held_out: NDArray[np.intp],
+    fold: int | None,
+    version: DatasetVersion,
+) -> tuple[KNN | SVM | LogisticRegression | QDA, EstimatorResult]:
     """A classifier on the PCA front's scores, kNN's or SVM's: fitted on the
     calibration rows and on every fold, tallied by `classification.md`, with
     the PCA front's panels (`knn.md` §4, `svm.md` §5)."""
     classes, codes = _class_labels(version, node, class_column, kind=kind)
     n_classes = len(classes)
 
-    def fit(values: NDArray[np.float64], train: NDArray[np.intp]) -> KNN | SVM:
+    def fit(
+        values: NDArray[np.float64], train: NDArray[np.intp]
+    ) -> KNN | SVM | LogisticRegression | QDA:
         try:
             return build().fit(values[train], codes[train], n_classes)
         except ValueError as error:
@@ -2001,9 +2725,7 @@ def _scores_classifier(
         cumulative_explained_variance=_values(pca.cumulative_explained_variance()),
         hotelling_t2=_values(pca.hotelling_t2(centred)),
         hotelling_t2_limit=float(pca.hotelling_t2_limit(ALPHA)),
-        spe=_values(pca.spe(centred)),
-        spe_limit=float(pca.spe_limit(ALPHA)),
-        spe_limit_caveat=pca.spe_limit_caveat(),
+        **_spe(pca, centred),
         target=class_column,
         method=kind,
         x_mean=_values(x_mean),
@@ -2084,9 +2806,7 @@ def _lda(
         cumulative_explained_variance=_values(pca.cumulative_explained_variance()),
         hotelling_t2=_values(pca.hotelling_t2(centred)),
         hotelling_t2_limit=float(pca.hotelling_t2_limit(ALPHA)),
-        spe=_values(pca.spe(centred)),
-        spe_limit=float(pca.spe_limit(ALPHA)),
-        spe_limit_caveat=pca.spe_limit_caveat(),
+        **_spe(pca, centred),
         target=spec.class_column,
         method="lda",
         x_mean=_values(x_mean),
@@ -2206,6 +2926,30 @@ def _simca(
             "sets": sets,
         },
     )
+
+
+def _spe(pca: PCA, calibration: NDArray[np.float64]) -> dict[str, Any]:
+    """A PCA's `spe`, `spe_limit` and `spe_limit_caveat` on its calibration rows.
+
+    `pca.md` section 8's degenerate case (#404): a model that keeps every
+    component has no residual, so SPE is exactly zero and no limit exists. The
+    kernel refuses the limit; a run reports the zeros, carries 0.0 in the
+    required field as a model without an X model does, and says why.
+    """
+    if pca.n_components == pca.rank_:
+        return {
+            "spe": [0.0] * int(np.asarray(calibration).shape[0]),
+            "spe_limit": 0.0,
+            "spe_limit_caveat": (
+                f"This model keeps all {pca.rank_} components of a rank-{pca.rank_} matrix, so "
+                "every residual is zero and no SPE limit exists (pca.md section 8)."
+            ),
+        }
+    return {
+        "spe": _values(pca.spe(calibration)),
+        "spe_limit": float(pca.spe_limit(ALPHA)),
+        "spe_limit_caveat": pca.spe_limit_caveat(),
+    }
 
 
 def _values(array: object) -> list[float]:

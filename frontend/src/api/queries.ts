@@ -18,6 +18,9 @@ export interface Project {
   app_version: string;
 }
 
+/** What a column of a dataset is for (#371), as `models.ColumnRole` says. */
+export type ColumnRole = "target" | "class" | "group" | "ignore";
+
 export interface DatasetVersion {
   version_id: string;
   version: number;
@@ -30,6 +33,10 @@ export interface DatasetVersion {
   metadata_columns: Record<string, (string | number)[]>;
   excluded_samples: number[];
   excluded_variables: number[];
+  /** Metadata columns whose role the user chose (#371); absent when none was. */
+  column_roles?: Record<string, "class" | "group">;
+  /** What this version changed from its parent, each column to its new role. */
+  role_changes?: Record<string, ColumnRole>;
   source: {
     filename: string;
     reader: string;
@@ -284,6 +291,8 @@ export interface PcaPayload {
     class_column: string | null;
     classes: string[];
     predicted_class: number[];
+    /** A logistic regression's (#380): n x K, columns in `classes` order. */
+    probabilities?: number[][];
     /** `calibration`, and below a split `cross_validation` and `held_out`:
      * rows observed, columns assigned, in `classes` order. */
     confusion: Record<string, number[][]>;
@@ -301,6 +310,22 @@ export interface PcaPayload {
   metrics?: Partial<Record<string, number>>;
   /** RMSECV against component count, one point per `A`. Empty above a split. */
   rmsecv_curve?: number[];
+  /** An OPLS-DA's S-plot (#379): each variable's covariance and correlation with t pred. */
+  s_plot?: { covariance: number[]; correlation: number[] };
+  /** The same curve against its named parameter (#373); absent with no curve. */
+  tuning_curve?: TuningCurve;
+}
+
+/** `metrics-and-validation.md` section 15: a metric against one complexity
+ * parameter over one fold assignment, and the value the node was fitted with. */
+export interface TuningCurve {
+  parameter: string;
+  metric: string;
+  values: number[];
+  /** `null` where a fold could not fit that value (#375): absent, never a guess. */
+  scores: (number | null)[];
+  log: boolean;
+  chosen: number;
 }
 
 /** `GET /results/{id}/coefficients`: the model as `y = intercept + X_raw · b`
@@ -429,6 +454,33 @@ export function useExcludeSamples() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ from_version_id: fromVersionId, exclude }),
+      }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["datasets"] });
+      void client.invalidateQueries({ queryKey: ["pipeline"] });
+      void client.invalidateQueries({ queryKey: ["pipeline-state"] });
+    },
+  });
+}
+
+/** Give columns of a version new roles (#371): the server writes a new version
+ * with them and moves the pipeline's source onto it, as an exclusion does. */
+export function useChangeRoles() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      datasetId,
+      fromVersionId,
+      roles,
+    }: {
+      datasetId: string;
+      fromVersionId: string;
+      roles: Record<string, ColumnRole>;
+    }) =>
+      api<DatasetEntry>(`/datasets/${datasetId}/roles`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from_version_id: fromVersionId, roles }),
       }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["datasets"] });

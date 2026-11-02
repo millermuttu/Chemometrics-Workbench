@@ -120,7 +120,7 @@ export default defineConfig({
   projects: [
     {
       name: "seeded",
-      testIgnore: /(empty|runs|walkthrough|docs-examples|docs-classification|docs-validation)\.spec\.ts/,
+      testIgnore: /(empty|runs|walkthrough|docs-examples|docs-classification|docs-validation|docs-comparison)\.spec\.ts/,
       use: { baseURL: "http://127.0.0.1:8765" },
     },
     { name: "empty", testMatch: /empty\.spec\.ts/, use: { baseURL: "http://127.0.0.1:8766" } },
@@ -154,6 +154,12 @@ export default defineConfig({
       testMatch: /docs-validation\.spec\.ts/,
       use: { baseURL: "http://127.0.0.1:8771" },
     },
+    {
+      // The model comparison example's (#382): Tecator again, its own project.
+      name: "comparison",
+      testMatch: /docs-comparison\.spec\.ts/,
+      use: { baseURL: "http://127.0.0.1:8772" },
+    },
   ],
   webServer: [
     serve("seeded", "8765", ""),
@@ -163,5 +169,6 @@ export default defineConfig({
     serve("examples", "8769", "--empty"),
     serve("classification", "8770", "--empty"),
     serve("validation", "8771", "--empty"),
+    serve("comparison", "8772", "--empty"),
   ],
 });

@@ -12,6 +12,8 @@ from typing import Any, Self
 
 import numpy as np
 from numpy.typing import NDArray
+from scipy.optimize import minimize
+from scipy.special import expit, logsumexp
 
 from chemometrics_workbench.arrays import as_float64
 from chemometrics_workbench.decomposition import PCA
@@ -19,8 +21,11 @@ from chemometrics_workbench.decomposition import PCA
 __all__ = [
     "KNN",
     "LDA",
+    "QDA",
     "SIMCA",
     "SVM",
+    "LogisticRegression",
+    "SingularCovariance",
     "acceptance_table",
     "simca_class_metrics",
     "simca_metrics",
@@ -298,18 +303,39 @@ class KNN:
 _TAU = 1e-12
 
 
+def kernel_matrix(
+    kind: str, gamma: float, a: NDArray[np.float64], b: NDArray[np.float64]
+) -> NDArray[np.float64]:
+    """`svm.md` §2's kernel between the rows of `a` and `b`: `a b'`, or the RBF."""
+    if kind == "linear":
+        linear: NDArray[np.float64] = a @ b.T
+        return linear
+    squared = (a**2).sum(axis=1)[:, None] - 2.0 * a @ b.T + (b**2).sum(axis=1)[None, :]
+    rbf: NDArray[np.float64] = np.exp(-gamma * np.maximum(squared, 0.0))
+    return rbf
+
+
 def _smo(
-    kernel: NDArray[np.float64], y: NDArray[np.float64], c: float, tol: float, max_iter: int
+    kernel: NDArray[np.float64],
+    y: NDArray[np.float64],
+    c: float,
+    tol: float,
+    max_iter: int,
+    linear: NDArray[np.float64] | None = None,
 ) -> tuple[NDArray[np.float64], float]:
     """The C-SVM dual by SMO with LIBSVM's second-order working-set selection
     and without shrinking (`svm.md` §3). `y` is +1/-1. Returns the multipliers
     and `rho`, the decision being `sum_i a_i y_i K(x_i, x) - rho`.
 
+    `linear` is the dual's linear term, `-1` everywhere for a classifier and
+    epsilon-SVR's `epsilon -+ z` over its doubled problem (`svr.md` §3, #377):
+    LIBSVM solves both with this one solver, started from `gradient = linear`.
+
     Ties in both selections go to the later index, as LIBSVM's `>=` and `<=`
     make them, so the two solvers take the same steps.
     """
     a = np.zeros(y.size)
-    gradient = -np.ones(y.size)
+    gradient = -np.ones(y.size) if linear is None else np.array(linear, dtype=np.float64)
     diagonal = np.diag(kernel).copy()
     for _ in range(max_iter):
         up = np.flatnonzero(np.where(y > 0, a < c, a > 0))
@@ -427,12 +453,7 @@ class SVM:
         self.pairs_: list[dict[str, Any]] = []
 
     def _kernel(self, a: NDArray[np.float64], b: NDArray[np.float64]) -> NDArray[np.float64]:
-        if self.kernel == "linear":
-            linear: NDArray[np.float64] = a @ b.T
-            return linear
-        squared = (a**2).sum(axis=1)[:, None] - 2.0 * a @ b.T + (b**2).sum(axis=1)[None, :]
-        rbf: NDArray[np.float64] = np.exp(-self.gamma_ * np.maximum(squared, 0.0))
-        return rbf
+        return kernel_matrix(self.kernel, self.gamma_, a, b)
 
     def fit(self, X: object, codes: object, n_classes: int) -> Self:
         values = as_float64(X, "X")
@@ -500,4 +521,203 @@ class SVM:
     def predict(self, X: object) -> NDArray[np.intp]:
         """The most votes, a tied vote to the first class (`svm.md` §4)."""
         assigned: NDArray[np.intp] = self.votes(X).argmax(axis=1)
+        return assigned
+
+
+class LogisticRegression:
+    """PCA-logistic regression, per `logistic-regression.md` (#380): centre X,
+    project it on `n_components` principal components, and fit an L2-penalised
+    logistic regression to the scores with SciPy's L-BFGS.
+
+    The objective is scikit-learn's, `1/2 ||W||^2 + C sum_i loss_i`, the
+    intercept unpenalised (§2). Two classes are one binomial model, `W` one
+    row, as scikit-learn fits them; three or more are one multinomial model
+    over every class, softmax over `K` rows. The first classifier here with
+    class probabilities.
+    """
+
+    x_mean_: NDArray[np.float64] | None = None
+    coefficients_: NDArray[np.float64] | None = None
+    intercept_: NDArray[np.float64] | None = None
+
+    def __init__(
+        self, n_components: int, c: float = 1.0, *, tol: float = 1e-4, max_iter: int = 15_000
+    ) -> None:
+        if c <= 0:
+            raise ValueError(f"C must be positive, got {c}")
+        self.n_components = int(n_components)
+        self.c = float(c)
+        self.tol = float(tol)
+        self.max_iter = int(max_iter)
+        self.pca_ = PCA(self.n_components)
+        self.n_classes = 0
+
+    def fit(self, X: object, codes: object, n_classes: int) -> Self:
+        values = as_float64(X, "X")
+        labels = np.asarray(codes, dtype=np.intp)
+        if labels.shape != (values.shape[0],):
+            raise ValueError(f"X has {values.shape[0]} rows and codes has {labels.size}")
+        counts = np.bincount(labels, minlength=n_classes)
+        if (counts == 0).any():
+            empty = int(np.flatnonzero(counts == 0)[0])
+            raise ValueError(
+                f"class {empty} has no calibration samples (logistic-regression.md section 2)"
+            )
+        self.x_mean_ = values.mean(axis=0)
+        self.pca_.fit(values - self.x_mean_)
+        scores = self.pca_.transform(values - self.x_mean_)
+        self.n_classes = int(n_classes)
+        rows = 1 if n_classes == 2 else n_classes
+        width = scores.shape[1]
+        target = labels.astype(np.float64) if rows == 1 else np.eye(n_classes)[labels]
+
+        def objective(theta: NDArray[np.float64]) -> tuple[float, NDArray[np.float64]]:
+            w = theta[: rows * width].reshape(rows, width)
+            z = scores @ w.T + theta[rows * width :]
+            if rows == 1:
+                loss = float(np.sum(np.logaddexp(0.0, z[:, 0]) - target * z[:, 0]))
+                residual = (expit(z[:, 0]) - target)[:, None]
+            else:
+                total = logsumexp(z, axis=1)
+                loss = float(np.sum(total - np.sum(target * z, axis=1)))
+                residual = np.exp(z - total[:, None]) - target
+            gradient = np.concatenate(
+                [(w + self.c * residual.T @ scores).ravel(), self.c * residual.sum(axis=0)]
+            )
+            return 0.5 * float(np.sum(w * w)) + self.c * loss, gradient
+
+        found = minimize(
+            objective,
+            np.zeros(rows * width + rows),
+            jac=True,
+            method="L-BFGS-B",
+            options={"gtol": self.tol, "maxiter": self.max_iter, "ftol": 0.0},
+        )
+        if not found.success and found.nit >= self.max_iter:
+            raise ValueError(
+                f"L-BFGS did not converge in {self.max_iter} iterations at C {self.c:g}; "
+                "a smaller C converges faster (logistic-regression.md section 3)"
+            )
+        self.coefficients_ = found.x[: rows * width].reshape(rows, width)
+        self.intercept_ = found.x[rows * width :]
+        return self
+
+    def _scores(self, X: object) -> NDArray[np.float64]:
+        if self.x_mean_ is None or self.coefficients_ is None or self.intercept_ is None:
+            raise RuntimeError("LogisticRegression has not been fitted")
+        return self.pca_.transform(as_float64(X, "X") - self.x_mean_)
+
+    def decision_function(self, X: object) -> NDArray[np.float64]:
+        """`n x rows`: the linear predictor on each row of `W`."""
+        z: NDArray[np.float64] = self._scores(X) @ np.asarray(self.coefficients_).T + np.asarray(
+            self.intercept_
+        )
+        return z
+
+    def predict_proba(self, X: object) -> NDArray[np.float64]:
+        """`n x K`, every row summing to one, columns in class order (§4)."""
+        z = self.decision_function(X)
+        if z.shape[1] == 1:
+            p = expit(z[:, 0])
+            both: NDArray[np.float64] = np.column_stack([1.0 - p, p])
+            return both
+        probabilities: NDArray[np.float64] = np.exp(z - logsumexp(z, axis=1)[:, None])
+        return probabilities
+
+    def predict(self, X: object) -> NDArray[np.intp]:
+        """The most probable class; a tie goes to the first (§4)."""
+        assigned: NDArray[np.intp] = self.predict_proba(X).argmax(axis=1)
+        return assigned
+
+
+class SingularCovariance(ValueError):
+    """A class whose covariance is singular on the scores (`qda.md` §3), with
+    which class and how many samples it had, so a caller can name them."""
+
+    def __init__(self, class_index: int, count: int, n_components: int) -> None:
+        self.class_index = class_index
+        self.count = count
+        super().__init__(
+            f"class {class_index} has {count} training samples, and its covariance on "
+            f"{n_components} scores is singular; use fewer components or a positive "
+            "reg_param (qda.md section 3)"
+        )
+
+
+class QDA:
+    """PCA-QDA, per `qda.md` (#381): centre X, project it on `n_components`
+    principal components, and fit one Gaussian per class to the scores - LDA
+    with a covariance per class - with scikit-learn's `reg_param` shrinkage of
+    each class's eigenvalues toward one.
+
+    Each class's covariance is decomposed whole, `A x A` (§2): where a class
+    has more samples than components that is scikit-learn's SVD solution
+    exactly, and with fewer it stays defined once `reg_param` is positive,
+    where scikit-learn's SVD solver refuses.
+    """
+
+    x_mean_: NDArray[np.float64] | None = None
+
+    def __init__(self, n_components: int, reg_param: float = 0.0) -> None:
+        if n_components < 1:
+            raise ValueError(f"n_components must be at least 1, got {n_components}")
+        if not 0.0 <= reg_param <= 1.0:
+            raise ValueError(f"reg_param must be in [0, 1], got {reg_param}")
+        self.n_components = int(n_components)
+        self.reg_param = float(reg_param)
+        self.pca_ = PCA(self.n_components)
+        #: Per class: `mean` (A), `rotation` (A x A), `scalings` (A), `prior`.
+        self.classes_: list[dict[str, Any]] = []
+
+    def fit(self, X: object, codes: object, n_classes: int) -> Self:
+        values = as_float64(X, "X")
+        labels = np.asarray(codes, dtype=np.intp)
+        if labels.shape != (values.shape[0],):
+            raise ValueError(f"X has {values.shape[0]} rows and codes has {labels.size}")
+        self.x_mean_ = values.mean(axis=0)
+        self.pca_.fit(values - self.x_mean_)
+        scores = self.pca_.transform(values - self.x_mean_)
+        self.classes_ = []
+        for k in range(n_classes):
+            block = scores[labels == k]
+            if block.shape[0] < 2:
+                raise SingularCovariance(k, block.shape[0], self.n_components)
+            mean = block.mean(axis=0)
+            centred = block - mean
+            eigenvalues, rotation = np.linalg.eigh(centred.T @ centred / (block.shape[0] - 1))
+            scalings = (1.0 - self.reg_param) * eigenvalues + self.reg_param
+            # §3: singular when a scaling is negligible beside the largest - a
+            # relative test, as decision 0004's rank tolerance is, not
+            # scikit-learn's absolute 1e-4, which depends on the scores' units.
+            eps = self.n_components * float(np.finfo(np.float64).eps) + PCA.STORED_EPS
+            if (scalings <= eps * float(scalings.max())).any():
+                raise SingularCovariance(k, block.shape[0], self.n_components)
+            self.classes_.append(
+                {
+                    "mean": mean,
+                    "rotation": rotation,
+                    "scalings": scalings,
+                    "prior": block.shape[0] / scores.shape[0],
+                }
+            )
+        return self
+
+    def decision_function(self, X: object) -> NDArray[np.float64]:
+        """`n x N` log posteriors up to a constant, scikit-learn's form (§4)."""
+        if self.x_mean_ is None:
+            raise RuntimeError("QDA has not been fitted")
+        projected = self.pca_.transform(as_float64(X, "X") - self.x_mean_)
+        columns = []
+        for one in self.classes_:
+            whitened = (projected - one["mean"]) @ one["rotation"] / np.sqrt(one["scalings"])
+            columns.append(
+                -0.5 * ((whitened**2).sum(axis=1) + np.log(one["scalings"]).sum())
+                + np.log(one["prior"])
+            )
+        decisions: NDArray[np.float64] = np.column_stack(columns)
+        return decisions
+
+    def predict(self, X: object) -> NDArray[np.intp]:
+        """The largest decision, a tie to the first class (§4)."""
+        assigned: NDArray[np.intp] = self.decision_function(X).argmax(axis=1)
         return assigned

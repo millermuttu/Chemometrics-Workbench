@@ -214,7 +214,7 @@ def test_import_writes_the_array_through_the_store_and_records_a_version(
     # The index holds a path; the values are in the store, float32 on disk.
     stored = project / version["array_path"]
     assert stored.exists()
-    assert np.load(stored).dtype == np.float32
+    assert np.load(stored).dtype == np.float64
     assert read_array(project, version["array_path"]).shape == (8, 12)
 
 
@@ -961,3 +961,325 @@ def test_a_step_below_an_estimator_is_refused_where_it_is_written(client: TestCl
         error = response.json()["error"]
         assert error["code"] == "invalid_pipeline"
         assert "node 'snv' takes its input from 'pca', which is an estimator" in error["message"]
+
+
+# --------------------------------------------------------------------------
+# column roles (#371): a derived version, and the pipeline moved onto it
+# --------------------------------------------------------------------------
+
+#: Eight spectra whose class is coded as a number, so the reader takes it for a
+#: target, and whose `batch` is text, so the reader offers it as a class.
+CODED = "sample,900,902,904,906,908,910,variety,batch,fat\n" + "".join(
+    f"S{row},"
+    + ",".join(
+        f"{(row % 2) * 0.5 + 0.1 * col + 0.01 * row * col + 0.004 * ((row * 7 + col * 3) % 5):.3f}"
+        for col in range(6)
+    )
+    + f",{row % 2 + 1},b{row // 4},{10 + row}\n"
+    for row in range(8)
+)
+
+
+def _coded(client: TestClient) -> tuple[str, dict[str, Any]]:
+    entry = client.post("/api/import", files={"file": ("coded.csv", CODED.encode())}).json()
+    return entry["dataset"]["dataset_id"], entry["versions"][0]
+
+
+def test_a_number_coded_class_is_made_a_class_and_a_classifier_runs_on_it(
+    client: TestClient,
+) -> None:
+    dataset_id, parent = _coded(client)
+    assert parent["targets"]["variety"] == [1, 2, 1, 2, 1, 2, 1, 2]
+    assert "variety" not in parent["metadata_columns"]
+
+    response = client.post(
+        f"/api/datasets/{dataset_id}/roles",
+        json={
+            "from_version_id": parent["version_id"],
+            "roles": {"variety": "class", "batch": "group"},
+        },
+    )
+    assert response.status_code == 201, response.text
+    child = response.json()["versions"][1]
+    assert child["version"] == 2
+    assert child["derived_from"] == parent["version_id"]
+    assert child["metadata_columns"]["variety"] == ["1", "2", "1", "2", "1", "2", "1", "2"]
+    assert "variety" not in child["targets"]
+    assert child["targets"]["fat"] == parent["targets"]["fat"]
+    assert child["column_roles"] == {"variety": "class", "batch": "group"}
+    assert child["role_changes"] == {"variety": "class", "batch": "group"}
+    # The spectra did not change, so neither did the array.
+    assert child["array_path"] == parent["array_path"]
+    assert child["content_hash"] == parent["content_hash"]
+    # The parent is untouched.
+    assert response.json()["versions"][0] == parent
+
+    nodes = client.get("/api/pipelines/current").json()["nodes"]
+    assert nodes[0]["version_id"] == child["version_id"]
+    nodes.append(
+        {
+            "id": "lda",
+            "type": "estimator",
+            "inputs": ["source"],
+            "spec": {"kind": "lda", "n_components": 2, "class_column": "variety"},
+        }
+    )
+    assert client.put("/api/pipelines/current", json={"nodes": nodes}).status_code == 200
+    job = client.post("/api/experiments/current/run").json()
+    deadline = time.monotonic() + 60
+    while (status := client.get(f"/api/jobs/{job['job_id']}").json())["status"] not in (
+        "succeeded",
+        "failed",
+        "cancelled",
+    ):
+        assert time.monotonic() < deadline, status
+        time.sleep(0.01)
+    assert status["status"] == "succeeded", status
+    assert client.get("/api/results/lda").json()["classification"]["classes"] == ["1", "2"]
+
+
+def test_a_class_is_made_a_target_and_an_identifier_ignored(client: TestClient) -> None:
+    dataset_id, parent = _coded(client)
+    first = client.post(
+        f"/api/datasets/{dataset_id}/roles",
+        json={"from_version_id": parent["version_id"], "roles": {"variety": "class"}},
+    ).json()["versions"][1]
+    back = client.post(
+        f"/api/datasets/{dataset_id}/roles",
+        json={
+            "from_version_id": first["version_id"],
+            "roles": {"variety": "target", "batch": "ignore"},
+        },
+    )
+    assert back.status_code == 201, back.text
+    child = back.json()["versions"][2]
+    assert child["targets"]["variety"] == [1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0]
+    assert child["metadata_columns"] == {}
+    assert child["role_changes"] == {"variety": "target", "batch": "ignore"}
+    assert "column_roles" not in child
+
+
+@pytest.mark.parametrize(
+    ("roles", "message"),
+    [
+        (
+            {"batch": "target"},
+            "'batch' cannot be a target: sample 'S0' has 'b0', which is not a number",
+        ),
+        ({"colour": "class"}, "has no column 'colour'"),
+        (
+            {"fat": "target", "batch": "class"},
+            "the roles chosen are the roles the columns already have",
+        ),
+    ],
+)
+def test_a_role_that_cannot_be_given_is_refused_by_name(
+    client: TestClient, roles: dict[str, str], message: str
+) -> None:
+    dataset_id, parent = _coded(client)
+    response = client.post(
+        f"/api/datasets/{dataset_id}/roles",
+        json={"from_version_id": parent["version_id"], "roles": roles},
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "invalid_roles"
+    assert message in response.json()["error"]["message"]
+    datasets = client.get(f"/api/projects/{project_id(client)}/datasets").json()
+    assert len(datasets[0]["versions"]) == 1
+
+
+def test_a_column_with_one_value_cannot_be_a_class(client: TestClient, project: Path) -> None:
+    csv = "sample,900,902,904,lot\n" + "".join(
+        f"S{row},{row}.1,{row}.2,{row}.3,7\n" for row in range(4)
+    )
+    entry = client.post("/api/import", files={"file": ("lot.csv", csv.encode())}).json()
+    response = client.post(
+        f"/api/datasets/{entry['dataset']['dataset_id']}/roles",
+        json={"from_version_id": entry["versions"][0]["version_id"], "roles": {"lot": "class"}},
+    )
+    assert response.status_code == 422
+    assert (
+        "'lot' cannot be a class: it has one value ('7' on every sample)"
+        in response.json()["error"]["message"]
+    )
+
+
+# --------------------------------------------------------------------------
+# ridge (#374): every surface a regression result has
+# --------------------------------------------------------------------------
+
+
+def _run_current(client: TestClient) -> None:
+    job = client.post("/api/experiments/current/run").json()
+    deadline = time.monotonic() + 60
+    while (status := client.get(f"/api/jobs/{job['job_id']}").json())["status"] not in (
+        "succeeded",
+        "failed",
+        "cancelled",
+    ):
+        assert time.monotonic() < deadline, status
+        time.sleep(0.01)
+    assert status["status"] == "succeeded", status
+
+
+@pytest.mark.parametrize(
+    ("spec", "method"),
+    [
+        ({"kind": "ridge", "alpha": 0.1}, "ridge"),
+        ({"kind": "elastic_net", "alpha": 0.1, "l1_ratio": 0.5}, "elastic_net"),
+        ({"kind": "elastic_net", "alpha": 0.1, "l1_ratio": 1.0}, "lasso"),
+        ({"kind": "svr", "C": 10, "n_components": 2}, "svr"),
+    ],
+)
+def test_a_penalised_model_is_served_exported_reported_and_saved_like_a_regression(
+    client: TestClient, spec: dict[str, Any], method: str
+) -> None:
+    """#374, #375: every surface a regression result has."""
+    client.post("/api/import", files=upload("tecator_subset.csv"))
+    nodes = client.get("/api/pipelines/current").json()["nodes"]
+    nodes += [
+        {
+            "id": "split",
+            "type": "split",
+            "inputs": ["source"],
+            "spec": {"kind": "kfold", "n_splits": 4},
+        },
+        {
+            "id": "centre",
+            "type": "preprocess",
+            "inputs": ["split"],
+            "step": {"kind": "mean_centre"},
+        },
+        {
+            "id": "ridge",
+            "type": "estimator",
+            "inputs": ["centre"],
+            "spec": {**spec, "target": "fat"},
+        },
+    ]
+    assert client.put("/api/pipelines/current", json={"nodes": nodes}).status_code == 200
+    _run_current(client)
+
+    payload = client.get("/api/results/ridge").json()
+    assert payload["regression"]["method"] == method
+    # An SVR is on PCA scores, so it has an X model; the penalised models have none.
+    assert (payload["scores"] != []) == (method == "svr") and payload["metrics"]["rmsecv"] > 0
+    curve = payload["tuning_curve"]
+    parameter = "C" if method == "svr" else "alpha"
+    assert curve["parameter"] == parameter and curve["log"] and curve["chosen"] == spec[parameter]
+    assert len(curve["values"]) == len(curve["scores"]) == (13 if method == "svr" else 25)
+
+    coefficients = client.get("/api/results/ridge/coefficients").json()
+    if method == "svr":
+        assert not coefficients["available"] and "support vectors" in coefficients["reason"]
+    else:
+        assert coefficients["available"] and len(coefficients["coefficients"]) == 12
+    assert client.get("/api/results/ridge/export.json").status_code == 200
+    assert client.get("/api/results/ridge/export.py").status_code == 200
+    # No X model, so nothing to diagnose and no VIP to bootstrap: refused by name.
+    outliers = client.get("/api/results/ridge/outliers")
+    assert outliers.status_code == 422, outliers.text
+    assert client.get("/api/results/ridge/bootstrap").status_code == 422
+
+    [experiment] = client.get("/api/experiments").json()
+    report = client.get(f"/api/experiments/{experiment['experiment_id']}/report.html")
+    assert report.status_code == 200, report.text
+    saved = client.post("/api/results/ridge/save", json={"name": f"{method} fat"})
+    assert saved.status_code == 201, saved.text
+
+
+def test_an_opls_curve_is_over_its_orthogonal_components(client: TestClient) -> None:
+    """#378, opls.md section 4: 0 to A - 1 orthogonal components, marked at the
+    number fitted, and the model exported as a coefficient vector."""
+    client.post("/api/import", files=upload("tecator_subset.csv"))
+    nodes = client.get("/api/pipelines/current").json()["nodes"]
+    nodes += [
+        {
+            "id": "split",
+            "type": "split",
+            "inputs": ["source"],
+            "spec": {"kind": "kfold", "n_splits": 4},
+        },
+        {
+            "id": "centre",
+            "type": "preprocess",
+            "inputs": ["split"],
+            "step": {"kind": "mean_centre"},
+        },
+        {
+            "id": "opls",
+            "type": "estimator",
+            "inputs": ["centre"],
+            "spec": {"kind": "opls", "n_orthogonal": 1, "target": "fat"},
+        },
+    ]
+    assert client.put("/api/pipelines/current", json={"nodes": nodes}).status_code == 200
+    _run_current(client)
+    payload = client.get("/api/results/opls").json()
+    curve = payload["tuning_curve"]
+    assert curve["parameter"] == "orthogonal components"
+    assert curve["values"] == [0, 1] and curve["chosen"] == 1
+    assert curve["scores"] == payload["rmsecv_curve"]
+    assert payload["regression"]["method"] == "opls" and len(payload["scores"][0]) == 2
+    assert client.get("/api/results/opls/coefficients").json()["available"]
+    assert client.get("/api/results/opls/export.py").status_code == 200
+
+
+def test_a_logistic_regression_serves_its_probabilities(client: TestClient) -> None:
+    """#380: probabilities beside the assignment. The subset's fat made a class
+    column (#371) gives as many classes as samples, a multinomial model of 8."""
+    entry = client.post("/api/import", files=upload("tecator_subset.csv")).json()
+    roles = client.post(
+        f"/api/datasets/{entry['dataset']['dataset_id']}/roles",
+        json={"from_version_id": entry["versions"][0]["version_id"], "roles": {"fat": "class"}},
+    )
+    assert roles.status_code == 201, roles.text
+    nodes = client.get("/api/pipelines/current").json()["nodes"]
+    nodes += [
+        {
+            "id": "logistic",
+            "type": "estimator",
+            "inputs": ["source"],
+            "spec": {"kind": "logistic", "C": 1, "n_components": 2, "class_column": "fat"},
+        },
+    ]
+    assert client.put("/api/pipelines/current", json={"nodes": nodes}).status_code == 200
+    _run_current(client)
+    payload = client.get("/api/results/logistic").json()
+    probabilities = np.asarray(payload["classification"]["probabilities"])
+    assert probabilities.shape == (8, len(payload["classification"]["classes"]))
+    np.testing.assert_allclose(probabilities.sum(axis=1), 1.0)
+    assert client.get("/api/results/logistic/export.py").status_code == 200
+
+
+def test_an_mlr_below_a_selection_is_served_and_exported(client: TestClient) -> None:
+    """#376: three of twelve variables, so every training fold of six rows has full rank."""
+    client.post("/api/import", files=upload("tecator_subset.csv"))
+    nodes = client.get("/api/pipelines/current").json()["nodes"]
+    nodes += [
+        {
+            "id": "split",
+            "type": "split",
+            "inputs": ["source"],
+            "spec": {"kind": "kfold", "n_splits": 4},
+        },
+        {
+            "id": "pick",
+            "type": "preprocess",
+            "inputs": ["split"],
+            "step": {"kind": "select_variables", "indices": [0, 5, 11]},
+        },
+        {
+            "id": "mlr",
+            "type": "estimator",
+            "inputs": ["pick"],
+            "spec": {"kind": "mlr", "target": "fat"},
+        },
+    ]
+    assert client.put("/api/pipelines/current", json={"nodes": nodes}).status_code == 200
+    _run_current(client)
+    payload = client.get("/api/results/mlr").json()
+    assert payload["regression"]["method"] == "mlr" and "tuning_curve" not in payload
+    assert len(payload["regression"]["coefficients"]) == 3 and "sec" in payload["metrics"]
+    assert client.get("/api/results/mlr/coefficients").json()["available"]
+    assert client.get("/api/results/mlr/export.py").status_code == 200

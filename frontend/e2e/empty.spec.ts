@@ -258,7 +258,10 @@ test("a connector dropped near the bottom opens a menu that fits", async ({ page
 
   const menu = page.getByTestId("add-step-menu");
   await expect(menu).toBeVisible();
+  // The menu scrolls once it is taller than the room above the drop (#408):
+  // the last entry is reached by scrolling inside it, then must fit the window.
   const last = menu.getByRole("menuitem").last();
+  await last.scrollIntoViewIfNeeded();
   const box = (await last.boundingBox())!;
   expect(box.y + box.height).toBeLessThanOrEqual(page.viewportSize()!.height);
   await last.click({ trial: true, timeout: 2_000 });

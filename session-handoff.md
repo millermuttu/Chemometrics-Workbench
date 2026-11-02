@@ -2,17 +2,24 @@
 
 Compact state for the next session. **Overwrite this file at the end of every session** — it is a snapshot, not a log. Read it first, then `feature_list.json`, `git log` on `dev`, and the open issues.
 
-**Updated:** 2026-10-10 (after #360 and #361)
+**Updated:** 2026-10-11 (after v1.2.0)
 
 ---
 
 ## Where things stand
 
-**`v1.1.0` is released** (2026-10-05), closing Phase 5; its list is archived at
-`docs/phase-5/feature_list.json` and its exit run at `docs/phase-5/exit-run.md`.
+**`v1.2.0` is released** (2026-10-11): dev merged into main through #368, the annotated tag pushed,
+and the Release workflow published https://github.com/millermuttu/Chemometrics-Workbench/releases/tag/v1.2.0
+with the Linux, macOS and Windows packages. Phase 6 is closed; its exit run is
+`docs/phase-6/exit-run.md`, written by `tests/exit_run_phase6.py` (met; `--tighten 1e-9` is not met).
+**No next phase is open.** `feature_list.json` is still Phase 6's list; archive it to
+`docs/phase-6/feature_list.json` when Phase 7 opens, as Phase 5's was.
 
-**Phase 6, validation integrity, is open.** `feature_list.json` is its list. Merged on `dev`, each
-through a green pull request:
+**The only open issue is #339, signed packages: `blocked`** on an Apple Developer ID with
+notarisation and a Windows code-signing certificate, which only the maintainer can supply as
+repository secrets. Commented on 2026-10-11. It was in the phase but not its exit criterion.
+
+Phase 6, each merged through a green pull request:
 
 | Feature | Issue | PR |
 | --- | --- | --- |
@@ -29,19 +36,12 @@ through a green pull request:
 | A GET that fails at the network is tried again (Windows `ERR_NO_BUFFER_SPACE`) | #351 | #359 |
 | The Step list offers the port menu's splits and estimators | #337 | #360 |
 | SVM: hand-written PCA-SVM (SMO), linear or RBF, one-vs-one | #338 | #361 |
-
-Not started, in priority order: docs (#340, every dependency now passing), exit run (#341).
-Signed packages (#339) are `blocked` on certificates, and must be resolved or deferred before
-`v1.2.0`. One release, `v1.2.0`, at the end.
-
-**Found during the phase, each with a `feature_list.json` entry:**
-- **#346** - remove the Decisions section from the docs site (maintainer's request).
-- **#362** - shrink and speed up the Python suite (maintainer, 2026-10-10: "1218 test cases is
-  insane"). 1,219 collected; most are dataset parametrisations. No parity claim may be dropped.
-- **#354** - macOS e2e once timed out on the train/test results note (#353's first run, a 7-minute
-  run under runner capacity limits). Passed on a re-run; its log has not been read yet. Job logs
-  and artifacts need auth: ask the maintainer to download the `playwright-report-<os>` artifact
-  (kept 7 days) and read `test-results/*/trace.zip` - that is how #351 was found.
+| The Decisions section left the docs site (`exclude_docs`) | #346 | #363 |
+| macOS e2e: the train/test note's expect given 30 s (payload 1.04 MB) | #354 | #364 |
+| Python suite in parallel (xdist, loadfile), `@every_dataset`: 1,219 tests in 83 s to 983 in 22 s | #362 | #365 |
+| Phase 6 docs: `examples/validation.md` on `meat-raw.csv`, how-to sections | #340 | #366 |
+| Exit run, met; version 1.2.0 | #341 | #367 |
+| dev into main; phase closed | #341 | #368, #369 |
 
 `PROPOSAL.md` §16 has the Phase 6 row.
 
@@ -214,6 +214,14 @@ Merged through green pull requests on `dev`:
   12 s a fit).
 - **Class-wise outliers (#335)**: `outliers.class_diagnostics`, `api.classwise_payload`; flags carry
   `n_rules` and are sorted by it for every model, so a test reading the first flag gets the worst.
+- **The Python suite runs under pytest-xdist** (`-n auto --dist loadfile`, #362). `loadfile`
+  because module-level RNGs make some files order-dependent; `-n 0` for a debugger. `conftest.py`
+  pins BLAS to one thread and merges each worker's parity record. Per-dataset parity claims use
+  `@every_dataset` in `test_parity.py`: never `pytest.skip` inside one (it skips the later datasets).
+- **The validation example** (#340) runs on `docs/examples/meat-raw.csv` (both runs kept; `meat`
+  is the first label column because a new classifier takes the first as its class) and its walk is
+  `e2e/docs-validation.spec.ts` on a seventh Playwright server (8771, `validation`). A classifier
+  tab has no "fitted · held out" note; that is the regression predicted-vs-measured panel only.
 - **New parity-style claims** that are tests rather than fixture entries have a `Coverage` row with
   `not_compared` naming the test (nested selection, permutation, bootstrap, class-wise).
 
@@ -257,8 +265,7 @@ Merged through green pull requests on `dev`:
 
 ## Next action
 
-Start `docs-phase-6` (#340): every dependency is passing. Read the issue body as well as its entry:
-algorithm pages exist for SVM (`svm.md`); the rest of the Phase 6 methods need pages, the worked
-example on the raw grouped meat set, how-to updates, numbers recomputed by `tests/test_examples.py`,
-and a Playwright docs spec. #354's report artifact expires around 2026-10-12; #346 and #362 are
-independent.
+Nothing is queued. Ask the maintainer what Phase 7 is (PROPOSAL.md §16 lists genetic-algorithm
+selection, the plugin API and self-hosted mode as what remains post-1.0), or for the signing
+certificates that unblock #339. When a phase opens: archive `feature_list.json` to
+`docs/phase-6/`, write the new list with its decisions, and open its issues.

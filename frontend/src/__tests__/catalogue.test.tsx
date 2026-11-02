@@ -4,10 +4,22 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import type { PipelineNode } from "@/api/queries";
-import { STEPS, stepMenu } from "@/canvas/catalogue";
+import {
+  type CatalogueStep,
+  GROUPS,
+  grouped,
+  NO_CLASS,
+  NO_TARGET,
+  STEPS,
+  stepMenu,
+} from "@/canvas/catalogue";
 import { parameterLine } from "@/canvas/graph";
 import { StepList } from "@/canvas/StepList";
 import { nodeLabel } from "@/shell/Sidebar";
+
+/** The kinds that can be added: a disabled entry is listed, not offered. */
+const enabled = (menu: CatalogueStep[]) =>
+  menu.filter((step) => !step.disabled).map((step) => step.kind);
 
 describe("the PLS menu entry", () => {
   it("models the dataset's first target", () => {
@@ -19,12 +31,13 @@ describe("the PLS menu entry", () => {
   it("offers PLS-DA only for a dataset with a two-valued column, on that column", () => {
     const plsda = stepMenu(["fat"], ["fat_class"]).find((step) => step.kind === "PLS-DA 5 LV")!;
     expect(plsda.payload.spec).toMatchObject({ kind: "plsda", class_column: "fat_class" });
-    expect(stepMenu(["fat"]).map((step) => step.kind)).not.toContain("PLS-DA 5 LV");
+    expect(enabled(stepMenu(["fat"]))).not.toContain("PLS-DA 5 LV");
   });
 
-  it("is absent when the dataset has nothing to model", () => {
-    const kinds = stepMenu([]).map((step) => step.kind);
+  it("is disabled, with the reason, when the dataset has nothing to model (#372)", () => {
+    const kinds = enabled(stepMenu([]));
     expect(kinds).not.toContain("PLS 5 LV");
+    expect(stepMenu([]).find((step) => step.kind === "PLS 5 LV")!.disabled).toBe(NO_TARGET);
     expect(kinds).toContain("K-fold 10");
     expect(kinds).toContain("Train/test 25%");
   });
@@ -62,7 +75,7 @@ it("offers PCR beside PLS when the dataset has a target, labelled alike (#272)",
   const node = { id: "pcr", type: "estimator", inputs: ["centre"], ...pcr.payload } as PipelineNode;
   expect(nodeLabel(node)).toBe("PCR 5 PC · fat");
   expect(parameterLine(node)).toBe(pcr.parameters);
-  expect(stepMenu([]).map((step) => step.kind)).not.toContain("PCR 5 PC");
+  expect(enabled(stepMenu([]))).not.toContain("PCR 5 PC");
 });
 
 it("offers SIMCA beside PLS-DA on a class column, labelled alike (#275)", () => {
@@ -71,7 +84,7 @@ it("offers SIMCA beside PLS-DA on a class column, labelled alike (#275)", () => 
   const node = { id: "simca", type: "estimator", inputs: ["snv"], ...simca.payload } as PipelineNode;
   expect(nodeLabel(node)).toBe("SIMCA 3 PC · grade");
   expect(parameterLine(node)).toBe(simca.parameters);
-  expect(stepMenu(["fat"]).map((step) => step.kind)).not.toContain("SIMCA 3 PC");
+  expect(enabled(stepMenu(["fat"]))).not.toContain("SIMCA 3 PC");
 });
 
 it("offers LDA beside PLS-DA on a class column, labelled alike (#276)", () => {
@@ -96,7 +109,7 @@ it("offers an SVM beside kNN on a class column, labelled alike (#338)", () => {
   const node = { id: "svm", type: "estimator", inputs: ["snv"], ...svm.payload } as PipelineNode;
   expect(nodeLabel(node)).toBe("SVM rbf 5 PC · grade");
   expect(parameterLine(node)).toBe(svm.parameters);
-  expect(stepMenu(["fat"]).map((step) => step.kind)).not.toContain("SVM rbf 5 PC");
+  expect(enabled(stepMenu(["fat"]))).not.toContain("SVM rbf 5 PC");
 });
 
 it("offers in the Step list what the port menu offers, splits and estimators included (#337)", () => {
@@ -116,4 +129,173 @@ it("offers in the Step list what the port menu offers, splits and estimators inc
   const options = [...markup.matchAll(/<option value="([^"]+)"/g)].map((match) => match[1]);
   expect(options).toEqual(menu.map((step) => step.kind));
   expect(options).toEqual(expect.arrayContaining(["K-fold 10", "Train/test 25%", "PLS-DA 5 LV"]));
+});
+
+it("puts every step under a heading, the models under Regression and Classification (#370)", () => {
+  const menu = stepMenu(["fat"], ["fat_class"]);
+  const headings = Object.fromEntries(grouped(menu).map(([group, steps]) => [group, steps.map((s) => s.kind)]));
+  expect(Object.keys(headings)).toEqual([...GROUPS]);
+  expect(headings.Regression).toEqual([
+    "PLS 5 LV",
+    "PCR 5 PC",
+    "Ridge α1",
+    "Elastic Net α1",
+    "Lasso α1",
+    "MLR",
+    "OPLS 1+1",
+    "SVR rbf 5 PC",
+  ]);
+  expect(headings.Classification).toEqual([
+    "PLS-DA 5 LV",
+    "OPLS-DA 1+1",
+    "LDA 5 PC",
+    "QDA 5 PC",
+    "Logistic 5 PC",
+    "kNN k5",
+    "SVM rbf 5 PC",
+    "SIMCA 3 PC",
+  ]);
+  expect(headings.Validation).toEqual(["K-fold 10", "Train/test 25%"]);
+  expect(headings.Explore).toEqual(["PCA"]);
+  // The menu is already in heading order, so grouping it moves nothing.
+  expect(grouped(menu).flatMap(([, steps]) => steps)).toEqual(menu);
+  // Without a target the heading stays, its models disabled (#372).
+  expect(grouped(stepMenu([])).map(([group]) => group)).toContain("Regression");
+});
+
+it("draws the Step list's options under one optgroup per heading (#370)", () => {
+  const markup = renderToStaticMarkup(
+    <StepList
+      menu={stepMenu(["fat"], ["fat_class"])}
+      steps={[]}
+      onChange={() => {}}
+      onValidate={() => {}}
+      onSave={() => {}}
+      saving={false}
+      validation={null}
+      edited={false}
+    />,
+  );
+  const labels = [...markup.matchAll(/<optgroup label="([^"]+)"/g)].map((match) => match[1]);
+  expect(labels).toEqual([...GROUPS]);
+  const regression = markup.split('<optgroup label="Regression">')[1].split("</optgroup>")[0];
+  expect(regression).toContain('value="PLS 5 LV"');
+  expect(regression).toContain('value="PCR 5 PC"');
+});
+
+it("disables every model the dataset has no column for, naming the column it needs (#372)", () => {
+  const bare = stepMenu([]);
+  const models = bare.filter((step) => step.group === "Regression" || step.group === "Classification");
+  expect(models.map((step) => step.kind)).toEqual(
+    stepMenu(["fat"], ["fat_class"])
+      .filter((step) => step.group === "Regression" || step.group === "Classification")
+      .map((step) => step.kind),
+  );
+  for (const step of models) {
+    expect(step.disabled).toBe(step.group === "Regression" ? NO_TARGET : NO_CLASS);
+  }
+  expect(bare.filter((step) => step.disabled).every((step) => models.includes(step))).toBe(true);
+  // A target alone enables regression and leaves the classifiers disabled.
+  expect(enabled(stepMenu(["fat"]))).toContain("PLS 5 LV");
+  expect(stepMenu(["fat"]).find((step) => step.kind === "LDA 5 PC")!.disabled).toBe(NO_CLASS);
+});
+
+it("draws a disabled model as a disabled option, and its reason under the list (#372)", () => {
+  const markup = renderToStaticMarkup(
+    <StepList
+      menu={stepMenu([])}
+      onOpenDataset={() => {}}
+      steps={[]}
+      onChange={() => {}}
+      onValidate={() => {}}
+      onSave={() => {}}
+      saving={false}
+      validation={null}
+      edited={false}
+    />,
+  );
+  expect(markup).toMatch(/<option value="PLS 5 LV" disabled="" title="No target column/);
+  expect(markup).toContain(NO_TARGET);
+  expect(markup).toContain(NO_CLASS);
+  expect(markup).toContain("Open Dataset view");
+});
+
+it("offers Ridge beside PLS when the dataset has a target, labelled alike (#374)", () => {
+  const ridge = stepMenu(["fat"]).find((step) => step.kind === "Ridge α1")!;
+  expect(ridge.group).toBe("Regression");
+  expect(ridge.payload.spec).toEqual({ kind: "ridge", alpha: 1, target: "fat" });
+  const node = { id: "ridge", type: "estimator", inputs: ["snv"], ...ridge.payload } as PipelineNode;
+  expect(nodeLabel(node)).toBe("Ridge α1 · fat");
+  expect(parameterLine(node)).toBe(ridge.parameters);
+  expect(stepMenu([]).find((step) => step.kind === "Ridge α1")!.disabled).toBe(NO_TARGET);
+});
+
+it("offers Elastic Net and the Lasso as one estimator, named by l1_ratio (#375)", () => {
+  const menu = stepMenu(["fat"]);
+  const enet = menu.find((step) => step.kind === "Elastic Net α1")!;
+  const lasso = menu.find((step) => step.kind === "Lasso α1")!;
+  expect(enet.payload.spec).toEqual({ kind: "elastic_net", alpha: 1, l1_ratio: 0.5, target: "fat" });
+  expect(lasso.payload.spec).toEqual({ kind: "elastic_net", alpha: 1, l1_ratio: 1, target: "fat" });
+  for (const step of [enet, lasso]) {
+    const node = { id: "e", type: "estimator", inputs: ["snv"], ...step.payload } as PipelineNode;
+    expect(nodeLabel(node)).toBe(`${step.kind} · fat`);
+    expect(parameterLine(node)).toBe(step.parameters);
+  }
+});
+
+it("offers MLR beside PLS when the dataset has a target, labelled alike (#376)", () => {
+  const mlr = stepMenu(["fat"]).find((step) => step.kind === "MLR")!;
+  expect(mlr.payload.spec).toEqual({ kind: "mlr", target: "fat" });
+  const node = { id: "mlr", type: "estimator", inputs: ["pick"], ...mlr.payload } as PipelineNode;
+  expect(nodeLabel(node)).toBe("MLR · fat");
+  expect(parameterLine(node)).toBe(mlr.parameters);
+});
+
+it("offers an SVR beside PLS when the dataset has a target, labelled alike (#377)", () => {
+  const svr = stepMenu(["fat"]).find((step) => step.kind === "SVR rbf 5 PC")!;
+  expect(svr.payload.spec).toEqual({
+    kind: "svr",
+    kernel: "rbf",
+    C: 1,
+    epsilon: 0.1,
+    n_components: 5,
+    target: "fat",
+  });
+  const node = { id: "svr", type: "estimator", inputs: ["snv"], ...svr.payload } as PipelineNode;
+  expect(nodeLabel(node)).toBe("SVR rbf 5 PC · fat");
+  expect(parameterLine(node)).toBe(svr.parameters);
+});
+
+it("offers OPLS beside PLS when the dataset has a target, labelled alike (#378)", () => {
+  const opls = stepMenu(["fat"]).find((step) => step.kind === "OPLS 1+1")!;
+  expect(opls.payload.spec).toEqual({ kind: "opls", n_orthogonal: 1, target: "fat" });
+  const node = { id: "opls", type: "estimator", inputs: ["centre"], ...opls.payload } as PipelineNode;
+  expect(nodeLabel(node)).toBe("OPLS 1+1 · fat");
+  expect(parameterLine(node)).toBe(opls.parameters);
+});
+
+it("offers OPLS-DA beside PLS-DA on a class column, labelled alike (#379)", () => {
+  const oplsda = stepMenu([], ["grade"]).find((step) => step.kind === "OPLS-DA 1+1")!;
+  expect(oplsda.group).toBe("Classification");
+  expect(oplsda.payload.spec).toEqual({ kind: "oplsda", n_orthogonal: 1, class_column: "grade" });
+  const node = { id: "o", type: "estimator", inputs: ["centre"], ...oplsda.payload } as PipelineNode;
+  expect(nodeLabel(node)).toBe("OPLS-DA 1+1 · grade");
+  expect(parameterLine(node)).toBe(oplsda.parameters);
+  expect(stepMenu(["fat"]).find((step) => step.kind === "OPLS-DA 1+1")!.disabled).toBe(NO_CLASS);
+});
+
+it("offers a logistic regression on a class column, labelled alike (#380)", () => {
+  const logistic = stepMenu([], ["grade"]).find((step) => step.kind === "Logistic 5 PC")!;
+  expect(logistic.payload.spec).toEqual({ kind: "logistic", C: 1, n_components: 5, class_column: "grade" });
+  const node = { id: "l", type: "estimator", inputs: ["snv"], ...logistic.payload } as PipelineNode;
+  expect(nodeLabel(node)).toBe("Logistic 5 PC · grade");
+  expect(parameterLine(node)).toBe(logistic.parameters);
+});
+
+it("offers QDA beside LDA on a class column, labelled alike (#381)", () => {
+  const qda = stepMenu([], ["grade"]).find((step) => step.kind === "QDA 5 PC")!;
+  expect(qda.payload.spec).toEqual({ kind: "qda", n_components: 5, reg_param: 0, class_column: "grade" });
+  const node = { id: "q", type: "estimator", inputs: ["snv"], ...qda.payload } as PipelineNode;
+  expect(nodeLabel(node)).toBe("QDA 5 PC · grade");
+  expect(parameterLine(node)).toBe(qda.parameters);
 });

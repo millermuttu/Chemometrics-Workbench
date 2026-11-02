@@ -1,15 +1,19 @@
+import type { ColumnRole, DatasetVersion } from "@/api/queries";
+
 /** Which metadata columns a PLS-DA can classify by (#185, #274).
  *
  * `pls-da.md` section 2: two or more distinct values. A column with one value
  * has nothing to separate, and the executor refuses it by name - so it is not
- * offered, rather than offered and refused. Pure, so the rule is tested
- * without a browser.
+ * offered, rather than offered and refused. A column the user made a group
+ * (#371) - an identifier, a batch - is not offered either. Pure, so the rule is
+ * tested without a browser.
  */
 export function classColumns(
   columns: Record<string, (string | number)[]> | undefined,
+  roles: Record<string, "class" | "group"> = {},
 ): string[] {
   return Object.entries(columns ?? {})
-    .filter(([, values]) => new Set(values.map(String)).size >= 2)
+    .filter(([name, values]) => roles[name] !== "group" && new Set(values.map(String)).size >= 2)
     .map(([name]) => name);
 }
 
@@ -29,4 +33,19 @@ export function stratifiableColumns(
       return counts.size >= 2 && [...counts.values()].every((count) => count >= 2);
     })
     .map(([name]) => name);
+}
+
+/** What `column` is for in `version` (#371): chosen, or as the import read it.
+ *
+ * The same rule as `project.role_of` on the server: a metadata column nobody
+ * gave a role is a class when it has two or more values, a group otherwise.
+ */
+export function roleOf(
+  version: Pick<DatasetVersion, "targets" | "metadata_columns" | "column_roles">,
+  column: string,
+): ColumnRole {
+  if (column in version.targets) return "target";
+  const chosen = version.column_roles?.[column];
+  if (chosen) return chosen;
+  return new Set(version.metadata_columns[column].map(String)).size >= 2 ? "class" : "group";
 }

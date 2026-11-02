@@ -34,13 +34,18 @@ from dataclasses import dataclass
 from chemometrics_workbench.models import (
     MSC,
     Autoscale,
+    ElasticNetSpec,
     MeanCentre,
+    MLRSpec,
     NodeId,
+    OPLSDASpec,
+    OPLSSpec,
     PCRSpec,
     Pipeline,
     PipelineNode,
     PLSDASpec,
     PLSRegressionSpec,
+    RidgeSpec,
     SelectVariables,
 )
 
@@ -179,7 +184,15 @@ def _pls_without_centring(
     centring is a node in the recipe or it has not happened.
     """
     if node.type != "estimator" or not isinstance(
-        node.spec, PLSRegressionSpec | PCRSpec | PLSDASpec
+        node.spec,
+        PLSRegressionSpec
+        | PCRSpec
+        | RidgeSpec
+        | ElasticNetSpec
+        | MLRSpec
+        | OPLSSpec
+        | OPLSDASpec
+        | PLSDASpec,
     ):
         return []
 

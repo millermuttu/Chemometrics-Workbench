@@ -9,7 +9,7 @@ report green in CI against published reference values* — means in practice. Th
 committed copy is not byte-compared: the last bits of a difference depend on the
 machine's BLAS (#38), so the suite checks its coverage and its tolerances instead.
 
-Fixture schema 1, generated 2026-10-10.
+Fixture schema 1, generated 2026-10-30.
 
 ---
 
@@ -21,11 +21,11 @@ strong the agreement is** rather than a bare pass or fail:
 
 | Claim | Count | Meaning |
 | --- | --- | --- |
-| identical within floating point | 143 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
-| agrees within stated tolerance | 32 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
-| differs by documented convention | 17 | Not compared numerically at all. The two quantities are not the same thing, and the reason is given in full below. |
+| identical within floating point | 175 | The same computation reached by a different code path. Anything worse than this would be a real difference, not rounding. |
+| agrees within stated tolerance | 70 | Within a tolerance chosen per quantity class *with a reason*, and never widened to make a test pass. |
+| differs by documented convention | 35 | Not compared numerically at all. The two quantities are not the same thing, and the reason is given in full below. |
 
-**192 comparisons, 192 passed, 0 failed.**
+**280 comparisons, 280 passed, 0 failed.**
 
 Three things a reader should hold on to, because the agreement column cannot
 show them:
@@ -78,6 +78,14 @@ those listed under *Gaps* or *Documented divergences* below.
 | Gaussian smoothing | `GaussianTransformer` | 3 claims |
 | Whittaker smoothing | `WhittakerTransformer` | 3 claims |
 | PCR | `PCR` | 6 claims |
+| Ridge | `Ridge` | 6 claims |
+| MLR | `MLR` | 6 claims |
+| OPLS | `OPLS` | 6 claims |
+| OPLS-DA (two-class) | `OPLS` | 6 claims |
+| QDA | `QDA` | 10 claims |
+| Logistic regression | `LogisticRegression` | 24 claims |
+| SVR | `SVR` | 12 claims |
+| Elastic Net and Lasso | `ElasticNet`, `elastic_net_path` | 18 claims |
 | PLS2 | `PLS2` | 9 claims |
 | LDA | `LDA` | 6 claims |
 | kNN | `KNN` | 6 claims |
@@ -108,6 +116,7 @@ those listed under *Gaps* or *Documented divergences* below.
 | PLS: Hotelling's T², SPE and their limits | `PLS` | **not compared.** The formulas are PCA's, compared above, applied to the PLS X scores and residuals; no reference computes them for PLS under the same definition. Unit-tested in `tests/test_regression.py`. |
 | Coefficients and intercept in original units | `coefficients_original_units` | 6 claims |
 | Cross-validation: RMSECV curve and Q² | `cross_validated_predictions`, `rmsecv_curve`, `q2` | 7 claims |
+| Tuning curve over a named parameter | `tuning_curve` | **not compared.** No fixture value of its own: it is the general form of the RMSECV curve above, fitted once per fold per value (metrics-and-validation.md section 15). tests/test_regression.py checks it equals rmsecv_curve over components to rtol 1e-10, and pools residuals as section 7 says at every value. |
 | RMSE (RMSEC here; RMSEP is the same function on held-out rows) | `rmse` | 3 claims |
 | R² | `r2` | 3 claims |
 | SEC and SEP | `sec`, `sep` | 1 claim |
@@ -281,6 +290,84 @@ those listed under *Gaps* or *Documented divergences* below.
 | tecator | `coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 100 values, worst Δ < 1e-11 |
 | tecator | `predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 240 values, worst Δ < 1e-11 |
 
+### Ridge regression
+
+| Dataset | Quantity | Reference | Claim | Ours vs reference |
+| --- | --- | --- | --- | --- |
+| corn | `coefficients` | scikit-learn 1.9.0 | identical | 700 values, worst Δ < 1e-16 |
+| corn | `predictions` | scikit-learn 1.9.0 | identical | 80 values, worst Δ < 1e-14 |
+| gasoline | `coefficients` | scikit-learn 1.9.0 | identical | 401 values, worst Δ < 1e-15 |
+| gasoline | `predictions` | scikit-learn 1.9.0 | identical | 60 values, worst Δ < 1e-13 |
+| tecator | `coefficients` | scikit-learn 1.9.0 | identical | 100 values, worst Δ < 1e-15 |
+| tecator | `predictions` | scikit-learn 1.9.0 | identical | 240 values, worst Δ < 1e-13 |
+
+### Elastic Net
+
+| Dataset | Quantity | Reference | Claim | Ours vs reference |
+| --- | --- | --- | --- | --- |
+| corn | `coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 700 values, worst Δ < 1e-10 |
+| corn | `predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 80 values, worst Δ < 1e-11 |
+| corn | `predictions` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| gasoline | `coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 401 values, worst Δ < 1e-11 |
+| gasoline | `predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 60 values, worst Δ < 1e-11 |
+| gasoline | `predictions` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| tecator | `coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 100 values, worst Δ < 1e-10 |
+| tecator | `predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 240 values, worst Δ < 1e-10 |
+| tecator | `predictions` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+
+### Lasso
+
+| Dataset | Quantity | Reference | Claim | Ours vs reference |
+| --- | --- | --- | --- | --- |
+| corn | `coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 700 values, worst Δ < 1e-7 |
+| corn | `predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 80 values, worst Δ < 1e-8 |
+| corn | `predictions` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| gasoline | `coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 401 values, worst Δ < 1e-6 |
+| gasoline | `predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 60 values, worst Δ < 1e-9 |
+| gasoline | `predictions` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| tecator | `coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 100 values, worst Δ < 1e-8 |
+| tecator | `predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 240 values, worst Δ < 1e-9 |
+| tecator | `predictions` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+
+### MLR (multiple linear regression)
+
+| Dataset | Quantity | Reference | Claim | Ours vs reference |
+| --- | --- | --- | --- | --- |
+| corn | `coefficients` | scikit-learn 1.9.0 | identical | 10 values, worst Δ < 1e-12 |
+| corn | `predictions` | scikit-learn 1.9.0 | identical | 80 values, worst Δ < 1e-13 |
+| gasoline | `coefficients` | scikit-learn 1.9.0 | identical | 10 values, worst Δ < 1e-11 |
+| gasoline | `predictions` | scikit-learn 1.9.0 | identical | 60 values, worst Δ < 1e-13 |
+| tecator | `coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 10 values, worst Δ < 1e-10 |
+| tecator | `predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 240 values, worst Δ < 1e-11 |
+
+### OPLS (through the PLS1 identity)
+
+| Dataset | Quantity | Reference | Claim | Ours vs reference |
+| --- | --- | --- | --- | --- |
+| corn | `predictions` | scikit-learn 1.9.0 | identical | 80 values, worst Δ < 1e-13 |
+| corn | `predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 80 values, worst Δ < 1e-11 |
+| gasoline | `predictions` | scikit-learn 1.9.0 | identical | 60 values, worst Δ < 1e-13 |
+| gasoline | `predictions` | scikit-learn 1.9.0 | identical | 60 values, worst Δ < 1e-12 |
+| tecator | `predictions` | scikit-learn 1.9.0 | identical | 240 values, worst Δ < 1e-12 |
+| tecator | `predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 240 values, worst Δ < 1e-10 |
+
+### SVR (PCA-SVR, epsilon)
+
+| Dataset | Quantity | Reference | Claim | Ours vs reference |
+| --- | --- | --- | --- | --- |
+| corn | `svr_predictions` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| corn | `svr_predictions` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 80 values, worst Δ < 1e-6 |
+| corn | `svr_predictions` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| corn | `svr_predictions` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 80 values, worst Δ < 1e-6 |
+| gasoline | `svr_predictions` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| gasoline | `svr_predictions` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 60 values, worst Δ < 1e-7 |
+| gasoline | `svr_predictions` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| gasoline | `svr_predictions` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 60 values, worst Δ < 1e-6 |
+| tecator | `svr_predictions` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| tecator | `svr_predictions` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 240 values, worst Δ < 1e-4 |
+| tecator | `svr_predictions` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| tecator | `svr_predictions` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 240 values, worst Δ < 1e-6 |
+
 ### PLS-DA (two-class)
 
 | Dataset | Quantity | Reference | Claim | Ours vs reference |
@@ -300,6 +387,17 @@ those listed under *Gaps* or *Documented divergences* below.
 | tecator | `confusion` | scikit-learn 1.9.0 | identical | 4 values, worst Δ 0, exactly |
 | tecator | `confusion_cv` | scikit-learn 1.9.0 | identical | 4 values, worst Δ 0, exactly |
 | tecator | `dummy_predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 240 values, worst Δ < 1e-13 |
+
+### OPLS-DA (two-class, through the PLS-DA identity)
+
+| Dataset | Quantity | Reference | Claim | Ours vs reference |
+| --- | --- | --- | --- | --- |
+| corn | `confusion` | scikit-learn 1.9.0 | identical | 4 values, worst Δ 0, exactly |
+| corn | `dummy_predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 80 values, worst Δ < 1e-11 |
+| gasoline | `confusion` | scikit-learn 1.9.0 | identical | 4 values, worst Δ 0, exactly |
+| gasoline | `dummy_predictions` | scikit-learn 1.9.0 | identical | 60 values, worst Δ < 1e-14 |
+| tecator | `confusion` | scikit-learn 1.9.0 | identical | 4 values, worst Δ 0, exactly |
+| tecator | `dummy_predictions` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 240 values, worst Δ < 1e-11 |
 
 ### LDA (PCA-LDA)
 
@@ -345,6 +443,50 @@ those listed under *Gaps* or *Documented divergences* below.
 | tecator | `svm_decision` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 720 values, worst Δ < 1e-4 |
 | tecator | `svm_decision` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
 | tecator | `svm_decision` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 720 values, worst Δ < 1e-6 |
+
+### Logistic regression (PCA-logistic, L-BFGS)
+
+| Dataset | Quantity | Reference | Claim | Ours vs reference |
+| --- | --- | --- | --- | --- |
+| corn | `assigned_class` | scikit-learn 1.9.0 | identical | 80 values, worst Δ 0, exactly |
+| corn | `assigned_class` | scikit-learn 1.9.0 | identical | 80 values, worst Δ 0, exactly |
+| corn | `class_probabilities` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| corn | `class_probabilities` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 160 values, worst Δ < 1e-8 |
+| corn | `class_probabilities` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| corn | `class_probabilities` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 240 values, worst Δ < 1e-7 |
+| corn | `logistic_coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 6 values, worst Δ < 1e-7 |
+| corn | `logistic_coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 18 values, worst Δ < 1e-6 |
+| gasoline | `assigned_class` | scikit-learn 1.9.0 | identical | 60 values, worst Δ 0, exactly |
+| gasoline | `assigned_class` | scikit-learn 1.9.0 | identical | 60 values, worst Δ 0, exactly |
+| gasoline | `class_probabilities` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| gasoline | `class_probabilities` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 120 values, worst Δ < 1e-7 |
+| gasoline | `class_probabilities` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| gasoline | `class_probabilities` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 180 values, worst Δ < 1e-7 |
+| gasoline | `logistic_coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 6 values, worst Δ < 1e-6 |
+| gasoline | `logistic_coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 18 values, worst Δ < 1e-6 |
+| tecator | `assigned_class` | scikit-learn 1.9.0 | identical | 240 values, worst Δ 0, exactly |
+| tecator | `assigned_class` | scikit-learn 1.9.0 | identical | 240 values, worst Δ 0, exactly |
+| tecator | `class_probabilities` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| tecator | `class_probabilities` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 480 values, worst Δ < 1e-8 |
+| tecator | `class_probabilities` | scikit-learn 1.9.0 | documented divergence | not compared — see below |
+| tecator | `class_probabilities` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 720 values, worst Δ < 1e-6 |
+| tecator | `logistic_coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 6 values, worst Δ < 1e-7 |
+| tecator | `logistic_coefficients` | scikit-learn 1.9.0 | within rtol 1.000e-05 | 18 values, worst Δ < 1e-5 |
+
+### QDA (PCA-QDA)
+
+| Dataset | Quantity | Reference | Claim | Ours vs reference |
+| --- | --- | --- | --- | --- |
+| corn | `assigned_class` | scikit-learn 1.9.0 | identical | 80 values, worst Δ 0, exactly |
+| corn | `decision_function` | scikit-learn 1.9.0 | identical | 240 values, worst Δ < 1e-13 |
+| gasoline | `assigned_class` | scikit-learn 1.9.0 | identical | 60 values, worst Δ 0, exactly |
+| gasoline | `assigned_class` | scikit-learn 1.9.0 | identical | 60 values, worst Δ 0, exactly |
+| gasoline | `decision_function` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 180 values, worst Δ < 1e-11 |
+| gasoline | `decision_function` | scikit-learn 1.9.0 | identical | 180 values, worst Δ < 1e-14 |
+| tecator | `assigned_class` | scikit-learn 1.9.0 | identical | 240 values, worst Δ 0, exactly |
+| tecator | `assigned_class` | scikit-learn 1.9.0 | identical | 240 values, worst Δ 0, exactly |
+| tecator | `decision_function` | scikit-learn 1.9.0 | within rtol 1.000e-06 | 720 values, worst Δ < 1e-10 |
+| tecator | `decision_function` | scikit-learn 1.9.0 | identical | 720 values, worst Δ < 1e-13 |
 
 ### Robust distance (FastMCD)
 
@@ -417,6 +559,54 @@ mdatools computes the classic Hotelling limit a(n-1)/(n-a) F(a, n-a); pca.md §7
 
 Not reproducible from what we model. The reference is a linear model on ten of the 22 principal components supplied inside tecator.txt, computed by the original authors in 1992 on subset C; load_tecator() discards that block because it is preprocessing rather than data. The file also never states its SEP denominator. Recorded for context, not as a target.
 
+**`corn.elastic_net.predictions.sklearn`** — scikit-learn 1.9.0
+
+The application solves by FISTA, scikit-learn by coordinate descent; both stop on the same duality gap, 1e-4 ||y||^2 by default, rather than at the optimum, and where each stops depends on its route. The default fit's objective is within that gap of the optimum (checked); solved to 1e-12 both reach the same coefficients and predictions (penalised-regression.md section 6).
+
+**`gasoline.elastic_net.predictions.sklearn`** — scikit-learn 1.9.0
+
+The application solves by FISTA, scikit-learn by coordinate descent; both stop on the same duality gap, 1e-4 ||y||^2 by default, rather than at the optimum, and where each stops depends on its route. The default fit's objective is within that gap of the optimum (checked); solved to 1e-12 both reach the same coefficients and predictions (penalised-regression.md section 6).
+
+**`tecator.elastic_net.predictions.sklearn`** — scikit-learn 1.9.0
+
+The application solves by FISTA, scikit-learn by coordinate descent; both stop on the same duality gap, 1e-4 ||y||^2 by default, rather than at the optimum, and where each stops depends on its route. The default fit's objective is within that gap of the optimum (checked); solved to 1e-12 both reach the same coefficients and predictions (penalised-regression.md section 6).
+
+**`corn.lasso.predictions.sklearn`** — scikit-learn 1.9.0
+
+The application solves by FISTA, scikit-learn by coordinate descent; both stop on the same duality gap, 1e-4 ||y||^2 by default, rather than at the optimum, and where each stops depends on its route. The default fit's objective is within that gap of the optimum (checked); solved to 1e-12 both reach the same coefficients and predictions (penalised-regression.md section 6).
+
+**`gasoline.lasso.predictions.sklearn`** — scikit-learn 1.9.0
+
+The application solves by FISTA, scikit-learn by coordinate descent; both stop on the same duality gap, 1e-4 ||y||^2 by default, rather than at the optimum, and where each stops depends on its route. The default fit's objective is within that gap of the optimum (checked); solved to 1e-12 both reach the same coefficients and predictions (penalised-regression.md section 6).
+
+**`tecator.lasso.predictions.sklearn`** — scikit-learn 1.9.0
+
+The application solves by FISTA, scikit-learn by coordinate descent; both stop on the same duality gap, 1e-4 ||y||^2 by default, rather than at the optimum, and where each stops depends on its route. The default fit's objective is within that gap of the optimum (checked); solved to 1e-12 both reach the same coefficients and predictions (penalised-regression.md section 6).
+
+**`corn.svr.predictions_linear.sklearn`** — scikit-learn 1.9.0
+
+Both solvers are LIBSVM's SMO on the epsilon-SVR dual, and both stop once the largest KKT violation falls below tol = 1e-3 rather than at the optimum; where each stops depends on its arithmetic, LIBSVM's kernel cache being float32. The predictions agree to within ten times tol across the response's range (checked); solved to 1e-9 they agree to float32's precision (svr.md section 6).
+
+**`corn.svr.predictions_rbf.sklearn`** — scikit-learn 1.9.0
+
+Both solvers are LIBSVM's SMO on the epsilon-SVR dual, and both stop once the largest KKT violation falls below tol = 1e-3 rather than at the optimum; where each stops depends on its arithmetic, LIBSVM's kernel cache being float32. The predictions agree to within ten times tol across the response's range (checked); solved to 1e-9 they agree to float32's precision (svr.md section 6).
+
+**`gasoline.svr.predictions_linear.sklearn`** — scikit-learn 1.9.0
+
+Both solvers are LIBSVM's SMO on the epsilon-SVR dual, and both stop once the largest KKT violation falls below tol = 1e-3 rather than at the optimum; where each stops depends on its arithmetic, LIBSVM's kernel cache being float32. The predictions agree to within ten times tol across the response's range (checked); solved to 1e-9 they agree to float32's precision (svr.md section 6).
+
+**`gasoline.svr.predictions_rbf.sklearn`** — scikit-learn 1.9.0
+
+Both solvers are LIBSVM's SMO on the epsilon-SVR dual, and both stop once the largest KKT violation falls below tol = 1e-3 rather than at the optimum; where each stops depends on its arithmetic, LIBSVM's kernel cache being float32. The predictions agree to within ten times tol across the response's range (checked); solved to 1e-9 they agree to float32's precision (svr.md section 6).
+
+**`tecator.svr.predictions_linear.sklearn`** — scikit-learn 1.9.0
+
+Both solvers are LIBSVM's SMO on the epsilon-SVR dual, and both stop once the largest KKT violation falls below tol = 1e-3 rather than at the optimum; where each stops depends on its arithmetic, LIBSVM's kernel cache being float32. The predictions agree to within ten times tol across the response's range (checked); solved to 1e-9 they agree to float32's precision (svr.md section 6).
+
+**`tecator.svr.predictions_rbf.sklearn`** — scikit-learn 1.9.0
+
+Both solvers are LIBSVM's SMO on the epsilon-SVR dual, and both stop once the largest KKT violation falls below tol = 1e-3 rather than at the optimum; where each stops depends on its arithmetic, LIBSVM's kernel cache being float32. The predictions agree to within ten times tol across the response's range (checked); solved to 1e-9 they agree to float32's precision (svr.md section 6).
+
 **`corn.svm.decision_linear.sklearn`** — scikit-learn 1.9.0
 
 Both solvers are LIBSVM's SMO with second-order working-set selection, and both stop once the largest KKT violation falls below tol = 1e-3 rather than at the optimum. Where each stops depends on its arithmetic: LIBSVM caches the kernel in float32, ours is float64. The decision values therefore agree only to about tol (within 1e-2 here, checked), while the assignments are identical and, solved to 1e-9, the values agree to float32's precision (svm.md section 3).
@@ -440,6 +630,30 @@ Both solvers are LIBSVM's SMO with second-order working-set selection, and both 
 **`tecator.svm.decision_rbf.sklearn`** — scikit-learn 1.9.0
 
 Both solvers are LIBSVM's SMO with second-order working-set selection, and both stop once the largest KKT violation falls below tol = 1e-3 rather than at the optimum. Where each stops depends on its arithmetic: LIBSVM caches the kernel in float32, ours is float64. The decision values therefore agree only to about tol (within 1e-2 here, checked), while the assignments are identical and, solved to 1e-9, the values agree to float32's precision (svm.md section 3).
+
+**`corn.logistic.probabilities_2class.sklearn`** — scikit-learn 1.9.0
+
+Both are L-BFGS on the same L2-penalised objective, stopped at a gradient tolerance of 1e-4 rather than at the optimum, and where each stops depends on its quasi-Newton history; scikit-learn also stops on a relative change in the objective. The probabilities agree within ten times tol (checked) and the assignments are identical; solved to 1e-10 they agree within the lbfgs class (logistic-regression.md section 6).
+
+**`corn.logistic.probabilities_3class.sklearn`** — scikit-learn 1.9.0
+
+Both are L-BFGS on the same L2-penalised objective, stopped at a gradient tolerance of 1e-4 rather than at the optimum, and where each stops depends on its quasi-Newton history; scikit-learn also stops on a relative change in the objective. The probabilities agree within ten times tol (checked) and the assignments are identical; solved to 1e-10 they agree within the lbfgs class (logistic-regression.md section 6).
+
+**`gasoline.logistic.probabilities_2class.sklearn`** — scikit-learn 1.9.0
+
+Both are L-BFGS on the same L2-penalised objective, stopped at a gradient tolerance of 1e-4 rather than at the optimum, and where each stops depends on its quasi-Newton history; scikit-learn also stops on a relative change in the objective. The probabilities agree within ten times tol (checked) and the assignments are identical; solved to 1e-10 they agree within the lbfgs class (logistic-regression.md section 6).
+
+**`gasoline.logistic.probabilities_3class.sklearn`** — scikit-learn 1.9.0
+
+Both are L-BFGS on the same L2-penalised objective, stopped at a gradient tolerance of 1e-4 rather than at the optimum, and where each stops depends on its quasi-Newton history; scikit-learn also stops on a relative change in the objective. The probabilities agree within ten times tol (checked) and the assignments are identical; solved to 1e-10 they agree within the lbfgs class (logistic-regression.md section 6).
+
+**`tecator.logistic.probabilities_2class.sklearn`** — scikit-learn 1.9.0
+
+Both are L-BFGS on the same L2-penalised objective, stopped at a gradient tolerance of 1e-4 rather than at the optimum, and where each stops depends on its quasi-Newton history; scikit-learn also stops on a relative change in the objective. The probabilities agree within ten times tol (checked) and the assignments are identical; solved to 1e-10 they agree within the lbfgs class (logistic-regression.md section 6).
+
+**`tecator.logistic.probabilities_3class.sklearn`** — scikit-learn 1.9.0
+
+Both are L-BFGS on the same L2-penalised objective, stopped at a gradient tolerance of 1e-4 rather than at the optimum, and where each stops depends on its quasi-Newton history; scikit-learn also stops on a relative change in the objective. The probabilities agree within ten times tol (checked) and the assignments are identical; solved to 1e-10 they agree within the lbfgs class (logistic-regression.md section 6).
 
 **`corn.split.group_kfold.sklearn`** — scikit-learn 1.9.0
 
@@ -473,6 +687,10 @@ Scores, loadings, eigenvalues and explained variance. Two LAPACK drivers on the 
 
 SVM decision values, both solvers run to a KKT gap of 1e-9 (svm.md section 7). LIBSVM caches the kernel matrix in float32, about seven significant digits, and its gradient accumulates that rounding over every SMO step; ours holds the kernel in float64. The largest difference observed on the parity sets is 3e-5, on Tecator's linear kernel, whose kernel values reach 1e2 and whose solve takes about thirty thousand steps.
 
+**`lbfgs`** — rtol 1.000e-05, atol 1.000e-05
+
+Logistic regression coefficients and class probabilities, both optimisers run to a gradient tolerance of 1e-10 (logistic-regression.md section 6). The objective is the same strictly convex function, but scikit-learn's L-BFGS also stops on a relative change in the objective, and the two quasi-Newton histories differ, so each stops a little short of the optimum in its own direction. The largest differences observed on the parity sets are 3e-6 in a coefficient and 3e-7 in a probability, on Tecator's three classes; a probability near 0 or 1 is why the absolute tolerance, not a relative one, decides.
+
 **`metrics`** — rtol 1.000e-06, atol 1.000e-09
 
 RMSE, R2 and the RMSECV curve. A root of a mean of squares is well conditioned; this is the coefficient tolerance carried through.
@@ -504,6 +722,10 @@ a gap left out is a false impression.
 **`corn.pca.loadings.literature`** — unsourced
 
 The corn dataset is used widely in the calibration-transfer literature, but the papers report transfer performance rather than the decomposition itself, and none found states a preprocessing chain precisely enough to reproduce a loading vector. Recorded as a gap rather than filled with a number from a plot.
+
+**`tecator.opls.orthogonal_scores.unsourced`** — unsourced
+
+OPLS's orthogonal scores and loadings themselves (opls.md section 6). No open OPLS implementation is installed here (R ropls is Bioconductor, R is not in this environment, and the Python ones are unmaintained), and Trygg and Wold (2002) publish their worked example as figures, not values. The predictions are compared through the PLS1 identity instead, and the scores' defining properties - T = XR, mutually orthogonal, orthogonal scores uncorrelated with y - are tested in tests/test_regression.py.
 
 **`tecator.pls.sec.unsourced`** — unsourced
 

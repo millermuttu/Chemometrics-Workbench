@@ -14,13 +14,13 @@ results are still files, because they are contents rather than references, and
 the registry of directories the user has opened still lives in their config
 directory, because it is the one thing a project directory cannot know.
 
-**Arrays are float32 on disk and float64 at the kernel boundary.** §13's
-envelope — 20,000 spectra by 4,000 variables, about 320 MB — is a float32
-budget, and `pca.md` §10 requires float64 computation whatever the caller
-stores. Both are true at once because the conversion happens here, at the store
-boundary, and nowhere else: `write_array` takes float64 and narrows it,
-`read_array` widens it back. A kernel never sees a float32 array and a disk
-file is never float64.
+**Arrays are float64 on disk, as at the kernel boundary** (#402, decision
+0007). They were float32 until v1.3 (#77), which halved §13's envelope - 20,000
+spectra by 4,000 variables is about 640 MB in float64 - and cost an
+ill-conditioned model its agreement with its own export: one float32 rounding
+of an intermediate array moved a Ridge or MLR prediction by about its condition
+number times that rounding. `read_array` still widens whatever it finds, so an
+array a project wrote in float32 reads back as it always did.
 
 Arrays are content-addressed — `arrays/<sha256>.npy` — which makes writing the
 same array twice a no-op and makes the `content_hash` a `DatasetVersion` needs
@@ -53,6 +53,7 @@ from sqlalchemy.orm import Session
 from chemometrics_workbench import db
 from chemometrics_workbench.arrays import as_float64
 from chemometrics_workbench.models import (
+    ColumnRole,
     Dataset,
     DatasetVersion,
     Experiment,
@@ -78,6 +79,7 @@ __all__ = [
     "add_dataset",
     "config_dir",
     "create_project",
+    "derive_roles",
     "derive_version",
     "forget_project",
     "is_project",
@@ -592,9 +594,108 @@ def derive_version(
         },
         excluded_samples=dropped,
         excluded_variables=list(parent.excluded_variables),
+        column_roles=dict(parent.column_roles),
         source=parent.source,
         derived_from=parent.version_id,
         array_path=array_path,
+    )
+    add_dataset(path, entry.dataset, version)
+    return version
+
+
+def role_of(version: DatasetVersion, column: str) -> ColumnRole:
+    """What `column` is for in `version`: chosen (#371), or as the import read it.
+
+    A metadata column nobody gave a role is a class when it has two or more
+    values - the rule `shell/classColumns.ts` applied before roles could be
+    chosen - and a group otherwise.
+    """
+    if column in version.targets:
+        return "target"
+    if column in version.column_roles:
+        return version.column_roles[column]
+    return "class" if len(set(version.metadata_columns[column])) >= 2 else "group"
+
+
+def _label(value: float) -> str:
+    """A reference value written as a class label: `1.0` is the class `1`."""
+    return str(int(value)) if float(value).is_integer() else repr(float(value))
+
+
+def derive_roles(
+    directory: str | os.PathLike[str], parent: DatasetVersion, roles: dict[str, ColumnRole]
+) -> DatasetVersion:
+    """A new version of `parent`'s dataset with the columns `roles` names given those roles (#371).
+
+    The spectra are the parent's, so the array and its hash are reused; what
+    changes is which columns are targets and which are metadata, and that is
+    what a run on the new version reads. `role_changes` records what changed
+    and `derived_from` from what, so the change is lineage and is undone by
+    pointing the pipeline back at the parent.
+    """
+    path = Path(directory)
+    known = set(parent.targets) | set(parent.metadata_columns)
+    unknown = sorted(set(roles) - known)
+    if unknown:
+        raise ProjectError(
+            f"version {parent.version} has no column {', '.join(map(repr, unknown))}. "
+            f"It has: {', '.join(sorted(known)) or 'none'}."
+        )
+    changes = {name: role for name, role in roles.items() if role_of(parent, name) != role}
+    if not changes:
+        raise ProjectError("the roles chosen are the roles the columns already have.")
+
+    targets = dict(parent.targets)
+    metadata = dict(parent.metadata_columns)
+    chosen = dict(parent.column_roles)
+    ids = parent.sample_ids or [f"row {row + 1}" for row in range(parent.n_samples)]
+    for name, role in changes.items():
+        if role == "ignore":
+            targets.pop(name, None)
+            metadata.pop(name, None)
+            chosen.pop(name, None)
+        elif role == "target":
+            values: list[float] = []
+            for row, label in enumerate(metadata[name]):
+                try:
+                    values.append(float(label))
+                except ValueError:
+                    raise ProjectError(
+                        f"{name!r} cannot be a target: sample {ids[row]!r} has {label!r}, "
+                        "which is not a number."
+                    ) from None
+            targets[name] = values
+            del metadata[name]
+            chosen.pop(name, None)
+        else:
+            labels = metadata.get(name) or [_label(value) for value in targets.pop(name)]
+            if role == "class" and len(set(labels)) < 2:
+                raise ProjectError(
+                    f"{name!r} cannot be a class: it has one value ({labels[0]!r} on every "
+                    "sample), and a classifier needs two to separate."
+                )
+            metadata[name] = labels
+            chosen[name] = role
+
+    entry = next(
+        (e for e in read_datasets(path) if e.dataset.dataset_id == parent.dataset_id), None
+    )
+    if entry is None:
+        raise ProjectError(f"dataset {parent.dataset_id} is not in this project.")
+    # Validated rather than copied, so the shape checks run on what changed.
+    version = DatasetVersion.model_validate(
+        parent.model_dump()
+        | {
+            "version_id": uuid.uuid4(),
+            "version": max(v.version for v in entry.versions) + 1,
+            "targets": targets,
+            "metadata_columns": metadata,
+            "column_roles": chosen,
+            "role_changes": changes,
+            "excluded_samples": [],
+            "derived_from": parent.version_id,
+            "created_at": datetime.now(UTC),
+        }
     )
     add_dataset(path, entry.dataset, version)
     return version
@@ -858,9 +959,8 @@ def write_array(directory: str | os.PathLike[str], values: object) -> tuple[str,
     The path is relative — `arrays/<sha256>.npy` — because it is recorded in a
     `DatasetVersion` that travels with the directory. The hash is the same
     string a `DatasetVersion.content_hash` takes, `sha256:` and sixty-four hex
-    digits, and it is the hash of the stored float32 bytes rather than of the
-    float64 the caller passed: it identifies what is on disk, which is what a
-    later read can actually be checked against.
+    digits, and it is the hash of the stored float64 bytes: it identifies what
+    is on disk, which is what a later read can actually be checked against.
 
     `as_float64` is the same contract every kernel enforces, so a NaN or a 1-D
     array is refused here with the message it would have been refused with
@@ -868,7 +968,7 @@ def write_array(directory: str | os.PathLike[str], values: object) -> tuple[str,
     """
     path = Path(directory)
     _require_project(path)
-    stored = as_float64(values, "array").astype(np.float32)
+    stored = as_float64(values, "array")
 
     blob = _npy_bytes(stored)
     digest = hashlib.sha256(blob).hexdigest()
@@ -909,7 +1009,7 @@ def read_array(directory: str | os.PathLike[str], array_path: str) -> NDArray[np
     return as_float64(stored, array_path)
 
 
-def _npy_bytes(values: NDArray[np.float32]) -> bytes:
+def _npy_bytes(values: NDArray[np.float64]) -> bytes:
     """Serialise to `.npy` in memory, so the bytes can be hashed before they land.
 
     Hashing the file after writing it would name a file by a digest taken from

@@ -54,9 +54,11 @@ nav:
       - A calibration with PLS: examples/pls.md
       - Classifying meat: examples/classification.md
       - Validating a classifier honestly: examples/validation.md
+      - Comparing models: examples/model-comparison.md
   - How-to:
       - Find and exclude outliers: how-to/outliers.md
       - Select variables: how-to/variable-selection.md
+      - Change a column's role: how-to/column-roles.md
   - Contributing:
       - How to add an algorithm: adding-a-step.md
       - CONTRIBUTING.md: https://github.com/millermuttu/Chemometrics-Workbench/blob/dev/CONTRIBUTING.md
@@ -66,12 +68,18 @@ nav:
           - PCA: algorithms/pca.md
           - PLS regression: algorithms/pls-regression.md
           - PCR: algorithms/pcr.md
+          - Penalised regression: algorithms/penalised-regression.md
+          - MLR: algorithms/mlr.md
+          - OPLS: algorithms/opls.md
           - PLS-DA: algorithms/pls-da.md
           - Classification metrics: algorithms/classification.md
           - SIMCA: algorithms/simca.md
           - LDA: algorithms/lda.md
+          - QDA: algorithms/qda.md
           - kNN: algorithms/knn.md
+          - Logistic regression: algorithms/logistic-regression.md
           - SVM: algorithms/svm.md
+          - SVR: algorithms/svr.md
           - Outlier diagnostics: algorithms/outliers.md
           - Variable selection: algorithms/variable-selection.md
           - Smoothing and baselines: algorithms/smoothing-and-baselines.md

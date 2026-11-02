@@ -38,26 +38,36 @@ from chemometrics_workbench.models import (
     SNV,
     Autoscale,
     DatasetVersion,
+    ElasticNetSpec,
     EstimatorNode,
     KFoldSplit,
     KNNSpec,
     LDASpec,
     LeaveOneOut,
+    LogisticSpec,
     MeanCentre,
+    MLRSpec,
+    OPLSDASpec,
+    OPLSSpec,
     PCASpec,
     PCRSpec,
     Pipeline,
     PLSDASpec,
     PLSRegressionSpec,
     PreprocessNode,
+    QDASpec,
     RangeSelect,
     RepeatedKFoldSplit,
+    RidgeSpec,
     SavitzkyGolay,
+    SelectVariables,
     SIMCASpec,
     SourceNode,
     SplitNode,
     SVMSpec,
+    SVRSpec,
     TrainTestSplit,
+    VariableAxis,
 )
 from chemometrics_workbench.preprocessing import SNVTransformer
 from chemometrics_workbench.project import (
@@ -170,13 +180,10 @@ def fixture_pipeline(version_id: UUID) -> Pipeline:
 
 
 def _as_stored(values: np.ndarray) -> np.ndarray:
-    """What the array store gives back: float32 on disk, float64 to a kernel.
-
-    A hand-computed comparison has to pass through the same boundary, or it is
-    comparing the executor's stored numbers against float64 ones and calling
-    #77's documented narrowing a divergence.
-    """
-    return values.astype(np.float32).astype(np.float64)
+    """What the array store gives back. Float32 until #402 - a hand-computed
+    comparison had to round as the store did - and float64 since, so this is
+    the identity, kept so each comparison still says where its numbers went."""
+    return np.asarray(values, dtype=np.float64)
 
 
 def _fixture_rows(node_id: str) -> dict[int, np.ndarray]:
@@ -1663,6 +1670,378 @@ def test_a_pcr_node_fits_and_cross_validates_like_a_regression(
     assert result.metrics["rmsecv"] == pytest.approx(rmse(fat, held), rel=1e-6)
 
 
+def test_a_ridge_node_cross_validates_and_draws_its_curve_over_alpha(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#374, `penalised-regression.md`: a regression result with ridge's
+    numbers, no X model, and a log curve over alpha marked at the alpha
+    fitted. RMSECV, the curve and the final model are checked against
+    scikit-learn's Ridge on the run's own folds."""
+    from sklearn.linear_model import Ridge as SkRidge
+
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=5, seed=42)),
+        PreprocessNode(id="snv", inputs=("split",), step=SNV()),
+        EstimatorNode(id="ridge", inputs=("snv",), spec=RidgeSpec(alpha=0.01, target="fat")),
+    )
+    run = execute(directory, pipeline, version)
+    result = run.results["ridge"]
+
+    assert result.task == "regression" and result.method == "ridge"
+    assert result.scores == [] and result.vip == [] and "sec" not in result.metrics
+    assert len(result.coefficients) == version.n_variables
+
+    # Each step's output is stored too, so the reference crosses the same boundary twice.
+    spectra = _as_stored(SNVTransformer().fit_transform(_as_stored(tecator.spectra)))
+    fat = np.asarray(tecator.targets["fat"])
+    final = SkRidge(alpha=0.01).fit(spectra, fat)
+    np.testing.assert_allclose(result.predicted, final.predict(spectra), rtol=1e-9)
+
+    [resolved] = run.resolved_splits
+    pairs = list(zip(resolved.train_indices, resolved.test_indices, strict=True))
+
+    def cross_validated(alpha: float) -> np.ndarray:
+        held = np.empty_like(fat)
+        for train, test in pairs:
+            held[test] = SkRidge(alpha=alpha).fit(spectra[train], fat[train]).predict(spectra[test])
+        return held
+
+    assert result.metrics["rmsecv"] == pytest.approx(rmse(fat, cross_validated(0.01)), rel=1e-9)
+    curve = result.tuning
+    assert curve["parameter"] == "alpha" and curve["log"] and curve["chosen"] == 0.01
+    assert len(curve["values"]) == 25
+    assert np.allclose(np.abs(np.diff(np.log10(curve["values"]))), 0.25)
+    for value, score in list(zip(curve["values"], curve["scores"], strict=True))[::6]:
+        assert score == pytest.approx(rmse(fat, cross_validated(value)), rel=1e-9)
+
+
+@pytest.mark.parametrize("l1_ratio", [0.5, 1.0])
+def test_an_elastic_net_node_cross_validates_and_marks_its_variables(
+    project: tuple[Path, DatasetVersion], tecator: Any, l1_ratio: float
+) -> None:
+    """#375, `penalised-regression.md` section 3: Elastic Net and the Lasso as
+    regressions with sparse coefficients, a three-decade curve from the top
+    down, and RMSECV that the kernel gives on the run's own folds, each
+    preprocessed by its own rows. That the kernel finds the optimum is
+    test_parity.py's; this is the executor's wiring."""
+    from chemometrics_workbench.regression import ElasticNet
+
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=5, seed=42)),
+        PreprocessNode(id="snv", inputs=("split",), step=SNV()),
+        EstimatorNode(
+            id="enet",
+            inputs=("snv",),
+            spec=ElasticNetSpec(alpha=0.02, l1_ratio=l1_ratio, target="fat"),
+        ),
+    )
+    run = execute(directory, pipeline, version)
+    result = run.results["enet"]
+    assert result.method == ("lasso" if l1_ratio == 1 else "elastic_net")
+    assert result.scores == [] and "sec" not in result.metrics
+    kept = int(np.count_nonzero(result.coefficients))
+    assert 0 < kept < version.n_variables
+
+    curve = result.tuning
+    assert curve["parameter"] == "alpha" and curve["log"] and curve["chosen"] == 0.02
+    assert curve["values"][0] > curve["values"][-1]
+    assert np.allclose(np.abs(np.diff(np.log10(curve["values"]))), 3 / 24)
+
+    spectra = _as_stored(SNVTransformer().fit_transform(_as_stored(tecator.spectra)))
+    fat = np.asarray(tecator.targets["fat"])
+    [resolved] = run.resolved_splits
+    held = np.empty_like(fat)
+    for train, test in zip(resolved.train_indices, resolved.test_indices, strict=True):
+        mean, centre = spectra[train].mean(axis=0), fat[train].mean()
+        model = ElasticNet(0.02, l1_ratio).fit(spectra[train] - mean, fat[train] - centre)
+        held[test] = model.predict(spectra[test] - mean) + centre
+    assert result.metrics["rmsecv"] == pytest.approx(rmse(fat, held), rel=1e-9)
+
+
+def test_an_mlr_below_a_selection_cross_validates_like_least_squares(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#376, `mlr.md`: on ten selected variables, the final model, SEC and RMSECV
+    against scikit-learn's LinearRegression on the run's own folds."""
+    from sklearn.linear_model import LinearRegression
+
+    directory, version = project
+    columns = list(range(0, 100, 10))
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=5, seed=42)),
+        PreprocessNode(id="pick", inputs=("split",), step=SelectVariables(indices=columns)),
+        EstimatorNode(id="mlr", inputs=("pick",), spec=MLRSpec(target="fat")),
+    )
+    run = execute(directory, pipeline, version)
+    result = run.results["mlr"]
+    assert result.method == "mlr" and result.scores == [] and result.tuning == {}
+    assert len(result.coefficients) == 10 and "sec" in result.metrics
+
+    spectra = _as_stored(tecator.spectra)[:, columns]
+    fat = np.asarray(tecator.targets["fat"])
+    final = LinearRegression().fit(spectra, fat)
+    np.testing.assert_allclose(result.predicted, final.predict(spectra), rtol=1e-9)
+    assert result.metrics["sec"] == pytest.approx(
+        rmse(fat, final.predict(spectra)) * np.sqrt(240 / (240 - 10 - 1)), rel=1e-6
+    )
+    [resolved] = run.resolved_splits
+    held = np.empty_like(fat)
+    for train, test in zip(resolved.train_indices, resolved.test_indices, strict=True):
+        held[test] = LinearRegression().fit(spectra[train], fat[train]).predict(spectra[test])
+    assert result.metrics["rmsecv"] == pytest.approx(rmse(fat, held), rel=1e-9)
+
+
+def test_an_mlr_on_a_full_spectrum_is_refused_naming_the_fold_and_its_rank(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    """#376: 100 collinear variables and 192 training rows, after a float32 store,
+    are rank-deficient; the refusal says which fold, its rank, and what to do."""
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=5, seed=42)),
+        PreprocessNode(id="snv", inputs=("split",), step=SNV()),
+        EstimatorNode(id="mlr", inputs=("snv",), spec=MLRSpec(target="fat")),
+    )
+    with pytest.raises(
+        ExecutorError, match=r"training fold 1 of 5 has rank \d+ and 100 variables.*or use PCR"
+    ):
+        execute(directory, pipeline, version)
+
+
+def test_an_svr_node_has_the_pca_front_and_a_curve_over_c(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#377, `svr.md`: a regression with the PCA front's X model, a curve over C
+    from range(y) / 1000 up, and RMSECV that the kernel gives on the run's own
+    folds. That the kernel matches scikit-learn is test_parity.py's."""
+    from chemometrics_workbench.regression import SVR
+
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=5, seed=42)),
+        PreprocessNode(id="snv", inputs=("split",), step=SNV()),
+        EstimatorNode(id="svr", inputs=("snv",), spec=SVRSpec(C=10, n_components=5, target="fat")),
+    )
+    run = execute(directory, pipeline, version)
+    result = run.results["svr"]
+    assert result.task == "regression" and result.method == "svr"
+    assert len(result.scores) == version.n_samples and len(result.scores[0]) == 5
+    assert result.hotelling_t2 and result.svm["support"] and "sec" not in result.metrics
+
+    fat = np.asarray(tecator.targets["fat"])
+    curve = result.tuning
+    assert curve["parameter"] == "C" and curve["log"] and curve["chosen"] == 10
+    assert curve["values"][0] == pytest.approx(np.ptp(fat) / 1000)
+    assert curve["values"][-1] == pytest.approx(np.ptp(fat))
+
+    spectra = _as_stored(SNVTransformer().fit_transform(_as_stored(tecator.spectra)))
+    final = SVR(5, c=10).fit(spectra, fat)
+    np.testing.assert_allclose(result.predicted, final.predict(spectra), rtol=1e-9)
+    [resolved] = run.resolved_splits
+    held = np.empty_like(fat)
+    for train, test in zip(resolved.train_indices, resolved.test_indices, strict=True):
+        held[test] = SVR(5, c=10).fit(spectra[train], fat[train]).predict(spectra[test])
+    assert result.metrics["rmsecv"] == pytest.approx(rmse(fat, held), rel=1e-9)
+
+
+def test_an_opls_node_predicts_as_a_pls_with_as_many_components(
+    project: tuple[Path, DatasetVersion],
+) -> None:
+    """#378, `opls.md`: beside a PLS with 1 + 2 components on the same split,
+    the same predictions, RMSECV and curve; its own scores, predictive first,
+    and VIP the predictive one's."""
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=5, seed=42)),
+        PreprocessNode(id="centre", inputs=("split",), step=MeanCentre()),
+        EstimatorNode(id="opls", inputs=("centre",), spec=OPLSSpec(n_orthogonal=2, target="fat")),
+        EstimatorNode(
+            id="pls", inputs=("centre",), spec=PLSRegressionSpec(n_components=3, target="fat")
+        ),
+    )
+    run = execute(directory, pipeline, version)
+    opls, pls = run.results["opls"], run.results["pls"]
+    assert opls.method == "opls" and opls.n_components == 3 and len(opls.vip) == version.n_variables
+    np.testing.assert_allclose(opls.predicted, pls.predicted, rtol=1e-9)
+    np.testing.assert_allclose(opls.coefficients, pls.coefficients, rtol=1e-6, atol=1e-9)
+    for name in ("rmsecv", "q2", "rmsecv_a1", "rmsecv_a2", "rmsecv_a3"):
+        assert opls.metrics[name] == pytest.approx(pls.metrics[name], rel=1e-9)
+    # Its own decomposition, not PLS's: the second score is orthogonal to y.
+    scores = np.asarray(opls.scores)
+    fat = np.asarray(opls.observed)
+    assert abs(scores[:, 1] @ (fat - fat.mean())) < 1e-6 * abs(scores[:, 0] @ (fat - fat.mean()))
+
+
+def test_an_oplsda_node_assigns_as_plsda_and_draws_an_s_plot(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#379, `opls.md` section 8: beside a two-class PLS-DA with as many
+    components on one split, the same dummy predictions, assignments and
+    tallies; and an S-plot from the predictive score."""
+    directory, version = project
+    fat = np.asarray(tecator.targets["fat"])
+    labels = np.where(fat > np.median(fat), "high", "low").tolist()
+    version = version.model_copy(update={"metadata_columns": {"grade": labels}})
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=5, seed=42)),
+        PreprocessNode(id="centre", inputs=("split",), step=MeanCentre()),
+        EstimatorNode(
+            id="oplsda", inputs=("centre",), spec=OPLSDASpec(n_orthogonal=2, class_column="grade")
+        ),
+        EstimatorNode(
+            id="plsda", inputs=("centre",), spec=PLSDASpec(n_components=3, class_column="grade")
+        ),
+    )
+    run = execute(directory, pipeline, version)
+    opls, pls = run.results["oplsda"], run.results["plsda"]
+    assert opls.task == "classification" and opls.method == "oplsda"
+    assert opls.classes == pls.classes == ["high", "low"]
+    np.testing.assert_allclose(opls.predicted, pls.predicted, rtol=1e-9, atol=1e-12)
+    assert opls.predicted_class == pls.predicted_class
+    assert opls.confusion == pls.confusion
+    for name in ("accuracy", "accuracy_cv", "rmsecv"):
+        assert opls.metrics[name] == pytest.approx(pls.metrics[name], rel=1e-9)
+
+    x = _as_stored(tecator.spectra)
+    x = x - x.mean(axis=0)
+    t = np.asarray(opls.scores)[:, 0]
+    np.testing.assert_allclose(opls.s_plot["covariance"], x.T @ t / (len(t) - 1), rtol=1e-6)
+    expected = [np.corrcoef(x[:, j], t)[0, 1] for j in range(x.shape[1])]
+    np.testing.assert_allclose(opls.s_plot["correlation"], expected, rtol=1e-6, atol=1e-9)
+
+
+def test_an_oplsda_with_three_classes_is_refused_naming_plsda(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#379: two-class only in this phase."""
+    directory, version = project
+    version = _terciles(version, tecator)
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(id="centre", inputs=("source",), step=MeanCentre()),
+        EstimatorNode(id="oplsda", inputs=("centre",), spec=OPLSDASpec(class_column="grade")),
+    )
+    with pytest.raises(
+        ExecutorError, match=r"3 classes; OPLS-DA here is two-class only\. Use PLS-DA"
+    ):
+        execute(directory, pipeline, version)
+
+
+def test_a_logistic_node_classifies_with_probabilities_on_its_folds(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#380, `logistic-regression.md`: the PCA front, the tallies of
+    `classification.md`, probabilities that sum to one and agree with the
+    assignment, and a cross-validated tally the kernel gives on the run's folds."""
+    from chemometrics_workbench.classification import LogisticRegression
+
+    directory, version = project
+    version = _terciles(version, tecator)
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=4, stratify_by="grade")),
+        PreprocessNode(id="snv", inputs=("split",), step=SNV()),
+        EstimatorNode(
+            id="logistic",
+            inputs=("snv",),
+            spec=LogisticSpec(C=10, n_components=5, class_column="grade"),
+        ),
+    )
+    run = execute(directory, pipeline, version)
+    result = run.results["logistic"]
+    assert result.task == "classification" and result.method == "logistic"
+    assert result.classes == ["lean", "mid", "rich"] and len(result.scores[0]) == 5
+    probabilities = np.asarray(result.probabilities)
+    assert probabilities.shape == (version.n_samples, 3)
+    np.testing.assert_allclose(probabilities.sum(axis=1), 1.0)
+    assert probabilities.argmax(axis=1).tolist() == result.predicted_class
+    assert np.asarray(result.logistic["coefficients"]).shape == (3, 5)
+
+    spectra = _as_stored(SNVTransformer().fit_transform(_as_stored(tecator.spectra)))
+    labels = version.metadata_columns["grade"]
+    codes = np.asarray([result.classes.index(label) for label in labels])
+    [resolved] = run.resolved_splits
+    cv = np.empty_like(codes)
+    for train, test in zip(resolved.train_indices, resolved.test_indices, strict=True):
+        model = LogisticRegression(5, 10).fit(spectra[train], codes[train], 3)
+        cv[test] = model.predict(spectra[test])
+    assert result.metrics["accuracy_cv"] == pytest.approx(float(np.mean(cv == codes)))
+
+
+def test_a_qda_node_tallies_on_its_folds_and_refuses_a_singular_class(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#381, `qda.md`: the PCA front, the tallies of `classification.md` the
+    kernel gives on the run's folds, and a class too small for its covariance
+    refused by fold and name - until reg_param shrinks it."""
+    from chemometrics_workbench.classification import QDA
+
+    directory, version = project
+    version = _terciles(version, tecator)
+    pipeline = _pipeline(
+        version.version_id,
+        SplitNode(id="split", inputs=("source",), spec=KFoldSplit(n_splits=4, stratify_by="grade")),
+        PreprocessNode(id="snv", inputs=("split",), step=SNV()),
+        EstimatorNode(
+            id="qda", inputs=("snv",), spec=QDASpec(n_components=4, class_column="grade")
+        ),
+    )
+    run = execute(directory, pipeline, version)
+    result = run.results["qda"]
+    assert result.task == "classification" and result.method == "qda"
+    assert len(result.qda["classes"]) == 3 and len(result.scores[0]) == 4
+
+    spectra = _as_stored(SNVTransformer().fit_transform(_as_stored(tecator.spectra)))
+    codes = np.asarray([result.classes.index(g) for g in version.metadata_columns["grade"]])
+    [resolved] = run.resolved_splits
+    cv = np.empty_like(codes)
+    for train, test in zip(resolved.train_indices, resolved.test_indices, strict=True):
+        cv[test] = QDA(4).fit(spectra[train], codes[train], 3).predict(spectra[test])
+    assert result.metrics["accuracy_cv"] == pytest.approx(float(np.mean(cv == codes)))
+
+    # Ten "rare" samples: every training fold holds about seven, too few for
+    # a covariance on 10 scores.
+    labels = list(version.metadata_columns["grade"])
+    for row in range(10):
+        labels[row] = "rare"
+    rare = version.model_copy(update={"metadata_columns": {"grade": labels}})
+    ten = pipeline.model_copy(
+        update={
+            "nodes": (
+                *pipeline.nodes[:-1],
+                EstimatorNode(
+                    id="qda", inputs=("snv",), spec=QDASpec(n_components=10, class_column="grade")
+                ),
+            )
+        }
+    )
+    refusal = r"training fold 1 of 4, class 'rare' has \d+ training samples.*positive reg_param"
+    with pytest.raises(ExecutorError, match=refusal):
+        execute(directory, ten, rare)
+    shrunk = ten.model_copy(
+        update={
+            "nodes": (
+                *ten.nodes[:-1],
+                EstimatorNode(
+                    id="qda",
+                    inputs=("snv",),
+                    spec=QDASpec(n_components=10, reg_param=0.2, class_column="grade"),
+                ),
+            )
+        }
+    )
+    assert "rare" in execute(directory, shrunk, rare).results["qda"].classes
+
+
 def test_a_simca_node_decides_every_set_with_its_folds_own_models(
     project: tuple[Path, DatasetVersion], tecator: Any
 ) -> None:
@@ -1916,3 +2295,45 @@ def test_a_permutation_test_without_a_split_is_refused_by_name(
     execute(directory, pipeline, version)
     with pytest.raises(ExecutorError, match="needs a K-fold or leave-one-out split"):
         permutation_test_for(directory, pipeline, version, "pls", 5)
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        PCASpec(n_components=2),
+        PCRSpec(n_components=2, target="y"),
+        LDASpec(n_components=2, class_column="variety"),
+    ],
+    ids=["pca", "pcr", "lda"],
+)
+def test_a_model_keeping_every_component_reports_zero_spe_and_no_limit(
+    tmp_path: Path, spec: Any
+) -> None:
+    """#404, pca.md section 8: on an exactly rank-2 matrix, two components leave
+    no residual. The run reports SPE as zero with a caveat instead of failing
+    at the limit the kernel refuses."""
+    rows, columns = np.arange(12.0)[:, None], np.arange(6.0)[None, :]
+    values = (rows % 2) * 0.5 + 0.013 * rows + columns * (0.1 + 0.002 * rows)
+    directory = tmp_path / "project"
+    create_project(directory, "full rank")
+    array_path, _ = write_array(directory, values)
+    version = DatasetVersion(
+        dataset_id=uuid4(),
+        version=1,
+        content_hash="sha256:" + "0" * 64,
+        n_samples=12,
+        n_variables=6,
+        axis=VariableAxis(kind="index", values=[float(c) for c in range(6)]),
+        sample_ids=[f"s{i}" for i in range(12)],
+        targets={"y": [float(10 + i) for i in range(12)]},
+        metadata_columns={"variety": [str(i % 2 + 1) for i in range(12)]},
+        array_path=array_path,
+    )
+    assert PCA(2).fit(values - values.mean(axis=0)).rank_ == 2
+    pipeline = _pipeline(
+        version.version_id, EstimatorNode(id="model", inputs=("source",), spec=spec)
+    )
+    result = execute(directory, pipeline, version).results["model"]
+    assert result.spe == [0.0] * 12
+    assert result.spe_limit == 0.0
+    assert result.spe_limit_caveat is not None and "no SPE limit" in result.spe_limit_caveat

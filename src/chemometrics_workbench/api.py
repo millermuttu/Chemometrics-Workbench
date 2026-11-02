@@ -84,6 +84,7 @@ from chemometrics_workbench.executor import stored_result as _stored_result
 from chemometrics_workbench.export import ExportError, json_model, python_snippet
 from chemometrics_workbench.jobs import Job, Jobs, JobStatus, Reporter, submit_run
 from chemometrics_workbench.models import (
+    ColumnRole,
     Dataset,
     DatasetVersion,
     EstimatorSpec,
@@ -104,6 +105,7 @@ from chemometrics_workbench.project import (
     add_dataset,
     config_dir,
     create_project,
+    derive_roles,
     derive_version,
     is_project,
     open_project,
@@ -153,7 +155,7 @@ MAX_TRACES = 60
 MAX_POINTS = 1000
 
 #: An upload past this is refused before it is written. Above §13's envelope —
-#: 20,000 x 4,000 float32 is about 320 MB — because a text file holding that
+#: 20,000 x 4,000 float64 is about 640 MB — because a text file holding that
 #: many values is several times larger than the array it becomes, and refusing
 #: a file the application could have read would be the wrong failure.
 MAX_UPLOAD_BYTES = 2_000_000_000
@@ -301,8 +303,8 @@ def import_dataset(
 ) -> Any:
     """Read the file with the user's corrections applied and record what it became.
 
-    The array is written through #77's store, so it is float32 on disk and the
-    `content_hash` falls out of storing it. The `DatasetVersion` references
+    The array is written through the store, float64 on disk since #402, and
+    the `content_hash` falls out of storing it. The `DatasetVersion` references
     that path; the index never holds values.
     """
     directory, project = _project()
@@ -354,23 +356,15 @@ class Exclusion(BaseModel):
     exclude: list[int]
 
 
-@router.post("/datasets/{dataset_id}/versions", status_code=201)
-def exclude_samples(dataset_id: str, body: Exclusion) -> Any:
-    """A new version without the rows named, and the pipeline moved onto it.
-
-    The pipeline follows only when its source is the version excluded from, so
-    an exclusion made while looking at another dataset does not swap the data
-    under the canvas. Undoing it is pointing the source back at the parent,
-    which the pipeline's own write already does.
-    """
-    directory, _ = _project()
+def _parent_version(directory: Path, dataset_id: str, version_id: str) -> DatasetVersion:
+    """The version an edit starts from, or a 404 naming what is missing."""
     parent = next(
         (
             version
             for entry in read_datasets(directory)
             if str(entry.dataset.dataset_id) == dataset_id
             for version in entry.versions
-            if str(version.version_id) == body.from_version_id
+            if str(version.version_id) == version_id
         ),
         None,
     )
@@ -378,14 +372,20 @@ def exclude_samples(dataset_id: str, body: Exclusion) -> Any:
         raise _fail(
             404,
             "not_found",
-            f"dataset {dataset_id} has no version {body.from_version_id}.",
+            f"dataset {dataset_id} has no version {version_id}.",
             dataset_id=dataset_id,
         )
-    try:
-        version = derive_version(directory, parent, body.exclude)
-    except ProjectError as error:
-        raise _fail(422, "invalid_exclusion", str(error)) from error
+    return parent
 
+
+def _follow(directory: Path, parent: DatasetVersion, version: DatasetVersion) -> Any:
+    """Move the pipeline onto `version` if it was on `parent`, and return the dataset.
+
+    The pipeline follows only when its source is the version edited, so an
+    edit made while looking at another dataset does not swap the data under
+    the canvas. Undoing it is pointing the source back at the parent, which
+    the pipeline's own write already does.
+    """
     pipeline = read_pipeline(directory)
     if pipeline is not None:
         nodes = [
@@ -398,6 +398,37 @@ def exclude_samples(dataset_id: str, body: Exclusion) -> Any:
             write_pipeline(directory, pipeline.model_copy(update={"nodes": nodes}))
     entry = next(e for e in read_datasets(directory) if e.dataset.dataset_id == parent.dataset_id)
     return _entry_json(entry)
+
+
+@router.post("/datasets/{dataset_id}/versions", status_code=201)
+def exclude_samples(dataset_id: str, body: Exclusion) -> Any:
+    """A new version without the rows named, and the pipeline moved onto it."""
+    directory, _ = _project()
+    parent = _parent_version(directory, dataset_id, body.from_version_id)
+    try:
+        version = derive_version(directory, parent, body.exclude)
+    except ProjectError as error:
+        raise _fail(422, "invalid_exclusion", str(error)) from error
+    return _follow(directory, parent, version)
+
+
+class Roles(BaseModel):
+    """Which columns of which version to give which role (#371)."""
+
+    from_version_id: str
+    roles: dict[str, ColumnRole]
+
+
+@router.post("/datasets/{dataset_id}/roles", status_code=201)
+def change_roles(dataset_id: str, body: Roles) -> Any:
+    """A new version with the columns named given their roles, and the pipeline moved onto it."""
+    directory, _ = _project()
+    parent = _parent_version(directory, dataset_id, body.from_version_id)
+    try:
+        version = derive_roles(directory, parent, body.roles)
+    except ProjectError as error:
+        raise _fail(422, "invalid_roles", str(error)) from error
+    return _follow(directory, parent, version)
 
 
 def _corrections(raw: str) -> dict[str, str]:
@@ -579,6 +610,8 @@ def results_payload(
             payload["validation"]["predicted"] = result.held_out_predicted
         if result.task == "classification":
             payload["validation"]["predicted_class"] = result.held_out_predicted_class
+            if result.held_out_probabilities:
+                payload["validation"]["probabilities"] = result.held_out_probabilities
 
     # A regression's own half, added rather than substituted: `scores`,
     # `loadings`, the x-variances and both diagnostics above mean the same
@@ -592,6 +625,9 @@ def results_payload(
             "target": result.target,
             "observed": result.observed,
             "predicted": result.predicted,
+            # #383: each row's prediction by the fold model that did not see it;
+            # empty above a split.
+            "cross_validated": result.cross_validated_predicted,
             # On the node's own axis, like `loadings` — #134. Folding the
             # preprocessing back out to the raw axis is #144.
             "coefficients": result.coefficients,
@@ -611,6 +647,27 @@ def results_payload(
             for key in (f"rmsecv_a{a}" for a in range(1, result.n_components + 1))
             if key in result.metrics
         ]
+        # §15 (#373): the same curve against its named parameter, the shape
+        # every model's curve takes - components here, a penalty or C for
+        # the models tuned by one. `chosen` is the value the node was fitted
+        # with; the curve's minimum is reported beside it, never adopted.
+        if payload["rmsecv_curve"]:
+            # opls.md section 4: OPLS's curve is over its orthogonal components,
+            # 0 to A - 1, the same numbers as PLS1's over 1 to A.
+            opls = result.method in ("opls", "oplsda")
+            payload["tuning_curve"] = {
+                "parameter": "orthogonal components" if opls else "components",
+                "metric": "rmsecv",
+                "values": [a - opls for a in range(1, len(payload["rmsecv_curve"]) + 1)],
+                "scores": payload["rmsecv_curve"],
+                "log": False,
+                "chosen": result.n_components - 1 if opls else result.n_components,
+            }
+        elif result.tuning:
+            payload["tuning_curve"] = result.tuning
+        if result.s_plot:
+            # opls.md section 8 (#379): an OPLS-DA's S-plot, on the node's axis.
+            payload["s_plot"] = result.s_plot
     if result.simca:
         # simca.md section 5: no single X model and no confusion matrix, so
         # its own block - the class models' sizes and limits and, per set, the
@@ -651,6 +708,9 @@ def results_payload(
                 name: class_metrics(matrix) for name, matrix in result.confusion.items()
             },
         }
+        if result.probabilities:
+            # logistic-regression.md section 4 (#380): n x K, columns in class order.
+            payload["classification"]["probabilities"] = result.probabilities
     return payload
 
 
@@ -1015,6 +1075,15 @@ def folded_coefficients(
     returns an intercept of `y_mean + offset·b`, passing `ȳ - x̄·b` as `y_mean`
     puts it exactly where it belongs.
     """
+    if not result.coefficients:
+        # #377: an SVR predicts from its support vectors through a kernel,
+        # which is not a coefficient vector on any axis.
+        return {
+            "node_id": node_id,
+            "available": False,
+            "reason": "This model has no coefficient vector: it predicts from its support "
+            "vectors through a kernel, so there is nothing to fold.",
+        }
     chain, source_id = _preprocess_chain(pipeline, node_id)
     if source_id not in {node.id for node in pipeline.nodes}:  # pragma: no cover - defensive
         raise _fail(404, "not_found", f"node {node_id!r} has no source above it.", node_id=node_id)

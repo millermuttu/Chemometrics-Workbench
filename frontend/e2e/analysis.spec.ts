@@ -110,6 +110,10 @@ test("a regression tab draws what a decomposition has no counterpart for", async
   }
   await expect(page.getByTestId("predicted-plot")).toBeVisible();
   await expect(page.getByTestId("rmsecv-plot")).toBeVisible();
+  // #373: the curve marks the A fitted and reports its minimum beside it.
+  await expect(page.getByRole("region", { name: "RMSECV" })).toContainText(
+    /fitted at A = \d+ · lowest at A = \d+/,
+  );
 
   // #184: VIP beside the loadings, on the same axis - one point per variable.
   await expect(page.getByRole("region", { name: "Variable importance" })).toBeVisible();
@@ -266,6 +270,112 @@ test("a SIMCA tab reads as class models: acceptance, Coomans and limits", async 
     await expect(page.getByTestId("coomans-plot")).toBeVisible();
     await expect(page.getByRole("region", { name: "Class models" })).toContainText("high");
     await expect(page.getByRole("region", { name: "Scores" })).toHaveCount(0);
+  } finally {
+    expect((await put(original)).status()).toBe(200);
+  }
+});
+
+test("an OPLS-DA tab reads as PLS-DA's tally with its own scores and an S-plot", async ({
+  page,
+}) => {
+  // #379. As the SIMCA test does: added beside the seeded PLS-DA, then removed.
+  const auth = { Authorization: "Bearer e2e-token" };
+  await page.goto("/?token=e2e-token");
+  const original = (await (await page.request.get("/api/pipelines/current", { headers: auth })).json())
+    .nodes as { id: string; inputs: string[] }[];
+  const plsda = original.find((node) => node.id === "plsda_d")!;
+  const nodes = [
+    ...original,
+    { id: "oplsda_d", type: "estimator", inputs: plsda.inputs, spec: { kind: "oplsda", n_orthogonal: 2, class_column: "fat_class" } },
+  ];
+  const put = (body: unknown[]) =>
+    page.request.put("/api/pipelines/current", {
+      headers: { ...auth, "Content-Type": "application/json" },
+      data: { nodes: body },
+    });
+  expect((await put(nodes)).status()).toBe(200);
+  try {
+    await page.reload();
+    await page.getByRole("button", { name: "Run pipeline" }).click();
+    await expect(page.locator(".status")).toContainText("Done", { timeout: 120_000 });
+    const outline = page.getByRole("complementary", { name: "Project outline" });
+    await outline.getByRole("button", { name: /OPLS-DA 1\+2 · fat_class/ }).dblclick();
+    await expect(page.getByTestId("analysis-header")).toContainText(
+      "OPLS-DA on fat_class 3 components",
+    );
+    await expect(page.getByLabel("Scores x axis").locator("option")).toHaveText([
+      "t pred",
+      "t orth 1",
+      "t orth 2",
+    ]);
+    await page.getByLabel("Variable importance view").selectOption("splot");
+    await expect(page.getByTestId("s-plot")).toBeVisible();
+  } finally {
+    expect((await put(original)).status()).toBe(200);
+  }
+});
+
+test("a logistic regression tab lists each sample's class probabilities", async ({ page }) => {
+  // #380. As the SIMCA test does: added beside the seeded PLS-DA, then removed.
+  const auth = { Authorization: "Bearer e2e-token" };
+  await page.goto("/?token=e2e-token");
+  const original = (await (await page.request.get("/api/pipelines/current", { headers: auth })).json())
+    .nodes as { id: string; inputs: string[] }[];
+  const plsda = original.find((node) => node.id === "plsda_d")!;
+  const nodes = [
+    ...original,
+    { id: "logistic_d", type: "estimator", inputs: plsda.inputs, spec: { kind: "logistic", C: 1, n_components: 5, class_column: "fat_class" } },
+  ];
+  const put = (body: unknown[]) =>
+    page.request.put("/api/pipelines/current", {
+      headers: { ...auth, "Content-Type": "application/json" },
+      data: { nodes: body },
+    });
+  expect((await put(nodes)).status()).toBe(200);
+  try {
+    await page.reload();
+    await page.getByRole("button", { name: "Run pipeline" }).click();
+    await expect(page.locator(".status")).toContainText("Done", { timeout: 120_000 });
+    const outline = page.getByRole("complementary", { name: "Project outline" });
+    await outline.getByRole("button", { name: /Logistic 5 PC · fat_class/ }).dblclick();
+    await expect(page.getByTestId("analysis-header")).toContainText(
+      "Logistic regression on fat_class 5 components",
+    );
+    const table = page.getByTestId("class-probabilities");
+    await expect(table.locator("thead th")).toHaveText(["Sample", "Assigned", "p(high)", "p(low)"]);
+    await expect(table.locator("tbody tr")).toHaveCount(60);
+    await expect(page.getByTestId("confusion-matrix")).toBeVisible();
+  } finally {
+    expect((await put(original)).status()).toBe(200);
+  }
+});
+
+test("a QDA tab reads as a classification on the PCA front's scores", async ({ page }) => {
+  // #381. As the SIMCA test does: added beside the seeded PLS-DA, then removed.
+  const auth = { Authorization: "Bearer e2e-token" };
+  await page.goto("/?token=e2e-token");
+  const original = (await (await page.request.get("/api/pipelines/current", { headers: auth })).json())
+    .nodes as { id: string; inputs: string[] }[];
+  const plsda = original.find((node) => node.id === "plsda_d")!;
+  const nodes = [
+    ...original,
+    { id: "qda_d", type: "estimator", inputs: plsda.inputs, spec: { kind: "qda", n_components: 5, reg_param: 0, class_column: "fat_class" } },
+  ];
+  const put = (body: unknown[]) =>
+    page.request.put("/api/pipelines/current", {
+      headers: { ...auth, "Content-Type": "application/json" },
+      data: { nodes: body },
+    });
+  expect((await put(nodes)).status()).toBe(200);
+  try {
+    await page.reload();
+    await page.getByRole("button", { name: "Run pipeline" }).click();
+    await expect(page.locator(".status")).toContainText("Done", { timeout: 120_000 });
+    const outline = page.getByRole("complementary", { name: "Project outline" });
+    await outline.getByRole("button", { name: /QDA 5 PC · fat_class/ }).dblclick();
+    await expect(page.getByTestId("analysis-header")).toContainText("QDA on fat_class 5 components");
+    await expect(page.getByTestId("confusion-matrix")).toBeVisible();
+    await expect(page.getByRole("region", { name: "Scores" })).toBeVisible();
   } finally {
     expect((await put(original)).status()).toBe(200);
   }

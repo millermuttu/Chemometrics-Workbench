@@ -32,11 +32,15 @@ from chemometrics_workbench.preprocessing import (
     Transformer,
 )
 from chemometrics_workbench.regression import (
+    OPLS,
     PLS,
     PLS2,
+    ElasticNet,
     coefficients_original_units,
     cross_validated_predictions,
+    elastic_net_path,
     rmsecv_curve,
+    tuning_curve,
 )
 from chemometrics_workbench.validation import (
     folds_from_indices,
@@ -556,6 +560,71 @@ def test_the_curve_uses_one_fold_assignment_for_every_component_count() -> None:
         assert curve[a - 1] == pytest.approx(rmse(y, cross_validated_predictions(X, y, folds, a)))
 
 
+def test_the_tuning_curve_over_components_is_the_rmsecv_curve() -> None:
+    """§15 (#373): the general curve, fitted once per fold per value, gives the
+    numbers the nested one-fit curve gives for PLS, which is why PLS keeps
+    the faster one and its numbers did not move."""
+    X, y = _spectra_and_response(n=30)
+    folds = k_fold(30, 5)
+
+    def pls(train_x: np.ndarray, train_y: np.ndarray, test_x: np.ndarray, a: float) -> np.ndarray:
+        x_mean, y_mean = train_x.mean(axis=0), train_y.mean()
+        return PLS(int(a)).fit(train_x - x_mean, train_y - y_mean).predict(test_x - x_mean) + y_mean
+
+    general = tuning_curve(
+        X,
+        y,
+        folds,
+        [1, 2, 3, 4],
+        lambda x, y, test, values: np.array([pls(x, y, test, a) for a in values]),
+    )
+    np.testing.assert_allclose(general, rmsecv_curve(X, y, folds, 4), rtol=1e-10)
+
+
+def test_the_tuning_curve_pools_residuals_at_every_value() -> None:
+    """§7 per value: one root over every sample's residual, not a mean of fold
+    RMSEs, on folds of uneven size. The predictor is the training mean scaled
+    by the value, so each point can be worked by hand."""
+    X, y = _spectra_and_response(n=31)
+    folds = k_fold(31, 4)
+
+    def scaled_mean(
+        _x: np.ndarray, train_y: np.ndarray, test_x: np.ndarray, values: Sequence[float]
+    ) -> np.ndarray:
+        return np.array([np.full(test_x.shape[0], v * train_y.mean()) for v in values])
+
+    values = [0.1, 1.0, 10.0]
+    curve = tuning_curve(X, y, folds, values, scaled_mean)
+    for value, point in zip(values, curve, strict=True):
+        predicted = np.empty_like(y)
+        for fold in folds:
+            predicted[fold.test] = value * y[fold.train].mean()
+        assert point == pytest.approx(rmse(y, predicted))
+        mean_of_folds = np.mean([rmse(y[f.test], predicted[f.test]) for f in folds])
+        assert point != pytest.approx(mean_of_folds, rel=1e-6)
+
+    with pytest.raises(ValueError, match="at least one parameter value"):
+        tuning_curve(X, y, folds, [], scaled_mean)
+
+
+def test_a_value_one_fold_cannot_fit_is_absent_from_the_curve() -> None:
+    """#375: a fold whose path stopped leaves NaN rows, and those values'
+    RMSECV is NaN rather than a pool of the folds that did fit; the values
+    before it are unaffected."""
+    X, y = _spectra_and_response(n=20)
+    folds = k_fold(20, 4)
+
+    def last_absent(
+        _x: np.ndarray, train_y: np.ndarray, test_x: np.ndarray, values: Sequence[float]
+    ) -> np.ndarray:
+        rows = np.array([np.full(test_x.shape[0], train_y.mean()) for _ in values])
+        rows[-1] = np.nan
+        return rows
+
+    curve = tuning_curve(X, y, folds, [1.0, 2.0, 3.0], last_absent)
+    assert np.isfinite(curve[:2]).all() and np.isnan(curve[2])
+
+
 def test_a_cross_validated_fit_replays_from_a_stored_resolved_split_alone() -> None:
     """The reproducibility claim, end to end (§10).
 
@@ -859,3 +928,49 @@ def test_a_one_hot_curve_is_pls2_pooled_over_every_element() -> None:
             held[fold.test] = model.predict(x[fold.test] - xt.mean(axis=0)) + yt.mean(axis=0)
         expected.append(float(np.sqrt(np.mean((onehot - held) ** 2))))
     np.testing.assert_allclose(ours, expected, rtol=1e-6)
+
+
+def test_an_elastic_net_that_does_not_converge_is_refused_naming_alpha() -> None:
+    """#375: a fit stopped by its iteration limit is never reported as a fit."""
+    X, y = _spectra_and_response(n=30)
+    with pytest.raises(
+        RuntimeError, match=r"did not converge at alpha 0.001 .* within 10 iterations"
+    ):
+        ElasticNet(0.001, 1.0, tol=1e-14, max_iter=10).fit(X - X.mean(axis=0), y - y.mean())
+
+
+def test_a_path_ends_at_its_first_unconverged_alpha() -> None:
+    """Every alpha below the one that failed is absent, and the ones above it
+    are the fits a cold start gives, to the solver's tolerance."""
+    X, y = _spectra_and_response(n=30)
+    X, y = X - X.mean(axis=0), y - y.mean()
+    top = float(np.abs(X.T @ y).max()) / len(y)
+    alphas = [*(top * np.logspace(0, -2, 5)), top * 1e-9]
+    path = elastic_net_path(X, y, alphas, 1.0, tol=1e-10, max_iter=2_000)
+    assert path[-1] is None
+    assert all(b is not None for b in path[:3])
+    cold = ElasticNet(alphas[2], 1.0, tol=1e-10, max_iter=200_000).fit(X, y).coefficients_
+    assert path[2] is not None and cold is not None
+    np.testing.assert_allclose(X @ path[2], X @ cold, rtol=1e-4, atol=1e-6)
+
+
+@pytest.mark.parametrize("total", [1, 2, 4])
+def test_opls_scores_are_its_rotations_and_the_orthogonal_ones_miss_y(total: int) -> None:
+    """`opls.md` sections 2 and 3: T = X R, the scores mutually orthogonal, the
+    orthogonal ones uncorrelated with y, and predictions PLS1's with as many
+    components - the properties the unsourced scores are tested by."""
+    X, y = _spectra_and_response(n=30)
+    X, y = X - X.mean(axis=0), y - y.mean()
+    model = OPLS(total).fit(X, y)
+    scores = model._fitted("x_scores_")
+    np.testing.assert_allclose(X @ model._fitted("rotations_"), scores, atol=1e-10)
+    gram = scores.T @ scores
+    assert np.abs(gram - np.diag(np.diag(gram))).max() < 1e-9 * np.abs(gram).max()
+    assert np.abs(scores[:, 1:].T @ y).max(initial=0.0) < 1e-8 * np.abs(scores[:, 0] @ y)
+    np.testing.assert_allclose(
+        model.predict(X), PLS(total).fit(X, y).predict(X), rtol=1e-9, atol=1e-9
+    )
+    assert model.n_orthogonal_ == total - 1
+    # The orthogonal components explain none of y, so VIP is the predictive one's.
+    w = model._fitted("weights_")[:, 0]
+    np.testing.assert_allclose(model.vip(), np.sqrt(X.shape[1] * w**2), rtol=1e-9)

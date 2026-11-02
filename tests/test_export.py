@@ -34,36 +34,42 @@ from chemometrics_workbench.models import (
     Autoscale,
     BaselineCorrect,
     DatasetVersion,
+    ElasticNetSpec,
     EstimatorNode,
     GaussianSmooth,
     KFoldSplit,
     KNNSpec,
     LDASpec,
+    LogisticSpec,
     MeanCentre,
     MedianFilter,
     MovingAverage,
+    OPLSDASpec,
     PCASpec,
     PCRSpec,
     Pipeline,
     PLSDASpec,
     PLSRegressionSpec,
     PreprocessNode,
+    QDASpec,
     RangeSelect,
+    RidgeSpec,
     SavitzkyGolay,
     SIMCASpec,
     SourceNode,
     SplitNode,
     SVMSpec,
+    SVRSpec,
     WhittakerSmooth,
 )
 from chemometrics_workbench.project import create_project, write_array
 
-#: `docs/model-export.md` §5. Wider than the parity harness's prediction class
-#: because the application predicts from float32-stored arrays and an export
-#: computes in float64 - measured at 7.09e-6 relative in
-#: `docs/phase-2/exit-run.md`, and this is an order of magnitude above it.
-RTOL = 1e-4
-ATOL = 1e-6
+#: `docs/model-export.md` §5: an export agrees with the application within the
+#: parity harness's prediction class. It was 1e-4 / 1e-6 while the store was
+#: float32 (#77), a gap measured in `docs/phase-2/exit-run.md`; since #402 the
+#: store is float64 and the two compute from the same numbers.
+RTOL = 1e-6
+ATOL = 1e-9
 
 
 @pytest.fixture(scope="module")
@@ -230,6 +236,79 @@ def test_a_pcr_exports_as_a_bare_coefficient_vector(
     )
 
 
+def test_a_ridge_exports_as_a_bare_coefficient_vector_through_a_residual_step(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#374, `penalised-regression.md` section 7: b is a fixed vector, so a
+    ridge exports as a PLS does - here behind SNV, which is carried, not folded."""
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(id="snv", inputs=("source",), step=SNV()),
+        EstimatorNode(id="ridge", inputs=("snv",), spec=RidgeSpec(alpha=0.01, target="fat")),
+    )
+    result = _run(directory, version, pipeline, "ridge")
+    model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
+    assert [step["kind"] for step in model["preprocessing"]] == ["snv"]
+    assert model["model"]["task"] == "regression"
+    predicted = _predict(python_snippet(model), tecator.spectra)
+    np.testing.assert_allclose(
+        predicted[np.asarray(result.rows)], result.predicted, rtol=RTOL, atol=ATOL
+    )
+
+
+def test_a_lasso_exports_its_sparse_vector_and_reproduces_its_predictions(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#375: the zeros are part of the vector, folded through Savitzky-Golay like any other."""
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(
+            id="savgol", inputs=("source",), step=SavitzkyGolay(window_length=11, polyorder=2)
+        ),
+        EstimatorNode(
+            id="lasso",
+            inputs=("savgol",),
+            spec=ElasticNetSpec(alpha=0.05, l1_ratio=1.0, target="fat"),
+        ),
+    )
+    result = _run(directory, version, pipeline, "lasso")
+    assert 0 < np.count_nonzero(result.coefficients) < version.n_variables
+    model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
+    assert model["preprocessing"] == []
+    predicted = _predict(python_snippet(model), tecator.spectra)
+    np.testing.assert_allclose(
+        predicted[np.asarray(result.rows)], result.predicted, rtol=RTOL, atol=ATOL
+    )
+
+
+@pytest.mark.parametrize("kernel", ["linear", "rbf"])
+def test_an_svr_exports_its_support_vectors_and_reproduces_its_predictions(
+    project: tuple[Path, DatasetVersion], tecator: Any, kernel: str
+) -> None:
+    """#377, svr.md section 7: the chain to the scores, then the support
+    vectors, the dual coefficients and rho, as an SVM's pair travels."""
+    directory, version = project
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(id="snv", inputs=("source",), step=SNV()),
+        EstimatorNode(
+            id="svr",
+            inputs=("snv",),
+            spec=SVRSpec(kernel=kernel, C=5, n_components=4, target="fat"),
+        ),
+    )
+    result = _run(directory, version, pipeline, "svr")
+    model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
+    assert model["model"]["assignment"] == "svr" and model["model"]["task"] == "regression"
+    assert len(model["svr"]["support_vectors"]) == len(result.svm["support"])
+    predicted = _predict(python_snippet(model), tecator.spectra)
+    np.testing.assert_allclose(
+        predicted[np.asarray(result.rows)], result.predicted, rtol=RTOL, atol=ATOL
+    )
+
+
 def test_three_classes_export_a_matrix_and_assign_by_the_largest_column(
     project: tuple[Path, DatasetVersion], tecator: Any
 ) -> None:
@@ -256,6 +335,82 @@ def test_three_classes_export_a_matrix_and_assign_by_the_largest_column(
     assert len(model["intercept"]) == 3
     predicted = _predict(python_snippet(model), tecator.spectra)
     expected = [result.classes[k] for k in result.predicted_class]
+    assert predicted[np.asarray(result.rows)].tolist() == expected
+
+
+def test_an_oplsda_exports_as_a_two_class_plsda_does(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#379, opls.md section 9: one folded vector, cut at 0.5."""
+    directory, version = project
+    fat = np.asarray(tecator.targets["fat"])
+    labels = np.where(fat > np.median(fat), "high", "low").tolist()
+    version = version.model_copy(update={"metadata_columns": {"grade": labels}})
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(id="centre", inputs=("source",), step=MeanCentre()),
+        EstimatorNode(
+            id="oplsda", inputs=("centre",), spec=OPLSDASpec(n_orthogonal=2, class_column="grade")
+        ),
+    )
+    result = _run(directory, version, pipeline, "oplsda")
+    model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
+    assert model["model"]["threshold"] == 0.5 and model["model"]["assignment"] is None
+    predicted = _predict(python_snippet(model), tecator.spectra)
+    expected = [result.classes[k] for k in result.predicted_class]
+    assert predicted[np.asarray(result.rows)].tolist() == expected
+
+
+@pytest.mark.parametrize("k", [2, 3])
+def test_a_logistic_regression_exports_and_assigns_as_the_application_does(
+    project: tuple[Path, DatasetVersion], tecator: Any, k: int
+) -> None:
+    """#380, logistic-regression.md section 5: the chain to the scores, W and b;
+    a binomial model for two classes, a softmax for three."""
+    directory, version = project
+    fat = np.asarray(tecator.targets["fat"])
+    cuts = np.quantile(fat, np.linspace(0, 1, k + 1)[1:-1])
+    labels = [f"c{int(i)}" for i in np.searchsorted(cuts, fat)]
+    version = version.model_copy(update={"metadata_columns": {"grade": labels}})
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(id="snv", inputs=("source",), step=SNV()),
+        EstimatorNode(
+            id="logistic",
+            inputs=("snv",),
+            spec=LogisticSpec(C=10, n_components=4, class_column="grade"),
+        ),
+    )
+    result = _run(directory, version, pipeline, "logistic")
+    model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
+    assert model["model"]["assignment"] == "logistic"
+    assert len(model["logistic"]["coefficients"]) == (1 if k == 2 else k)
+    predicted = _predict(python_snippet(model), tecator.spectra)
+    expected = [result.classes[i] for i in result.predicted_class]
+    assert predicted[np.asarray(result.rows)].tolist() == expected
+
+
+def test_a_qda_exports_its_gaussians_and_assigns_as_the_application_does(
+    project: tuple[Path, DatasetVersion], tecator: Any
+) -> None:
+    """#381, qda.md section 5: the chain to the scores, then each class's mean,
+    rotation, scalings and prior."""
+    directory, version = project
+    version = _grades(version, tecator)
+    pipeline = _pipeline(
+        version.version_id,
+        PreprocessNode(id="snv", inputs=("source",), step=SNV()),
+        EstimatorNode(
+            id="qda",
+            inputs=("snv",),
+            spec=QDASpec(n_components=4, reg_param=0.05, class_column="grade"),
+        ),
+    )
+    result = _run(directory, version, pipeline, "qda")
+    model = json_model(result, pipeline=pipeline, version=version, raw=tecator.spectra)
+    assert model["model"]["assignment"] == "qda" and len(model["qda"]["classes"]) == 3
+    predicted = _predict(python_snippet(model), tecator.spectra)
+    expected = [result.classes[i] for i in result.predicted_class]
     assert predicted[np.asarray(result.rows)].tolist() == expected
 
 

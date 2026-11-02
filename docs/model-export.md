@@ -65,7 +65,7 @@ Everything after the last unfoldable step folds; everything up to and including 
 | `schema_version` | Integer, currently **1**. A reader refuses a higher one by name, as [`model-artifact.md`](model-artifact.md) §2 has it |
 | `model.task` | `regression` or `classification`. **A decomposition has no prediction to export** and is refused: PCA produces scores, not a response |
 | `model.threshold` | `0.5` for a two-class classification, `null` otherwise — `pls-da.md` §5's fixed cut, stated rather than assumed by the reader |
-| `model.assignment` | `"argmax"` for a classification of three or more classes (#274), `"simca"`, `"knn"` or `"svm"` for those (§6), `null` otherwise |
+| `model.assignment` | `"argmax"` for a classification of three or more classes (#274), `"simca"`, `"knn"`, `"svm"`, `"logistic"`, `"qda"` or `"svr"` for those (§6), `null` otherwise |
 | `model.classes` | The classes in Unicode order. With two, the prediction is `classes[1]` at or above the threshold; with more, it is `classes[k]` for the largest of the N predictions |
 | `axis.values` | The **raw** variable axis the model expects its input on, with as many entries as `coefficients` has when the residual chain preserves the variable count. It is the axis of the matrix the residual chain is applied to |
 | `preprocessing` | The residual chain, in the order it is applied, each step as `models.py` serialises it plus whatever fitted parameters it needs (§4) |
@@ -128,14 +128,11 @@ A zero divisor in any of these is a dead spectrum, and both the application and 
 
 ## 5. The tolerance, and why it is what it is
 
-**An exported prediction agrees with the application's to `rtol = 1e-4`, `atol = 1e-6`.**
+**An exported prediction agrees with the application's to `rtol = 1e-6`, `atol = 1e-9`** - the parity harness's prediction class.
 
-That is wider than the parity harness's prediction class (`rtol = 1e-6`) and the reason is measured rather than supposed. The executor stores every intermediate array as **float32** (`PROPOSAL.md` §13), so the application's own prediction is computed from float32-rounded inputs, while an export applied to the raw data computes in float64 throughout. `docs/phase-2/exit-run.md` measured exactly this on a Savitzky–Golay first-derivative chain: the served predictions differ from a float64 reference by **7.09e-6 relative**, and a first derivative is the worst case, because it amplifies the rounding of the array it differentiates.
+Until v1.3 it was `rtol = 1e-4`, `atol = 1e-6`, and the reason was measured: the executor stored every intermediate array as float32, so the application predicted from float32-rounded inputs while an export computed in float64 throughout. `docs/phase-2/exit-run.md` measured the gap at 7.09e-6 relative on a first-derivative chain. Phase 7's exit run then found models where it was far larger - Ridge at a small α and MLR on a selection, whose condition numbers multiply one float32 rounding by about 10⁵ - and the store became float64 ([#402](https://github.com/millermuttu/Chemometrics-Workbench/issues/402), decision 0007). The application and an export now compute from the same numbers, and the tolerance came down to the prediction class, as this section said it should; `tests/test_export.py` holds it.
 
-The export tolerance is therefore set an order of magnitude above the largest difference the store can produce, not at a number that happened to pass. Two consequences worth stating:
-
-- **The difference is the store's, not the export's.** Narrowing the exported coefficients to float32 would make the two agree more closely and make the export worse. The artifact and the JSON model both carry float64.
-- **If the store ever becomes float64**, this tolerance should come down to the parity harness's prediction class, and the test that holds it should be the thing that notices.
+The artifact and the JSON model carry float64, as they always did.
 
 ---
 
@@ -151,11 +148,14 @@ The JSON model of either carries, beside the fields of §2 that every model has:
 
 | Field | Meaning |
 | --- | --- |
-| `model.assignment` | `"simca"`, `"knn"` or `"svm"`; `model.threshold` is `null` and there is no `coefficients` or `intercept` |
+| `model.assignment` | `"simca"`, `"knn"`, `"svm"`, `"logistic"`, `"qda"` or `"svr"`; `model.threshold` is `null` and there is no `coefficients` or `intercept` |
 | `affine` | `{"matrix": p × p', "offset": p'}`, or **`null`** when the tail is empty — an identity is not written out |
 | `simca.models` | One entry per class, in the order of `classes`: `mean` (p'), `loadings` (A × p', one row per component), `eigenvalues` (A), `t2_limit`, `q_limit` |
 | `knn` | `k`, `x_mean` (p'), `loadings` (A × p'), `neighbours` (the n calibration scores, n × A) and `neighbour_classes` (n indices into `classes`) |
 | `svm` | `kernel`, `gamma`, `x_mean` (p'), `loadings` (A × p') and `pairs`: per pair of classes, `classes` (`[i, j]`), `support_vectors` (in score space, m × A), `dual` (their $a y$) and `rho` |
+| `qda` | A QDA's (#381, `qda.md` §5): `x_mean` (p'), `loadings` (A × p') and `classes`: per class in `classes` order, `mean` (A), `rotation` (A × A), `scalings` (A) and `prior` |
+| `logistic` | A logistic regression's (#380, `logistic-regression.md` §5): `x_mean` (p'), `loadings` (A × p'), `coefficients` ($W$, r × A: one row for two classes, K for more) and `intercept` ($b$, r) |
+| `svr` | An SVR's (#377, `svr.md` §7): `kernel`, `gamma`, `x_mean` (p'), `loadings` (A × p'), `support_vectors` (m × A), `dual` (their $a - a^*$) and `rho`; the prediction is $K(t, S)\,\beta - \rho$ |
 
 `p` is the width the residual chain hands on, which is the raw width; `p'` the width after the tail, smaller than `p` when a range selection is in it.
 

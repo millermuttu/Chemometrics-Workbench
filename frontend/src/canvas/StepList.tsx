@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import type { DraftStep } from "@/canvas/graph";
-import type { CatalogueStep } from "@/canvas/catalogue";
+import { grouped, type CatalogueStep } from "@/canvas/catalogue";
 
 /** The pipeline builder beside the canvas: appending, and what a drag cannot do.
  *
@@ -24,9 +24,38 @@ import type { CatalogueStep } from "@/canvas/catalogue";
  * Editing them is the inspector's job once the node is saved.
  */
 
+/** Why a heading's models are disabled, and the way to fix it (#372): one line
+ * per reason, drawn under the Step list and under the drop menu's heading. */
+export function Unavailable({
+  steps,
+  onOpenDataset,
+}: {
+  steps: CatalogueStep[];
+  onOpenDataset?: () => void;
+}) {
+  const reasons = [...new Set(steps.flatMap((step) => (step.disabled ? [step.disabled] : [])))];
+  return reasons.map((reason) => (
+    <div
+      key={reason}
+      className="mono"
+      data-testid="unavailable"
+      style={{ fontSize: 10, color: "var(--ink3)", padding: "2px 8px" }}
+    >
+      {reason}{" "}
+      {onOpenDataset ? (
+        <button type="button" className="tabx" onClick={onOpenDataset} style={{ fontSize: 10 }}>
+          Open Dataset view
+        </button>
+      ) : null}
+    </div>
+  ));
+}
+
 interface Props {
   /** `stepMenu` for the open dataset, the port menu's list (#337). */
   menu: CatalogueStep[];
+  /** Opens the dataset the pipeline runs on, where a column's role is set. */
+  onOpenDataset?: () => void;
   steps: DraftStep[];
   onChange: (steps: DraftStep[]) => void;
   onValidate: () => void;
@@ -39,6 +68,7 @@ interface Props {
 
 export function StepList({
   menu,
+  onOpenDataset,
   steps,
   onChange,
   onValidate,
@@ -49,7 +79,7 @@ export function StepList({
 }: Props) {
   const [picked, setPicked] = useState(menu[0].kind);
   // The menu follows the dataset, so a PLS-DA picked on one may be gone on the next.
-  const choice = menu.find((step) => step.kind === picked) ?? menu[0];
+  const choice = menu.find((step) => step.kind === picked && !step.disabled) ?? menu[0];
 
   return (
     <aside
@@ -105,10 +135,19 @@ export function StepList({
             fontSize: 11,
           }}
         >
-          {menu.map((step) => (
-            <option key={step.kind} value={step.kind}>
-              {step.kind}
-            </option>
+          {grouped(menu).map(([group, entries]) => (
+            <optgroup key={group} label={group}>
+              {entries.map((step) => (
+                <option
+                  key={step.kind}
+                  value={step.kind}
+                  disabled={step.disabled !== undefined}
+                  title={step.disabled}
+                >
+                  {step.kind}
+                </option>
+              ))}
+            </optgroup>
           ))}
         </select>
         <button
@@ -118,6 +157,9 @@ export function StepList({
         >
           Add
         </button>
+      </div>
+      <div style={{ padding: "0 4px 6px" }}>
+        <Unavailable steps={menu} onOpenDataset={onOpenDataset} />
       </div>
 
       <div style={{ padding: "0 12px 10px", display: "flex", gap: 6, alignItems: "center" }}>

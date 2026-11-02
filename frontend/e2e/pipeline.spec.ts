@@ -358,3 +358,32 @@ test("a connector dropped on empty canvas adds a step onto the node it came from
   expect(added.x).toBeGreaterThan(source.x);
   expect(added.y).toBeGreaterThan(source.y);
 });
+
+/** #370. One flat list put the models between the smoothers and the splits;
+ * both menus now show them under a heading of their own. */
+test("both menus show the models under Regression and Classification", async ({ page }) => {
+  await openCanvas(page);
+
+  const port = page.locator('.react-flow__node[data-id="msc"] .react-flow__handle-right');
+  const source = (await port.boundingBox())!;
+  await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(source.x + 220, source.y + 300, { steps: 12 });
+  await page.mouse.up();
+
+  const menu = page.getByTestId("add-step-menu");
+  const regression = menu.getByRole("group", { name: "Regression" });
+  await expect(regression).toContainText("Regression");
+  await expect(regression.getByRole("menuitem", { name: "PLS 5 LV" })).toHaveCount(1);
+  await expect(regression.getByRole("menuitem", { name: "PCR 5 PC" })).toHaveCount(1);
+  const classification = menu.getByRole("group", { name: "Classification" });
+  await expect(classification.getByRole("menuitem", { name: "PLS-DA 5 LV" })).toHaveCount(1);
+  await expect(menu.getByRole("group", { name: "Validation" }).getByRole("menuitem", { name: "K-fold 10" })).toHaveCount(1);
+
+  const list = page.getByLabel("Step", { exact: true });
+  await expect(list.locator('optgroup[label="Regression"] > option', { hasText: "PLS 5 LV" })).toHaveCount(1);
+  await expect(list.locator('optgroup[label="Classification"] > option', { hasText: "SVM rbf 5 PC" })).toHaveCount(1);
+  // Grouping changes where an entry is drawn, not what picking it adds.
+  await list.selectOption("PCR 5 PC");
+  await expect(list).toHaveValue("PCR 5 PC");
+});

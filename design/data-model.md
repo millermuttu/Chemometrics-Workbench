@@ -120,6 +120,8 @@ erDiagram
 
 **Excluding samples derives a version (#270).** It never edits one. The kept rows are written as a new array, so the new version has its own content hash, and `derived_from` names the parent. `excluded_samples` lists the parent's rows that were left out, as positional indices into the parent. The pipeline's source moves onto the new version, so runs, comparisons, reports and artifacts all name it. Undoing is pointing the source back at the parent.
 
+**Changing a column's role derives a version too (#371).** Target, class, group or ignore: the column moves between `targets` and `metadata_columns`, or is left out. The spectra are the parent's, so the array and its content hash are reused; `role_changes` records what changed and `column_roles` the metadata roles chosen so far (a column not in it is a class when it has two or more values). The pipeline follows as it does for an exclusion.
+
 ## Node and parameter types
 
 Every node carries a typed spec, resolved by a discriminator field. This is what makes a pipeline safe to round-trip through JSON.

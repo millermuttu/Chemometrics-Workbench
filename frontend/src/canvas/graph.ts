@@ -84,6 +84,22 @@ export function parameterLine(node: PipelineNode): string {
     case "pls":
     case "pcr":
       return `${spec!.n_components} components · ${spec!.target}`;
+    case "ridge":
+      return `alpha ${spec!.alpha} · ${spec!.target}`;
+    case "oplsda":
+      return `1 predictive + ${spec!.n_orthogonal} orthogonal · ${spec!.class_column}`;
+    case "opls":
+      return `1 predictive + ${spec!.n_orthogonal} orthogonal · ${spec!.target}`;
+    case "svr":
+      return `${spec!.kernel} · C ${spec!.C} · ε ${spec!.epsilon} · ${spec!.n_components} components · ${spec!.target}`;
+    case "mlr":
+      return `least squares · ${spec!.target}`;
+    case "elastic_net":
+      return `alpha ${spec!.alpha} · l1 ${spec!.l1_ratio} · ${spec!.target}`;
+    case "qda":
+      return `${spec!.n_components} components · reg ${spec!.reg_param} · ${spec!.class_column}`;
+    case "logistic":
+      return `C ${spec!.C} · ${spec!.n_components} components · ${spec!.class_column}`;
     case "knn":
       return `k ${spec!.k} · ${spec!.n_components} components · ${spec!.class_column}`;
     case "svm":

@@ -119,6 +119,22 @@ export function nodeLabel(node: PipelineNode): string {
       return `PLS ${spec?.n_components} LV · ${spec?.target}`;
     case "pcr":
       return `PCR ${spec?.n_components} PC · ${spec?.target}`;
+    case "ridge":
+      return `Ridge α${spec?.alpha} · ${spec?.target}`;
+    case "oplsda":
+      return `OPLS-DA 1+${spec?.n_orthogonal} · ${spec?.class_column}`;
+    case "opls":
+      return `OPLS 1+${spec?.n_orthogonal} · ${spec?.target}`;
+    case "svr":
+      return `SVR ${spec?.kernel} ${spec?.n_components} PC · ${spec?.target}`;
+    case "mlr":
+      return `MLR · ${spec?.target}`;
+    case "elastic_net":
+      return `${spec?.l1_ratio === 1 ? "Lasso" : "Elastic Net"} α${spec?.alpha} · ${spec?.target}`;
+    case "qda":
+      return `QDA ${spec?.n_components} PC · ${spec?.class_column}`;
+    case "logistic":
+      return `Logistic ${spec?.n_components} PC · ${spec?.class_column}`;
     case "knn":
       return `kNN k${spec?.k} · ${spec?.class_column}`;
     case "svm":

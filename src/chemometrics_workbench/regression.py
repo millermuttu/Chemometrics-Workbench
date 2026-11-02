@@ -55,15 +55,23 @@ The `T^2` limit, by contrast, transfers unchanged, and is imported from
 from __future__ import annotations
 
 import warnings
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Literal, Self
 
 import numpy as np
 from numpy.typing import NDArray
+from scipy.linalg import solve_triangular
 from scipy.stats import chi2
 
 from chemometrics_workbench.arrays import as_float64, as_float64_vector
-from chemometrics_workbench.decomposition import PCA, LimitFor, check_alpha, hotelling_t2_limit
+from chemometrics_workbench.classification import _smo, kernel_matrix
+from chemometrics_workbench.decomposition import (
+    PCA,
+    LimitFor,
+    check_alpha,
+    hotelling_t2_limit,
+    numerical_rank,
+)
 from chemometrics_workbench.preprocessing import (
     AutoscaleTransformer,
     GaussianTransformer,
@@ -79,12 +87,19 @@ from chemometrics_workbench.validation import Fold, rmse, validate_partition
 
 __all__ = [
     "FOLDABLE",
+    "MLR",
+    "OPLS",
     "PCR",
     "PLS",
     "PLS2",
+    "SVR",
+    "ElasticNet",
+    "Ridge",
     "coefficients_original_units",
     "cross_validated_predictions",
+    "elastic_net_path",
     "rmsecv_curve",
+    "tuning_curve",
 ]
 
 #: The preprocessing steps that fold into a coefficient vector, per
@@ -777,6 +792,11 @@ class PCR:
     def hotelling_t2_limit(self, alpha: float = 0.05, samples: LimitFor = "calibration") -> float:
         return self._pca.hotelling_t2_limit(alpha, samples)
 
+    @property
+    def pca_(self) -> PCA:
+        """The decomposition underneath, as SVR and the scores classifiers name theirs."""
+        return self._pca
+
     def spe(self, X: object) -> NDArray[np.float64]:
         return self._pca.spe(X)
 
@@ -785,6 +805,436 @@ class PCR:
 
     def spe_limit_caveat(self) -> str | None:
         return self._pca.spe_limit_caveat()
+
+
+class Ridge:
+    """Ridge regression, per `penalised-regression.md` §2: least squares with a
+    penalty `alpha ||b||^2` on the coefficients, solved through the SVD.
+
+    `b = V diag(s / (s^2 + alpha)) U' y` for `X = U S V'`, which is the
+    solution of `(X'X + alpha I) b = X'y` without forming `X'X` - so many more
+    variables than samples, the normal case for a spectrum, costs an `n x n`
+    problem rather than a `p x p` one. Like `PLS` it centres nothing: X is
+    centred by the executor (and by a pipeline node, if there is one) and y
+    by the executor, as scikit-learn's `Ridge(fit_intercept=True)` does.
+    """
+
+    coefficients_: NDArray[np.float64] | None = None
+    effective_degrees_of_freedom_: float | None = None
+
+    def __init__(self, alpha: float) -> None:
+        if not alpha > 0:
+            raise ValueError(f"alpha must be positive, got {alpha}")
+        self.alpha = float(alpha)
+
+    def fit(self, X: object, y: object) -> Self:
+        values = as_float64(X, "X")
+        response = as_float64_vector(y, "y")
+        if response.size != values.shape[0]:
+            raise ValueError(
+                f"X has {values.shape[0]} samples and y has {response.size}. Arrays are "
+                "n_samples x n_variables and are never silently transposed."
+            )
+        u, s, vt = np.linalg.svd(values, full_matrices=False)
+        self.coefficients_ = vt.T @ (s / (s**2 + self.alpha) * (u.T @ response))
+        # §4: the trace of the hat matrix, the model's size in the units SEC
+        # and the information criteria count parameters in.
+        self.effective_degrees_of_freedom_ = float(np.sum(s**2 / (s**2 + self.alpha)))
+        return self
+
+    def predict(self, X: object) -> NDArray[np.float64]:
+        """`y_hat = X b` on the centred scale the model was fitted on, as `PLS.predict`."""
+        if self.coefficients_ is None:
+            raise RuntimeError("Ridge has not been fitted")
+        predicted: NDArray[np.float64] = as_float64(X, "X") @ self.coefficients_
+        return predicted
+
+
+class OPLS(PLS):
+    """Orthogonal PLS for one response, per `opls.md` (Trygg and Wold, 2002).
+
+    `n_components` is the total, `1 + A`: one predictive component and `A`
+    orthogonal ones. Each orthogonal component is the part of X's loading
+    that is orthogonal to the predictive weight, removed from X before the
+    next; the predictive component is then fitted on what is left (§2).
+
+    It is a `PLS` in everything after `fit`: the scores, loadings, rotations
+    (`T = X R`), coefficients and variances are set as PLS sets them - the
+    predictive component first, the orthogonal ones after - so prediction,
+    T2, SPE, explained variance and VIP are PLS's own methods. The
+    orthogonal components explain none of y, so VIP is the predictive VIP
+    (§5). Like PLS it centres nothing.
+    """
+
+    def fit(self, X: object, y: object) -> Self:
+        values = as_float64(X, "X")
+        response = as_float64_vector(y, "y")
+        n_samples, n_variables = values.shape
+        if response.size != n_samples:
+            raise ValueError(
+                f"X has {n_samples} samples and y has {response.size}. Arrays are "
+                "n_samples x n_variables and are never silently transposed."
+            )
+        ceiling = min(n_samples - 1, n_variables)
+        if self.n_components > ceiling:
+            raise ValueError(
+                f"{self.n_components} components were asked of a matrix with "
+                f"{n_samples} samples and {n_variables} variables, which supports at "
+                f"most min(n-1, p) = {ceiling}. Reduce n_components, or add samples."
+            )
+        if float(np.linalg.norm(values.T @ response)) == 0.0:
+            raise ValueError(
+                "X and y have no covariance at all: X'y is zero, so there is no "
+                "predictive direction. Check that both were centred and that the "
+                "response is not constant."
+            )
+
+        def signed(vector: NDArray[np.float64]) -> NDArray[np.float64]:
+            # pls-regression.md §6's convention: the largest-magnitude element positive.
+            unit = vector / float(np.linalg.norm(vector))
+            return -unit if unit[int(np.abs(unit).argmax())] < 0 else unit
+
+        residual = values.copy()
+        orthogonal_weights: list[NDArray[np.float64]] = []
+        orthogonal_scores: list[NDArray[np.float64]] = []
+        orthogonal_loadings: list[NDArray[np.float64]] = []
+        for _ in range(self.n_components - 1):
+            # §2: the predictive weight on what is left, its loading, and the
+            # part of that loading orthogonal to the weight.
+            weight = signed(residual.T @ response)
+            score = residual @ weight
+            loading = residual.T @ score / float(score @ score)
+            orthogonal = loading - float(weight @ loading) * weight
+            if float(np.linalg.norm(orthogonal)) == 0.0:
+                raise ValueError(
+                    f"no orthogonal variation is left after {len(orthogonal_weights)} "
+                    "orthogonal components; ask for fewer."
+                )
+            w_o = signed(orthogonal)
+            t_o = residual @ w_o
+            p_o = residual.T @ t_o / float(t_o @ t_o)
+            residual = residual - np.outer(t_o, p_o)
+            orthogonal_weights.append(w_o)
+            orthogonal_scores.append(t_o)
+            orthogonal_loadings.append(p_o)
+
+        weight = signed(residual.T @ response)
+        score = residual @ weight
+        score_ss = float(score @ score)
+        loading = residual.T @ score / score_ss
+        c = float(response @ score) / score_ss
+        residual = residual - np.outer(score, loading)
+
+        # T = X R: each component's score is X pushed through the filters
+        # before it, so its rotation is its weight pushed back through them.
+        def filtered(vector: NDArray[np.float64], upto: int) -> NDArray[np.float64]:
+            pairs = list(zip(orthogonal_weights, orthogonal_loadings, strict=True))
+            for w_o, p_o in reversed(pairs[:upto]):
+                vector = vector - w_o * float(p_o @ vector)
+            return vector
+
+        a = len(orthogonal_weights)
+        rotations = [filtered(weight, a)] + [
+            filtered(w_o, k) for k, w_o in enumerate(orthogonal_weights)
+        ]
+        self.weights_ = np.column_stack([weight, *orthogonal_weights])
+        self.x_scores_ = np.column_stack([score, *orthogonal_scores])
+        self.x_loadings_ = np.column_stack([loading, *orthogonal_loadings])
+        self.y_loadings_ = np.asarray([c] + [0.0] * a)
+        self.rotations_ = np.column_stack(rotations)
+        self.coefficients_ = self.rotations_ @ self.y_loadings_
+        self.n_components_ = 1 + a
+        self.n_orthogonal_ = a
+        score_sums = (self.x_scores_**2).sum(axis=0)
+        self.x_variance_ = score_sums * (self.x_loadings_**2).sum(axis=0)
+        self.y_variance_ = self.y_loadings_**2 * score_sums
+        self.x_total_variance_ = float((values**2).sum())
+        self.y_total_variance_ = float(response @ response)
+        self.spe_ = (residual**2).sum(axis=1)
+        self.n_samples_ = n_samples
+        self.n_variables_ = n_variables
+        return self
+
+
+class MLR:
+    """Multiple linear regression, per `mlr.md`: ordinary least squares, solved by QR.
+
+    `b` solves `R b = Q'y` for `X = QR`. It is defined only when `X` has full
+    column rank, which a spectrum - more variables than samples, and every
+    neighbour collinear with the next - does not: so `fit` measures the rank
+    first, with PCA's tolerance (`numerical_rank`, decision 0004), and
+    refuses a deficient `X` naming its rank and what to do instead. Like
+    `PLS` it centres nothing; the executor centres X and y, which is the
+    intercept.
+    """
+
+    coefficients_: NDArray[np.float64] | None = None
+
+    def __init__(self, *, data_eps: float | None = None) -> None:
+        self.data_eps = PCA.DEFAULT_EPS if data_eps is None else float(data_eps)
+
+    def fit(self, X: object, y: object) -> Self:
+        values = as_float64(X, "X")
+        response = as_float64_vector(y, "y")
+        n, p = values.shape
+        if response.size != n:
+            raise ValueError(
+                f"X has {n} samples and y has {response.size}. Arrays are "
+                "n_samples x n_variables and are never silently transposed."
+            )
+        rank = numerical_rank(np.linalg.svd(values, compute_uv=False), (n, p), self.data_eps)
+        if rank < p:
+            raise ValueError(
+                f"X has rank {rank} and {p} variables, so least squares has no unique "
+                "solution. Select variables above the MLR (fewer than the rank, and not "
+                "collinear), or use PCR, which regresses on the rank's worth of components."
+            )
+        q, r = np.linalg.qr(values)
+        self.coefficients_ = solve_triangular(r, q.T @ response)
+        return self
+
+    def predict(self, X: object) -> NDArray[np.float64]:
+        """`y_hat = X b` on the centred scale the model was fitted on, as `PLS.predict`."""
+        if self.coefficients_ is None:
+            raise RuntimeError("MLR has not been fitted")
+        predicted: NDArray[np.float64] = as_float64(X, "X") @ self.coefficients_
+        return predicted
+
+
+class SVR:
+    """Epsilon-SVR on principal component scores, per `svr.md` (#377): centre X,
+    project it on `n_components` principal components, and fit LIBSVM's
+    epsilon-SVR to the scores, linear or RBF, as `SVM` does for a classifier.
+
+    The dual has `2n` multipliers, `a_i` and `a*_i`, and is the C-SVM dual
+    with labels `+1` then `-1`, the kernel repeated in all four blocks and the
+    linear term `epsilon - y` then `epsilon + y` (§3), so `_smo` solves it
+    unchanged. The prediction is `sum_i (a_i - a*_i) K(t_i, t) - rho`; y is not
+    centred, `rho` is the intercept. `gamma=None` is scikit-learn's "scale".
+    """
+
+    x_mean_: NDArray[np.float64] | None = None
+    scores_: NDArray[np.float64] | None = None
+    support_: NDArray[np.intp] | None = None
+    dual_: NDArray[np.float64] | None = None
+    rho_: float = 0.0
+    gamma_: float = 0.0
+
+    def __init__(
+        self,
+        n_components: int,
+        kernel: str = "rbf",
+        c: float = 1.0,
+        epsilon: float = 0.1,
+        gamma: float | None = None,
+        tol: float = 1e-3,
+        max_iter: int = 1_000_000,
+    ) -> None:
+        if kernel not in ("linear", "rbf"):
+            raise ValueError(f"kernel must be 'linear' or 'rbf', got {kernel!r}")
+        if c <= 0:
+            raise ValueError(f"C must be positive, got {c}")
+        if epsilon < 0:
+            raise ValueError(f"epsilon must not be negative, got {epsilon}")
+        if gamma is not None and gamma <= 0:
+            raise ValueError(f"gamma must be positive, got {gamma}")
+        self.n_components = int(n_components)
+        self.kernel = kernel
+        self.c = float(c)
+        self.epsilon = float(epsilon)
+        self.gamma = gamma
+        self.tol = float(tol)
+        self.max_iter = int(max_iter)
+        self.pca_ = PCA(self.n_components)
+
+    def fit(self, X: object, y: object) -> Self:
+        values = as_float64(X, "X")
+        response = as_float64_vector(y, "y")
+        n = values.shape[0]
+        if response.size != n:
+            raise ValueError(f"X has {n} samples and y has {response.size}")
+        self.x_mean_ = values.mean(axis=0)
+        self.pca_.fit(values - self.x_mean_)
+        scores = self.pca_.transform(values - self.x_mean_)
+        self.scores_ = scores
+        variance = float(scores.var())
+        self.gamma_ = (
+            self.gamma
+            if self.gamma is not None
+            else 1.0 / (scores.shape[1] * variance)
+            if variance > 0
+            else 1.0
+        )
+        # ponytail: the doubled kernel is 4n^2 floats, kept because _smo takes a
+        # matrix; index K by `t mod n` instead if a large n makes it heavy.
+        k = kernel_matrix(self.kernel, self.gamma_, scores, scores)
+        doubled = np.block([[k, k], [k, k]])
+        signs = np.concatenate([np.ones(n), -np.ones(n)])
+        linear = np.concatenate([self.epsilon - response, self.epsilon + response])
+        a, rho = _smo(doubled, signs, self.c, self.tol, self.max_iter, linear)
+        beta = a[:n] - a[n:]
+        support = np.flatnonzero(beta != 0)
+        self.support_ = support
+        self.dual_ = beta[support]
+        self.rho_ = rho
+        return self
+
+    def predict(self, X: object) -> NDArray[np.float64]:
+        """On the original scale: y is never centred, `rho` is the intercept."""
+        if self.x_mean_ is None or self.scores_ is None or self.dual_ is None:
+            raise RuntimeError("SVR has not been fitted")
+        projected = self.pca_.transform(as_float64(X, "X") - self.x_mean_)
+        support = self.scores_[np.asarray(self.support_)]
+        predicted: NDArray[np.float64] = (
+            kernel_matrix(self.kernel, self.gamma_, projected, support) @ self.dual_ - self.rho_
+        )
+        return predicted
+
+
+class ElasticNet:
+    """Elastic Net, per `penalised-regression.md` §3: least squares with an L1
+    and an L2 penalty, scikit-learn's objective and scaling,
+
+        1/(2n) ||y - Xb||^2 + alpha l1_ratio ||b||_1 + alpha (1 - l1_ratio)/2 ||b||^2,
+
+    so `l1_ratio = 1` is the Lasso. Solved by FISTA with adaptive restart (§3.2)
+    rather than coordinate descent: each step is one product with `X'X`, which
+    NumPy does at compiled speed where a coordinate sweep is a Python loop.
+    It stops on scikit-learn's duality gap, `gap < tol ||y||^2`, and refuses a
+    fit that does not get there within `max_iter`, naming alpha.
+
+    Like `Ridge` it centres nothing.
+    """
+
+    coefficients_: NDArray[np.float64] | None = None
+    n_iter_: int | None = None
+
+    def __init__(
+        self, alpha: float, l1_ratio: float = 0.5, *, tol: float = 1e-4, max_iter: int = 100_000
+    ) -> None:
+        if not alpha > 0:
+            raise ValueError(f"alpha must be positive, got {alpha}")
+        if not 0 < l1_ratio <= 1:
+            raise ValueError(f"l1_ratio must be in (0, 1], got {l1_ratio}")
+        self.alpha = float(alpha)
+        self.l1_ratio = float(l1_ratio)
+        self.tol = float(tol)
+        self.max_iter = int(max_iter)
+
+    def fit(self, X: object, y: object, *, start: NDArray[np.float64] | None = None) -> Self:
+        """Fit, from `start` when given - a warm start along a path of alphas (§5)."""
+        values = as_float64(X, "X")
+        response = as_float64_vector(y, "y")
+        if response.size != values.shape[0]:
+            raise ValueError(
+                f"X has {values.shape[0]} samples and y has {response.size}. Arrays are "
+                "n_samples x n_variables and are never silently transposed."
+            )
+        gram = values.T @ values
+        self.coefficients_, self.n_iter_ = _fista(
+            values, response, gram, values.T @ response, self, start
+        )
+        return self
+
+    def predict(self, X: object) -> NDArray[np.float64]:
+        """`y_hat = X b` on the centred scale the model was fitted on, as `PLS.predict`."""
+        if self.coefficients_ is None:
+            raise RuntimeError("ElasticNet has not been fitted")
+        predicted: NDArray[np.float64] = as_float64(X, "X") @ self.coefficients_
+        return predicted
+
+
+def _duality_gap(
+    X: NDArray[np.float64], y: NDArray[np.float64], b: NDArray[np.float64], l1: float, l2: float
+) -> float:
+    """scikit-learn's `enet_coordinate_descent` gap, in its `n`-scaled units (§3.2)."""
+    residual = y - X @ b
+    xta = X.T @ residual - l2 * b
+    dual_norm = float(np.abs(xta).max()) if xta.size else 0.0
+    r2 = float(residual @ residual)
+    if dual_norm > l1:
+        const = l1 / dual_norm
+        gap = 0.5 * (r2 + r2 * const**2)
+    else:
+        const = 1.0
+        gap = r2
+    return float(
+        gap
+        + l1 * np.abs(b).sum()
+        - const * float(residual @ y)
+        + 0.5 * l2 * (1 + const**2) * float(b @ b)
+    )
+
+
+#: How often FISTA computes the duality gap, in steps: it costs a product with X.
+_GAP_EVERY = 10
+
+
+def _fista(
+    X: NDArray[np.float64],
+    y: NDArray[np.float64],
+    gram: NDArray[np.float64],
+    xty: NDArray[np.float64],
+    model: ElasticNet,
+    start: NDArray[np.float64] | None,
+) -> tuple[NDArray[np.float64], int]:
+    """§3.2: proximal gradient on the smooth part, soft-thresholding the L1."""
+    n = X.shape[0]
+    l1 = model.alpha * model.l1_ratio * n
+    l2 = model.alpha * (1 - model.l1_ratio) * n
+    step = 1.0 / (float(np.linalg.eigvalsh(gram)[-1]) + l2) if gram.size else 1.0
+    b = np.zeros(X.shape[1]) if start is None else np.array(start, dtype=np.float64)
+    z = b.copy()
+    t = 1.0
+    target = model.tol * float(y @ y)
+    for iteration in range(1, model.max_iter + 1):
+        w = z - step * (gram @ z - xty + l2 * z)
+        new = np.sign(w) * np.maximum(np.abs(w) - l1 * step, 0.0)
+        t_next = (1 + np.sqrt(1 + 4 * t * t)) / 2
+        # O'Donoghue and Candes's gradient restart: momentum that points uphill is dropped.
+        if float((z - new) @ (new - b)) > 0:
+            t_next, z = 1.0, new.copy()
+        else:
+            z = new + (t - 1) / t_next * (new - b)
+        b, t = new, t_next
+        if iteration % _GAP_EVERY == 0 and _duality_gap(X, y, b, l1, l2) <= target:
+            return b, iteration
+    raise RuntimeError(
+        f"elastic net did not converge at alpha {model.alpha:.6g} (l1_ratio "
+        f"{model.l1_ratio:g}) within {model.max_iter} iterations; a larger alpha "
+        "converges faster."
+    )
+
+
+def elastic_net_path(
+    X: object,
+    y: object,
+    alphas: Sequence[float],
+    l1_ratio: float,
+    *,
+    tol: float = 1e-4,
+    max_iter: int = 20_000,
+) -> list[NDArray[np.float64] | None]:
+    """Coefficients at each alpha, largest first, each fit started from the last (§5).
+
+    A fit that does not converge ends the path: it and every smaller alpha,
+    which converge more slowly still, are `None` - absent, never a guess.
+    """
+    values = as_float64(X, "X")
+    response = as_float64_vector(y, "y")
+    gram = values.T @ values
+    xty = values.T @ response
+    path: list[NDArray[np.float64] | None] = []
+    start: NDArray[np.float64] | None = None
+    for alpha in alphas:
+        model = ElasticNet(alpha, l1_ratio, tol=tol, max_iter=max_iter)
+        try:
+            start, _ = _fista(values, response, gram, xty, model, start)
+        except RuntimeError:
+            path.extend([None] * (len(alphas) - len(path)))
+            break
+        path.append(start)
+    return path
 
 
 def cross_validated_predictions(
@@ -906,6 +1356,50 @@ def rmsecv_curve(
             else:
                 held_out[a, fold.test] = scores[:, :width] @ y_loadings[:width] + y_mean
     return np.asarray([rmse(response.ravel(), predicted.ravel()) for predicted in held_out])
+
+
+def tuning_curve(
+    X: object,
+    y: object,
+    folds: list[Fold],
+    values: Sequence[float],
+    fit_path: Callable[
+        [NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], Sequence[float]],
+        NDArray[np.float64],
+    ],
+) -> NDArray[np.float64]:
+    """RMSECV at every value of one complexity parameter, from one fold assignment.
+
+    `metrics-and-validation.md` §15. `fit_path(train_x, train_y, test_x,
+    values)` fits on a fold's training rows at every value and returns the
+    test rows' predictions, one row per value - a path, so a model may start
+    each fit from the last (#375). The residuals are pooled across folds and
+    rooted once per value (§7), as `rmsecv_curve` does for components; that
+    one is kept for PLS and PCR because their components nest and one fit
+    per fold gives every point.
+
+    A row of NaN is a value the fold could not fit, and that value's RMSECV is
+    NaN: a pooled residual missing a fold is not the curve's number.
+    """
+    if not values:
+        raise ValueError("a tuning curve needs at least one parameter value")
+    matrices = _fold_matrices(X, folds)
+    response = _response(y)
+    n_samples = matrices[0].shape[0]
+    if response.shape[0] != n_samples:
+        raise ValueError(f"X has {n_samples} samples and y has {response.shape[0]}")
+    validate_partition(folds, n_samples)
+    held_out = np.empty((len(values), *response.shape), dtype=np.float64)
+    for fold, matrix in zip(folds, matrices, strict=True):
+        held_out[:, fold.test] = fit_path(
+            matrix[fold.train], response[fold.train], matrix[fold.test], list(values)
+        )
+    return np.asarray(
+        [
+            rmse(response.ravel(), predicted.ravel()) if np.isfinite(predicted).all() else np.nan
+            for predicted in held_out
+        ]
+    )
 
 
 def _response(y: object) -> NDArray[np.float64]:

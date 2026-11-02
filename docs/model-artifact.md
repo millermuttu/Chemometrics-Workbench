@@ -79,6 +79,9 @@ Every field is required unless it is marked optional. `null` means *this quantit
 | `y_mean` | number or null | The response mean the estimator subtracted before fitting and adds back to every prediction (`pls-regression.md` §3). `null` for a decomposition |
 | `k` | int or null | A kNN's neighbour count; `null` otherwise |
 | `svm` | object or null | An SVM's `kernel`, `C`, the `gamma` used, and per pair of classes its `classes` and `rho` (#338, `svm.md` §6); `null` otherwise |
+| `qda` | object or null | A QDA's `reg_param` and `priors` (#381, `qda.md` §5); `null` otherwise. Absent from an artifact written before it |
+| `logistic` | object or null | A logistic regression's `C` (#380, `logistic-regression.md` §5); `null` otherwise. Absent from an artifact written before it |
+| `svr` | object or null | An SVR's `kernel`, `C`, `epsilon`, the `gamma` used and `rho` (#377, `svr.md` §7); `null` otherwise. Absent from an artifact written before it |
 | `simca` | array or null | For a SIMCA, one `{class, n_samples, t2_limit, q_limit}` per class in `classes` order (`simca.md` §3); `null` otherwise |
 | `alpha` | number | The confidence level the limits are quoted at |
 | `hotelling_t2_limit` | number | |
@@ -95,6 +98,7 @@ Every field is required unless it is marked optional. `null` means *this quantit
 | `axis` | object | `{kind, unit}` of the dataset's variable axis. The values are in `arrays/dataset_axis.npy` |
 | `derived_from` | string or null | The version this one was cut from by an exclusion (#270), else null. Absent from an artifact written before it |
 | `excluded_samples` | int list | That version's rows left out, as positional indices into it; empty when nothing was excluded |
+| `role_changes` | object | The column roles that version changed from `derived_from` (#371), each column to `target`, `class`, `group` or `ignore`; empty when none. Absent from an artifact written before it |
 
 ### 6. `split`
 
@@ -112,7 +116,7 @@ A version 1 artifact carries `fold` here instead of `fitted_on`, and the fold's 
 
 An object mapping a **name** to `{file, dtype, shape}`. `file` is the path inside the archive; `dtype` and `shape` are stated in the manifest as well as carried by the `.npy`, so a reader can see what it is about to load without loading it.
 
-Every array is written **float64** except the index sets, which are **int64**. The application stores its intermediate arrays as float32 (`PROPOSAL.md` §13); an artifact is a record rather than a cache, and narrowing a coefficient vector to save 16 kB would be trading the thing the file exists for.
+Every array is written **float64** except the index sets, which are **int64**. The application stores its intermediate arrays as float64 too, since v1.3 (decision 0007); before it they were float32, and an artifact still never narrowed, because it is a record rather than a cache.
 
 Which arrays are present depends on the task. A reader must not assume any of them beyond `dataset_axis`:
 
@@ -129,6 +133,9 @@ Which arrays are present depends on the task. A reader must not assume any of th
 | `coefficient_matrix` | `(n_variables, N)` | classification of three or more classes | `B = RQ'`, one column per class (#274) |
 | `y_means` | `(N,)` | classification of three or more classes | The one-hot response's column means, added back to every prediction |
 | `knn_scores`, `knn_classes` | `(n, A)`, `(n,)` | kNN | The neighbours: the calibration rows' scores and their classes as indices into `classes` (#277, `knn.md` §6). With `x_mean` and `loadings` they are the whole model |
+| `qda_<k>_mean`, `qda_<k>_rotation`, `qda_<k>_scalings` | `(A,)`, `(A, A)`, `(A,)` | QDA | Class `k`'s Gaussian on the scores, classes in `classes` order (#381, `qda.md` §5) |
+| `logistic_coefficients`, `logistic_intercept` | `(r, A)`, `(r,)` | Logistic regression | $W$ and $b$ on the scores (#380, `logistic-regression.md` §5); `r` is 1 for two classes, K for more. With `x_mean` and `loadings` they are the whole model |
+| `svr_support_vectors`, `svr_dual` | `(m, A)`, `(m,)` | SVR | The support vectors in score space and their $a - a^*$ (#377, `svr.md` §7). With `x_mean`, `loadings` and the manifest's `rho` they are the whole model |
 | `svm_<k>_support_vectors`, `svm_<k>_dual` | `(m, A)`, `(m,)` | SVM | Pair `k`'s support vectors in score space and their $a y$, pairs in the manifest's order (#338, `svm.md` §6). With `x_mean`, `loadings` and the manifest's `rho` they are the whole model |
 | `simca_<k>_mean`, `simca_<k>_loadings`, `simca_<k>_eigenvalues` | `(p,)`, `(A, p)`, `(A,)` | SIMCA | Class `classes[k]`'s centre, PCA loadings and retained eigenvalues (#275, `simca.md` §7). Its limits are in `model.simca` |
 | `y_loadings` | `(A,)` | regression, classification | |

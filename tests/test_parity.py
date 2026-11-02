@@ -47,9 +47,13 @@ from chemometrics_workbench.preprocessing import (
     WhittakerTransformer,
 )
 from chemometrics_workbench.regression import (
+    MLR,
+    OPLS,
     PCR,
     PLS,
     PLS2,
+    ElasticNet,
+    Ridge,
     coefficients_original_units,
     cross_validated_predictions,
     rmsecv_curve,
@@ -524,6 +528,273 @@ def test_pcr_matches_pca_then_least_squares(dataset: str) -> None:
     )
     assert coefficients.passed and not coefficients.sign_aligned
     assert predictions.passed
+
+
+# --------------------------------------------------------------------------
+# Ridge (#374)
+# --------------------------------------------------------------------------
+
+
+@every_dataset
+def test_ridge_matches_the_reference(dataset: str) -> None:
+    """`penalised-regression.md` section 6: coefficients and predictions at one alpha."""
+    data = LOADERS[dataset]()
+    centred = data.spectra - data.spectra.mean(axis=0)
+    y = np.asarray(data.targets[parity.load_fixture()["targets"][dataset]])
+    model = Ridge(1.0).fit(centred, y - y.mean())
+    coefficients = parity.check(f"{dataset}.ridge.coefficients.sklearn", model.coefficients_)
+    predictions = parity.check(
+        f"{dataset}.ridge.predictions.sklearn", model.predict(centred) + y.mean()
+    )
+    assert coefficients.passed and predictions.passed
+
+
+# --------------------------------------------------------------------------
+# Elastic Net and Lasso (#375)
+# --------------------------------------------------------------------------
+
+ENET_CASES = [("elastic_net", 0.5), ("lasso", 1.0)]
+
+
+def _enet_problem(dataset: str, l1_ratio: float) -> tuple[np.ndarray, np.ndarray, float]:
+    """The centred matrix and response, and the generator's alpha (section 6)."""
+    data = LOADERS[dataset]()
+    centred = data.spectra - data.spectra.mean(axis=0)
+    y = np.asarray(data.targets[parity.load_fixture()["targets"][dataset]])
+    y = y - y.mean()
+    alpha = 0.1 * float(np.abs(centred.T @ y).max()) / (len(y) * l1_ratio)
+    return centred, y, alpha
+
+
+@every_dataset
+@pytest.mark.parametrize(("algorithm", "l1_ratio"), ENET_CASES)
+def test_elastic_net_solved_to_the_optimum_matches_the_reference(
+    dataset: str, algorithm: str, l1_ratio: float
+) -> None:
+    """`penalised-regression.md` section 6: both solvers run to a duality gap of
+    1e-12, where they reach the same optimum by different routes."""
+    centred, y, alpha = _enet_problem(dataset, l1_ratio)
+    model = ElasticNet(alpha, l1_ratio, tol=1e-12, max_iter=2_000_000).fit(centred, y)
+    coefficients = parity.check(f"{dataset}.{algorithm}.coefficients.sklearn", model.coefficients_)
+    predictions = parity.check(f"{dataset}.{algorithm}.predictions.sklearn", model.predict(centred))
+    assert coefficients.passed and predictions.passed
+
+
+@every_dataset
+@pytest.mark.parametrize(("algorithm", "l1_ratio"), ENET_CASES)
+def test_elastic_net_at_the_default_tolerance_differs_by_the_stopping_rule(
+    dataset: str, algorithm: str, l1_ratio: float, fixture_entries: dict[str, dict[str, object]]
+) -> None:
+    """At the default gap of 1e-4 ||y||^2 the fit is within that gap of the
+    optimum, checked on the objective before the divergence is recorded."""
+    centred, y, alpha = _enet_problem(dataset, l1_ratio)
+    model = ElasticNet(alpha, l1_ratio).fit(centred, y)
+    optimum = np.asarray(fixture_entries[f"{dataset}.{algorithm}.coefficients.sklearn"]["value"])
+
+    def objective(b: np.ndarray) -> float:
+        residual = y - centred @ b
+        penalty = alpha * (l1_ratio * np.abs(b).sum() + (1 - l1_ratio) / 2 * (b @ b))
+        return float(residual @ residual / (2 * len(y)) + penalty)
+
+    assert model.coefficients_ is not None
+    assert objective(model.coefficients_) - objective(optimum) <= model.tol * (y @ y) / len(y)
+    result = parity.record_divergence(
+        f"{dataset}.{algorithm}.predictions.sklearn",
+        reason=(
+            "The application solves by FISTA, scikit-learn by coordinate descent; both stop "
+            "on the same duality gap, 1e-4 ||y||^2 by default, rather than at the optimum, "
+            "and where each stops depends on its route. The default fit's objective is "
+            "within that gap of the optimum (checked); solved to 1e-12 both reach the same "
+            "coefficients and predictions (penalised-regression.md section 6)."
+        ),
+    )
+    assert result.passed
+
+
+# --------------------------------------------------------------------------
+# MLR (#376)
+# --------------------------------------------------------------------------
+
+
+@every_dataset
+def test_mlr_on_a_selected_subset_matches_least_squares(dataset: str) -> None:
+    """`mlr.md` section 6: ten evenly spaced variables, coefficients and predictions."""
+    data = LOADERS[dataset]()
+    columns = [int(i) for i in np.linspace(0, data.spectra.shape[1] - 1, 10).round()]
+    X = data.spectra[:, columns]
+    centred = X - X.mean(axis=0)
+    y = np.asarray(data.targets[parity.load_fixture()["targets"][dataset]])
+    model = MLR().fit(centred, y - y.mean())
+    coefficients = parity.check(f"{dataset}.mlr.coefficients.sklearn", model.coefficients_)
+    predictions = parity.check(
+        f"{dataset}.mlr.predictions.sklearn", model.predict(centred) + y.mean()
+    )
+    assert coefficients.passed and predictions.passed
+
+
+# --------------------------------------------------------------------------
+# QDA (#381)
+# --------------------------------------------------------------------------
+
+QDA_CASES = [
+    ("corn", 0.1),
+    ("gasoline", 0.0),
+    ("gasoline", 0.1),
+    ("tecator", 0.0),
+    ("tecator", 0.1),
+]
+
+
+@pytest.mark.parametrize(("dataset", "reg"), QDA_CASES)
+def test_qda_matches_pca_then_quadratic_discriminant_analysis(dataset: str, reg: float) -> None:
+    """`qda.md` section 6: the decision values and the assignments, at each
+    reg_param scikit-learn fits."""
+    from chemometrics_workbench.classification import QDA
+
+    spectra = LOADERS[dataset]().spectra
+    model = QDA(N_COMPONENTS, reg).fit(spectra, _tercile_codes(dataset), 3)
+    label = str(reg).replace(".", "")
+    assert parity.check(
+        f"{dataset}.qda.decision_reg{label}.sklearn", model.decision_function(spectra)
+    ).passed
+    assigned = parity.check(
+        f"{dataset}.qda.predictions_reg{label}.sklearn", model.predict(spectra).astype(float)
+    )
+    assert assigned.passed and assigned.max_abs_diff == 0.0
+
+
+# --------------------------------------------------------------------------
+# Logistic regression (#380)
+# --------------------------------------------------------------------------
+
+
+def _logistic_codes(dataset: str, k: int) -> np.ndarray:
+    """The generator's coding: k classes cut at the target's quantiles."""
+    y = np.asarray(LOADERS[dataset]().targets[parity.load_fixture()["targets"][dataset]])
+    return np.searchsorted(np.quantile(y, np.linspace(0, 1, k + 1)[1:-1]), y)
+
+
+@pytest.mark.parametrize("k", [2, 3])
+@every_dataset
+def test_logistic_regression_solved_to_the_optimum_matches_pca_then_lbfgs(
+    dataset: str, k: int
+) -> None:
+    """`logistic-regression.md` section 6: both optimisers to a gradient of
+    1e-10, the coefficients and probabilities within the lbfgs class, and at
+    the default tolerance the assignments identical."""
+    from chemometrics_workbench.classification import LogisticRegression
+
+    spectra = LOADERS[dataset]().spectra
+    codes = _logistic_codes(dataset, k)
+    model = LogisticRegression(N_COMPONENTS, tol=1e-10).fit(spectra, codes, k)
+    assert model.coefficients_ is not None and model.intercept_ is not None
+    stacked = np.column_stack([model.coefficients_, model.intercept_])
+    assert parity.check(f"{dataset}.logistic.coefficients_{k}class.sklearn", stacked).passed
+    assert parity.check(
+        f"{dataset}.logistic.probabilities_{k}class_converged.sklearn",
+        model.predict_proba(spectra),
+    ).passed
+    default = LogisticRegression(N_COMPONENTS).fit(spectra, codes, k)
+    assigned = parity.check(
+        f"{dataset}.logistic.predictions_{k}class.sklearn", default.predict(spectra).astype(float)
+    )
+    assert assigned.passed and assigned.max_abs_diff == 0.0
+
+
+@pytest.mark.parametrize("k", [2, 3])
+@every_dataset
+def test_logistic_probabilities_at_the_default_tolerance_differ_by_the_stopping_rule(
+    dataset: str, k: int, fixture_entries: dict[str, dict[str, object]]
+) -> None:
+    """Both stop at a gradient of 1e-4, short of the optimum; the probabilities
+    agree within ten times that, checked before the divergence is recorded."""
+    from chemometrics_workbench.classification import LogisticRegression
+
+    spectra = LOADERS[dataset]().spectra
+    model = LogisticRegression(N_COMPONENTS).fit(spectra, _logistic_codes(dataset, k), k)
+    entry_id = f"{dataset}.logistic.probabilities_{k}class.sklearn"
+    theirs = np.asarray(fixture_entries[entry_id]["value"])
+    assert np.abs(model.predict_proba(spectra) - theirs).max() < 10 * model.tol
+    result = parity.record_divergence(
+        entry_id,
+        reason=(
+            "Both are L-BFGS on the same L2-penalised objective, stopped at a gradient "
+            "tolerance of 1e-4 rather than at the optimum, and where each stops depends on "
+            "its quasi-Newton history; scikit-learn also stops on a relative change in the "
+            "objective. The probabilities agree within ten times tol (checked) and the "
+            "assignments are identical; solved to 1e-10 they agree within the lbfgs class "
+            "(logistic-regression.md section 6)."
+        ),
+    )
+    assert result.passed
+
+
+# --------------------------------------------------------------------------
+# SVR (#377)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("kernel", ["linear", "rbf"])
+@every_dataset
+def test_svr_solved_to_the_optimum_matches_pca_then_svr(dataset: str, kernel: str) -> None:
+    """`svr.md` section 6: both solvers to a KKT gap of 1e-9, predictions within
+    float32's precision, the support the same."""
+    from chemometrics_workbench.regression import SVR
+
+    data = LOADERS[dataset]()
+    y = np.asarray(data.targets[parity.load_fixture()["targets"][dataset]])
+    model = SVR(N_COMPONENTS, kernel, tol=1e-9).fit(data.spectra, y)
+    assert parity.check(
+        f"{dataset}.svr.predictions_{kernel}_converged.sklearn", model.predict(data.spectra)
+    ).passed
+
+
+@pytest.mark.parametrize("kernel", ["linear", "rbf"])
+@every_dataset
+def test_svr_at_the_default_tolerance_differs_by_the_stopping_rule(
+    dataset: str, kernel: str, fixture_entries: dict[str, dict[str, object]]
+) -> None:
+    """Both stop at a KKT gap of 1e-3, so their predictions agree to about that
+    gap times the response's scale; checked before the divergence is recorded."""
+    from chemometrics_workbench.regression import SVR
+
+    data = LOADERS[dataset]()
+    y = np.asarray(data.targets[parity.load_fixture()["targets"][dataset]])
+    model = SVR(N_COMPONENTS, kernel).fit(data.spectra, y)
+    entry_id = f"{dataset}.svr.predictions_{kernel}.sklearn"
+    theirs = np.asarray(fixture_entries[entry_id]["value"])
+    assert np.abs(model.predict(data.spectra) - theirs).max() < 10 * model.tol * np.ptp(y)
+    result = parity.record_divergence(
+        entry_id,
+        reason=(
+            "Both solvers are LIBSVM's SMO on the epsilon-SVR dual, and both stop once the "
+            "largest KKT violation falls below tol = 1e-3 rather than at the optimum; where "
+            "each stops depends on its arithmetic, LIBSVM's kernel cache being float32. The "
+            "predictions agree to within ten times tol across the response's range "
+            "(checked); solved to 1e-9 they agree to float32's precision (svr.md section 6)."
+        ),
+    )
+    assert result.passed
+
+
+# --------------------------------------------------------------------------
+# OPLS (#378)
+# --------------------------------------------------------------------------
+
+
+@every_dataset
+@pytest.mark.parametrize("total", [2, 5])
+def test_opls_predicts_as_pls1_with_as_many_components(dataset: str, total: int) -> None:
+    """`opls.md` section 6: 1 predictive and `total - 1` orthogonal components
+    against scikit-learn's PLSRegression(total), the identity Trygg and Wold state."""
+    data = LOADERS[dataset]()
+    centred = data.spectra - data.spectra.mean(axis=0)
+    y = np.asarray(data.targets[parity.load_fixture()["targets"][dataset]])
+    model = OPLS(total).fit(centred, y - y.mean())
+    assert parity.check(
+        f"{dataset}.opls.predictions_{total}.sklearn_pls_identity",
+        model.predict(centred) + y.mean(),
+    ).passed
 
 
 # --------------------------------------------------------------------------
@@ -1201,6 +1472,24 @@ def test_plsda_is_pls1_on_the_dummy_response(
     model, y = plsda_models[dataset]
     predictions = model.predict(_centred(dataset)) + y.mean()
     assert parity.check(f"{dataset}.plsda.dummy_predictions.sklearn", predictions).passed
+
+
+@every_dataset
+def test_oplsda_predicts_and_assigns_as_plsda_with_as_many_components(dataset: str) -> None:
+    """`opls.md` section 8 (#379): OPLS on the same dummy, 1 + 4 components,
+    against PLS-DA with 5 through the identity; the 0.5 threshold and the
+    tally are PLS-DA's."""
+    _, y = _dummy_response(dataset)
+    model = OPLS(N_COMPONENTS).fit(_centred(dataset), y - y.mean())
+    predictions = model.predict(_centred(dataset)) + y.mean()
+    assert parity.check(
+        f"{dataset}.oplsda.dummy_predictions.sklearn_pls_identity", predictions
+    ).passed
+    confusion = confusion_matrix(y.astype(int), assign_classes(predictions))
+    assert parity.check(
+        f"{dataset}.oplsda.confusion.sklearn_pls_identity",
+        np.asarray(confusion, dtype=float).ravel(),
+    ).passed
 
 
 @every_dataset

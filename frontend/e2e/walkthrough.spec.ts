@@ -299,6 +299,53 @@ test("a PCR runs on the dataset's target and reads as a regression without VIP",
   await expect(page.getByRole("region", { name: "Predicted vs measured" })).toBeVisible();
 });
 
+test("a ridge runs below a split, draws its curve over alpha and no X model", async ({ page }) => {
+  // #374. On its own split beside the walkthrough's PCA, written through the
+  // PUT as the PCR above is; the Step list's Regression group offering it is
+  // catalogue.test.tsx's.
+  await page.goto("/?token=e2e-token");
+  const auth = { Authorization: "Bearer e2e-token" };
+  const pipeline = await (await page.request.get("/api/pipelines/current", { headers: auth })).json();
+  const nodes = pipeline.nodes as { id: string; type: string; inputs: string[] }[];
+  const pca = nodes.find((node) => node.type === "estimator")!;
+  nodes.push(
+    {
+      id: "ridge_split",
+      type: "split",
+      inputs: pca.inputs,
+      spec: { kind: "kfold", n_splits: 5, shuffle: true, seed: 42 },
+    } as (typeof nodes)[number],
+    {
+      id: "ridge",
+      type: "estimator",
+      inputs: ["ridge_split"],
+      spec: { kind: "ridge", alpha: 1, target: "moisture" },
+    } as (typeof nodes)[number],
+  );
+  const saved = await page.request.put("/api/pipelines/current", {
+    headers: { ...auth, "Content-Type": "application/json" },
+    data: { nodes },
+  });
+  expect(saved.status()).toBe(200);
+
+  await page.reload();
+  await page.getByRole("button", { name: "Run pipeline" }).click();
+  await expect(page.locator(".status")).toContainText("Done", { timeout: 60_000 });
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /Ridge α1 · moisture/ }).dblclick();
+  await expect(page.getByTestId("analysis-header")).toContainText("Ridge on moisture 30 × 24");
+  await expect(page.getByRole("region", { name: "RMSECV" })).toContainText(
+    /fitted at alpha = 1 · lowest at alpha = [\d.e+-]+/,
+  );
+  await expect(page.getByRole("region", { name: "Predicted vs measured" })).toBeVisible();
+  // No components: no scores, loadings or X diagnostics drawn empty.
+  await expect(page.getByRole("region", { name: "Scores" })).toHaveCount(0);
+  await expect(page.getByLabel("Variable importance view").locator("option")).toHaveText([
+    "Coefficients, raw axis",
+    "Select variables",
+  ]);
+});
+
 test("a flagged sample is excluded from the outlier table, rerun, and named in lineage", async ({
   page,
 }) => {
@@ -352,4 +399,219 @@ test("a flagged sample is excluded from the outlier table, rerun, and named in l
       data: { nodes: original },
     });
   }
+});
+
+test("a lasso runs below a split and says how many variables it kept", async ({ page }) => {
+  // #375. Beside the ridge above, on the ridge's split; the alpha is small
+  // enough for the walkthrough's synthetic spectra to keep some variables.
+  await page.goto("/?token=e2e-token");
+  const auth = { Authorization: "Bearer e2e-token" };
+  const pipeline = await (await page.request.get("/api/pipelines/current", { headers: auth })).json();
+  const nodes = pipeline.nodes as { id: string; type: string; inputs: string[] }[];
+  nodes.push({
+    id: "lasso",
+    type: "estimator",
+    inputs: ["ridge_split"],
+    spec: { kind: "elastic_net", alpha: 0.001, l1_ratio: 1, target: "moisture" },
+  } as (typeof nodes)[number]);
+  const saved = await page.request.put("/api/pipelines/current", {
+    headers: { ...auth, "Content-Type": "application/json" },
+    data: { nodes },
+  });
+  expect(saved.status()).toBe(200);
+
+  await page.reload();
+  await page.getByRole("button", { name: "Run pipeline" }).click();
+  await expect(page.locator(".status")).toContainText("Done", { timeout: 60_000 });
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /Lasso α0.001 · moisture/ }).dblclick();
+  await expect(page.getByTestId("analysis-header")).toContainText(
+    /Lasso on moisture 30 × 24 · \d+ of 24 variables kept/,
+  );
+  await expect(page.getByRole("region", { name: "RMSECV" })).toContainText(
+    /fitted at alpha = 0.001 · lowest at alpha = /,
+  );
+  await expect(page.getByRole("region", { name: "Scores" })).toHaveCount(0);
+});
+
+test("an MLR runs below a selection, and on the whole spectrum is refused by name", async ({
+  page,
+}) => {
+  // #376. Five of the 24 variables on the ridge's split: every training fold
+  // of 24 rows has full rank. The whole spectrum's 24 variables do not.
+  await page.goto("/?token=e2e-token");
+  const auth = { Authorization: "Bearer e2e-token" };
+  const pipeline = await (await page.request.get("/api/pipelines/current", { headers: auth })).json();
+  const nodes = pipeline.nodes as { id: string; type: string; inputs: string[] }[];
+  nodes.push(
+    {
+      id: "pick",
+      type: "preprocess",
+      inputs: ["ridge_split"],
+      step: { kind: "select_variables", indices: [2, 7, 12, 17, 22] },
+    } as (typeof nodes)[number],
+    {
+      id: "mlr",
+      type: "estimator",
+      inputs: ["pick"],
+      spec: { kind: "mlr", target: "moisture" },
+    } as (typeof nodes)[number],
+  );
+  const put = (body: unknown) =>
+    page.request.put("/api/pipelines/current", {
+      headers: { ...auth, "Content-Type": "application/json" },
+      data: { nodes: body },
+    });
+  expect((await put(nodes)).status()).toBe(200);
+
+  await page.reload();
+  await page.getByRole("button", { name: "Run pipeline" }).click();
+  await expect(page.locator(".status")).toContainText("Done", { timeout: 60_000 });
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /MLR · moisture/ }).dblclick();
+  await expect(page.getByTestId("analysis-header")).toContainText("MLR on moisture 30 × 5");
+  await expect(page.getByRole("region", { name: "RMSECV" })).toContainText("no parameter to tune");
+  await expect(page.getByRole("region", { name: "Predicted vs measured" })).toBeVisible();
+
+  // Off the selection, onto the whole spectrum: refused, naming the fold.
+  const whole = nodes.map((node) => (node.id === "mlr" ? { ...node, inputs: ["ridge_split"] } : node));
+  expect((await put(whole.filter((node) => node.id !== "pick"))).status()).toBe(200);
+  const job = await (
+    await page.request.post("/api/experiments/current/run", { headers: auth })
+  ).json();
+  await expect
+    .poll(async () => (await (await page.request.get(`/api/jobs/${job.job_id}`, { headers: auth })).json()).status)
+    .toBe("failed");
+  const failed = await (await page.request.get(`/api/jobs/${job.job_id}`, { headers: auth })).json();
+  expect(JSON.stringify(failed)).toMatch(/training fold 1 of 5 has rank \d+ and 24 variables/);
+  // Put the selection back for the tests that follow.
+  expect((await put(nodes)).status()).toBe(200);
+});
+
+test("an SVR runs below a split with the PCA front and a curve over C", async ({ page }) => {
+  // #377. On the ridge's split, RBF on three components.
+  await page.goto("/?token=e2e-token");
+  const auth = { Authorization: "Bearer e2e-token" };
+  const pipeline = await (await page.request.get("/api/pipelines/current", { headers: auth })).json();
+  const nodes = pipeline.nodes as { id: string; type: string; inputs: string[] }[];
+  nodes.push({
+    id: "svr",
+    type: "estimator",
+    inputs: ["ridge_split"],
+    spec: { kind: "svr", kernel: "rbf", C: 1, epsilon: 0.1, n_components: 3, target: "moisture" },
+  } as (typeof nodes)[number]);
+  const saved = await page.request.put("/api/pipelines/current", {
+    headers: { ...auth, "Content-Type": "application/json" },
+    data: { nodes },
+  });
+  expect(saved.status()).toBe(200);
+
+  await page.reload();
+  await page.getByRole("button", { name: "Run pipeline" }).click();
+  await expect(page.locator(".status")).toContainText("Done", { timeout: 60_000 });
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /SVR rbf 3 PC · moisture/ }).dblclick();
+  await expect(page.getByTestId("analysis-header")).toContainText("SVR on moisture 3 components");
+  await expect(page.getByRole("region", { name: "RMSECV" })).toContainText(
+    /fitted at C = 1 · lowest at C = /,
+  );
+  // On PCA scores, so the X model is drawn, as for an SVM.
+  await expect(page.getByRole("region", { name: "Scores" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Predicted vs measured" })).toBeVisible();
+});
+
+test("an OPLS draws its predictive score against its orthogonal one", async ({ page }) => {
+  // #378. On the ridge's split, one predictive and two orthogonal components.
+  await page.goto("/?token=e2e-token");
+  const auth = { Authorization: "Bearer e2e-token" };
+  const pipeline = await (await page.request.get("/api/pipelines/current", { headers: auth })).json();
+  const nodes = pipeline.nodes as { id: string; type: string; inputs: string[] }[];
+  nodes.push({
+    id: "opls",
+    type: "estimator",
+    inputs: ["ridge_split"],
+    spec: { kind: "opls", n_orthogonal: 2, target: "moisture" },
+  } as (typeof nodes)[number]);
+  const saved = await page.request.put("/api/pipelines/current", {
+    headers: { ...auth, "Content-Type": "application/json" },
+    data: { nodes },
+  });
+  expect(saved.status()).toBe(200);
+
+  await page.reload();
+  await page.getByRole("button", { name: "Run pipeline" }).click();
+  await expect(page.locator(".status")).toContainText("Done", { timeout: 60_000 });
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  await outline.getByRole("button", { name: /OPLS 1\+2 · moisture/ }).dblclick();
+  await expect(page.getByTestId("analysis-header")).toContainText("OPLS on moisture 3 components");
+  await expect(page.getByLabel("Scores x axis")).toHaveValue("0");
+  await expect(page.getByLabel("Scores x axis").locator("option")).toHaveText([
+    "t pred",
+    "t orth 1",
+    "t orth 2",
+  ]);
+  await expect(page.getByRole("region", { name: "RMSECV" })).toContainText(
+    /fitted at A orth = 2 · lowest at A orth = \d/,
+  );
+});
+
+/** #371, #372. A column's role was the reader's guess and could not be
+ * changed, and a dataset with no column for a model hid the model. Last, on
+ * whatever version the tests above left the pipeline on: the target is made a
+ * group, so every model is listed disabled with its reason; the link opens the
+ * dataset, the column is made a class and the classifiers are enabled; then it
+ * is a target again. */
+test("a column's role is changed in the dataset view, and the step menu follows", async ({
+  page,
+}) => {
+  await page.goto("/?token=e2e-token");
+  const auth = { headers: { Authorization: "Bearer e2e-token" } };
+  const source = (await (await page.request.get("/api/pipelines/current", auth)).json()).nodes[0];
+  const projects = await (await page.request.get("/api/projects", auth)).json();
+  const [entry] = await (
+    await page.request.get(`/api/projects/${projects[0].project_id}/datasets`, auth)
+  ).json();
+  const on = entry.versions.find(
+    (version: { version_id: string }) => version.version_id === source.version_id,
+  ).version as number;
+  const next = Math.max(...entry.versions.map((version: { version: number }) => version.version)) + 1;
+  const outline = page.getByRole("complementary", { name: "Project outline" });
+  const version = (n: number) => outline.getByRole("button", { name: new RegExp(` v${n} · `) });
+  const list = page.getByLabel("Step", { exact: true });
+  const option = (group: string, kind: string) =>
+    list.locator(`optgroup[label="${group}"] > option`, { hasText: kind });
+
+  await version(on).dblclick();
+  await expect(page.getByLabel("Role of moisture")).toHaveValue("target");
+  await page.getByLabel("Role of moisture").selectOption("group");
+  await expect(version(next)).toBeVisible();
+
+  // No target and no class: every model listed, disabled, with the reason.
+  await page.getByRole("button", { name: "Pipeline", exact: true }).click();
+  await expect(option("Regression", "PLS 5 LV")).toBeDisabled();
+  await expect(option("Classification", "PLS-DA 5 LV")).toBeDisabled();
+  await expect(page.getByText("No target column. Mark one in Dataset view.").first()).toBeVisible();
+  await expect(
+    page.getByText("No class column (two or more values). Mark one in Dataset view.").first(),
+  ).toBeVisible();
+
+  // The link opens the version the pipeline runs on, where the role is set.
+  await page.getByRole("button", { name: "Open Dataset view" }).first().click();
+  await expect(page.getByTestId("role-changes")).toHaveText(`Changed from v${on}: moisture → group`);
+  await page.getByLabel("Role of moisture").selectOption("class");
+  await expect(version(next + 1)).toBeVisible();
+  await page.getByRole("button", { name: "Pipeline", exact: true }).click();
+  await expect(option("Classification", "PLS-DA 5 LV")).toBeEnabled();
+  await expect(option("Regression", "PLS 5 LV")).toBeDisabled();
+
+  await page.getByRole("button", { name: "Open Dataset view" }).first().click();
+  await expect(page.getByTestId("roles-pill")).toHaveText(`1 role changed from v${next}`);
+  await page.getByLabel("Role of moisture").selectOption("target");
+  await version(next + 2).dblclick();
+  await expect(page.getByTestId("role-changes")).toHaveText(
+    `Changed from v${next + 1}: moisture → target`,
+  );
+  await page.getByRole("button", { name: "Pipeline", exact: true }).click();
+  await expect(option("Regression", "PLS 5 LV")).toBeEnabled();
+  await expect(page.getByText("No target column. Mark one in Dataset view.")).toHaveCount(0);
 });
