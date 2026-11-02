@@ -295,8 +295,8 @@
         "issue #383 read against the run before calling it done"
       ],
       "status": "passing",
-      "evidence": "2026-11-02, feature/383_phase-7-exit-run on dev after #405. uv run python -m tests.exit_run_phase7: 'met: docs/phase-7/exit-run.md', 31 checks pass. Claim 1: PLS, Ridge, OPLS, MLR CV predictions and RMSECV against scikit-learn on the served folds within 6e-11; Elastic Net and SVR RMSECV within the solver-stop rtol 1e-3 (1.6e-4, 4.7e-5); every exported snippet within the parity predictions class, worst 2.9e-11 (MLR). Claim 2: every cross-validated confusion and exported assignment exact (PLS-DA, logistic, QDA; OPLS-DA and PLS-DA with turkey excluded). Claim 3: all six facts hold. Version 1.3.0 in pyproject.toml and uv.lock. Issue #383 read against the run: the two departures (grouped, not grouped and stratified; the step menu's half walked by the e2e specs) are recorded in the record.",
-      "notes": "2026-10-30's first run was not met: the Ridge, MLR and SVR exports differed by 2.7e-5, 4.3e-3 and 4.2e-6 % fat under the float32 store. Fixed by #402 (float64 store); that exposed #404 (a model keeping every component failed at its SPE limit), fixed in #405. The script now references in float64 and holds exports to the predictions class. Left in the issue: dev into main, tag v1.3.0."
+      "evidence": "2026-11-02, feature/383_phase-7-exit-run on dev after #405. uv run python -m tests.exit_run_phase7: 'met: docs/phase-7/exit-run.md', 31 checks pass. Claim 1: PLS, Ridge, OPLS, MLR CV predictions and RMSECV against scikit-learn on the served folds within 6e-11; Elastic Net and SVR RMSECV within the solver-stop rtol 1e-3 (1.6e-4, 4.7e-5); every exported snippet within the parity predictions class, worst 2.9e-11 (MLR). Claim 2: every cross-validated confusion and exported assignment exact (PLS-DA, logistic, QDA; OPLS-DA and PLS-DA with turkey excluded). Claim 3: all six facts hold. Version 1.3.0 in pyproject.toml and uv.lock. Issue #383 read against the run: the two departures (grouped, not grouped and stratified; the step menu's half walked by the e2e specs) are recorded in the record. Released 2026-11-02: #406 merged to dev; #407 merged dev into main after #408's e2e fix (#409) and a rerun past a macOS runner that was never acquired; annotated tag v1.3.0 pushed; the Release workflow (run 41501229040) succeeded and published https://github.com/millermuttu/Chemometrics-Workbench/releases/tag/v1.3.0 with ChemometricsWorkbench-linux-x64.tar.gz (73.7 MB), -macos-arm64.dmg (48.3 MB) and -windows-x64.zip (63.5 MB).",
+      "notes": "2026-10-30's first run was not met: the Ridge, MLR and SVR exports differed by 2.7e-5, 4.3e-3 and 4.2e-6 % fat under the float32 store. Fixed by #402 (float64 store); that exposed #404 (a model keeping every component failed at its SPE limit), fixed in #405. The script now references in float64 and holds exports to the predictions class."
     },
     {
       "id": "pin-python",
@@ -363,6 +363,22 @@
       "status": "passing",
       "evidence": "2026-11-02, fix/404_full-rank-spe. executor._spe is the one place the three SPE fields are computed for a PCA (the PCA step, PCR, SVR, the scores classifiers, LDA); when n_components == rank_ it reports zeros, 0.0 and a caveat (pca.md section 8). PCR gains pca_. New test on an exactly rank-2 12 x 6 matrix, parametrised pca/pcr/lda: 3 passed; with src/ stashed: 3 failed. uv run pytest: 1055 passed, exit 0. ruff and mypy (src, tests) clean.",
       "notes": "Found by #383's claim 3 after #402: float32 rounding had lifted that CSV's rank to 6. #402 met the same thing in test data and gave the data an irregular term. SIMCA's refusal of a full-rank class is kept: its rule needs the Q limit. PLS's chi-squared SPE limit on a zero residual is not covered here."
+    },
+    {
+      "id": "low-drop-menu-test",
+      "priority": 20,
+      "area": "frontend",
+      "issue": 408,
+      "title": "e2e: the low-drop menu test scrolls to its last entry",
+      "depends_on": [],
+      "user_visible_behavior": "None; the add-step menu already scrolled (#258). The test now measures what #258 asks: the last entry can be reached and fits the window.",
+      "verification": [
+        "pnpm exec playwright test e2e/empty.spec.ts after pnpm build - passes, and fails with the change stashed",
+        "the e2e jobs on #407 pass on all three platforms"
+      ],
+      "status": "passing",
+      "evidence": "2026-11-02, fix/408_low-drop-menu-test, merged in #409. empty.spec.ts: 10 passed; with the change stashed, 1 failed with Received 905.5, as #407's first e2e run did on ubuntu, windows and macos. #407's rerun: e2e (ubuntu-latest), (windows-latest), (macos-latest) all success.",
+      "notes": "Found on #407: Phase 7's group headings made the menu taller than the room above a low drop. Phase 7's dev pull requests skip e2e (#392), so nothing caught it before the main merge. #407's first run also timed out once in downloads.spec.ts on macOS only; it passed on the rerun."
     },
     {
       "id": "signed-packages",
