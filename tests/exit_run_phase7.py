@@ -27,8 +27,9 @@ and an LDA runs on it. That the step menu shows the classifiers disabled
 before the change and enabled after it is the screen's half, walked by
 `frontend/e2e/walkthrough.spec.ts` (#371, #372).
 
-The store is float32 (`PROPOSAL.md` §13): the references round where the
-store does, after the source and after each fold's centring.
+The store is float64 since #402 (decision 0007), so the references compute in
+float64 throughout and an export is held to the parity predictions class
+(`model-export.md` §5).
 
     uv run python -m tests.exit_run_phase7
     uv run python -m tests.exit_run_phase7 --tighten 1e-9
@@ -62,7 +63,7 @@ from sklearn.svm import SVR
 from chemometrics_workbench.preprocessing import SavitzkyGolayTransformer, SNVTransformer
 from tests import parity
 from tests.exit_run import Served, _ok
-from tests.exit_run_phase5 import Check, _confusion, _f32, _import, _run, _source, _table
+from tests.exit_run_phase5 import Check, _confusion, _import, _run, _source, _table
 from tests.exit_run_phase6 import _folds, _read, _snippet
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -85,8 +86,8 @@ SKLEARN = f"scikit-learn {sklearn.__version__}"
 def _centred_folds(
     x: NDArray[np.float64], folds: list[tuple[NDArray[np.intp], NDArray[np.intp]]]
 ) -> list[NDArray[np.float64]]:
-    """Each fold's array as the store holds it: centred by its training rows, float32."""
-    return [_f32(x - x[train].mean(axis=0)) for train, _ in folds]
+    """Each fold's array as the store holds it: centred by its training rows."""
+    return [x - x[train].mean(axis=0) for train, _ in folds]
 
 
 def _held_out(
@@ -197,18 +198,11 @@ def reference_tecator(served: dict[str, Any]) -> dict[str, Any]:
     rows = TECATOR.read_text(encoding="utf-8").splitlines()
     header, body = rows[0].split(","), [row.split(",") for row in rows[1:]]
     p = served["version"]["n_variables"]
-    raw64 = np.asarray([[float(v) for v in row[1 : 1 + p]] for row in body])
-    raw = _f32(raw64)
+    raw = np.asarray([[float(v) for v in row[1 : 1 + p]] for row in body])
     # The chain through the application's own SNV and derivative, whose
-    # parity with scipy is the parity report's; here the store's float32
-    # rounding after each step has to fall exactly where the application's
-    # does, or an ill-conditioned model (MLR on a selection, Ridge at a small
-    # alpha) amplifies one rounding the other way into a visible difference.
-    snv = _f32(SNVTransformer().fit_transform(raw))
+    # parity with scipy is the parity report's.
     derivative = SavitzkyGolayTransformer(SG_WINDOW, SG_ORDER, SG_DERIV)
-    spectra = _f32(derivative.fit_transform(snv))
-    # The same chain in float64 end to end, for the export (compare_tecator).
-    chain64 = derivative.fit_transform(SNVTransformer().fit_transform(raw64))
+    spectra = derivative.fit_transform(SNVTransformer().fit_transform(raw))
     y = np.asarray([float(row[header.index(TARGET)]) for row in body])
     folds = _folds(served["experiment"])
     arrays = _centred_folds(spectra, folds)
@@ -238,12 +232,12 @@ def reference_tecator(served: dict[str, Any]) -> dict[str, Any]:
     # Each final model refitted in float64 on every row, for the export:
     # the snippet runs the chain in float64 from the raw spectra.
     final64 = {
-        "pls": _pls(chain64, y, chain64),
-        "ridge": ridge(chain64, y, chain64),
-        "enet": enet(chain64, y, chain64),
-        "svr": svr(chain64, y, chain64),
-        "opls": _pls(chain64, y, chain64, 1 + N_ORTHOGONAL),
-        "mlr": mlr(chain64, y, chain64),
+        "pls": _pls(spectra, y, spectra),
+        "ridge": ridge(spectra, y, spectra),
+        "enet": enet(spectra, y, spectra),
+        "svr": svr(spectra, y, spectra),
+        "opls": _pls(spectra, y, spectra, 1 + N_ORTHOGONAL),
+        "mlr": mlr(spectra, y, spectra),
     }
     return {
         "final64": final64,
@@ -327,7 +321,7 @@ def compare_tecator(served: dict[str, Any], ref: dict[str, Any], tighten: float)
             Check(
                 1,
                 f"{node}: exported snippet",
-                "stored",
+                "predictions",
                 snippet,
                 predicted,
                 "the application's predictions",
@@ -338,8 +332,8 @@ def compare_tecator(served: dict[str, Any], ref: dict[str, Any], tighten: float)
 
 
 def store_gap(served: NDArray[np.float64], float64: NDArray[np.float64]) -> float:
-    """How far the served calibration predictions sit from the float64 refit:
-    the float32 store's rounding carried through the model, not a defect."""
+    """How far the served calibration predictions sit from a scikit-learn refit
+    on every row: the application against its reference, not the export."""
     return float(np.max(np.abs(served - float64)))
 
 
@@ -455,7 +449,7 @@ def drive_meat(client: httpx.Client) -> dict[str, Any]:
 
 def reference_meat(served: dict[str, Any]) -> dict[str, Any]:
     x, columns = _read(MEAT, ["spectrum", CLASS_COLUMN, "supplier", GROUP_COLUMN, "run"])
-    spectra = _f32(x)
+    spectra = x
     labels = np.asarray(columns["meat"])
     classes = served["plsda"]["classification"]["classes"]
     codes = np.asarray([classes.index(label) for label in labels])
@@ -710,7 +704,7 @@ def record(
         f"{env['python_version']}, numpy {env['packages']['numpy']}, scipy "
         f"{env['packages']['scipy']}, on {env['platform']}.",
         f"- **Reference:** {SKLEARN}, SciPy {scipy.__version__}, NumPy {np.__version__}, on the "
-        "experiments' own resolved folds, rounded to float32 where the store rounds.",
+        "experiments' own resolved folds, in float64 as the store holds them (#402).",
         "- **Data:** `docs/examples/tecator.csv` with its permission note; "
         "`docs/examples/meat-raw.csv`, the Quadram Institute's fresh-meat FTIR set (CC0-1.0) with "
         "both runs of each sample; a twelve-row CSV written by the script.",
@@ -730,8 +724,8 @@ def record(
         *regressions,
         "",
         "The reference reaches the models through the application's own SNV and derivative "
-        "(their parity with scipy is the parity report's), rounded to float32 where the store "
-        "rounds, so PLS, Ridge, OPLS and MLR are compared sample by sample in the parity "
+        "(their parity with scipy is the parity report's), in float64 as the store holds them, "
+        "so PLS, Ridge, OPLS and MLR are compared sample by sample in the parity "
         "predictions class. Elastic Net and SVR stop at their solvers' default tolerances, so "
         "their RMSECV "
         f"is compared at a solver-stop tolerance (rtol {SOLVER_STOP.rtol:g}): "
@@ -739,15 +733,16 @@ def record(
         "",
         *_table([check for check in checks if check.claim == 1]),
         "",
-        "**The exports, and the store's own effect.** The application fits and predicts "
-        "through the float32 store; an exported snippet runs the chain in float64 from the raw "
-        "spectra. How far the served calibration predictions sit from a float64 refit of the "
-        "same recipe - largest absolute difference, in % fat - is that rounding carried through "
-        "each model, largest where the model is ill-conditioned. Each snippet is held to its "
-        "model's figure: an export that differs from the application by no more reproduces it "
-        "as closely as the application reproduces its own recipe.",
+        "**The exports.** Each exported snippet runs the chain in float64 from the raw "
+        "spectra and is held to the application's predictions in the parity predictions "
+        "class (`model-export.md` §5). The store is float64 since #402 (decision 0007); "
+        "under the float32 store this run first failed the Ridge, MLR and SVR exports, by "
+        "2.7e-5, 4.3e-3 and 4.2e-6 % fat. For reference, how far the served calibration "
+        "predictions sit from a scikit-learn refit of the same recipe on every row "
+        "(largest absolute difference, % fat; Elastic Net and SVR stop at their solvers' "
+        "tolerances):",
         "",
-        "| Model | Served − float64 refit |",
+        "| Model | Served − reference refit |",
         "| --- | --- |",
         *store_effect(tecator, tecator_ref),
         "",
