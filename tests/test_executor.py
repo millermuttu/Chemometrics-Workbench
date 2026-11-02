@@ -67,6 +67,7 @@ from chemometrics_workbench.models import (
     SVMSpec,
     SVRSpec,
     TrainTestSplit,
+    VariableAxis,
 )
 from chemometrics_workbench.preprocessing import SNVTransformer
 from chemometrics_workbench.project import (
@@ -2294,3 +2295,45 @@ def test_a_permutation_test_without_a_split_is_refused_by_name(
     execute(directory, pipeline, version)
     with pytest.raises(ExecutorError, match="needs a K-fold or leave-one-out split"):
         permutation_test_for(directory, pipeline, version, "pls", 5)
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        PCASpec(n_components=2),
+        PCRSpec(n_components=2, target="y"),
+        LDASpec(n_components=2, class_column="variety"),
+    ],
+    ids=["pca", "pcr", "lda"],
+)
+def test_a_model_keeping_every_component_reports_zero_spe_and_no_limit(
+    tmp_path: Path, spec: Any
+) -> None:
+    """#404, pca.md section 8: on an exactly rank-2 matrix, two components leave
+    no residual. The run reports SPE as zero with a caveat instead of failing
+    at the limit the kernel refuses."""
+    rows, columns = np.arange(12.0)[:, None], np.arange(6.0)[None, :]
+    values = (rows % 2) * 0.5 + 0.013 * rows + columns * (0.1 + 0.002 * rows)
+    directory = tmp_path / "project"
+    create_project(directory, "full rank")
+    array_path, _ = write_array(directory, values)
+    version = DatasetVersion(
+        dataset_id=uuid4(),
+        version=1,
+        content_hash="sha256:" + "0" * 64,
+        n_samples=12,
+        n_variables=6,
+        axis=VariableAxis(kind="index", values=[float(c) for c in range(6)]),
+        sample_ids=[f"s{i}" for i in range(12)],
+        targets={"y": [float(10 + i) for i in range(12)]},
+        metadata_columns={"variety": [str(i % 2 + 1) for i in range(12)]},
+        array_path=array_path,
+    )
+    assert PCA(2).fit(values - values.mean(axis=0)).rank_ == 2
+    pipeline = _pipeline(
+        version.version_id, EstimatorNode(id="model", inputs=("source",), spec=spec)
+    )
+    result = execute(directory, pipeline, version).results["model"]
+    assert result.spe == [0.0] * 12
+    assert result.spe_limit == 0.0
+    assert result.spe_limit_caveat is not None and "no SPE limit" in result.spe_limit_caveat

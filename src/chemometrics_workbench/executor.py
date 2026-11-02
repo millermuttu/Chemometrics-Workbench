@@ -1450,9 +1450,7 @@ def _fitted(
         cumulative_explained_variance=_values(model.cumulative_explained_variance()),
         hotelling_t2=_values(model.hotelling_t2()),
         hotelling_t2_limit=float(model.hotelling_t2_limit(ALPHA)),
-        spe=_values(model.spe(calibration)),
-        spe_limit=float(model.spe_limit(ALPHA)),
-        spe_limit_caveat=model.spe_limit_caveat(),
+        **_spe(model, calibration),
         held_out=[int(row) for row in held_out],
         # §9: the held-out rows are pushed through the training fold's
         # parameters, exactly as new samples are at prediction time. They are
@@ -1655,9 +1653,14 @@ def _fit_regression(
         y_explained_variance_ratio=_values(model.explained_variance_ratio("y")),
         hotelling_t2=_values(model.hotelling_t2()),
         hotelling_t2_limit=float(model.hotelling_t2_limit(ALPHA)),
-        spe=_values(model.spe(train_x - x_mean)),
-        spe_limit=float(model.spe_limit(ALPHA)),
-        spe_limit_caveat=model.spe_limit_caveat() if isinstance(model, PCR) else None,
+        **(
+            _spe(model.pca_, train_x - x_mean)
+            if isinstance(model, PCR)
+            else {
+                "spe": _values(model.spe(train_x - x_mean)),
+                "spe_limit": float(model.spe_limit(ALPHA)),
+            }
+        ),
         target=target,
         method=kind,
         observed=_values(train_y),
@@ -1888,9 +1891,7 @@ def _svr(
         cumulative_explained_variance=_values(pca.cumulative_explained_variance()),
         hotelling_t2=_values(pca.hotelling_t2(centred)),
         hotelling_t2_limit=float(pca.hotelling_t2_limit(ALPHA)),
-        spe=_values(pca.spe(centred)),
-        spe_limit=float(pca.spe_limit(ALPHA)),
-        spe_limit_caveat=pca.spe_limit_caveat(),
+        **_spe(pca, centred),
         target=spec.target,
         method="svr",
         observed=_values(train_y),
@@ -2724,9 +2725,7 @@ def _scores_classifier(
         cumulative_explained_variance=_values(pca.cumulative_explained_variance()),
         hotelling_t2=_values(pca.hotelling_t2(centred)),
         hotelling_t2_limit=float(pca.hotelling_t2_limit(ALPHA)),
-        spe=_values(pca.spe(centred)),
-        spe_limit=float(pca.spe_limit(ALPHA)),
-        spe_limit_caveat=pca.spe_limit_caveat(),
+        **_spe(pca, centred),
         target=class_column,
         method=kind,
         x_mean=_values(x_mean),
@@ -2807,9 +2806,7 @@ def _lda(
         cumulative_explained_variance=_values(pca.cumulative_explained_variance()),
         hotelling_t2=_values(pca.hotelling_t2(centred)),
         hotelling_t2_limit=float(pca.hotelling_t2_limit(ALPHA)),
-        spe=_values(pca.spe(centred)),
-        spe_limit=float(pca.spe_limit(ALPHA)),
-        spe_limit_caveat=pca.spe_limit_caveat(),
+        **_spe(pca, centred),
         target=spec.class_column,
         method="lda",
         x_mean=_values(x_mean),
@@ -2929,6 +2926,30 @@ def _simca(
             "sets": sets,
         },
     )
+
+
+def _spe(pca: PCA, calibration: NDArray[np.float64]) -> dict[str, Any]:
+    """A PCA's `spe`, `spe_limit` and `spe_limit_caveat` on its calibration rows.
+
+    `pca.md` section 8's degenerate case (#404): a model that keeps every
+    component has no residual, so SPE is exactly zero and no limit exists. The
+    kernel refuses the limit; a run reports the zeros, carries 0.0 in the
+    required field as a model without an X model does, and says why.
+    """
+    if pca.n_components == pca.rank_:
+        return {
+            "spe": [0.0] * int(np.asarray(calibration).shape[0]),
+            "spe_limit": 0.0,
+            "spe_limit_caveat": (
+                f"This model keeps all {pca.rank_} components of a rank-{pca.rank_} matrix, so "
+                "every residual is zero and no SPE limit exists (pca.md section 8)."
+            ),
+        }
+    return {
+        "spe": _values(pca.spe(calibration)),
+        "spe_limit": float(pca.spe_limit(ALPHA)),
+        "spe_limit_caveat": pca.spe_limit_caveat(),
+    }
 
 
 def _values(array: object) -> list[float]:
