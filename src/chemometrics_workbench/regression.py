@@ -792,6 +792,11 @@ class PCR:
     def hotelling_t2_limit(self, alpha: float = 0.05, samples: LimitFor = "calibration") -> float:
         return self._pca.hotelling_t2_limit(alpha, samples)
 
+    @property
+    def pca_(self) -> PCA:
+        """The decomposition underneath, as SVR and the scores classifiers name theirs."""
+        return self._pca
+
     def spe(self, X: object) -> NDArray[np.float64]:
         return self._pca.spe(X)
 
