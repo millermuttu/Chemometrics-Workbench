@@ -294,9 +294,9 @@
         "uv run python -m tests.exit_run_phase7 - met, docs/phase-7/exit-run.md written",
         "issue #383 read against the run before calling it done"
       ],
-      "status": "not_started",
-      "evidence": "",
-      "notes": ""
+      "status": "passing",
+      "evidence": "2026-11-02, feature/383_phase-7-exit-run on dev after #405. uv run python -m tests.exit_run_phase7: 'met: docs/phase-7/exit-run.md', 31 checks pass. Claim 1: PLS, Ridge, OPLS, MLR CV predictions and RMSECV against scikit-learn on the served folds within 6e-11; Elastic Net and SVR RMSECV within the solver-stop rtol 1e-3 (1.6e-4, 4.7e-5); every exported snippet within the parity predictions class, worst 2.9e-11 (MLR). Claim 2: every cross-validated confusion and exported assignment exact (PLS-DA, logistic, QDA; OPLS-DA and PLS-DA with turkey excluded). Claim 3: all six facts hold. Version 1.3.0 in pyproject.toml and uv.lock. Issue #383 read against the run: the two departures (grouped, not grouped and stratified; the step menu's half walked by the e2e specs) are recorded in the record.",
+      "notes": "2026-10-30's first run was not met: the Ridge, MLR and SVR exports differed by 2.7e-5, 4.3e-3 and 4.2e-6 % fat under the float32 store. Fixed by #402 (float64 store); that exposed #404 (a model keeping every component failed at its SPE limit), fixed in #405. The script now references in float64 and holds exports to the predictions class. Left in the issue: dev into main, tag v1.3.0."
     },
     {
       "id": "pin-python",
